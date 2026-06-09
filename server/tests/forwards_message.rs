@@ -37,6 +37,38 @@ async fn connect(
 }
 
 #[tokio::test]
+async fn server_overrides_from_with_authenticated_username() {
+    let addr = spawn_server().await;
+    let mut court = connect(addr, "court").await;
+    let mut kaitlyn = connect(addr, "kaitlyn").await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Court is connected as "court" but spoofs from=eve in the payload.
+    let frame = serde_json::json!({
+        "type": "msg",
+        "id": "8c4e1c8a-7e7e-4b7a-9f23-1a0a17070707",
+        "from": "eve",
+        "to": "kaitlyn",
+        "body": "fake",
+        "ts": "2026-06-09T17:00:00Z"
+    });
+    court.send(Message::Text(frame.to_string())).await.unwrap();
+
+    let received = tokio::time::timeout(Duration::from_secs(2), kaitlyn.next())
+        .await
+        .expect("kaitlyn should receive a frame within 2s")
+        .expect("stream closed")
+        .expect("recv error");
+    let text = match received {
+        Message::Text(t) => t,
+        other => panic!("expected text frame, got {other:?}"),
+    };
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    // Server must have overridden `from` to the header value.
+    assert_eq!(value["from"], "court");
+}
+
+#[tokio::test]
 async fn forwards_message_to_recipient_when_both_connected() {
     let addr = spawn_server().await;
     let mut court = connect(addr, "court").await;

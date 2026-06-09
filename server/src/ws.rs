@@ -67,7 +67,9 @@ async fn handle_socket(socket: WebSocket, username: String, state: AppState) {
     while let Some(Ok(msg)) = stream.next().await {
         if let Message::Text(text) = msg {
             match serde_json::from_str::<ClientFrame>(&text) {
-                Ok(ClientFrame::Msg(payload)) => {
+                Ok(ClientFrame::Msg(mut payload)) => {
+                    // x-llove-user header is Day-1 auth; trust it, not the client-supplied `from`.
+                    payload.from = username.clone();
                     let to = payload.to.clone();
                     let delivered =
                         state.routing.deliver(&to, ServerFrame::Msg(payload)).await;
