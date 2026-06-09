@@ -1,3 +1,5 @@
+pub mod config;
+
 pub fn placeholder() -> &'static str {
     "littlelove-api"
 }
