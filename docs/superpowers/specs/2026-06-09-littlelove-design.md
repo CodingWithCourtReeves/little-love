@@ -89,7 +89,7 @@ LittleLove makes one promise and one disclosure.
 - `flutter_rust_bridge` 2.x
 - `axum` 0.7+, `tokio` 1.38+, `sqlx` 0.7+
 - Postgres 16
-- S3-compatible blob storage (Backblaze B2 or Railway-managed equivalent)
+- **Cloudflare R2** for attachment ciphertext (S3-compatible API; zero egress fees — important for a messenger where every recipient downloads every attachment)
 - SQLite + SQLCipher on clients
 - `tokio-tungstenite` for WebSocket on both sides
 
@@ -203,7 +203,7 @@ A newly paired device sees messages **from the moment of pairing forward**. Exis
 
 - The Flutter UI hands the Rust core a file path and content type.
 - Core generates a fresh symmetric key (AES-256-GCM) and a nonce.
-- Core encrypts the file and uploads ciphertext to the blob store via a server-issued signed PUT URL.
+- Core encrypts the file and uploads ciphertext to Cloudflare R2 via a server-issued signed PUT URL.
 - Core posts a normal MLS application message into the room with a small attachment reference:
   ```
   { kind: "attachment", blob_url, key, nonce, content_type, size, filename }
@@ -375,13 +375,36 @@ The server **cannot see**: message plaintext, attachment contents, attachment de
 
 The threat model is **honest-but-curious server, plus assume eventual compromise**. E2EE limits the blast radius of a compromised server to the metadata above. A future audit story should make this explicit in the published privacy policy.
 
-### 10.5 Deployment
+### 10.5 Infrastructure & Deployment
 
-- Hosted on Railway (matches Court's saved deployment pattern).
-- Two GitHub Actions workflows per Court's saved feedback:
-  1. **release**: build Rust binary, push container image to `ghcr.io`, tag the commit.
+**Cloud accounts and named resources** (Phase 1 starts with these; provisioned once and reused):
+
+| Resource | Provider | Purpose | Day-1 needs it? |
+|---|---|---|---|
+| `littlelove-api` service | Railway | Rust + Axum server | Yes |
+| `littlelove` Postgres database | Railway managed Postgres | Identity, prekeys, ciphertext metadata | No (Day-1 is in-memory) |
+| `littlelove-attachments` bucket | Cloudflare R2 | Encrypted attachment ciphertext blobs | No (Day-1 has no attachments) |
+| `littlelove.dev` zone | Cloudflare DNS | Authoritative DNS for the domain | Yes |
+
+**Domain layout:**
+
+- `api.littlelove.dev` → CNAME to the Railway service. Carries `wss://api.littlelove.dev/v1/connect` (WSS) and `https://api.littlelove.dev/v1/...` (REST). Used by clients.
+- `littlelove.dev` (apex) → reserved for an eventual marketing/landing site; nothing on it Phase 1.
+- **No Cloudflare proxy (orange cloud) in front of Railway** for Phase 1 — direct CNAME, Railway terminates TLS. Adding the proxy later for DDoS/CDN is reversible.
+
+**Deployment workflow** (per Court's saved feedback to split release and deploy):
+
+- Two GitHub Actions workflows:
+  1. **release**: build Rust binary, push container image to `ghcr.io/codingwithcourtreeves/littlelove-api:<tag>`, tag the commit.
   2. **deploy**: invoke Railway CLI to deploy a tagged image.
 - Required PR/push checks: build, lint (`cargo clippy -D warnings`), tests for `core`, `server`, `bot-host`, and `app`.
+
+**Cost posture (Phase 1, beta usage between two users):**
+
+- Railway: ~$5/mo developer plan + Postgres usage (negligible at beta scale).
+- Cloudflare R2: free tier covers 10GB storage + unlimited egress; comfortable for the beta couple.
+- Cloudflare DNS: free.
+- Total Phase 1 carry: ~$5/mo until real users join.
 
 ## 11. Desktop Client (`app/`)
 

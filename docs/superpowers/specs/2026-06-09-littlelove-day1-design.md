@@ -110,7 +110,12 @@ The server cannot read `body` in 1b. The `from` / `to` / `ts` fields stay in cle
 - Behavior: on receiving a `msg` frame from `court`, look up the connection for `kaitlyn` and forward verbatim. If she isn't connected, drop the message (Day 1 has no offline queue).
 - No persistence. No database. The whole server is ~150 lines.
 
-Deploy target: **localhost first**. Once Day-1a works locally, we deploy the same binary to Railway (with a `dockerfile` and the saved release/deploy workflow split) and point both clients at the Railway URL.
+Deploy target: **localhost first**. Once Day-1a works locally, we deploy the same binary to Railway (with a `Dockerfile` and the saved release/deploy workflow split) under the existing project domain:
+
+- `wss://api.littlelove.dev/ws` (CNAME `api.littlelove.dev` → Railway service)
+- `littlelove.dev` apex is reserved for a future marketing page; not used Day 1.
+
+Day-1 infrastructure overlap with Phase 1: shares the same Railway project and `api.littlelove.dev` subdomain. The Day-1 server is replaced by the Phase 1 Axum server when MLS lands; the URL and Railway service name stay the same.
 
 ## 8. Client (`app/`)
 
