@@ -314,7 +314,9 @@ class _ConversationPageState extends State<ConversationPage> {
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Row(
         children: [
-          Expanded(child: Container(height: 1, color: TwilightColors.borderSoft)),
+          Expanded(
+            child: Container(height: 1, color: TwilightColors.borderSoft),
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Text(
@@ -326,7 +328,9 @@ class _ConversationPageState extends State<ConversationPage> {
               ),
             ),
           ),
-          Expanded(child: Container(height: 1, color: TwilightColors.borderSoft)),
+          Expanded(
+            child: Container(height: 1, color: TwilightColors.borderSoft),
+          ),
         ],
       ),
     );

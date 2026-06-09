@@ -21,6 +21,12 @@ Cargo.lock
 
 # Superpowers brainstorming session content
 .superpowers/
+
+# Flutter / Dart per-user tool state (created when HOME is rerooted into the repo,
+# e.g. demo.sh sandboxing kaitlyn's identity). Never commit these.
+app/.config/
+app/.flutter
+app/Library/
 .dev.demo.key
 /.dev/
 
