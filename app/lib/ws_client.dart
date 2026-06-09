@@ -24,10 +24,12 @@ class WsClient {
   WsClient({
     required this.url,
     required this.username,
+    this.helloSince,
   });
 
   final String url;
   final String username;
+  final DateTime? helloSince;
 
   final _backoff = LinearBackoff();
   final _incoming = StreamController<Msg>.broadcast();
@@ -43,6 +45,11 @@ class WsClient {
           Uri.parse(url),
           headers: {'x-llove-user': username},
         );
+        // Send Hello immediately after upgrade so the server can replay history.
+        final since = helloSince ??
+            DateTime.now().toUtc().subtract(const Duration(days: 30));
+        _channel!.sink.add(jsonEncode(Hello(since: since.toUtc()).toJson()));
+
         _backoff.reset();
         await for (final raw in _channel!.stream) {
           if (raw is! String) continue;
