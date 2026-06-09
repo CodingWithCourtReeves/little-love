@@ -1,0 +1,27 @@
+# Rust
+/target/
+Cargo.lock
+
+# Flutter
+/app/.dart_tool/
+/app/.flutter-plugins
+/app/.flutter-plugins-dependencies
+/app/.packages
+/app/.pub-cache/
+/app/.pub/
+/app/build/
+/app/macos/Pods/
+/app/macos/Podfile.lock
+/app/windows/x64/
+
+# Dev scripts (per-worktree, generated)
+.dev.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.iml
