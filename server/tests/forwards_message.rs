@@ -32,7 +32,7 @@ async fn connect(
     addr: SocketAddr,
     user: &str,
 ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
-    let url = format!("ws://{}/ws", addr);
+    let url = format!("ws://{addr}/ws");
     let mut req = url.into_client_request().unwrap();
     req.headers_mut().insert(USER_HEADER, user.parse().unwrap());
     let (sock, _resp) = connect_async(req).await.unwrap();
