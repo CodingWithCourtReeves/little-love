@@ -95,7 +95,7 @@ pub async fn insert_account(store: &Store, username: &str, vk: &VerifyingKey) {
 
 /// Open a WS connection and complete the Challenge → Identify → Authenticated handshake.
 pub async fn handshake_as(addr: SocketAddr, username: &str, sk: &SigningKey) -> Ws {
-    let url = format!("ws://{}/ws", addr);
+    let url = format!("ws://{addr}/ws");
     let (mut sock, _) = connect_async(url).await.unwrap();
 
     let challenge_text = match sock.next().await.unwrap().unwrap() {
