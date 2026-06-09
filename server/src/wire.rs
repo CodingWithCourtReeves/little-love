@@ -7,6 +7,12 @@ use uuid::Uuid;
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ClientFrame {
     Msg(MsgPayload),
+    Hello(HelloPayload),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HelloPayload {
+    pub since: chrono::DateTime<chrono::Utc>,
 }
 
 /// Outbound frames the server can emit to a client.
@@ -42,6 +48,7 @@ mod tests {
                 assert_eq!(m.body, "hey");
                 assert!(!m.replayed);
             }
+            _ => panic!("expected Msg"),
         }
     }
 
@@ -58,6 +65,20 @@ mod tests {
         let out = serde_json::to_string(&ServerFrame::Msg(m)).unwrap();
         assert!(!out.contains("replayed"));
         assert!(out.contains("\"type\":\"msg\""));
+    }
+
+    #[test]
+    fn parses_a_hello_frame() {
+        let raw = r#"{"type":"hello","since":"2026-06-08T00:00:00Z"}"#;
+        let frame: ClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            ClientFrame::Hello(h) => {
+                let expected: chrono::DateTime<chrono::Utc> =
+                    "2026-06-08T00:00:00Z".parse().unwrap();
+                assert_eq!(h.since, expected);
+            }
+            _ => panic!("expected Hello"),
+        }
     }
 
     #[test]

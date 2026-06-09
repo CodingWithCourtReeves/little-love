@@ -42,3 +42,13 @@ class Msg {
     return m;
   }
 }
+
+class Hello {
+  Hello({required this.since});
+  final DateTime since;
+
+  Map<String, Object?> toJson() => {
+        'type': 'hello',
+        'since': since.toUtc().toIso8601String(),
+      };
+}

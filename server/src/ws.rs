@@ -77,6 +77,9 @@ async fn handle_socket(socket: WebSocket, username: String, state: AppState) {
                         info!(%to, "recipient offline; dropping (Day-1a)");
                     }
                 }
+                Ok(ClientFrame::Hello(_)) => {
+                    // Store/replay wiring lands in Task 1b.4; ignore for now.
+                }
                 Err(e) => warn!("invalid frame from {username}: {e}"),
             }
         }

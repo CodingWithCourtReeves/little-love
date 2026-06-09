@@ -32,6 +32,13 @@ void main() {
     expect(m.replayed, true);
   });
 
+  test('Hello.toJson produces the expected envelope', () {
+    final h = Hello(since: DateTime.utc(2026, 6, 8));
+    final j = h.toJson();
+    expect(j['type'], 'hello');
+    expect(j['since'], '2026-06-08T00:00:00.000Z');
+  });
+
   test('Msg.toJson elides replayed when false', () {
     final m = Msg(
       id: '7c4e1c8a-7e7e-4b7a-9f23-1a0a17070707',
