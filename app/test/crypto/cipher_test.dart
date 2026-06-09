@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:littlelove/wire/crypto.dart';
+import 'package:littlelove/crypto/cipher.dart';
 
 void main() {
   // Deterministic 32-byte key for tests.
