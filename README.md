@@ -6,13 +6,18 @@ A private messenger for couples. End-to-end encrypted, hosted by a small couple.
 
 ## Local dev
 
-Requires: Docker Desktop (or Docker + Compose), Rust 1.85+, Flutter 3.22+ with macOS or Windows desktop enabled.
+Requires: Docker Desktop (or Docker + Compose), Rust 1.88+, Flutter 3.44+ with macOS or Windows desktop enabled.
+
+To try the app end-to-end with both Court and Kaitlyn on one Mac:
 
 ```sh
-./scripts/dev-up.sh    # brings up api + postgres in the current worktree's namespace
-cd app && flutter run -d macos    # or -d windows
+./scripts/dev-up.sh            # api + postgres, in this worktree's namespace
+./scripts/demo.sh court        # window 1: real ~/.littlelove/
+./scripts/demo.sh kaitlyn      # window 2: fake $HOME under .dev/kaitlyn-home/
 ./scripts/dev-down.sh
 ```
+
+`demo.sh` generates a 32-byte shared key on first run (`.dev.demo.key`, gitignored), reuses it on subsequent runs, writes a matching `config.toml` for the named user, and execs `flutter run -d macos` under the right `HOME`.
 
 The dev scripts are **worktree-aware**: each `git worktree` you check out runs on its own ports and Postgres volume, derived deterministically from the worktree directory name. Two worktrees can run simultaneously without conflict.
 

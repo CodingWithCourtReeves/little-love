@@ -18,6 +18,8 @@ Cargo.lock
 
 # Dev scripts (per-worktree, generated)
 .dev.env
+.dev.demo.key
+/.dev/
 
 # OS
 .DS_Store
