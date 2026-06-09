@@ -8,9 +8,13 @@ services:
     environment:
       RUST_LOG: ${RUST_LOG:-info}
       PORT: 7707
-      DATABASE_URL: ${DATABASE_URL:-}
+      # The api container talks to postgres over the compose network, not via
+      # the host port mapping. Host tools (cargo tests) keep using
+      # ${DATABASE_URL} from .dev.env, which still points at localhost:${POSTGRES_PORT}.
+      DATABASE_URL: postgres://littlelove:dev@postgres:5432/littlelove
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   postgres:
     image: postgres:16-alpine
