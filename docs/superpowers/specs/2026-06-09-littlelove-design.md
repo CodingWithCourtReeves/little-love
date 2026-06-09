@@ -399,13 +399,84 @@ The threat model is **honest-but-curious server, plus assume eventual compromise
 - **Conversation view** — text + attachment messages, send composer, bot presence indicator.
 - **Linked devices** — list, pair (QR scanner), revoke.
 - **Bot hosts** — list, pair host, manage character card library, add cards to rooms.
-- **Settings** — basic preferences, account info, "delete account" (irreversible).
+- **Settings** — basic preferences, account info, **theme picker** (Hearth default + Linen / Vellum / Twilight presets — see §11.4), "delete account" (irreversible).
 
 ### 11.3 Cross-Rust threading
 
 - `core` exposes `tokio`-based async APIs.
 - `flutter_rust_bridge` handles the async FFI boundary.
 - UI never blocks on crypto or IO; long operations show progress in the UI.
+
+### 11.4 Design tokens, themes, and palette switcher
+
+LittleLove uses semantic design tokens, not raw hex codes, so theming is mechanically possible from day one. The token vocabulary:
+
+| Token | Meaning |
+|---|---|
+| `bg-canvas` | Page background |
+| `bg-surface` | Raised surfaces (sidebar, cards, message bubbles) |
+| `bg-surface-alt` | Secondary surfaces (composer, hover states) |
+| `text-primary` | Body text |
+| `text-muted` | Metadata, timestamps |
+| `accent-user` | Your own bubble + sigil + send button |
+| `accent-partner` | Your partner's bubble (subtle differentiation) |
+| `accent-familiar` | AI familiar bubble + sigil + "AI" pill + left-edge rule |
+| `border-soft` | Dividers, card outlines |
+| `rule-strong` | The bold left-edge accent on familiar messages (often = `accent-familiar`) |
+
+#### Themes shipped in Phase 1
+
+Four presets, all WCAG-AA-passing for body text in both light and dark:
+
+- **Hearth** (default) — Cozy fireside warmth. Brick-red user accent, warm ochre familiar.
+- **Linen** — Soft cream with a coral-rose / forest-teal accent palette. Bright, friendly.
+- **Vellum** — Paper-letter aesthetic. Dusty slate-blue user, old-gold familiar. Quieter and more literary.
+- **Twilight** — Dark-first identity. Pale dusk-rose user, sage familiar. Evening intimacy.
+
+#### Hearth — locked hex codes (default theme)
+
+**Light variant**
+
+| Token | Hex |
+|---|---|
+| `bg-canvas` | `#FBEEDD` |
+| `bg-surface` | `#F5E2C9` |
+| `bg-surface-alt` | `#EFD6B3` |
+| `text-primary` | `#2C1E16` |
+| `text-muted` | `#8A6E58` |
+| `accent-user` | `#B23F2E` |
+| `accent-partner` | `#C97E5A` |
+| `accent-familiar` | `#9A6B1E` |
+| `border-soft` | `#E3CBA6` |
+| `rule-strong` | `#9A6B1E` |
+
+**Dark variant**
+
+| Token | Hex |
+|---|---|
+| `bg-canvas` | `#1E1410` |
+| `bg-surface` | `#2A1C15` |
+| `bg-surface-alt` | `#33221A` |
+| `text-primary` | `#F2E2CB` |
+| `text-muted` | `#B0917A` |
+| `accent-user` | `#E27966` |
+| `accent-partner` | `#D89473` |
+| `accent-familiar` | `#E0B25A` |
+| `border-soft` | `#43301F` |
+| `rule-strong` | `#E0B25A` |
+
+Linen / Vellum / Twilight token tables live in `docs/mocks/palette-gallery.html` — the gallery is the source of truth for non-default themes until those values are extracted into a `core` constants module at implementation time.
+
+#### Application semantics
+
+- **Per-user setting, not per-couple.** Each partner picks their own theme; it does not sync between you. (Synced themes are an explicit non-goal for Phase 1 — it would force matching aesthetics on two people whose tastes differ by default.)
+- **Symmetric rendering.** Your own messages render with *your* `accent-user`, regardless of which theme your partner uses. Their messages render with *your* `accent-partner`. The familiar renders with *your* `accent-familiar`. The point: everyone always sees their own bubbles in their own brand color.
+- **Per-device, not per-account.** Theme is stored in the local config protected by the OS keystore, alongside the SQLCipher DB key. Each device of yours can have its own theme.
+- **Light/dark follows OS** by default, with a manual override in Settings.
+
+#### Flutter implementation note
+
+A `LittleLoveTheme` Dart class exposes the same token vocabulary, with one `ThemeData` per (preset × light/dark) combination — 8 total. Widgets read tokens via `Theme.of(context).extension<LittleLoveColors>()!.accentUser`, never inline hex.
 
 ## 12. Bot Host (`bot-host/`)
 
@@ -525,6 +596,7 @@ The following are deliberately deferred but the Phase 1 architecture is built so
 - **Push notifications** using a wake-and-fetch model (push payload contains a wake token only; ciphertext is fetched over WSS after wake).
 - **SillyTavern PNG character-card import** — purely additive.
 - **App-level PIN** in addition to OS unlock.
+- **Custom user theme** — let each couple pick their own accent colors instead of choosing a preset. Falls out of the token system for free.
 - **Disappearing messages, read receipts, typing indicators.**
 - **Multiple bots per room.**
 

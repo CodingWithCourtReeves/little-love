@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="hearth" data-theme-mode="light">
 <head>
 <meta charset="utf-8" />
 <title>LittleLove — Bot Hosts &amp; Character Cards</title>
@@ -7,30 +7,218 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+  /* ═══════════════ Theme tokens (§11.4) ═══════════════ */
+  /* Same token vocabulary as the conversation mocks:
+     bg-canvas, bg-surface, bg-surface-alt, text-primary, text-muted,
+     accent-user, accent-partner, accent-familiar, border-soft, rule-strong,
+     plus aux tokens (bubble-*, accent-familiar-soft/on-soft, page-bg, shadow).
+  */
+
+  /* ── Hearth · Light (default) ── */
+  :root[data-theme="hearth"][data-theme-mode="light"] {
+    --bg-canvas: #FBEEDD;
+    --bg-surface: #F5E2C9;
+    --bg-surface-alt: #EFD6B3;
+    --text-primary: #2C1E16;
+    --text-muted: #8A6E58;
+    --accent-user: #B23F2E;
+    --accent-partner: #C97E5A;
+    --accent-familiar: #9A6B1E;
+    --border-soft: #E3CBA6;
+    --rule-strong: #9A6B1E;
+    --bubble-user-bg: #F0C7BC;
+    --bubble-user-text: #3F1A12;
+    --bubble-user-border: #E5A99A;
+    --bubble-partner-bg: #EBC9A9;
+    --bubble-incoming-bg: #FFFAF0;
+    --bubble-bot-bg: #F5E2C9;
+    --bubble-bot-border: #F0DDB8;
+    --accent-familiar-soft: #F0DDB8;
+    --accent-familiar-on-soft: #7A5418;
+    --page-bg: #D8C9B3;
+    --shadow: 0 1px 0 rgba(64,40,20,0.04), 0 8px 24px -12px rgba(64,40,20,0.18);
+  }
+  /* ── Hearth · Dark ── */
+  :root[data-theme="hearth"][data-theme-mode="dark"] {
+    --bg-canvas: #1E1410;
+    --bg-surface: #2A1C15;
+    --bg-surface-alt: #33221A;
+    --text-primary: #F2E2CB;
+    --text-muted: #B0917A;
+    --accent-user: #E27966;
+    --accent-partner: #D89473;
+    --accent-familiar: #E0B25A;
+    --border-soft: #43301F;
+    --rule-strong: #E0B25A;
+    --bubble-user-bg: #5A2418;
+    --bubble-user-text: #FBD9CF;
+    --bubble-user-border: #6E2C1D;
+    --bubble-partner-bg: #3D2818;
+    --bubble-incoming-bg: #2A1C15;
+    --bubble-bot-bg: #33221A;
+    --bubble-bot-border: #3D2F18;
+    --accent-familiar-soft: #3D2F18;
+    --accent-familiar-on-soft: #E0B25A;
+    --page-bg: #110B07;
+    --shadow: 0 1px 0 rgba(255,235,200,0.03), 0 10px 28px -10px rgba(0,0,0,0.5);
+  }
+
+  /* ── Linen · Light ── */
+  :root[data-theme="linen"][data-theme-mode="light"] {
+    --bg-canvas: #F8F1E7;
+    --bg-surface: #F1E8D9;
+    --bg-surface-alt: #ECE0CC;
+    --text-primary: #2A2422;
+    --text-muted: #8A7C73;
+    --accent-user: #E58A7A;
+    --accent-partner: #D8B68A;
+    --accent-familiar: #2E5D5A;
+    --border-soft: #E4D6BF;
+    --rule-strong: #2E5D5A;
+    --bubble-user-bg: #F6D9D2;
+    --bubble-user-text: #4A2820;
+    --bubble-user-border: #F0CABE;
+    --bubble-partner-bg: #F0DCC2;
+    --bubble-incoming-bg: #FFFFFF;
+    --bubble-bot-bg: #F2EBDC;
+    --bubble-bot-border: #D9E6E1;
+    --accent-familiar-soft: #D9E6E1;
+    --accent-familiar-on-soft: #2E5D5A;
+    --page-bg: #D8C9B3;
+    --shadow: 0 1px 0 rgba(64,40,20,0.04), 0 8px 24px -12px rgba(64,40,20,0.18);
+  }
+  /* ── Linen · Dark ── */
+  :root[data-theme="linen"][data-theme-mode="dark"] {
+    --bg-canvas: #1B1714;
+    --bg-surface: #252019;
+    --bg-surface-alt: #2D2620;
+    --text-primary: #F1E7D4;
+    --text-muted: #A1907E;
+    --accent-user: #E89887;
+    --accent-partner: #D9B785;
+    --accent-familiar: #7CB5A8;
+    --border-soft: #3A322A;
+    --rule-strong: #7CB5A8;
+    --bubble-user-bg: #5B3328;
+    --bubble-user-text: #FCE4DD;
+    --bubble-user-border: #6E3F33;
+    --bubble-partner-bg: #3D3324;
+    --bubble-incoming-bg: #252019;
+    --bubble-bot-bg: #2D2620;
+    --bubble-bot-border: #2A3D39;
+    --accent-familiar-soft: #2A3D39;
+    --accent-familiar-on-soft: #7CB5A8;
+    --page-bg: #0F0C0A;
+    --shadow: 0 1px 0 rgba(255,235,200,0.03), 0 10px 28px -10px rgba(0,0,0,0.5);
+  }
+
+  /* ── Vellum · Light ── */
+  :root[data-theme="vellum"][data-theme-mode="light"] {
+    --bg-canvas: #F6F1E6;
+    --bg-surface: #EEE8DA;
+    --bg-surface-alt: #E7E0CE;
+    --text-primary: #26282B;
+    --text-muted: #7C7A72;
+    --accent-user: #506988;
+    --accent-partner: #9AA3A8;
+    --accent-familiar: #8C6B2A;
+    --border-soft: #DCD4BE;
+    --rule-strong: #8C6B2A;
+    --bubble-user-bg: #D7DEE8;
+    --bubble-user-text: #1F2B3E;
+    --bubble-user-border: #BCC7D6;
+    --bubble-partner-bg: #E2E0DA;
+    --bubble-incoming-bg: #FFFFFA;
+    --bubble-bot-bg: #EEE8DA;
+    --bubble-bot-border: #ECDFC0;
+    --accent-familiar-soft: #ECDFC0;
+    --accent-familiar-on-soft: #6E5320;
+    --page-bg: #CFC8B4;
+    --shadow: 0 1px 0 rgba(40,40,50,0.05), 0 8px 24px -12px rgba(40,40,50,0.18);
+  }
+  /* ── Vellum · Dark ── */
+  :root[data-theme="vellum"][data-theme-mode="dark"] {
+    --bg-canvas: #1A1B1E;
+    --bg-surface: #222428;
+    --bg-surface-alt: #2A2C30;
+    --text-primary: #EAE5D6;
+    --text-muted: #969084;
+    --accent-user: #8DA8C7;
+    --accent-partner: #B2B9BE;
+    --accent-familiar: #D4AE5C;
+    --border-soft: #383A3F;
+    --rule-strong: #D4AE5C;
+    --bubble-user-bg: #2E405A;
+    --bubble-user-text: #DDE7F4;
+    --bubble-user-border: #3A4F6E;
+    --bubble-partner-bg: #363A40;
+    --bubble-incoming-bg: #222428;
+    --bubble-bot-bg: #2A2C30;
+    --bubble-bot-border: #3A311E;
+    --accent-familiar-soft: #3A311E;
+    --accent-familiar-on-soft: #D4AE5C;
+    --page-bg: #0C0D0F;
+    --shadow: 0 1px 0 rgba(220,230,255,0.03), 0 10px 28px -10px rgba(0,0,0,0.55);
+  }
+
+  /* ── Twilight · Light (muted dusk) ── */
+  :root[data-theme="twilight"][data-theme-mode="light"] {
+    --bg-canvas: #F4EBEC;
+    --bg-surface: #EBDFE2;
+    --bg-surface-alt: #E2D3D8;
+    --text-primary: #2A1F2A;
+    --text-muted: #7C6C78;
+    --accent-user: #A04A6A;
+    --accent-partner: #9C7E94;
+    --accent-familiar: #4F7A5E;
+    --border-soft: #D9C7CD;
+    --rule-strong: #4F7A5E;
+    --bubble-user-bg: #E8C8D2;
+    --bubble-user-text: #3A1424;
+    --bubble-user-border: #D6A6B6;
+    --bubble-partner-bg: #E0D0DB;
+    --bubble-incoming-bg: #FFFAFB;
+    --bubble-bot-bg: #EBDFE2;
+    --bubble-bot-border: #D7E5DA;
+    --accent-familiar-soft: #D7E5DA;
+    --accent-familiar-on-soft: #345441;
+    --page-bg: #C9B8BD;
+    --shadow: 0 1px 0 rgba(60,30,60,0.05), 0 8px 24px -12px rgba(60,30,60,0.18);
+  }
+  /* ── Twilight · Dark (canonical) ── */
+  :root[data-theme="twilight"][data-theme-mode="dark"] {
+    --bg-canvas: #241823;
+    --bg-surface: #2E1F2D;
+    --bg-surface-alt: #382634;
+    --text-primary: #F2E4E5;
+    --text-muted: #A89AA0;
+    --accent-user: #E6A6B4;
+    --accent-partner: #C49DB6;
+    --accent-familiar: #9ECDA8;
+    --border-soft: #4A3344;
+    --rule-strong: #9ECDA8;
+    --bubble-user-bg: #5C2B3E;
+    --bubble-user-text: #FBDDE3;
+    --bubble-user-border: #75384E;
+    --bubble-partner-bg: #43303E;
+    --bubble-incoming-bg: #2E1F2D;
+    --bubble-bot-bg: #382634;
+    --bubble-bot-border: #2A3E30;
+    --accent-familiar-soft: #2A3E30;
+    --accent-familiar-on-soft: #9ECDA8;
+    --page-bg: #0E090D;
+    --shadow: 0 1px 0 rgba(255,220,230,0.03), 0 10px 28px -10px rgba(0,0,0,0.55);
+  }
+
   :root {
-    --cream:        #F8F1E7;
-    --cream-2:      #F1E8D9;
-    --cream-3:      #ECE0CC;
-    --ink:          #2A2422;
-    --ink-2:        #534943;
-    --ink-3:        #8A7C73;
-    --line:         #E4D6BF;
-    --line-soft:    #EFE3CE;
-    --rose:         #E58A7A;
-    --rose-soft:    #F6D9D2;
-    --teal:         #2E5D5A;
-    --teal-soft:    #D9E6E1;
-    --teal-line:    #B6CFC8;
-    --gold:         #C89B4B;
-    --green:        #5FA17A;
-    --amber:        #D49237;
-    --shadow:       0 1px 0 rgba(64,40,20,0.04), 0 8px 24px -12px rgba(64,40,20,0.18);
     --serif: 'Source Serif 4', Georgia, serif;
     --sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --status-online: #5FA17A;
   }
+
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #d8c9b3; font-family: var(--sans); color: var(--ink); }
+  html, body { margin: 0; padding: 0; background: var(--page-bg); font-family: var(--sans); color: var(--text-primary); }
   body { display: flex; justify-content: center; padding: 28px; min-height: 100vh; }
 
   .wrap { display: flex; flex-direction: column; align-items: center; }
@@ -38,7 +226,7 @@
   .window {
     width: 1280px;
     height: 800px;
-    background: var(--cream);
+    background: var(--bg-canvas);
     border-radius: 12px;
     overflow: hidden;
     box-shadow: 0 30px 80px -30px rgba(40,25,10,0.35);
@@ -46,18 +234,18 @@
     grid-template-rows: 38px 1fr;
   }
   .titlebar {
-    background: var(--cream-2);
-    border-bottom: 1px solid var(--line-soft);
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-soft);
     display: flex; align-items: center;
     padding: 0 14px; gap: 8px;
-    font-size: 12px; color: var(--ink-3);
+    font-size: 12px; color: var(--text-muted);
   }
   .traffic { display: flex; gap: 7px; }
   .traffic span { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
   .traffic .r { background: #E26A60; }
   .traffic .y { background: #E6B23A; }
   .traffic .g { background: #5BB85B; }
-  .titlebar .title { flex: 1; text-align: center; font-family: var(--serif); font-size: 13px; color: var(--ink-2); }
+  .titlebar .title { flex: 1; text-align: center; font-family: var(--serif); font-size: 13px; color: var(--text-primary); }
 
   .body {
     display: grid;
@@ -68,8 +256,8 @@
 
   /* ─── Settings nav (left) ─────────────────────── */
   .nav {
-    background: var(--cream-2);
-    border-right: 1px solid var(--line-soft);
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border-soft);
     padding: 18px 12px;
     display: flex; flex-direction: column; gap: 2px;
   }
@@ -79,14 +267,14 @@
   }
   .nav .brand .glyph {
     font-family: var(--serif); font-style: italic; font-weight: 600;
-    font-size: 22px; color: var(--teal);
+    font-size: 22px; color: var(--accent-familiar);
   }
   .nav .brand .name {
     font-family: var(--serif); font-size: 18px; font-weight: 600;
-    color: var(--ink);
+    color: var(--text-primary);
   }
   .nav .section {
-    font-size: 10px; color: var(--ink-3);
+    font-size: 10px; color: var(--text-muted);
     letter-spacing: 0.14em; text-transform: uppercase;
     padding: 14px 10px 6px;
   }
@@ -94,17 +282,17 @@
     padding: 8px 10px;
     border-radius: 6px;
     font-size: 13px;
-    color: var(--ink-2);
+    color: var(--text-primary);
     display: flex; align-items: center; gap: 10px;
     cursor: default;
   }
-  .nav-item:hover { background: rgba(255,255,255,0.4); }
+  .nav-item:hover { background: var(--bg-surface-alt); }
   .nav-item .ico { width: 16px; opacity: 0.7; text-align: center; }
   .nav-item.active {
-    background: var(--cream);
-    color: var(--ink);
+    background: var(--bg-canvas);
+    color: var(--text-primary);
     font-weight: 600;
-    box-shadow: inset 0 0 0 1px var(--line-soft);
+    box-shadow: inset 0 0 0 1px var(--border-soft);
   }
 
   /* ─── Main panel (right) ──────────────────────── */
@@ -122,18 +310,19 @@
     font-size: 28px;
     font-weight: 600;
     letter-spacing: 0.01em;
+    color: var(--text-primary);
   }
   .page-h .h-tag {
     font-size: 10px;
     letter-spacing: 0.16em;
-    color: var(--teal);
-    background: var(--teal-soft);
+    color: var(--accent-familiar-on-soft);
+    background: var(--accent-familiar-soft);
     padding: 3px 7px;
     border-radius: 4px;
     text-transform: uppercase;
   }
   .page-sub {
-    color: var(--ink-3);
+    color: var(--text-muted);
     font-size: 13.5px;
     margin: 0 0 26px;
     max-width: 720px;
@@ -142,7 +331,7 @@
   .page-sub em {
     font-family: var(--serif);
     font-style: italic;
-    color: var(--ink-2);
+    color: var(--text-primary);
   }
 
   /* Section block */
@@ -155,14 +344,14 @@
     font-family: var(--serif);
     font-size: 17px;
     font-weight: 600;
-    color: var(--ink);
+    color: var(--text-primary);
   }
   .section-h .count {
-    font-size: 12px; color: var(--ink-3);
+    font-size: 12px; color: var(--text-muted);
   }
   .section-h .grow { flex: 1; }
   .btn {
-    background: var(--ink); color: var(--cream);
+    background: var(--accent-user); color: var(--bg-canvas);
     border: 0; padding: 7px 14px; border-radius: 7px;
     font: inherit; font-size: 12.5px; font-weight: 600;
     cursor: default;
@@ -170,15 +359,20 @@
   }
   .btn.secondary {
     background: transparent;
-    color: var(--ink);
-    border: 1px solid var(--line);
+    color: var(--text-primary);
+    border: 1px solid var(--border-soft);
+  }
+  .btn.danger {
+    background: transparent;
+    color: var(--accent-user);
+    border: 1px solid var(--bubble-user-border);
   }
   .btn .plus { font-size: 14px; line-height: 1; }
 
   /* Host card */
   .host {
-    background: #fff;
-    border: 1px solid var(--line-soft);
+    background: var(--bubble-incoming-bg);
+    border: 1px solid var(--border-soft);
     border-radius: 10px;
     padding: 18px 22px;
     box-shadow: var(--shadow);
@@ -191,40 +385,41 @@
   .host .icon-box {
     width: 48px; height: 48px;
     border-radius: 10px;
-    background: var(--cream-2);
-    border: 1px solid var(--line-soft);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-soft);
     display: flex; align-items: center; justify-content: center;
     font-size: 20px;
+    color: var(--text-primary);
   }
-  .host .title { font-family: var(--serif); font-size: 17px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 10px; }
+  .host .title { font-family: var(--serif); font-size: 17px; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
   .host .title .status {
     font-size: 10.5px; font-weight: 600;
     letter-spacing: 0.08em; text-transform: uppercase;
-    background: rgba(95,161,122,0.12);
-    color: #3b7556;
+    background: color-mix(in srgb, var(--status-online) 18%, transparent);
+    color: color-mix(in srgb, var(--status-online) 80%, var(--text-primary));
     padding: 2px 7px;
     border-radius: 4px;
     display: inline-flex; align-items: center; gap: 5px;
   }
   .host .title .status .dot {
     width: 6px; height: 6px; border-radius: 50%;
-    background: var(--green);
+    background: var(--status-online);
     box-shadow: 0 0 0 3px rgba(95,161,122,0.18);
   }
   .host .meta {
     margin-top: 6px;
-    color: var(--ink-3);
+    color: var(--text-muted);
     font-size: 12.5px;
     display: flex; gap: 22px; flex-wrap: wrap;
   }
-  .host .meta b { color: var(--ink-2); font-weight: 600; }
+  .host .meta b { color: var(--text-primary); font-weight: 600; }
   .host .meta code {
     font-family: var(--mono);
     font-size: 11.5px;
-    background: var(--cream-2);
+    background: var(--bg-surface);
     padding: 1px 5px;
     border-radius: 3px;
-    color: var(--ink-2);
+    color: var(--text-primary);
   }
   .host .actions { display: flex; gap: 8px; }
 
@@ -237,8 +432,8 @@
   }
 
   .card {
-    background: #fff;
-    border: 1px solid var(--line-soft);
+    background: var(--bubble-incoming-bg);
+    border: 1px solid var(--border-soft);
     border-radius: 12px;
     padding: 18px 18px 14px;
     display: flex; flex-direction: column;
@@ -247,25 +442,25 @@
   }
   .card.add {
     background: transparent;
-    border: 1.5px dashed var(--line);
+    border: 1.5px dashed var(--border-soft);
     box-shadow: none;
     align-items: center; justify-content: center;
     text-align: center;
     min-height: 270px;
-    color: var(--ink-3);
+    color: var(--text-muted);
   }
   .card.add .plus-big {
     width: 44px; height: 44px;
     border-radius: 50%;
-    background: var(--cream-2);
+    background: var(--bg-surface);
     display: flex; align-items: center; justify-content: center;
-    font-size: 22px; color: var(--ink-2);
+    font-size: 22px; color: var(--text-primary);
     margin-bottom: 10px;
   }
   .card.add .label {
     font-family: var(--serif);
     font-size: 15px;
-    color: var(--ink-2);
+    color: var(--text-primary);
   }
   .card.add .help { font-size: 12px; max-width: 220px; margin-top: 4px; line-height: 1.45; }
 
@@ -273,33 +468,39 @@
     display: flex; align-items: flex-start; gap: 12px;
     margin-bottom: 10px;
   }
+  /* Default hex avatar = familiar palette (teal/gold per theme).
+     .warm = partner palette (the "second" familiar), .rose = user palette
+     (the "always-on" familiar gets the user accent — strongest visual weight). */
   .av-hex {
     width: 44px; height: 44px;
-    background: var(--teal-soft);
-    color: var(--teal);
+    background: var(--accent-familiar-soft);
+    color: var(--accent-familiar-on-soft);
     clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%);
     display: flex; align-items: center; justify-content: center;
     font-family: var(--serif); font-style: italic; font-weight: 600;
     font-size: 19px;
   }
-  .av-hex.warm { background: #F0E0CB; color: #8E5B27; }
-  .av-hex.rose { background: #F6D9D2; color: #9B4030; }
+  /* Partner / user tinted hexes use text-primary for the glyph so the letter
+     stays readable on the soft bubble tint across every palette — accent-partner
+     in particular is intentionally low-contrast in some themes. */
+  .av-hex.warm { background: var(--bubble-partner-bg); color: var(--text-primary); }
+  .av-hex.rose { background: var(--bubble-user-bg); color: var(--bubble-user-text); }
 
   .card .name {
     font-family: var(--serif);
     font-size: 18px;
     font-weight: 600;
     line-height: 1.1;
-    color: var(--ink);
+    color: var(--text-primary);
   }
   .card .sub {
     font-size: 12px;
-    color: var(--ink-3);
+    color: var(--text-muted);
     margin-top: 3px;
   }
   .card .menu {
     margin-left: auto;
-    color: var(--ink-3);
+    color: var(--text-muted);
     font-size: 16px;
     cursor: default;
   }
@@ -307,10 +508,10 @@
   .persona {
     font-size: 13px;
     line-height: 1.55;
-    color: var(--ink-2);
-    background: var(--cream);
-    border: 1px solid var(--line-soft);
-    border-left: 2px solid var(--teal);
+    color: var(--text-primary);
+    background: var(--bg-canvas);
+    border: 1px solid var(--border-soft);
+    border-left: 2px solid var(--rule-strong);
     border-radius: 6px;
     padding: 10px 12px;
     font-style: italic;
@@ -318,8 +519,8 @@
     margin-bottom: 12px;
     min-height: 86px;
   }
-  .card.warm .persona { border-left-color: var(--gold); }
-  .card.rose .persona { border-left-color: var(--rose); }
+  .card.warm .persona { border-left-color: var(--accent-partner); }
+  .card.rose .persona { border-left-color: var(--accent-user); }
 
   .kv {
     display: grid;
@@ -328,12 +529,12 @@
     font-size: 12px;
     margin-bottom: 12px;
   }
-  .kv .k { color: var(--ink-3); }
-  .kv .v { color: var(--ink-2); }
+  .kv .k { color: var(--text-muted); }
+  .kv .v { color: var(--text-primary); }
   .kv .v code {
     font-family: var(--mono);
     font-size: 11px;
-    background: var(--cream-2);
+    background: var(--bg-surface);
     padding: 1px 5px;
     border-radius: 3px;
   }
@@ -342,13 +543,13 @@
     display: inline-flex; align-items: center; gap: 5px;
     font-size: 10.5px; font-weight: 600;
     letter-spacing: 0.08em; text-transform: uppercase;
-    background: var(--teal-soft);
-    color: var(--teal);
+    background: var(--accent-familiar-soft);
+    color: var(--accent-familiar-on-soft);
     padding: 2px 7px;
     border-radius: 4px;
   }
-  .behavior-pill.warm { background: #F4E6CF; color: #8a6422; }
-  .behavior-pill.rose { background: var(--rose-soft); color: #9B4030; }
+  .behavior-pill.warm { background: var(--bubble-partner-bg); color: var(--text-primary); }
+  .behavior-pill.rose { background: var(--bubble-user-bg); color: var(--bubble-user-text); }
 
   .tags {
     display: flex; flex-wrap: wrap; gap: 5px;
@@ -356,9 +557,9 @@
   }
   .tag {
     font-size: 11px;
-    color: var(--ink-3);
-    background: var(--cream-2);
-    border: 1px solid var(--line-soft);
+    color: var(--text-muted);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-soft);
     padding: 1.5px 7px;
     border-radius: 999px;
   }
@@ -366,15 +567,15 @@
   .card .footer {
     margin-top: auto;
     padding-top: 10px;
-    border-top: 1px dashed var(--line-soft);
+    border-top: 1px dashed var(--border-soft);
     display: flex; align-items: center; gap: 10px;
     font-size: 12px;
-    color: var(--ink-3);
+    color: var(--text-muted);
   }
-  .card .in-rooms b { color: var(--ink-2); font-weight: 600; }
+  .card .in-rooms b { color: var(--text-primary); font-weight: 600; }
   .card .footer .add-to-room {
     margin-left: auto;
-    color: var(--teal);
+    color: var(--accent-familiar);
     font-weight: 600;
     cursor: default;
   }
@@ -382,26 +583,26 @@
   /* Privacy note strip */
   .privacy-strip {
     margin-top: 26px;
-    background: var(--teal-soft);
-    border: 1px solid var(--teal-line);
+    background: var(--accent-familiar-soft);
+    border: 1px solid var(--border-soft);
     border-radius: 8px;
     padding: 12px 16px;
     font-size: 12.5px;
-    color: #234946;
+    color: var(--accent-familiar-on-soft);
     display: flex; gap: 12px; align-items: flex-start;
   }
   .privacy-strip .ic { font-size: 16px; }
-  .privacy-strip b { color: var(--teal); }
+  .privacy-strip b { color: var(--accent-familiar-on-soft); }
 
   /* Design notes block */
   .design-notes {
     width: 1280px;
     margin: 18px auto 0;
-    background: rgba(255,255,255,0.55);
-    border: 1px dashed #b8a48a;
+    background: color-mix(in srgb, var(--bg-surface) 60%, transparent);
+    border: 1px dashed var(--border-soft);
     border-radius: 8px;
     padding: 14px 20px;
-    color: #4a3b30;
+    color: var(--text-primary);
     font-size: 12.5px;
     line-height: 1.5;
   }
@@ -411,14 +612,96 @@
     font-size: 13px;
     font-weight: 600;
     letter-spacing: 0.04em;
-    color: #6b4f3a;
+    color: var(--accent-familiar);
     text-transform: uppercase;
   }
   .design-notes ul { margin: 0; padding-left: 18px; }
   .design-notes li { margin-bottom: 3px; }
+
+  /* ── Theme switcher widget ── */
+  .theme-switcher {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    background: rgba(20, 14, 10, 0.72);
+    color: #f4ead6;
+    border-radius: 999px;
+    box-shadow: 0 6px 20px -8px rgba(0,0,0,0.55);
+    font: 500 11px/1 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    opacity: 0.78;
+    transition: opacity 120ms ease;
+    user-select: none;
+  }
+  .theme-switcher:hover { opacity: 1; }
+  .theme-switcher .ts-label {
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-size: 9.5px;
+    color: rgba(244,234,214,0.62);
+    padding: 0 4px 0 2px;
+  }
+  .theme-switcher button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+  }
+  .theme-switcher .ts-swatch {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.18);
+    display: inline-block;
+    transition: transform 90ms ease, border-color 90ms ease;
+  }
+  .theme-switcher .ts-swatch:hover { transform: scale(1.12); }
+  .theme-switcher .ts-swatch[aria-pressed="true"] {
+    border-color: #f4ead6;
+    box-shadow: 0 0 0 2px rgba(244,234,214,0.18);
+  }
+  .theme-switcher .ts-swatch[data-pal="hearth"]   { background: linear-gradient(135deg, #FBEEDD 0%, #FBEEDD 50%, #B23F2E 50%, #B23F2E 100%); }
+  .theme-switcher .ts-swatch[data-pal="linen"]    { background: linear-gradient(135deg, #F8F1E7 0%, #F8F1E7 50%, #E58A7A 50%, #E58A7A 100%); }
+  .theme-switcher .ts-swatch[data-pal="vellum"]   { background: linear-gradient(135deg, #F6F1E6 0%, #F6F1E6 50%, #506988 50%, #506988 100%); }
+  .theme-switcher .ts-swatch[data-pal="twilight"] { background: linear-gradient(135deg, #241823 0%, #241823 50%, #E6A6B4 50%, #E6A6B4 100%); }
+  .theme-switcher .ts-sep {
+    width: 1px;
+    height: 16px;
+    background: rgba(244,234,214,0.18);
+    margin: 0 4px;
+  }
+  .theme-switcher .ts-mode {
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(244,234,214,0.08);
+    color: #f4ead6;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+  }
+  .theme-switcher .ts-mode:hover { background: rgba(244,234,214,0.16); }
 </style>
 </head>
 <body>
+<div class="theme-switcher" role="group" aria-label="Theme switcher">
+  <span class="ts-label">Theme</span>
+  <button type="button" class="ts-swatch" data-pal="hearth" title="Hearth" aria-label="Hearth"></button>
+  <button type="button" class="ts-swatch" data-pal="linen" title="Linen" aria-label="Linen"></button>
+  <button type="button" class="ts-swatch" data-pal="vellum" title="Vellum" aria-label="Vellum"></button>
+  <button type="button" class="ts-swatch" data-pal="twilight" title="Twilight" aria-label="Twilight"></button>
+  <span class="ts-sep"></span>
+  <button type="button" class="ts-mode" data-mode-toggle title="Toggle light/dark">Light</button>
+</div>
+
 <div class="wrap">
 <div class="window">
   <div class="titlebar">
@@ -484,7 +767,7 @@
         </div>
         <div class="actions">
           <button class="btn secondary">Manage</button>
-          <button class="btn secondary" style="color:#9c4434; border-color:#e6c7c0;">Unpair</button>
+          <button class="btn danger">Unpair</button>
         </div>
       </div>
 
@@ -619,13 +902,43 @@
 <aside class="design-notes">
   <h4>Design notes &mdash; bot hosts &amp; familiars</h4>
   <ul>
+    <li><b>Tokenized palette (§11.4).</b> Colors are CSS custom properties (<code>--bg-canvas</code>, <code>--accent-user</code>, <code>--accent-partner</code>, <code>--accent-familiar</code>, &hellip;) keyed off <code>data-theme</code> &times; <code>data-theme-mode</code>. Default is <em>Hearth · light</em>; the switcher in the top-right previews Linen, Vellum, and Twilight in either mode.</li>
     <li><b>"Familiars," not "bots," in the headline.</b> Reinforces the product's distinguishing concept. "Bot host" stays as the technical noun for the daemon (§9.2), because that's accurate &mdash; humans pair a <em>host</em>, then populate it with familiars. Push back here if you'd rather lean even further into the fantasy vocabulary.</li>
     <li><b>Card == §9.1 CharacterCard, one-to-one.</b> Each card surface shows name, persona excerpt (italic serif blockquote with a colored left rule), provider/model, behavior (Mention only / Smart / Always on per §9.6), context budget, tags, and current room membership. That covers every CharacterCard field except <code>id</code>.</li>
-    <li><b>Color-coded behavior &amp; left-rules.</b> Teal = Smart, gold = Mention only, rose = Always on. The left edge of the persona block mirrors the conversation-view familiar accent so the visual language stays consistent &mdash; a card and its messages share a color.</li>
-    <li><b>One privacy promise, stated once, in plain language.</b> The teal strip restates §9.4: "We will not ever ship a cloud-provider toggle." This is the product's main differentiator &mdash; it earns a dedicated, calm callout in the host management surface rather than being buried in a privacy doc.</li>
+    <li><b>Color-coded behavior &amp; left-rules, now palette-driven.</b> Smart = <code>--accent-familiar</code>, Mention only = <code>--accent-partner</code>, Always on = <code>--accent-user</code>. Swap to Vellum or Twilight and the three card variants re-paint cleanly without losing the affordance.</li>
+    <li><b>One privacy promise, stated once, in plain language.</b> The familiar-tinted strip restates §9.4: "We will not ever ship a cloud-provider toggle." This is the product's main differentiator &mdash; it earns a dedicated, calm callout in the host management surface rather than being buried in a privacy doc.</li>
     <li><b>Host card shows the connection's actual shape.</b> OS, provider URL (in monospace), models, "LAN only" tag, pairing date. Court is the user; Court wants to see the truth of the connection. Hides nothing.</li>
   </ul>
 </aside>
 </div>
+<script>
+(function(){
+  var root = document.documentElement;
+  function apply(){
+    var pal = root.getAttribute('data-theme') || 'hearth';
+    var mode = root.getAttribute('data-theme-mode') || 'light';
+    document.querySelectorAll('.theme-switcher .ts-swatch').forEach(function(b){
+      b.setAttribute('aria-pressed', b.getAttribute('data-pal') === pal ? 'true' : 'false');
+    });
+    var btn = document.querySelector('.theme-switcher [data-mode-toggle]');
+    if (btn) btn.textContent = mode === 'dark' ? 'Dark' : 'Light';
+  }
+  document.querySelectorAll('.theme-switcher .ts-swatch').forEach(function(b){
+    b.addEventListener('click', function(){
+      root.setAttribute('data-theme', b.getAttribute('data-pal'));
+      apply();
+    });
+  });
+  var modeBtn = document.querySelector('.theme-switcher [data-mode-toggle]');
+  if (modeBtn) {
+    modeBtn.addEventListener('click', function(){
+      var cur = root.getAttribute('data-theme-mode') || 'light';
+      root.setAttribute('data-theme-mode', cur === 'dark' ? 'light' : 'dark');
+      apply();
+    });
+  }
+  apply();
+})();
+</script>
 </body>
 </html>
