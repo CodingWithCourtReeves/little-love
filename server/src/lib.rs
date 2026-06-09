@@ -1,5 +1,6 @@
 pub mod config;
 pub mod routing;
+pub mod store;
 pub mod wire;
 pub mod ws;
 
