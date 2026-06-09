@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove — Bot Hosts &amp; Character Cards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream:        #F8F1E7;
+    --cream-2:      #F1E8D9;
+    --cream-3:      #ECE0CC;
+    --ink:          #2A2422;
+    --ink-2:        #534943;
+    --ink-3:        #8A7C73;
+    --line:         #E4D6BF;
+    --line-soft:    #EFE3CE;
+    --rose:         #E58A7A;
+    --rose-soft:    #F6D9D2;
+    --teal:         #2E5D5A;
+    --teal-soft:    #D9E6E1;
+    --teal-line:    #B6CFC8;
+    --gold:         #C89B4B;
+    --green:        #5FA17A;
+    --amber:        #D49237;
+    --shadow:       0 1px 0 rgba(64,40,20,0.04), 0 8px 24px -12px rgba(64,40,20,0.18);
+    --serif: 'Source Serif 4', Georgia, serif;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #d8c9b3; font-family: var(--sans); color: var(--ink); }
+  body { display: flex; justify-content: center; padding: 28px; min-height: 100vh; }
+
+  .wrap { display: flex; flex-direction: column; align-items: center; }
+
+  .window {
+    width: 1280px;
+    height: 800px;
+    background: var(--cream);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px -30px rgba(40,25,10,0.35);
+    display: grid;
+    grid-template-rows: 38px 1fr;
+  }
+  .titlebar {
+    background: var(--cream-2);
+    border-bottom: 1px solid var(--line-soft);
+    display: flex; align-items: center;
+    padding: 0 14px; gap: 8px;
+    font-size: 12px; color: var(--ink-3);
+  }
+  .traffic { display: flex; gap: 7px; }
+  .traffic span { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .traffic .r { background: #E26A60; }
+  .traffic .y { background: #E6B23A; }
+  .traffic .g { background: #5BB85B; }
+  .titlebar .title { flex: 1; text-align: center; font-family: var(--serif); font-size: 13px; color: var(--ink-2); }
+
+  .body {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    height: 100%;
+    min-height: 0;
+  }
+
+  /* ─── Settings nav (left) ─────────────────────── */
+  .nav {
+    background: var(--cream-2);
+    border-right: 1px solid var(--line-soft);
+    padding: 18px 12px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .nav .brand {
+    padding: 4px 10px 16px;
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  .nav .brand .glyph {
+    font-family: var(--serif); font-style: italic; font-weight: 600;
+    font-size: 22px; color: var(--teal);
+  }
+  .nav .brand .name {
+    font-family: var(--serif); font-size: 18px; font-weight: 600;
+    color: var(--ink);
+  }
+  .nav .section {
+    font-size: 10px; color: var(--ink-3);
+    letter-spacing: 0.14em; text-transform: uppercase;
+    padding: 14px 10px 6px;
+  }
+  .nav-item {
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--ink-2);
+    display: flex; align-items: center; gap: 10px;
+    cursor: default;
+  }
+  .nav-item:hover { background: rgba(255,255,255,0.4); }
+  .nav-item .ico { width: 16px; opacity: 0.7; text-align: center; }
+  .nav-item.active {
+    background: var(--cream);
+    color: var(--ink);
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--line-soft);
+  }
+
+  /* ─── Main panel (right) ──────────────────────── */
+  .panel {
+    overflow-y: auto;
+    padding: 30px 40px 40px;
+  }
+  .page-h {
+    display: flex; align-items: baseline; gap: 14px;
+    margin-bottom: 4px;
+  }
+  .page-h h1 {
+    margin: 0;
+    font-family: var(--serif);
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .page-h .h-tag {
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: var(--teal);
+    background: var(--teal-soft);
+    padding: 3px 7px;
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+  .page-sub {
+    color: var(--ink-3);
+    font-size: 13.5px;
+    margin: 0 0 26px;
+    max-width: 720px;
+    line-height: 1.55;
+  }
+  .page-sub em {
+    font-family: var(--serif);
+    font-style: italic;
+    color: var(--ink-2);
+  }
+
+  /* Section block */
+  .section-h {
+    display: flex; align-items: baseline; gap: 10px;
+    margin: 8px 0 12px;
+  }
+  .section-h h2 {
+    margin: 0;
+    font-family: var(--serif);
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .section-h .count {
+    font-size: 12px; color: var(--ink-3);
+  }
+  .section-h .grow { flex: 1; }
+  .btn {
+    background: var(--ink); color: var(--cream);
+    border: 0; padding: 7px 14px; border-radius: 7px;
+    font: inherit; font-size: 12.5px; font-weight: 600;
+    cursor: default;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn.secondary {
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--line);
+  }
+  .btn .plus { font-size: 14px; line-height: 1; }
+
+  /* Host card */
+  .host {
+    background: #fff;
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
+    padding: 18px 22px;
+    box-shadow: var(--shadow);
+    display: grid;
+    grid-template-columns: 48px 1fr auto;
+    gap: 18px;
+    align-items: center;
+    margin-bottom: 30px;
+  }
+  .host .icon-box {
+    width: 48px; height: 48px;
+    border-radius: 10px;
+    background: var(--cream-2);
+    border: 1px solid var(--line-soft);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+  }
+  .host .title { font-family: var(--serif); font-size: 17px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 10px; }
+  .host .title .status {
+    font-size: 10.5px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    background: rgba(95,161,122,0.12);
+    color: #3b7556;
+    padding: 2px 7px;
+    border-radius: 4px;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .host .title .status .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 3px rgba(95,161,122,0.18);
+  }
+  .host .meta {
+    margin-top: 6px;
+    color: var(--ink-3);
+    font-size: 12.5px;
+    display: flex; gap: 22px; flex-wrap: wrap;
+  }
+  .host .meta b { color: var(--ink-2); font-weight: 600; }
+  .host .meta code {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    background: var(--cream-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--ink-2);
+  }
+  .host .actions { display: flex; gap: 8px; }
+
+  /* Card grid */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+    margin-bottom: 16px;
+  }
+
+  .card {
+    background: #fff;
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    padding: 18px 18px 14px;
+    display: flex; flex-direction: column;
+    box-shadow: var(--shadow);
+    position: relative;
+  }
+  .card.add {
+    background: transparent;
+    border: 1.5px dashed var(--line);
+    box-shadow: none;
+    align-items: center; justify-content: center;
+    text-align: center;
+    min-height: 270px;
+    color: var(--ink-3);
+  }
+  .card.add .plus-big {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: var(--cream-2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; color: var(--ink-2);
+    margin-bottom: 10px;
+  }
+  .card.add .label {
+    font-family: var(--serif);
+    font-size: 15px;
+    color: var(--ink-2);
+  }
+  .card.add .help { font-size: 12px; max-width: 220px; margin-top: 4px; line-height: 1.45; }
+
+  .card .top {
+    display: flex; align-items: flex-start; gap: 12px;
+    margin-bottom: 10px;
+  }
+  .av-hex {
+    width: 44px; height: 44px;
+    background: var(--teal-soft);
+    color: var(--teal);
+    clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--serif); font-style: italic; font-weight: 600;
+    font-size: 19px;
+  }
+  .av-hex.warm { background: #F0E0CB; color: #8E5B27; }
+  .av-hex.rose { background: #F6D9D2; color: #9B4030; }
+
+  .card .name {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.1;
+    color: var(--ink);
+  }
+  .card .sub {
+    font-size: 12px;
+    color: var(--ink-3);
+    margin-top: 3px;
+  }
+  .card .menu {
+    margin-left: auto;
+    color: var(--ink-3);
+    font-size: 16px;
+    cursor: default;
+  }
+
+  .persona {
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--ink-2);
+    background: var(--cream);
+    border: 1px solid var(--line-soft);
+    border-left: 2px solid var(--teal);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-style: italic;
+    font-family: var(--serif);
+    margin-bottom: 12px;
+    min-height: 86px;
+  }
+  .card.warm .persona { border-left-color: var(--gold); }
+  .card.rose .persona { border-left-color: var(--rose); }
+
+  .kv {
+    display: grid;
+    grid-template-columns: 78px 1fr;
+    gap: 6px 10px;
+    font-size: 12px;
+    margin-bottom: 12px;
+  }
+  .kv .k { color: var(--ink-3); }
+  .kv .v { color: var(--ink-2); }
+  .kv .v code {
+    font-family: var(--mono);
+    font-size: 11px;
+    background: var(--cream-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  .behavior-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10.5px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    background: var(--teal-soft);
+    color: var(--teal);
+    padding: 2px 7px;
+    border-radius: 4px;
+  }
+  .behavior-pill.warm { background: #F4E6CF; color: #8a6422; }
+  .behavior-pill.rose { background: var(--rose-soft); color: #9B4030; }
+
+  .tags {
+    display: flex; flex-wrap: wrap; gap: 5px;
+    margin-bottom: 12px;
+  }
+  .tag {
+    font-size: 11px;
+    color: var(--ink-3);
+    background: var(--cream-2);
+    border: 1px solid var(--line-soft);
+    padding: 1.5px 7px;
+    border-radius: 999px;
+  }
+
+  .card .footer {
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px dashed var(--line-soft);
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+  .card .in-rooms b { color: var(--ink-2); font-weight: 600; }
+  .card .footer .add-to-room {
+    margin-left: auto;
+    color: var(--teal);
+    font-weight: 600;
+    cursor: default;
+  }
+
+  /* Privacy note strip */
+  .privacy-strip {
+    margin-top: 26px;
+    background: var(--teal-soft);
+    border: 1px solid var(--teal-line);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 12.5px;
+    color: #234946;
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .privacy-strip .ic { font-size: 16px; }
+  .privacy-strip b { color: var(--teal); }
+
+  /* Design notes block */
+  .design-notes {
+    width: 1280px;
+    margin: 18px auto 0;
+    background: rgba(255,255,255,0.55);
+    border: 1px dashed #b8a48a;
+    border-radius: 8px;
+    padding: 14px 20px;
+    color: #4a3b30;
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .design-notes h4 {
+    margin: 0 0 6px;
+    font-family: var(--serif);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: #6b4f3a;
+    text-transform: uppercase;
+  }
+  .design-notes ul { margin: 0; padding-left: 18px; }
+  .design-notes li { margin-bottom: 3px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="window">
+  <div class="titlebar">
+    <div class="traffic"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+    <div class="title">LittleLove &middot; Settings</div>
+    <div style="width:54px;"></div>
+  </div>
+
+  <div class="body">
+    <!-- ───── Nav ───── -->
+    <nav class="nav">
+      <div class="brand">
+        <span class="glyph">&amp;</span>
+        <span class="name">LittleLove</span>
+      </div>
+      <div class="section">Account</div>
+      <div class="nav-item"><span class="ico">&#9789;</span> Profile</div>
+      <div class="nav-item"><span class="ico">&#128274;</span> Linked devices</div>
+      <div class="nav-item"><span class="ico">&#128737;</span> Privacy</div>
+
+      <div class="section">Familiars</div>
+      <div class="nav-item active"><span class="ico">&#9696;</span> Bot hosts &amp; cards</div>
+      <div class="nav-item"><span class="ico">&#9881;</span> Default behaviors</div>
+
+      <div class="section">App</div>
+      <div class="nav-item"><span class="ico">&#9728;</span> Appearance</div>
+      <div class="nav-item"><span class="ico">&#9836;</span> Notifications</div>
+      <div class="nav-item"><span class="ico">&#9432;</span> About</div>
+    </nav>
+
+    <!-- ───── Panel ───── -->
+    <main class="panel">
+      <div class="page-h">
+        <h1>Bot Hosts &amp; Familiars</h1>
+        <span class="h-tag">Local only</span>
+      </div>
+      <p class="page-sub">
+        Your <em>familiars</em> live on hardware you own. Plaintext &mdash; conversations and character cards alike &mdash; never leaves your devices. Pair a host to bring a familiar online; build cards to give them a voice.
+      </p>
+
+      <!-- Hosts -->
+      <div class="section-h">
+        <h2>Paired hosts</h2>
+        <span class="count">1 host &middot; 1 of 3 cards online</span>
+        <span class="grow"></span>
+        <button class="btn secondary"><span class="plus">+</span> Pair a new host</button>
+      </div>
+
+      <div class="host">
+        <div class="icon-box">&#128421;</div>
+        <div>
+          <div class="title">
+            Home Box
+            <span class="status"><span class="dot"></span> Online</span>
+          </div>
+          <div class="meta">
+            <span><b>OS</b> &nbsp;Windows 11 Pro</span>
+            <span><b>Provider</b> &nbsp;<code>ollama @ localhost:11434</code></span>
+            <span><b>Models</b> &nbsp;llama3.1:8b &middot; mistral:7b</span>
+            <span><b>Endpoint</b> &nbsp;LAN only</span>
+            <span><b>Paired</b> &nbsp;Mar 14, 2026</span>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn secondary">Manage</button>
+          <button class="btn secondary" style="color:#9c4434; border-color:#e6c7c0;">Unpair</button>
+        </div>
+      </div>
+
+      <!-- Cards -->
+      <div class="section-h">
+        <h2>Character cards</h2>
+        <span class="count">3 in library &middot; private to your devices</span>
+        <span class="grow"></span>
+        <button class="btn secondary"><span class="plus">+</span> Import</button>
+        <button class="btn"><span class="plus">+</span> New card</button>
+      </div>
+
+      <div class="cards">
+
+        <!-- Ollie -->
+        <article class="card">
+          <div class="top">
+            <div class="av-hex">O</div>
+            <div>
+              <div class="name">Ollie</div>
+              <div class="sub">Quietly helpful &middot; in 1 room</div>
+            </div>
+            <div class="menu">&hellip;</div>
+          </div>
+          <div class="persona">
+            &ldquo;You are Ollie, a calm domestic familiar for Court &amp; Kaitlyn. Warm, dry-witted, never sycophantic. You notice small things&hellip;&rdquo;
+          </div>
+          <div class="kv">
+            <div class="k">Model</div>
+            <div class="v"><code>llama3.1:8b</code> on Home Box</div>
+            <div class="k">Behavior</div>
+            <div class="v"><span class="behavior-pill">Smart</span></div>
+            <div class="k">Context</div>
+            <div class="v">8k tokens</div>
+          </div>
+          <div class="tags">
+            <span class="tag">domestic</span>
+            <span class="tag">warm</span>
+            <span class="tag">low-key</span>
+          </div>
+          <div class="footer">
+            <span class="in-rooms"><b>Kaitlyn &amp; Ollie</b></span>
+            <span class="add-to-room">+ Add to room</span>
+          </div>
+        </article>
+
+        <!-- Coach -->
+        <article class="card warm">
+          <div class="top">
+            <div class="av-hex warm">C</div>
+            <div>
+              <div class="name">Coach</div>
+              <div class="sub">Weekly check-ins &middot; not in a room</div>
+            </div>
+            <div class="menu">&hellip;</div>
+          </div>
+          <div class="persona">
+            &ldquo;You are Coach, a steady accountability partner. You ask one good question, never three. You remember the last thing the user said they'd try&hellip;&rdquo;
+          </div>
+          <div class="kv">
+            <div class="k">Model</div>
+            <div class="v"><code>mistral:7b</code> on Home Box</div>
+            <div class="k">Behavior</div>
+            <div class="v"><span class="behavior-pill warm">Mention only</span></div>
+            <div class="k">Context</div>
+            <div class="v">4k tokens</div>
+          </div>
+          <div class="tags">
+            <span class="tag">habits</span>
+            <span class="tag">solo</span>
+            <span class="tag">weekly</span>
+          </div>
+          <div class="footer">
+            <span class="in-rooms">Not currently in a room</span>
+            <span class="add-to-room">+ Add to room</span>
+          </div>
+        </article>
+
+        <!-- Bard -->
+        <article class="card rose">
+          <div class="top">
+            <div class="av-hex rose">B</div>
+            <div>
+              <div class="name">Bard</div>
+              <div class="sub">Reading companion &middot; not in a room</div>
+            </div>
+            <div class="menu">&hellip;</div>
+          </div>
+          <div class="persona">
+            &ldquo;You are Bard. You love poems the way other people love dogs. When asked to read, you read slowly. When asked to interpret, you offer two readings, never one&hellip;&rdquo;
+          </div>
+          <div class="kv">
+            <div class="k">Model</div>
+            <div class="v"><code>llama3.1:8b</code> on Home Box</div>
+            <div class="k">Behavior</div>
+            <div class="v"><span class="behavior-pill rose">Always on</span></div>
+            <div class="k">Context</div>
+            <div class="v">8k tokens</div>
+          </div>
+          <div class="tags">
+            <span class="tag">poetry</span>
+            <span class="tag">solo</span>
+            <span class="tag">reading</span>
+          </div>
+          <div class="footer">
+            <span class="in-rooms">Not currently in a room</span>
+            <span class="add-to-room">+ Add to room</span>
+          </div>
+        </article>
+      </div>
+
+      <div class="cards" style="grid-template-columns: 1fr; margin-top: 0;">
+        <article class="card add">
+          <div class="plus-big">+</div>
+          <div class="label">New character card</div>
+          <div class="help">Name, persona, model, behavior. Lives on your devices &mdash; syncs to your other devices only.</div>
+        </article>
+      </div>
+
+      <div class="privacy-strip">
+        <span class="ic">&#9696;</span>
+        <div>
+          <b>Familiars are local-only by design.</b>
+          LittleLove will never connect your characters to OpenAI, Anthropic, OpenRouter, or any cloud LLM provider.
+          Your bot host talks to Ollama (or a compatible local server) on your LAN, and that's the entire path.
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<aside class="design-notes">
+  <h4>Design notes &mdash; bot hosts &amp; familiars</h4>
+  <ul>
+    <li><b>"Familiars," not "bots," in the headline.</b> Reinforces the product's distinguishing concept. "Bot host" stays as the technical noun for the daemon (§9.2), because that's accurate &mdash; humans pair a <em>host</em>, then populate it with familiars. Push back here if you'd rather lean even further into the fantasy vocabulary.</li>
+    <li><b>Card == §9.1 CharacterCard, one-to-one.</b> Each card surface shows name, persona excerpt (italic serif blockquote with a colored left rule), provider/model, behavior (Mention only / Smart / Always on per §9.6), context budget, tags, and current room membership. That covers every CharacterCard field except <code>id</code>.</li>
+    <li><b>Color-coded behavior &amp; left-rules.</b> Teal = Smart, gold = Mention only, rose = Always on. The left edge of the persona block mirrors the conversation-view familiar accent so the visual language stays consistent &mdash; a card and its messages share a color.</li>
+    <li><b>One privacy promise, stated once, in plain language.</b> The teal strip restates §9.4: "We will not ever ship a cloud-provider toggle." This is the product's main differentiator &mdash; it earns a dedicated, calm callout in the host management surface rather than being buried in a privacy doc.</li>
+    <li><b>Host card shows the connection's actual shape.</b> OS, provider URL (in monospace), models, "LAN only" tag, pairing date. Court is the user; Court wants to see the truth of the connection. Hides nothing.</li>
+  </ul>
+</aside>
+</div>
+</body>
+</html>

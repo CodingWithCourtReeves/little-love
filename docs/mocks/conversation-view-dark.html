@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove — Conversation (Dark)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Warm dark — slightly brown-black, not cold gray */
+    --bg:           #1F1814;     /* room body */
+    --bg-2:         #2A2118;     /* sidebar */
+    --bg-3:         #342820;     /* hover, raised */
+    --bg-4:         #3E3026;     /* bubbles */
+    --line:         #4A3A2E;
+    --line-soft:    #3A2E25;
+
+    --ink:          #F0E5D3;     /* primary text */
+    --ink-2:        #D0BFA4;
+    --ink-3:        #8E7E69;
+
+    --rose:         #E58A7A;
+    --rose-deep:    #4A2A23;     /* user bubble bg */
+    --rose-soft:    #6B3A2F;
+
+    --teal:         #6CB1A6;     /* familiar accent (lifted for dark) */
+    --teal-deep:    #1F3A37;
+    --teal-soft:    #2C4A47;
+
+    --gold:         #D9B26B;
+    --shadow:       0 1px 0 rgba(255,235,200,0.03), 0 10px 28px -10px rgba(0,0,0,0.5);
+    --serif: 'Source Serif 4', Georgia, serif;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #110b07; font-family: var(--sans); color: var(--ink); }
+  body { display: flex; justify-content: center; padding: 28px; min-height: 100vh; }
+
+  .window {
+    width: 1280px;
+    height: 800px;
+    background: var(--bg);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 30px 90px -20px rgba(0,0,0,0.7), 0 1px 0 rgba(255,220,180,0.04) inset;
+    display: grid;
+    grid-template-rows: 38px 1fr;
+  }
+  .titlebar {
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--line-soft);
+    display: flex; align-items: center;
+    padding: 0 14px;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+  .traffic { display: flex; gap: 7px; }
+  .traffic span { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .traffic .r { background: #E26A60; }
+  .traffic .y { background: #E6B23A; }
+  .traffic .g { background: #5BB85B; }
+  .titlebar .title { flex: 1; text-align: center; font-family: var(--serif); font-size: 13px; color: var(--ink-2); letter-spacing: 0.02em; }
+
+  .body {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    height: 100%;
+    min-height: 0;
+  }
+
+  /* ─── Sidebar ─────────────────────────────────── */
+  .sidebar {
+    background: var(--bg-2);
+    border-right: 1px solid var(--line-soft);
+    display: flex; flex-direction: column;
+    min-height: 0;
+  }
+  .brand {
+    padding: 18px 20px 14px;
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  .brand .glyph {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 22px;
+    color: var(--teal);
+  }
+  .brand .name {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: 0.01em;
+  }
+  .brand .tag {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--ink-3);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .search {
+    margin: 4px 14px 10px;
+    background: var(--bg);
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: var(--ink-3);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .search .k {
+    margin-left: auto;
+    font-size: 10px;
+    background: var(--bg-3);
+    color: var(--ink-2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.06em;
+  }
+
+  .section-label {
+    padding: 14px 22px 6px;
+    font-size: 10px;
+    color: var(--ink-3);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .conv-list { padding: 0 8px 8px; overflow-y: auto; }
+
+  .conv {
+    display: grid;
+    grid-template-columns: 36px 1fr auto;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: default;
+    align-items: center;
+  }
+  .conv:hover { background: var(--bg-3); }
+  .conv.active {
+    background: var(--bg-3);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .conv .avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--rose-soft);
+    color: var(--ink);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 14px;
+  }
+  .conv .avatar.group {
+    background: linear-gradient(135deg, var(--rose-soft) 0%, var(--teal-soft) 100%);
+  }
+  .conv .meta { min-width: 0; }
+  .conv .name { font-weight: 600; font-size: 13.5px; color: var(--ink); display: flex; align-items: center; gap: 6px; }
+  .conv .preview { font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .conv .when { font-size: 11px; color: var(--ink-3); align-self: start; }
+  .pill {
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    background: var(--teal-deep);
+    color: var(--teal);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  .me-strip {
+    margin-top: auto;
+    padding: 14px 18px;
+    border-top: 1px solid var(--line-soft);
+    display: flex; align-items: center; gap: 10px;
+    background: var(--bg-2);
+  }
+  .me-strip .avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--rose-soft);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 13px; color: var(--ink);
+  }
+  .me-strip .who { font-size: 13px; font-weight: 600; }
+  .me-strip .status { font-size: 11px; color: var(--ink-3); }
+  .me-strip .gear { margin-left: auto; color: var(--ink-3); font-size: 16px; cursor: default; }
+
+  /* ─── Main column ─────────────────────────────── */
+  .main { display: flex; flex-direction: column; min-height: 0; }
+
+  .conv-header {
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--line-soft);
+    background: var(--bg);
+    display: flex; align-items: center; gap: 14px;
+  }
+  .conv-header .who {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .conv-header .members {
+    font-size: 12px;
+    color: var(--ink-3);
+    margin-top: 2px;
+  }
+  .stack-avatars { display: flex; }
+  .stack-avatars > * {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 13px;
+    border: 2px solid var(--bg);
+    margin-left: -8px;
+  }
+  .stack-avatars > *:first-child { margin-left: 0; }
+  .av-circle { border-radius: 50%; background: var(--rose-soft); color: var(--ink); }
+  .av-circle.k { background: #8B6A4A; }
+  .av-hex {
+    width: 30px; height: 30px;
+    background: var(--teal-deep);
+    color: var(--teal);
+    clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%);
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .header-actions { margin-left: auto; display: flex; gap: 14px; color: var(--ink-3); font-size: 16px; }
+
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 22px 32px 16px;
+    background:
+      radial-gradient(1200px 400px at 20% 0%, rgba(229,138,122,0.06), transparent 60%),
+      radial-gradient(1200px 500px at 90% 100%, rgba(108,177,166,0.06), transparent 60%),
+      var(--bg);
+  }
+
+  .day-divider {
+    text-align: center;
+    margin: 6px 0 18px;
+    font-size: 11px;
+    color: var(--ink-3);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .day-divider::before, .day-divider::after {
+    content: ""; flex: 1; height: 1px; background: var(--line-soft);
+  }
+
+  .msg {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 12px;
+    margin: 0 0 14px;
+  }
+  .msg .av {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 14px; color: var(--ink);
+    background: var(--rose-soft);
+    margin-top: 2px;
+  }
+  .msg.k .av { background: #8B6A4A; }
+  .msg .meta { font-size: 12px; color: var(--ink-3); margin-bottom: 4px; }
+  .msg .meta .nm { font-weight: 600; color: var(--ink); margin-right: 6px; font-size: 13px; }
+  .msg .bubble {
+    background: var(--bg-4);
+    border: 1px solid var(--line-soft);
+    border-radius: 4px 12px 12px 12px;
+    padding: 10px 14px;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--ink);
+    max-width: 640px;
+    display: inline-block;
+  }
+  .msg.me .bubble {
+    background: var(--rose-deep);
+    border-color: #5C3328;
+    color: #FBE0D8;
+  }
+
+  /* AI familiar */
+  .msg.bot .av {
+    background-color: var(--teal-deep);
+    color: var(--teal);
+    clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%);
+    font-family: var(--serif);
+    font-style: italic;
+    border-radius: 0;
+  }
+  .msg.bot .bubble {
+    background: #28332F;
+    border: 1px solid var(--teal-soft);
+    border-left: 2px solid var(--teal);
+    color: var(--ink);
+  }
+  .msg.bot .meta .nm { color: var(--teal); }
+  .msg.bot .meta .ai-pill {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--teal);
+    background: var(--teal-deep);
+    padding: 1px 5px;
+    border-radius: 3px;
+    vertical-align: 2px;
+    margin-right: 6px;
+  }
+  .msg.bot .meta .source {
+    font-style: italic;
+    font-family: var(--serif);
+    color: var(--ink-3);
+    margin-left: 6px;
+    font-size: 11.5px;
+  }
+
+  /* Attachment */
+  .attach {
+    max-width: 640px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--bg-4);
+    border: 1px solid var(--line-soft);
+  }
+  .attach .img {
+    height: 230px;
+    background:
+      radial-gradient(60% 90% at 50% 20%, #f3b06a, transparent 60%),
+      linear-gradient(180deg, #C28453 0%, #8E4F38 50%, #2A1A14 100%);
+    position: relative;
+    color: rgba(255,235,210,0.9);
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 13px;
+    padding: 10px 14px;
+    display: flex; align-items: flex-end;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  }
+  .attach .img::after {
+    content: "";
+    position: absolute;
+    bottom: 20%; right: 16%;
+    width: 60px; height: 60px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #fff8e8, #f3d28a 60%, #c98a3d 100%);
+    box-shadow: 0 0 50px rgba(255,200,120,0.55);
+  }
+  .attach .cap {
+    padding: 8px 14px;
+    font-size: 12px;
+    color: var(--ink-3);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .attach .cap .name { color: var(--ink-2); font-weight: 500; }
+
+  .presence-bar {
+    padding: 6px 32px 0;
+    font-size: 11.5px;
+    color: var(--ink-3);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .online-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #7BC097; box-shadow: 0 0 0 3px rgba(123,192,151,0.18);
+    display: inline-block;
+  }
+
+  /* Composer */
+  .composer-wrap {
+    border-top: 1px solid var(--line-soft);
+    padding: 14px 28px 18px;
+    background: var(--bg);
+  }
+  .composer {
+    background: var(--bg-3);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 10px 12px 8px;
+    box-shadow: var(--shadow);
+  }
+  .composer .row1 {
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .composer .ta {
+    flex: 1;
+    border: 0; outline: 0; resize: none;
+    font: inherit; font-size: 14px; line-height: 1.5;
+    background: transparent; color: var(--ink);
+    min-height: 36px;
+    padding-top: 6px;
+  }
+  .composer .ta .placeholder { color: var(--ink-3); }
+  .composer .row2 {
+    display: flex; align-items: center; gap: 4px;
+    padding-top: 4px;
+    border-top: 1px dashed var(--line-soft);
+    margin-top: 4px;
+  }
+  .composer .icon {
+    width: 30px; height: 30px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ink-3); font-size: 15px;
+    border-radius: 6px; cursor: default;
+  }
+  .composer .icon:hover { background: var(--bg-4); }
+  .composer .at-row {
+    display: inline-flex; align-items: center; gap: 4px;
+    color: var(--teal); font-size: 12px; font-weight: 500;
+    background: var(--teal-deep);
+    padding: 3px 8px;
+    border-radius: 999px;
+    margin-left: 6px;
+  }
+  .composer .send {
+    margin-left: auto;
+    background: var(--ink);
+    color: #2A1F18;
+    border: 0;
+    padding: 7px 16px;
+    border-radius: 8px;
+    font: inherit; font-size: 13px; font-weight: 600;
+    cursor: default;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .composer .hint {
+    font-size: 11px; color: var(--ink-3);
+    margin-left: 8px;
+  }
+
+  /* Design notes block */
+  .design-notes {
+    width: 1280px;
+    margin: 18px auto 0;
+    background: rgba(40,28,20,0.65);
+    border: 1px dashed #5a4634;
+    border-radius: 8px;
+    padding: 14px 20px;
+    color: #d5c4a8;
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .design-notes h4 {
+    margin: 0 0 6px;
+    font-family: var(--serif);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--gold);
+    text-transform: uppercase;
+  }
+  .design-notes ul { margin: 0; padding-left: 18px; }
+  .design-notes li { margin-bottom: 3px; }
+
+  .wrap { display: flex; flex-direction: column; align-items: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="window">
+  <div class="titlebar">
+    <div class="traffic"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+    <div class="title">LittleLove</div>
+    <div style="width:54px;"></div>
+  </div>
+
+  <div class="body">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="glyph">&amp;</span>
+        <span class="name">LittleLove</span>
+        <span class="tag">private</span>
+      </div>
+
+      <div class="search">
+        <span>&#9906;</span>
+        <span>Search conversations</span>
+        <span class="k">&#8984;K</span>
+      </div>
+
+      <div class="section-label">Pinned</div>
+      <div class="conv-list">
+        <div class="conv active">
+          <div class="avatar">K</div>
+          <div class="meta">
+            <div class="name">Kaitlyn <span class="pill">AI</span></div>
+            <div class="preview">Ollie: Two votes for tacos, then.</div>
+          </div>
+          <div class="when">now</div>
+        </div>
+        <div class="conv">
+          <div class="avatar group">F</div>
+          <div class="meta">
+            <div class="name">Family</div>
+            <div class="preview">Mom: see you Sunday &#10084;</div>
+          </div>
+          <div class="when">2h</div>
+        </div>
+
+        <div class="section-label" style="padding-left:14px;">Conversations</div>
+
+        <div class="conv">
+          <div class="avatar" style="background:#5A4938;">B</div>
+          <div class="meta">
+            <div class="name">Bard <span class="pill">AI</span></div>
+            <div class="preview">You: read me the second stanza again</div>
+          </div>
+          <div class="when">Mon</div>
+        </div>
+        <div class="conv">
+          <div class="avatar" style="background:#3F4E47;">C</div>
+          <div class="meta">
+            <div class="name">Coach <span class="pill">AI</span></div>
+            <div class="preview">Coach: nice work this week.</div>
+          </div>
+          <div class="when">Sun</div>
+        </div>
+        <div class="conv">
+          <div class="avatar" style="background:#6A4D3D;">M</div>
+          <div class="meta">
+            <div class="name">Mom</div>
+            <div class="preview">picture from the garden</div>
+          </div>
+          <div class="when">Sat</div>
+        </div>
+        <div class="conv">
+          <div class="avatar" style="background:#4A4A5C;">J</div>
+          <div class="meta">
+            <div class="name">Jamie</div>
+            <div class="preview">brunch at 11? &#9728;</div>
+          </div>
+          <div class="when">Fri</div>
+        </div>
+      </div>
+
+      <div class="me-strip">
+        <div class="avatar">C</div>
+        <div>
+          <div class="who">@court</div>
+          <div class="status"><span class="online-dot"></span> &nbsp;Connected · 2 devices</div>
+        </div>
+        <div class="gear">&#9881;</div>
+      </div>
+    </aside>
+
+    <section class="main">
+      <div class="conv-header">
+        <div class="stack-avatars">
+          <div class="av-circle k">K</div>
+          <div class="av-hex">O</div>
+        </div>
+        <div>
+          <div class="who">Kaitlyn &amp; Ollie</div>
+          <div class="members">@kaitlyn · <span style="color:var(--teal);">Ollie</span> familiar (llama3.1:8b · Home Box)</div>
+        </div>
+        <div class="header-actions">
+          <span class="item">&#128206;</span>
+          <span class="item">&#9906;</span>
+          <span class="item">&#9432;</span>
+        </div>
+      </div>
+
+      <div class="messages">
+        <div class="day-divider">Today</div>
+
+        <div class="msg k">
+          <div class="av">K</div>
+          <div>
+            <div class="meta"><span class="nm">@kaitlyn</span> 5:42 PM</div>
+            <div class="bubble">hey love &#9728;&#65039; finally out of meetings. how's your afternoon going?</div>
+          </div>
+        </div>
+
+        <div class="msg me">
+          <div class="av">C</div>
+          <div>
+            <div class="meta"><span class="nm">@court</span> 5:43 PM</div>
+            <div class="bubble">good &mdash; finally got that bug nailed. brain is fried though. what should we do for dinner?</div>
+          </div>
+        </div>
+
+        <div class="msg k">
+          <div class="av">K</div>
+          <div>
+            <div class="meta"><span class="nm">@kaitlyn</span> 5:43 PM</div>
+            <div class="bubble">no idea. anything that isn't pasta again. @ollie thoughts?</div>
+          </div>
+        </div>
+
+        <div class="msg bot">
+          <div class="av">O</div>
+          <div>
+            <div class="meta">
+              <span class="ai-pill">AI</span>
+              <span class="nm">Ollie</span>
+              <span>5:44 PM</span>
+              <span class="source">via Home Box · llama3.1:8b</span>
+            </div>
+            <div class="bubble">
+              Two ideas, both anti-pasta:<br>
+              &nbsp;1. <b>Tacos al pastor</b> &mdash; quick, you've got the marinade from Tuesday, and there's a lime in the fruit bowl I'm pretty sure I heard you mention.<br>
+              &nbsp;2. <b>Sheet-pan salmon &amp; broccolini</b> &mdash; 25 minutes, almost no dishes, and Court called his brain &ldquo;fried,&rdquo; which feels diagnostic.
+            </div>
+          </div>
+        </div>
+
+        <div class="msg me">
+          <div class="av">C</div>
+          <div>
+            <div class="meta"><span class="nm">@court</span> 5:45 PM</div>
+            <div class="bubble">tacos. easy call. also &mdash; reminder of where we were sunday morning, the kitchen window looked like this:</div>
+            <div class="attach" style="margin-top:8px;">
+              <div class="img">sunrise &mdash; kitchen window, sunday</div>
+              <div class="cap">
+                <span>&#128247;</span>
+                <span class="name">sunday-window.jpg</span>
+                <span>&middot; 1.8&nbsp;MB &middot; encrypted</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="msg k">
+          <div class="av">K</div>
+          <div>
+            <div class="meta"><span class="nm">@kaitlyn</span> 5:46 PM</div>
+            <div class="bubble">that one's going on the fridge &#10084;</div>
+          </div>
+        </div>
+
+        <div class="msg bot">
+          <div class="av">O</div>
+          <div>
+            <div class="meta">
+              <span class="ai-pill">AI</span>
+              <span class="nm">Ollie</span>
+              <span>5:46 PM</span>
+            </div>
+            <div class="bubble">Two votes for tacos, then. I'll stop strategizing. &#127790;</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="presence-bar">
+        <span class="online-dot"></span>
+        <span>Ollie is online &middot; Home Box (Windows) &middot; responds when mentioned</span>
+      </div>
+
+      <div class="composer-wrap">
+        <div class="composer">
+          <div class="row1">
+            <div class="ta"><span class="placeholder">Message Kaitlyn &amp; Ollie&hellip;</span></div>
+          </div>
+          <div class="row2">
+            <div class="icon">&#128206;</div>
+            <div class="icon">&#127908;</div>
+            <div class="icon">&#9786;</div>
+            <span class="at-row">@ollie</span>
+            <span class="hint">end-to-end encrypted &middot; MLS epoch 0x4f2a</span>
+            <button class="send">Send &#9166;</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<aside class="design-notes">
+  <h4>Design notes &mdash; conversation view (dark)</h4>
+  <ul>
+    <li><b>Warm dark, not cold.</b> Base #1F1814 (slight brown-black), bubbles #3E3026, ink #F0E5D3 cream. No pure neutrals anywhere. Sits in the same "evening lamp / journal" mood as the light theme rather than a developer terminal.</li>
+    <li><b>Teal lifts in dark mode.</b> Ollie's accent shifts from forest #2E5D5A (light) to a brighter #6CB1A6 (dark) so the familiar still reads "alive" at low brightness without becoming neon.</li>
+    <li><b>Rose user bubble stays rose.</b> Deep oxblood #4A2A23 keeps the warm coral identity in dark mode; this is the place Court is most likely to want to push back &mdash; we could flatten it to neutral if it feels too "Valentines."</li>
+    <li><b>Bot bubble keeps its left-edge teal rule.</b> The same affordance carries through both themes, so users learn the pattern once: hex avatar + AI pill + teal edge = familiar.</li>
+    <li><b>Glow on the attachment, not the chrome.</b> The only soft luminance in the view is the sun in the attachment photo &mdash; chrome stays matte. Keeps the "magical undertone" in the content, not the UI shell.</li>
+  </ul>
+</aside>
+</div>
+</body>
+</html>
