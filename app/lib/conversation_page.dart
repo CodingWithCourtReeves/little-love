@@ -12,6 +12,25 @@ class _SendIntent extends Intent {
   const _SendIntent();
 }
 
+sealed class _Item {
+  const _Item();
+}
+
+class _BubbleItem extends _Item {
+  const _BubbleItem(this.msg);
+  final Msg msg;
+}
+
+class _DayItem extends _Item {
+  const _DayItem(this.day);
+  final DateTime day;
+}
+
+class _GapItem extends _Item {
+  const _GapItem(this.time);
+  final DateTime time;
+}
+
 class ConversationPage extends StatefulWidget {
   const ConversationPage({
     super.key,
@@ -123,6 +142,7 @@ class _ConversationPageState extends State<ConversationPage> {
   Widget build(BuildContext context) {
     final sorted = [...widget.messages]
       ..sort((a, b) => a.ts.compareTo(b.ts));
+    final items = _itemize(sorted);
     return Scaffold(
       backgroundColor: HearthColors.bgCanvas,
       appBar: AppBar(
@@ -141,8 +161,15 @@ class _ConversationPageState extends State<ConversationPage> {
                 ListView.builder(
                   controller: _scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  itemCount: sorted.length,
-                  itemBuilder: (_, i) => _bubble(sorted[i]),
+                  itemCount: items.length,
+                  itemBuilder: (_, i) {
+                    final item = items[i];
+                    return switch (item) {
+                      _BubbleItem(:final msg) => _bubble(msg),
+                      _DayItem(:final day) => _daySeparator(day),
+                      _GapItem(:final time) => _gapHeader(time),
+                    };
+                  },
                 ),
                 Positioned(
                   right: 16,
@@ -228,38 +255,159 @@ class _ConversationPageState extends State<ConversationPage> {
 
   Widget _bubble(Msg m) {
     final mine = m.from == widget.meUsername;
+    final tip = _formatFullDateTime(m.ts.toLocal());
     if (_isEmojiOnly(m.body)) {
-      return Align(
-        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 14),
-          child: Text(
-            m.body.trim(),
-            style: const TextStyle(fontSize: 48, height: 1.1),
+      return Tooltip(
+        message: tip,
+        waitDuration: const Duration(milliseconds: 400),
+        child: Align(
+          alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 14),
+            child: Text(
+              m.body.trim(),
+              style: const TextStyle(fontSize: 48, height: 1.1),
+            ),
           ),
         ),
       );
     }
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints: const BoxConstraints(maxWidth: 480),
-        decoration: BoxDecoration(
-          color: mine ? HearthColors.bubbleUserBg : HearthColors.bubblePartnerBg,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: HearthColors.borderSoft),
-        ),
-        child: Text(
-          m.body,
-          style: TextStyle(
-            color: mine ? HearthColors.bubbleUserText : HearthColors.textPrimary,
-            fontSize: 16,
+    return Tooltip(
+      message: tip,
+      waitDuration: const Duration(milliseconds: 400),
+      child: Align(
+        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          constraints: const BoxConstraints(maxWidth: 480),
+          decoration: BoxDecoration(
+            color:
+                mine ? HearthColors.bubbleUserBg : HearthColors.bubblePartnerBg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: HearthColors.borderSoft),
+          ),
+          child: Text(
+            m.body,
+            style: TextStyle(
+              color:
+                  mine ? HearthColors.bubbleUserText : HearthColors.textPrimary,
+              fontSize: 16,
+            ),
           ),
         ),
       ),
     );
+  }
+
+  Widget _daySeparator(DateTime day) {
+    return Padding(
+      key: ValueKey('day-${day.toIso8601String()}'),
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(height: 1, color: HearthColors.borderSoft),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              _formatDaySeparator(day),
+              style: const TextStyle(
+                color: HearthColors.textMuted,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Container(height: 1, color: HearthColors.borderSoft),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _gapHeader(DateTime t) {
+    return Padding(
+      key: ValueKey('gap-${t.toIso8601String()}'),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: Text(
+          _formatGapHeader(t),
+          style: const TextStyle(
+            color: HearthColors.textMuted,
+            fontSize: 11,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Group messages by day and insert separators for date changes and for
+  /// gaps of >= 1 hour within a day.
+  static List<_Item> _itemize(List<Msg> sorted) {
+    const gapThreshold = Duration(hours: 1);
+    final out = <_Item>[];
+    DateTime? prevLocal;
+    for (final m in sorted) {
+      final local = m.ts.toLocal();
+      if (prevLocal == null) {
+        out.add(_DayItem(_dateOnly(local)));
+      } else if (_dateOnly(local) != _dateOnly(prevLocal)) {
+        out.add(_DayItem(_dateOnly(local)));
+      } else if (local.difference(prevLocal) >= gapThreshold) {
+        out.add(_GapItem(local));
+      }
+      out.add(_BubbleItem(m));
+      prevLocal = local;
+    }
+    return out;
+  }
+
+  static DateTime _dateOnly(DateTime dt) =>
+      DateTime(dt.year, dt.month, dt.day);
+
+  static String _formatDaySeparator(DateTime day) {
+    final today = _dateOnly(DateTime.now());
+    if (day == today) return 'Today';
+    if (day == today.subtract(const Duration(days: 1))) return 'Yesterday';
+    final diff = today.difference(day).inDays;
+    if (diff > 0 && diff < 7) return _weekdayName(day.weekday);
+    if (day.year == today.year) return '${_monthName(day.month)} ${day.day}';
+    return '${_monthName(day.month)} ${day.day}, ${day.year}';
+  }
+
+  static String _formatGapHeader(DateTime t) {
+    // Just the time of day; the day separator above already establishes the date.
+    return _formatTime(t);
+  }
+
+  static String _formatFullDateTime(DateTime t) {
+    return '${_formatDaySeparator(_dateOnly(t))} at ${_formatTime(t)}';
+  }
+
+  static String _formatTime(DateTime t) {
+    final h = t.hour == 0 ? 12 : (t.hour > 12 ? t.hour - 12 : t.hour);
+    final m = t.minute.toString().padLeft(2, '0');
+    final ampm = t.hour < 12 ? 'AM' : 'PM';
+    return '$h:$m $ampm';
+  }
+
+  static String _weekdayName(int wd) {
+    const names = [
+      'Monday', 'Tuesday', 'Wednesday', 'Thursday',
+      'Friday', 'Saturday', 'Sunday',
+    ];
+    return names[wd - 1];
+  }
+
+  static String _monthName(int month) {
+    const names = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return names[month - 1];
   }
 
   /// True when every grapheme in the message is in an emoji-ish codepoint

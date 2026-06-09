@@ -48,6 +48,89 @@ void main() {
     expect(sent, 'hi');
   });
 
+  testWidgets('day separators appear between messages on different days',
+      (tester) async {
+    final messages = <Msg>[
+      Msg(
+        id: '1', from: 'kaitlyn', to: 'court', body: 'from earlier',
+        ts: DateTime.now().toUtc().subtract(const Duration(days: 2)),
+      ),
+      Msg(
+        id: '2', from: 'court', to: 'kaitlyn', body: 'today',
+        ts: DateTime.now().toUtc(),
+      ),
+    ];
+    await tester.pumpWidget(MaterialApp(
+      theme: buildHearthTheme(),
+      home: ConversationPage(
+        meUsername: 'court',
+        contactDisplayName: 'Kaitlyn',
+        messages: messages,
+        onSend: (_) {},
+      ),
+    ));
+    expect(find.text('Today'), findsOneWidget);
+    // Two days ago is either a weekday name or a date; either way it's not "Today".
+    expect(find.byWidgetPredicate((w) {
+      if (w is Text && w.data != null) {
+        return w.data == 'Yesterday' ||
+            RegExp(r'^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)')
+                .hasMatch(w.data!);
+      }
+      return false;
+    }), findsWidgets);
+  });
+
+  testWidgets('gap header appears between messages with a 1+ hour gap on same day',
+      (tester) async {
+    final morning = DateTime(2026, 6, 9, 8, 0).toUtc();
+    final evening = DateTime(2026, 6, 9, 20, 0).toUtc();
+    final messages = <Msg>[
+      Msg(id: '1', from: 'court', to: 'kaitlyn', body: 'morning ping', ts: morning),
+      Msg(id: '2', from: 'kaitlyn', to: 'court', body: 'evening reply', ts: evening),
+    ];
+    await tester.pumpWidget(MaterialApp(
+      theme: buildHearthTheme(),
+      home: ConversationPage(
+        meUsername: 'court',
+        contactDisplayName: 'Kaitlyn',
+        messages: messages,
+        onSend: (_) {},
+      ),
+    ));
+    // 8 PM in the user's local time should appear as a gap header.
+    final localEvening = evening.toLocal();
+    final hour12 = localEvening.hour == 0
+        ? 12
+        : (localEvening.hour > 12 ? localEvening.hour - 12 : localEvening.hour);
+    final ampm = localEvening.hour < 12 ? 'AM' : 'PM';
+    final expectedTime =
+        '$hour12:${localEvening.minute.toString().padLeft(2, '0')} $ampm';
+    expect(find.text(expectedTime), findsOneWidget);
+  });
+
+  testWidgets('bubble has a Tooltip showing the full timestamp', (tester) async {
+    final messages = <Msg>[
+      Msg(
+        id: '1', from: 'court', to: 'kaitlyn', body: 'hello',
+        ts: DateTime(2026, 6, 9, 17, 14).toUtc(),
+      ),
+    ];
+    await tester.pumpWidget(MaterialApp(
+      theme: buildHearthTheme(),
+      home: ConversationPage(
+        meUsername: 'court',
+        contactDisplayName: 'Kaitlyn',
+        messages: messages,
+        onSend: (_) {},
+      ),
+    ));
+    final tooltip = tester.widget<Tooltip>(
+      find.ancestor(of: find.text('hello'), matching: find.byType(Tooltip)),
+    );
+    expect(tooltip.message, contains(' at '));
+  });
+
   testWidgets('emoji-only messages render at large size without a bubble',
       (tester) async {
     final messages = <Msg>[
