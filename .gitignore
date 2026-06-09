@@ -10,6 +10,8 @@ Cargo.lock
 /app/.pub-cache/
 /app/.pub/
 /app/build/
+/build/
+/app/littlelove.iml
 /app/macos/Pods/
 /app/macos/Podfile.lock
 /app/windows/x64/

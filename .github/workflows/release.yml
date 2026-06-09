@@ -36,7 +36,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: '3.22.x'
+          flutter-version: '3.44.x'
       - name: Build macOS
         working-directory: app
         run: |
@@ -67,7 +67,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: '3.22.x'
+          flutter-version: '3.44.x'
       - name: Build Windows
         working-directory: app
         run: |

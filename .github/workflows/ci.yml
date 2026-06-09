@@ -49,7 +49,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: '3.22.x'
+          flutter-version: '3.44.x'
       - run: flutter pub get
       - run: dart format --output=none --set-exit-if-changed .
       - run: flutter analyze
