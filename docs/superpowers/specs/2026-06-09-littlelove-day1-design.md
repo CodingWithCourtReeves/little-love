@@ -134,58 +134,104 @@ Day-1 infrastructure overlap with Phase 1: shares the same Railway project and `
 little-love/
 ├── server/                 # Rust + Axum (Day 1)
 │   ├── Cargo.toml
+│   ├── Dockerfile
 │   └── src/main.rs
-├── app/                    # Flutter desktop (Day 1, macOS only)
+├── app/                    # Flutter desktop (Day 1, macOS + Windows)
 │   ├── pubspec.yaml
 │   └── lib/
 │       ├── main.dart
-│       ├── config.dart      # reads ~/.littlelove/config.toml
+│       ├── config.dart      # reads OS-appropriate config path
 │       ├── conversation_page.dart
 │       ├── ws_client.dart
 │       └── crypto.dart      # Day-1b only; XChaCha20-Poly1305 wrapper
-├── docs/                   # (already populated)
+├── docker-compose.yml       # local dev stack (api only in Day 1; pg/minio later)
+├── scripts/
+│   ├── dev-up.sh            # worktree-aware: derives project name + ports
+│   ├── dev-down.sh
+│   └── dev-env.sh           # sourced helper; computes COMPOSE_PROJECT_NAME + offsets
+├── .github/workflows/
+│   ├── ci.yml               # build + lint + tests for server and app
+│   └── release.yml          # triggered on tag push; builds + publishes binaries
+├── docs/                    # (already populated)
 ├── README.md
 └── .gitignore
 ```
 
-## 10. Build & run
+## 10. Local dev & distribution
 
-### Server
+### 10.1 Local dev stack — Docker Compose, worktree-aware
+
+`docker-compose.yml` defines the full local stack. Day-1 ships just the `api` service; Day-2 adds `postgres`; Phase 1 adds `minio` (for R2 emulation).
+
+Court uses heavy git-worktree development. To avoid port and volume conflicts when multiple worktrees run side-by-side, the dev scripts namespace everything by worktree directory name:
+
+- **`COMPOSE_PROJECT_NAME`** is set to `$(basename "$PWD")`. Containers, networks, and named volumes all become `<worktree>_*`. Postgres data in one worktree never bleeds into another.
+- **Port offset** is computed deterministically from the worktree name: `offset = sha1(name) mod 100`. Each Compose service publishes at `base_port + offset`. Worktree A might land on `:7707`, worktree B on `:7752`.
+- **`scripts/dev-up.sh`** computes both, writes them to a gitignored `.dev.env`, and runs `docker compose up -d`. Prints the URLs to use.
+- **`scripts/dev-down.sh`** runs `docker compose down`.
 
 ```sh
-cd server
-cargo run                   # listens on 127.0.0.1:7707
+# any worktree
+./scripts/dev-up.sh
+# → starts api on http://127.0.0.1:<offset_port>
+flutter run -d macos     # or `flutter run -d windows`
+./scripts/dev-down.sh
 ```
 
-### Client — macOS (Court)
+### 10.2 Distribution — GitHub Releases on tag push
 
-```sh
-cd app
-flutter run -d macos        # uses ~/.littlelove/config.toml
-```
+Court and Kaitlyn install the app from **pre-built binaries published to GitHub Releases**, not by running `flutter run` themselves. This removes Kaitlyn's biggest friction (the Windows toolchain install).
 
-Prereq: Xcode command-line tools installed.
+- `.github/workflows/release.yml` triggers on tag push matching `v*`.
+- Three parallel jobs:
+  1. **`server`** — build container, push to `ghcr.io/codingwithcourtreeves/littlelove-api:<tag>`, deploy to Railway.
+  2. **`app-macos`** — `macos-latest` runner; `flutter build macos`; package as `.dmg`; upload to release.
+  3. **`app-windows`** — `windows-latest` runner; `flutter build windows`; package as `.msi`; upload to release.
+- All three artifacts attach to the GitHub Release page.
+- Versioning follows semver from the tag: `v0.1.0-day1a`, `v0.1.0-day1b`, `v0.2.0`, etc.
 
-### Client — Windows (Kaitlyn)
+**No code signing in Phase 1.** First-launch warnings ("unidentified developer" on macOS, SmartScreen on Windows) are expected and will be documented in the release notes. Apple Developer + Windows Authenticode certs come if/when the product goes public.
 
-```powershell
-cd app
-flutter run -d windows       # uses %USERPROFILE%\.littlelove\config.toml
-```
+### 10.3 Court & Kaitlyn's install flow
 
-Prereq: Visual Studio 2022 with the "Desktop development with C++" workload, plus Flutter Windows desktop enabled (`flutter config --enable-windows-desktop`). Kaitlyn builds + runs locally on her own machine; she does not receive a pre-built binary from Court.
+1. Court pushes a tag (`git tag v0.1.0-day1b && git push --tags`).
+2. CI publishes the release with `LittleLove-0.1.0-day1b.dmg` and `LittleLove-0.1.0-day1b.msi`.
+3. Court downloads the `.dmg`, drags to `/Applications`. First launch: right-click → Open → "Open anyway."
+4. Kaitlyn downloads the `.msi`, double-clicks. First launch: SmartScreen → "More info" → "Run anyway."
+5. Both place their `config.toml` at the OS-appropriate path (§5).
+6. They open the app; it connects to `wss://api.littlelove.dev/ws` (configured in the Day-1b config).
 
-Until the server is on Railway, both clients point at Court's machine's LAN IP for `server_url` in their respective configs (`ws://192.168.x.x:7707/ws`).
+### 10.4 Server URL across the slices
+
+- **Day-1a (local LAN):** server runs on Court's machine via `./scripts/dev-up.sh`. Clients point at `ws://192.168.x.x:<port>/ws`.
+- **Day-1b (deployed):** server runs on Railway. Clients point at `wss://api.littlelove.dev/ws`. Same `Dockerfile`, same binary, just `docker compose up` → Railway deploy.
+
+### 10.5 Developer prereqs (Court only)
+
+- Docker Desktop (macOS) or Docker Engine + Compose.
+- Rust toolchain (`rustup`).
+- Flutter SDK + Xcode CLT (macOS) for client iteration.
+- A GitHub Personal Access Token with `write:packages` for local `release.yml` testing — optional.
+
+**Kaitlyn needs none of this.** She installs the `.msi` and runs the app.
 
 ## 11. Testing
 
-- Day 1 testing is **manual two-laptop QA**. Court types, Kaitlyn sees it; reverse direction. Restart each side, confirm graceful reconnect.
-- One unit test per non-trivial Dart file is the minimum:
-  - `config_test.dart` — parses a TOML config correctly.
-  - `crypto_test.dart` (Day-1b) — round-trip encrypt → decrypt with the same key.
-- One Rust unit test on the server: `forwards_message_to_recipient_when_both_connected`.
+Three layers:
 
-TDD discipline per saved feedback: write the failing test first for each of those three.
+1. **Unit tests** — TDD-first per saved feedback. Minimum set:
+   - `config_test.dart` — parses a TOML config correctly.
+   - `crypto_test.dart` (Day-1b) — round-trip encrypt → decrypt with the same key.
+   - `server::forwards_message_to_recipient_when_both_connected` (Rust).
+
+2. **Integration tests against the full stack** — run against the Docker Compose stack started by `./scripts/dev-up.sh`. A small `tests/integration/` harness:
+   - Brings up the stack (or uses the existing one if already running).
+   - Spawns two fake clients (Rust test harness using `tokio-tungstenite`).
+   - Asserts message round-trip: client A → server → client B with the right `from`/`to`/`body`.
+   - Tears down (or leaves running if invoked with `--reuse`).
+   - Runs in CI as part of `ci.yml`.
+
+3. **Manual two-laptop QA** — Court types on macOS, Kaitlyn sees it on Windows. Reverse direction. Kill each side, confirm graceful reconnect within 5s.
 
 ## 12. Acceptance criteria
 
@@ -213,6 +259,7 @@ This is a sketch, not a commitment. Each slice gets brainstormed and spec'd when
 ## 14. Risks
 
 - **Networking gotchas on a home LAN** — firewalls (macOS *and* Windows Defender), sleep/wake on a Mac, Wi-Fi router config. Windows Defender will prompt on first run of the Axum server if Court hosts on his Windows box; allow on private network. Mitigate by being prepared to deploy the server to Railway early if LAN turns out to be flaky.
-- **Windows toolchain setup tax** — Kaitlyn needs Visual Studio Build Tools + "Desktop development with C++" workload (multi-GB download). Plan for an hour of toolchain install before her first `flutter run -d windows`. Once done, it's a one-time cost.
+- **First-launch unsigned-binary warnings** — Court (right-click → Open on macOS) and Kaitlyn (SmartScreen → Run anyway on Windows) will see warnings on first launch of each new release. Documented in release notes. Real code signing is deferred to public-launch readiness.
+- **Worktree dev-script edge cases** — port-offset hashing could collide if two worktrees happen to have names that hash to the same offset (1-in-100 odds per pair). `dev-up.sh` detects collisions against currently-running Compose projects and bumps if needed.
 - **Pure-Dart code becoming load-bearing** — be explicit in the README that Day-1 Dart is throwaway, so we don't accidentally lean on it past Day 3.
 - **Time pressure to add "just one more thing"** — Day 1 is intentionally tiny. Defer everything that doesn't fit the §3 list, even if it's tempting.

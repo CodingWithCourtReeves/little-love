@@ -570,6 +570,7 @@ Per Court's saved TDD preference: failing test first → make it pass → refact
 
 - **`core/`** — Rust unit tests covering MLS state transitions we manage on top of openmls, local-store invariants, attachment encryption round-trips. We do not retest openmls itself.
 - **`server/`** — Integration tests using a real Postgres (via testcontainers). End-to-end test harness with two simulated clients (in-process), no UI, that exercises full send/receive/catch-up.
+- **Full-stack integration tests** — a `tests/integration/` harness runs against the Docker Compose stack (`./scripts/dev-up.sh`). Two simulated clients exchange real MLS messages through the real Axum server backed by a real Postgres. Runs in CI on every PR via `ci.yml`. Worktree-aware: each worktree gets its own Compose project (namespaced volumes + offset ports) so multiple feature branches can run their integration suites simultaneously without colliding.
 - **`bot-host/`** — Integration tests against (a) a mock `LocalModelProvider` returning canned responses, and (b) a real Ollama running in a CI container with a tiny model. The second is gated to nightly to keep PR CI fast.
 - **`app/`** — Flutter widget tests for UI flows. Integration tests across the FFI boundary use a fake `core` provider (Riverpod override). Manual QA between two laptops fills the gap for end-to-end UI Phase 1.
 - **PR/push required checks** (per saved feedback): build + lint + tests for each crate and the app.
@@ -581,10 +582,18 @@ little-love/
 ├── Cargo.toml                  # workspace
 ├── core/                       # Rust library: MLS, store, transport
 ├── server/                     # Rust + Axum server
+│   └── Dockerfile
 ├── bot-host/                   # Rust daemon for AI bot hosts
 ├── app/                        # Flutter desktop app
 │   └── rust_bridge/            # flutter_rust_bridge generated code
 ├── shared/                     # CBOR schemas, protocol constants
+├── docker-compose.yml          # full local stack: api + postgres + minio (R2 emu)
+├── scripts/
+│   ├── dev-up.sh               # worktree-aware: namespaces project + offsets ports
+│   ├── dev-down.sh
+│   └── dev-env.sh              # sourced helper; COMPOSE_PROJECT_NAME + port math
+├── tests/
+│   └── integration/            # cross-component tests run against compose stack
 ├── docs/
 │   ├── superpowers/
 │   │   ├── specs/
@@ -592,12 +601,14 @@ little-love/
 │   │   └── plans/
 │   └── architecture/           # ADRs, diagrams
 ├── .github/workflows/
-│   ├── ci.yml                  # build + lint + tests for all crates and app
-│   ├── release.yml             # build images, push to ghcr.io, tag
+│   ├── ci.yml                  # build + lint + unit + integration tests
+│   ├── release.yml             # on tag push: build & publish .dmg/.msi to GH Release
 │   └── deploy.yml              # Railway CLI deploy
-├── .gitignore
+├── .gitignore                  # includes .dev.env (per-worktree, generated)
 └── README.md
 ```
+
+**Distribution model:** Court and Kaitlyn (and eventually public users) install the desktop app from `.dmg` (macOS) and `.msi` (Windows) artifacts attached to GitHub Releases by `release.yml` on tag push. No code signing in Phase 1; signing comes when the app goes public. The `app-macos` job runs on a `macos-latest` runner, `app-windows` on `windows-latest`.
 
 Repo will live as a private repository at `github.com/CodingWithCourtReeves/little-love`, matching the saved pattern from related projects. Branch protection deferred (free-tier limitation, per saved pattern).
 
