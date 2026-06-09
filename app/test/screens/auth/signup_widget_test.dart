@@ -1,0 +1,58 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/screens/auth/signup.dart';
+
+void main() {
+  testWidgets('shows username field and disabled Create button initially',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: SignupScreen(onPhraseReady: (_, __) {}),
+    ));
+    expect(find.byType(TextField), findsOneWidget);
+    final btn = tester.widget<FilledButton>(find.byType(FilledButton));
+    expect(btn.onPressed, isNull);
+  });
+
+  testWidgets('valid username enables Create button', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: SignupScreen(onPhraseReady: (_, __) {}),
+    ));
+    await tester.enterText(find.byType(TextField), 'court');
+    await tester.pump();
+    final btn = tester.widget<FilledButton>(find.byType(FilledButton));
+    expect(btn.onPressed, isNotNull);
+  });
+
+  testWidgets('invalid username (UPPER) shows error and keeps button disabled',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: SignupScreen(onPhraseReady: (_, __) {}),
+    ));
+    await tester.enterText(find.byType(TextField), 'Court');
+    await tester.pump();
+    expect(find.text('3–20 chars, lowercase a-z 0-9 _'), findsOneWidget);
+    final btn = tester.widget<FilledButton>(find.byType(FilledButton));
+    expect(btn.onPressed, isNull);
+  });
+
+  testWidgets('tapping Create shows exactly 12 numbered words', (tester) async {
+    String? capturedUser;
+    String? capturedPhrase;
+    await tester.pumpWidget(MaterialApp(
+      home: SignupScreen(onPhraseReady: (u, p) {
+        capturedUser = u;
+        capturedPhrase = p;
+      }),
+    ));
+    await tester.enterText(find.byType(TextField), 'court');
+    await tester.pump();
+    await tester.tap(find.byType(FilledButton));
+    await tester.pumpAndSettle();
+    for (var i = 1; i <= 12; i++) {
+      expect(find.textContaining('$i.'), findsWidgets);
+    }
+    expect(capturedUser, 'court');
+    expect(capturedPhrase, isNotNull);
+    expect(capturedPhrase!.split(' ').length, 12);
+  });
+}
