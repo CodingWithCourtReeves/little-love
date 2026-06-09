@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'theme/hearth.dart';
 import 'wire/message.dart';
 
 typedef SendCallback = void Function(String text);
+
+class _SendIntent extends Intent {
+  const _SendIntent();
+}
 
 class ConversationPage extends StatefulWidget {
   const ConversationPage({
@@ -37,6 +42,10 @@ class _ConversationPageState extends State<ConversationPage> {
     if (text.isEmpty) return;
     widget.onSend(text);
     _controller.clear();
+  }
+
+  void _submitFromIntent() {
+    _handleSubmit(_controller.text);
   }
 
   @override
@@ -93,24 +102,47 @@ class _ConversationPageState extends State<ConversationPage> {
   }
 
   Widget _composer() {
+    // Cmd+Enter on Mac, Ctrl+Enter on Windows/Linux both send.
+    // Plain Enter inserts a newline, matching Slack / Discord conventions.
+    final shortcuts = <ShortcutActivator, Intent>{
+      const SingleActivator(LogicalKeyboardKey.enter, meta: true):
+          const _SendIntent(),
+      const SingleActivator(LogicalKeyboardKey.enter, control: true):
+          const _SendIntent(),
+    };
     return Container(
       color: HearthColors.bgSurface,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
-            child: TextField(
-              key: const Key('composer'),
-              controller: _controller,
-              textInputAction: TextInputAction.send,
-              onSubmitted: _handleSubmit,
-              decoration: InputDecoration(
-                hintText: 'Message ${widget.contactDisplayName}',
-                filled: true,
-                fillColor: HearthColors.bgSurfaceAlt,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
+            child: Shortcuts(
+              shortcuts: shortcuts,
+              child: Actions(
+                actions: {
+                  _SendIntent: CallbackAction<_SendIntent>(onInvoke: (_) {
+                    _submitFromIntent();
+                    return null;
+                  }),
+                },
+                child: TextField(
+                  key: const Key('composer'),
+                  controller: _controller,
+                  minLines: 1,
+                  maxLines: 8,
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.newline,
+                  decoration: InputDecoration(
+                    hintText: 'Message ${widget.contactDisplayName}'
+                        '   ·   ⌘↵ to send',
+                    filled: true,
+                    fillColor: HearthColors.bgSurfaceAlt,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
                 ),
               ),
             ),

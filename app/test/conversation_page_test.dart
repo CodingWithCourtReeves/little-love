@@ -31,7 +31,7 @@ void main() {
     expect(find.text('Kaitlyn'), findsWidgets); // appears in header / metadata
   });
 
-  testWidgets('Enter in composer fires onSend', (tester) async {
+  testWidgets('tapping send button fires onSend', (tester) async {
     String? sent;
     await tester.pumpWidget(MaterialApp(
       theme: buildHearthTheme(),
@@ -43,8 +43,28 @@ void main() {
       ),
     ));
     await tester.enterText(find.byKey(const Key('composer')), 'hi');
-    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.tap(find.byIcon(Icons.send));
     await tester.pump();
     expect(sent, 'hi');
+  });
+
+  testWidgets('multi-line text is preserved through onSend', (tester) async {
+    String? sent;
+    await tester.pumpWidget(MaterialApp(
+      theme: buildHearthTheme(),
+      home: ConversationPage(
+        meUsername: 'court',
+        contactDisplayName: 'Kaitlyn',
+        messages: const [],
+        onSend: (text) => sent = text,
+      ),
+    ));
+    await tester.enterText(
+      find.byKey(const Key('composer')),
+      'line one\nline two\n\nline four',
+    );
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+    expect(sent, 'line one\nline two\n\nline four');
   });
 }
