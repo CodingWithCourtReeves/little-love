@@ -1,5 +1,6 @@
 use chrono::Utc;
 use littlelove_api::store::{MessageRow, Store};
+use serial_test::file_serial;
 use uuid::Uuid;
 
 fn database_url() -> String {
@@ -17,6 +18,7 @@ async fn fresh_store() -> Store {
 }
 
 #[tokio::test]
+#[file_serial(db)]
 async fn store_and_replay_round_trip() {
     let store = fresh_store().await;
     let id = Uuid::new_v4();
@@ -41,6 +43,7 @@ async fn store_and_replay_round_trip() {
 }
 
 #[tokio::test]
+#[file_serial(db)]
 async fn store_returns_both_directions_for_user() {
     let store = fresh_store().await;
     store

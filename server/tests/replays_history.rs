@@ -9,6 +9,7 @@ use littlelove_api::{
     store::{MessageRow, Store},
     ws::{ws_handler, AppState, USER_HEADER},
 };
+use serial_test::file_serial;
 use tokio::net::TcpListener;
 use tokio_tungstenite::{
     connect_async, tungstenite::client::IntoClientRequest, tungstenite::Message,
@@ -36,6 +37,7 @@ fn db_url() -> String {
 }
 
 #[tokio::test]
+#[file_serial(db)]
 async fn stores_and_replays_history_for_disconnected_recipient() {
     let store = Store::connect(&db_url()).await.unwrap();
     sqlx::query("TRUNCATE TABLE messages")
