@@ -1,0 +1,796 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove — Palette Gallery</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400;1,600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --serif: 'Source Serif 4', Georgia, serif;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --page-bg: #E8E0D2;
+    --page-ink: #2A2422;
+    --page-muted: #6e6157;
+    --page-line: #c8b89e;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: var(--sans); background: var(--page-bg); color: var(--page-ink); }
+  body { padding: 40px 32px 64px; min-height: 100vh; }
+
+  .container { max-width: 1320px; margin: 0 auto; }
+
+  /* ─── Header ─── */
+  header.page-head {
+    text-align: center;
+    margin-bottom: 36px;
+  }
+  header.page-head h1 {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 48px;
+    line-height: 1.05;
+    margin: 0 0 12px;
+    color: #2a201a;
+    letter-spacing: -0.01em;
+  }
+  header.page-head .sub {
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: var(--page-muted);
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  header.page-head .sub em {
+    font-family: var(--serif);
+    font-style: italic;
+    color: #4a3b30;
+  }
+
+  /* ─── 2×2 grid ─── */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+  }
+
+  /* ─── Palette tile ─── */
+  .tile {
+    background: #fff;
+    border: 1px solid var(--page-line);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 30px 60px -40px rgba(40,25,10,0.35);
+    display: flex; flex-direction: column;
+  }
+  .tile-head {
+    padding: 22px 26px 18px;
+    border-bottom: 1px solid #ece3d2;
+  }
+  .tile-head .name {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 30px;
+    color: #2a201a;
+    margin: 0 0 6px;
+    letter-spacing: -0.005em;
+  }
+  .tile-head .philosophy {
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: #6e6157;
+    font-style: italic;
+    font-family: var(--serif);
+  }
+
+  /* ─── Swatch grid ─── */
+  .swatches {
+    padding: 16px 26px 18px;
+    border-bottom: 1px solid #ece3d2;
+  }
+  .swatches-head {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #8a7c73;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .swatch-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .swatch-col { display: flex; flex-direction: column; gap: 5px; }
+  .swatch {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    gap: 8px;
+    align-items: center;
+    font-size: 11px;
+    line-height: 1.3;
+  }
+  .swatch .chip {
+    width: 18px; height: 18px;
+    border-radius: 4px;
+    border: 1px solid rgba(0,0,0,0.08);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+  }
+  .swatch .tok {
+    color: #4a3b30;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .swatch .hex {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    color: #8a7c73;
+    letter-spacing: -0.02em;
+  }
+
+  /* ─── Mini conversation previews ─── */
+  .previews {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 16px 26px 18px;
+    border-bottom: 1px solid #ece3d2;
+  }
+  .preview-label {
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #8a7c73;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .preview {
+    border-radius: 10px;
+    padding: 14px 14px 16px;
+    border: 1px solid;
+    overflow: hidden;
+  }
+  .preview .msg {
+    display: grid;
+    grid-template-columns: 24px 1fr;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .preview .msg:last-child { margin-bottom: 0; }
+  .preview .av {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600;
+    font-size: 11px;
+  }
+  .preview .av.hex {
+    border-radius: 0;
+    clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%);
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 11.5px;
+  }
+  .preview .meta {
+    font-size: 10.5px;
+    margin-bottom: 3px;
+    display: flex; align-items: center; gap: 5px;
+    flex-wrap: wrap;
+  }
+  .preview .nm {
+    font-weight: 600;
+    font-size: 11px;
+  }
+  .preview .ai-pill {
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+  .preview .bubble {
+    padding: 7px 10px;
+    border-radius: 3px 10px 10px 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    display: inline-block;
+    max-width: 100%;
+    border: 1px solid;
+  }
+  .preview .msg.bot .bubble {
+    border-left-width: 2px;
+  }
+
+  /* ─── Footer info ─── */
+  .tile-foot {
+    padding: 16px 26px 20px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .ideal {
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #4a3b30;
+  }
+  .ideal strong {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 600;
+    color: #2a201a;
+    font-size: 13px;
+    display: block;
+    margin-bottom: 2px;
+  }
+  .wcag {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    font-size: 10.5px;
+    background: #faf6ee;
+    border: 1px solid #ece3d2;
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .wcag .lbl {
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #8a7c73;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .wcag .ratio {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: #2a201a;
+    font-weight: 600;
+  }
+  .wcag .grade {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-left: 5px;
+    vertical-align: 1px;
+  }
+  .grade.pass { background: #d4ead8; color: #2a5b3b; }
+  .grade.aaa { background: #c7e0cb; color: #1f4a30; }
+  .grade.warn { background: #f4dec0; color: #6e4b1e; }
+
+  /* ─── How to use note ─── */
+  .how {
+    margin-top: 36px;
+    padding: 22px 28px;
+    background: rgba(255,255,255,0.55);
+    border: 1px dashed #b8a48a;
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #4a3b30;
+  }
+  .how h4 {
+    margin: 0 0 8px;
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 16px;
+    color: #2a201a;
+  }
+  .how p { margin: 0 0 6px; }
+  .how em { font-family: var(--serif); font-style: italic; color: #2a201a; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header class="page-head">
+  <h1>Pick a palette</h1>
+  <p class="sub">Each candidate uses the same token vocabulary. Picking one locks the LittleLove brand identity for Phase 1; <em>theming for couples to customize comes in Phase 1.5</em>.</p>
+</header>
+
+<div class="grid">
+
+  <!-- ════════════════ LINEN ════════════════ -->
+  <article class="tile">
+    <div class="tile-head">
+      <h2 class="name">Linen</h2>
+      <p class="philosophy">A sunlit room, a soft cream page, a coral mark in the margin. The baseline — already in the mocks, polished here.</p>
+    </div>
+
+    <div class="swatches">
+      <div class="swatches-head">
+        <div>Light</div>
+        <div>Dark</div>
+      </div>
+      <div class="swatch-cols">
+        <div class="swatch-col">
+          <div class="swatch"><div class="chip" style="background:#F8F1E7"></div><div class="tok">bg-canvas</div><div class="hex">#F8F1E7</div></div>
+          <div class="swatch"><div class="chip" style="background:#F1E8D9"></div><div class="tok">bg-surface</div><div class="hex">#F1E8D9</div></div>
+          <div class="swatch"><div class="chip" style="background:#ECE0CC"></div><div class="tok">bg-surface-alt</div><div class="hex">#ECE0CC</div></div>
+          <div class="swatch"><div class="chip" style="background:#2A2422"></div><div class="tok">text-primary</div><div class="hex">#2A2422</div></div>
+          <div class="swatch"><div class="chip" style="background:#8A7C73"></div><div class="tok">text-muted</div><div class="hex">#8A7C73</div></div>
+          <div class="swatch"><div class="chip" style="background:#E58A7A"></div><div class="tok">accent-user</div><div class="hex">#E58A7A</div></div>
+          <div class="swatch"><div class="chip" style="background:#D8B68A"></div><div class="tok">accent-partner</div><div class="hex">#D8B68A</div></div>
+          <div class="swatch"><div class="chip" style="background:#2E5D5A"></div><div class="tok">accent-familiar</div><div class="hex">#2E5D5A</div></div>
+          <div class="swatch"><div class="chip" style="background:#E4D6BF"></div><div class="tok">border-soft</div><div class="hex">#E4D6BF</div></div>
+          <div class="swatch"><div class="chip" style="background:#2E5D5A"></div><div class="tok">rule-strong</div><div class="hex">#2E5D5A</div></div>
+        </div>
+        <div class="swatch-col">
+          <div class="swatch"><div class="chip" style="background:#1B1714"></div><div class="tok">bg-canvas</div><div class="hex">#1B1714</div></div>
+          <div class="swatch"><div class="chip" style="background:#252019"></div><div class="tok">bg-surface</div><div class="hex">#252019</div></div>
+          <div class="swatch"><div class="chip" style="background:#2D2620"></div><div class="tok">bg-surface-alt</div><div class="hex">#2D2620</div></div>
+          <div class="swatch"><div class="chip" style="background:#F1E7D4"></div><div class="tok">text-primary</div><div class="hex">#F1E7D4</div></div>
+          <div class="swatch"><div class="chip" style="background:#A1907E"></div><div class="tok">text-muted</div><div class="hex">#A1907E</div></div>
+          <div class="swatch"><div class="chip" style="background:#E89887"></div><div class="tok">accent-user</div><div class="hex">#E89887</div></div>
+          <div class="swatch"><div class="chip" style="background:#D9B785"></div><div class="tok">accent-partner</div><div class="hex">#D9B785</div></div>
+          <div class="swatch"><div class="chip" style="background:#7CB5A8"></div><div class="tok">accent-familiar</div><div class="hex">#7CB5A8</div></div>
+          <div class="swatch"><div class="chip" style="background:#3a322a"></div><div class="tok">border-soft</div><div class="hex">#3A322A</div></div>
+          <div class="swatch"><div class="chip" style="background:#7CB5A8"></div><div class="tok">rule-strong</div><div class="hex">#7CB5A8</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="previews">
+      <!-- LIGHT preview -->
+      <div>
+        <div class="preview-label">Light</div>
+        <div class="preview" style="background:#F8F1E7;border-color:#E4D6BF;color:#2A2422;">
+          <div class="msg me">
+            <div class="av" style="background:#F6D9D2;color:#4A2820;">C</div>
+            <div>
+              <div class="meta" style="color:#8A7C73;"><span class="nm" style="color:#2A2422;">@court</span> 5:43 PM</div>
+              <div class="bubble" style="background:#F6D9D2;border-color:#F0CABE;color:#4A2820;">hey love, how was the studio today?</div>
+            </div>
+          </div>
+          <div class="msg k">
+            <div class="av" style="background:#F0DCC2;color:#4a3b22;">K</div>
+            <div>
+              <div class="meta" style="color:#8A7C73;"><span class="nm" style="color:#2A2422;">@kaitlyn</span> 5:44 PM</div>
+              <div class="bubble" style="background:#FFFFFF;border-color:#EFE3CE;color:#2A2422;">long. miss you.</div>
+            </div>
+          </div>
+          <div class="msg bot">
+            <div class="av hex" style="background:#D9E6E1;color:#2E5D5A;">O</div>
+            <div>
+              <div class="meta" style="color:#8A7C73;">
+                <span class="ai-pill" style="background:#D9E6E1;color:#2E5D5A;">AI</span>
+                <span class="nm" style="color:#2E5D5A;">Ollie</span>
+                <span>5:44 PM</span>
+              </div>
+              <div class="bubble" style="background:#F2EBDC;border-color:#D9E6E1;border-left-color:#2E5D5A;color:#2A2422;">She's been at it eleven hours, Court — be gentle.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- DARK preview -->
+      <div>
+        <div class="preview-label">Dark</div>
+        <div class="preview" style="background:#1B1714;border-color:#3A322A;color:#F1E7D4;">
+          <div class="msg me">
+            <div class="av" style="background:#5b3328;color:#F1E7D4;">C</div>
+            <div>
+              <div class="meta" style="color:#A1907E;"><span class="nm" style="color:#F1E7D4;">@court</span> 5:43 PM</div>
+              <div class="bubble" style="background:#5b3328;border-color:#6e3f33;color:#FCE4DD;">hey love, how was the studio today?</div>
+            </div>
+          </div>
+          <div class="msg k">
+            <div class="av" style="background:#3d3324;color:#F1E7D4;">K</div>
+            <div>
+              <div class="meta" style="color:#A1907E;"><span class="nm" style="color:#F1E7D4;">@kaitlyn</span> 5:44 PM</div>
+              <div class="bubble" style="background:#252019;border-color:#3A322A;color:#F1E7D4;">long. miss you.</div>
+            </div>
+          </div>
+          <div class="msg bot">
+            <div class="av hex" style="background:#2a3d39;color:#7CB5A8;">O</div>
+            <div>
+              <div class="meta" style="color:#A1907E;">
+                <span class="ai-pill" style="background:#2a3d39;color:#7CB5A8;">AI</span>
+                <span class="nm" style="color:#7CB5A8;">Ollie</span>
+                <span>5:44 PM</span>
+              </div>
+              <div class="bubble" style="background:#2D2620;border-color:#2a3d39;border-left-color:#7CB5A8;color:#F1E7D4;">She's been at it eleven hours, Court — be gentle.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile-foot">
+      <div class="ideal"><strong>Ideal for</strong>Morning kitchens, journaled affection, couples who like things warm but not loud. The "default LittleLove."</div>
+      <div class="wcag">
+        <div>
+          <div class="lbl">Light · text on canvas</div>
+          <div class="ratio">#2A2422 / #F8F1E7 → 13.6:1 <span class="grade aaa">AAA</span></div>
+        </div>
+        <div>
+          <div class="lbl">Dark · text on canvas</div>
+          <div class="ratio">#F1E7D4 / #1B1714 → 14.5:1 <span class="grade aaa">AAA</span></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <!-- ════════════════ HEARTH ════════════════ -->
+  <article class="tile">
+    <div class="tile-head">
+      <h2 class="name">Hearth</h2>
+      <p class="philosophy">A winter evening, a fire in the next room, the brick still warm. Cozier, headier, slightly more carnal.</p>
+    </div>
+
+    <div class="swatches">
+      <div class="swatches-head">
+        <div>Light</div>
+        <div>Dark</div>
+      </div>
+      <div class="swatch-cols">
+        <div class="swatch-col">
+          <div class="swatch"><div class="chip" style="background:#FBEEDD"></div><div class="tok">bg-canvas</div><div class="hex">#FBEEDD</div></div>
+          <div class="swatch"><div class="chip" style="background:#F5E2C9"></div><div class="tok">bg-surface</div><div class="hex">#F5E2C9</div></div>
+          <div class="swatch"><div class="chip" style="background:#EFD6B3"></div><div class="tok">bg-surface-alt</div><div class="hex">#EFD6B3</div></div>
+          <div class="swatch"><div class="chip" style="background:#2C1E16"></div><div class="tok">text-primary</div><div class="hex">#2C1E16</div></div>
+          <div class="swatch"><div class="chip" style="background:#8a6e58"></div><div class="tok">text-muted</div><div class="hex">#8A6E58</div></div>
+          <div class="swatch"><div class="chip" style="background:#B23F2E"></div><div class="tok">accent-user</div><div class="hex">#B23F2E</div></div>
+          <div class="swatch"><div class="chip" style="background:#C97E5A"></div><div class="tok">accent-partner</div><div class="hex">#C97E5A</div></div>
+          <div class="swatch"><div class="chip" style="background:#9A6B1E"></div><div class="tok">accent-familiar</div><div class="hex">#9A6B1E</div></div>
+          <div class="swatch"><div class="chip" style="background:#E3CBA6"></div><div class="tok">border-soft</div><div class="hex">#E3CBA6</div></div>
+          <div class="swatch"><div class="chip" style="background:#9A6B1E"></div><div class="tok">rule-strong</div><div class="hex">#9A6B1E</div></div>
+        </div>
+        <div class="swatch-col">
+          <div class="swatch"><div class="chip" style="background:#1E1410"></div><div class="tok">bg-canvas</div><div class="hex">#1E1410</div></div>
+          <div class="swatch"><div class="chip" style="background:#2A1C15"></div><div class="tok">bg-surface</div><div class="hex">#2A1C15</div></div>
+          <div class="swatch"><div class="chip" style="background:#33221A"></div><div class="tok">bg-surface-alt</div><div class="hex">#33221A</div></div>
+          <div class="swatch"><div class="chip" style="background:#F2E2CB"></div><div class="tok">text-primary</div><div class="hex">#F2E2CB</div></div>
+          <div class="swatch"><div class="chip" style="background:#B0917A"></div><div class="tok">text-muted</div><div class="hex">#B0917A</div></div>
+          <div class="swatch"><div class="chip" style="background:#E27966"></div><div class="tok">accent-user</div><div class="hex">#E27966</div></div>
+          <div class="swatch"><div class="chip" style="background:#D89473"></div><div class="tok">accent-partner</div><div class="hex">#D89473</div></div>
+          <div class="swatch"><div class="chip" style="background:#E0B25A"></div><div class="tok">accent-familiar</div><div class="hex">#E0B25A</div></div>
+          <div class="swatch"><div class="chip" style="background:#43301f"></div><div class="tok">border-soft</div><div class="hex">#43301F</div></div>
+          <div class="swatch"><div class="chip" style="background:#E0B25A"></div><div class="tok">rule-strong</div><div class="hex">#E0B25A</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="previews">
+      <!-- LIGHT -->
+      <div>
+        <div class="preview-label">Light</div>
+        <div class="preview" style="background:#FBEEDD;border-color:#E3CBA6;color:#2C1E16;">
+          <div class="msg me">
+            <div class="av" style="background:#F0C7BC;color:#5a1f15;">C</div>
+            <div>
+              <div class="meta" style="color:#8A6E58;"><span class="nm" style="color:#2C1E16;">@court</span> 5:43 PM</div>
+              <div class="bubble" style="background:#F0C7BC;border-color:#E5A99A;color:#3F1A12;">hey love, how was the studio today?</div>
+            </div>
+          </div>
+          <div class="msg k">
+            <div class="av" style="background:#EBC9A9;color:#5a3a1c;">K</div>
+            <div>
+              <div class="meta" style="color:#8A6E58;"><span class="nm" style="color:#2C1E16;">@kaitlyn</span> 5:44 PM</div>
+              <div class="bubble" style="background:#FFFAF0;border-color:#E3CBA6;color:#2C1E16;">long. miss you.</div>
+            </div>
+          </div>
+          <div class="msg bot">
+            <div class="av hex" style="background:#F0DDB8;color:#7a5418;">O</div>
+            <div>
+              <div class="meta" style="color:#8A6E58;">
+                <span class="ai-pill" style="background:#F0DDB8;color:#7a5418;">AI</span>
+                <span class="nm" style="color:#7a5418;">Ollie</span>
+                <span>5:44 PM</span>
+              </div>
+              <div class="bubble" style="background:#F5E2C9;border-color:#F0DDB8;border-left-color:#9A6B1E;color:#2C1E16;">She's been at it eleven hours, Court — be gentle.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- DARK -->
+      <div>
+        <div class="preview-label">Dark</div>
+        <div class="preview" style="background:#1E1410;border-color:#43301F;color:#F2E2CB;">
+          <div class="msg me">
+            <div class="av" style="background:#5a2418;color:#F2E2CB;">C</div>
+            <div>
+              <div class="meta" style="color:#B0917A;"><span class="nm" style="color:#F2E2CB;">@court</span> 5:43 PM</div>
+              <div class="bubble" style="background:#5a2418;border-color:#6e2c1d;color:#FBD9CF;">hey love, how was the studio today?</div>
+            </div>
+          </div>
+          <div class="msg k">
+            <div class="av" style="background:#3d2818;color:#F2E2CB;">K</div>
+            <div>
+              <div class="meta" style="color:#B0917A;"><span class="nm" style="color:#F2E2CB;">@kaitlyn</span> 5:44 PM</div>
+              <div class="bubble" style="background:#2A1C15;border-color:#43301F;color:#F2E2CB;">long. miss you.</div>
+            </div>
+          </div>
+          <div class="msg bot">
+            <div class="av hex" style="background:#3d2f18;color:#E0B25A;">O</div>
+            <div>
+              <div class="meta" style="color:#B0917A;">
+                <span class="ai-pill" style="background:#3d2f18;color:#E0B25A;">AI</span>
+                <span class="nm" style="color:#E0B25A;">Ollie</span>
+                <span>5:44 PM</span>
+              </div>
+              <div class="bubble" style="background:#33221A;border-color:#3d2f18;border-left-color:#E0B25A;color:#F2E2CB;">She's been at it eleven hours, Court — be gentle.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile-foot">
+      <div class="ideal"><strong>Ideal for</strong>Couples who run hot. Long-distance pairs who miss each other physically. Reads "intimate adult relationship" louder than Linen.</div>
+      <div class="wcag">
+        <div>
+          <div class="lbl">Light · text on canvas</div>
+          <div class="ratio">#2C1E16 / #FBEEDD → 14.0:1 <span class="grade aaa">AAA</span></div>
+        </div>
+        <div>
+          <div class="lbl">Dark · text on canvas</div>
+          <div class="ratio">#F2E2CB / #1E1410 → 14.6:1 <span class="grade aaa">AAA</span></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <!-- ════════════════ VELLUM ════════════════ -->
+  <article class="tile">
+    <div class="tile-head">
+      <h2 class="name">Vellum</h2>
+      <p class="philosophy">A letter folded in a book. Graphite on ivory, dusty slate, old gold in the margin. Quiet, literary, restrained.</p>
+    </div>
+
+    <div class="swatches">
+      <div class="swatches-head">
+        <div>Light</div>
+        <div>Dark</div>
+      </div>
+      <div class="swatch-cols">
+        <div class="swatch-col">
+          <div class="swatch"><div class="chip" style="background:#F6F1E6"></div><div class="tok">bg-canvas</div><div class="hex">#F6F1E6</div></div>
+          <div class="swatch"><div class="chip" style="background:#EEE8DA"></div><div class="tok">bg-surface</div><div class="hex">#EEE8DA</div></div>
+          <div class="swatch"><div class="chip" style="background:#E7E0CE"></div><div class="tok">bg-surface-alt</div><div class="hex">#E7E0CE</div></div>
+          <div class="swatch"><div class="chip" style="background:#26282B"></div><div class="tok">text-primary</div><div class="hex">#26282B</div></div>
+          <div class="swatch"><div class="chip" style="background:#7c7a72"></div><div class="tok">text-muted</div><div class="hex">#7C7A72</div></div>
+          <div class="swatch"><div class="chip" style="background:#506988"></div><div class="tok">accent-user</div><div class="hex">#506988</div></div>
+          <div class="swatch"><div class="chip" style="background:#9aa3a8"></div><div class="tok">accent-partner</div><div class="hex">#9AA3A8</div></div>
+          <div class="swatch"><div class="chip" style="background:#8C6B2A"></div><div class="tok">accent-familiar</div><div class="hex">#8C6B2A</div></div>
+          <div class="swatch"><div class="chip" style="background:#DCD4BE"></div><div class="tok">border-soft</div><div class="hex">#DCD4BE</div></div>
+          <div class="swatch"><div class="chip" style="background:#8C6B2A"></div><div class="tok">rule-strong</div><div class="hex">#8C6B2A</div></div>
+        </div>
+        <div class="swatch-col">
+          <div class="swatch"><div class="chip" style="background:#1A1B1E"></div><div class="tok">bg-canvas</div><div class="hex">#1A1B1E</div></div>
+          <div class="swatch"><div class="chip" style="background:#222428"></div><div class="tok">bg-surface</div><div class="hex">#222428</div></div>
+          <div class="swatch"><div class="chip" style="background:#2A2C30"></div><div class="tok">bg-surface-alt</div><div class="hex">#2A2C30</div></div>
+          <div class="swatch"><div class="chip" style="background:#EAE5D6"></div><div class="tok">text-primary</div><div class="hex">#EAE5D6</div></div>
+          <div class="swatch"><div class="chip" style="background:#969084"></div><div class="tok">text-muted</div><div class="hex">#969084</div></div>
+          <div class="swatch"><div class="chip" style="background:#8DA8C7"></div><div class="tok">accent-user</div><div class="hex">#8DA8C7</div></div>
+          <div class="swatch"><div class="chip" style="background:#B2B9BE"></div><div class="tok">accent-partner</div><div class="hex">#B2B9BE</div></div>
+          <div class="swatch"><div class="chip" style="background:#D4AE5C"></div><div class="tok">accent-familiar</div><div class="hex">#D4AE5C</div></div>
+          <div class="swatch"><div class="chip" style="background:#383a3f"></div><div class="tok">border-soft</div><div class="hex">#383A3F</div></div>
+          <div class="swatch"><div class="chip" style="background:#D4AE5C"></div><div class="tok">rule-strong</div><div class="hex">#D4AE5C</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="previews">
+      <!-- LIGHT -->
+      <div>
+        <div class="preview-label">Light</div>
+        <div class="preview" style="background:#F6F1E6;border-color:#DCD4BE;color:#26282B;">
+          <div class="msg me">
+            <div class="av" style="background:#D7DEE8;color:#2a3a52;">C</div>
+            <div>
+              <div class="meta" style="color:#7C7A72;"><span class="nm" style="color:#26282B;">@court</span> 5:43 PM</div>
+              <div class="bubble" style="background:#D7DEE8;border-color:#BCC7D6;color:#1f2b3e;">hey love, how was the studio today?</div>
+            </div>
+          </div>
+          <div class="msg k">
+            <div class="av" style="background:#E2E0DA;color:#54564f;">K</div>
+            <div>
+              <div class="meta" style="color:#7C7A72;"><span class="nm" style="color:#26282B;">@kaitlyn</span> 5:44 PM</div>
+              <div class="bubble" style="background:#FFFFFA;border-color:#DCD4BE;color:#26282B;">long. miss you.</div>
+            </div>
+          </div>
+          <div class="msg bot">
+            <div class="av hex" style="background:#ECDFC0;color:#6e5320;">O</div>
+            <div>
+              <div class="meta" style="color:#7C7A72;">
+                <span class="ai-pill" style="background:#ECDFC0;color:#6e5320;">AI</span>
+                <span class="nm" style="color:#6e5320;">Ollie</span>
+                <span>5:44 PM</span>
+              </div>
+              <div class="bubble" style="background:#EEE8DA;border-color:#ECDFC0;border-left-color:#8C6B2A;color:#26282B;">She's been at it eleven hours, Court — be gentle.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- DARK -->
+      <div>
+        <div class="preview-label">Dark</div>
+        <div class="preview" style="background:#1A1B1E;border-color:#383A3F;color:#EAE5D6;">
+          <div class="msg me">
+            <div class="av" style="background:#2e405a;color:#EAE5D6;">C</div>
+            <div>
+              <div class="meta" style="color:#969084;"><span class="nm" style="color:#EAE5D6;">@court</span> 5:43 PM</div>
+              <div class="bubble" style="background:#2e405a;border-color:#3a4f6e;color:#DDE7F4;">hey love, how was the studio today?</div>
+            </div>
+          </div>
+          <div class="msg k">
+            <div class="av" style="background:#363a40;color:#EAE5D6;">K</div>
+            <div>
+              <div class="meta" style="color:#969084;"><span class="nm" style="color:#EAE5D6;">@kaitlyn</span> 5:44 PM</div>
+              <div class="bubble" style="background:#222428;border-color:#383A3F;color:#EAE5D6;">long. miss you.</div>
+            </div>
+          </div>
+          <div class="msg bot">
+            <div class="av hex" style="background:#3a311e;color:#D4AE5C;">O</div>
+            <div>
+              <div class="meta" style="color:#969084;">
+                <span class="ai-pill" style="background:#3a311e;color:#D4AE5C;">AI</span>
+                <span class="nm" style="color:#D4AE5C;">Ollie</span>
+                <span>5:44 PM</span>
+              </div>
+              <div class="bubble" style="background:#2A2C30;border-color:#3a311e;border-left-color:#D4AE5C;color:#EAE5D6;">She's been at it eleven hours, Court — be gentle.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile-foot">
+      <div class="ideal"><strong>Ideal for</strong>Writers, readers, the more reserved of two. Couples who'd rather their messenger feel like a notebook than a Valentine.</div>
+      <div class="wcag">
+        <div>
+          <div class="lbl">Light · text on canvas</div>
+          <div class="ratio">#26282B / #F6F1E6 → 13.1:1 <span class="grade aaa">AAA</span></div>
+        </div>
+        <div>
+          <div class="lbl">Dark · text on canvas</div>
+          <div class="ratio">#EAE5D6 / #1A1B1E → 13.7:1 <span class="grade aaa">AAA</span></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <!-- ════════════════ TWILIGHT ════════════════ -->
+  <article class="tile">
+    <div class="tile-head">
+      <h2 class="name">Twilight</h2>
+      <p class="philosophy">The hour after the lamps come on. Aubergine canvas, pale rose, sage in the corner of the eye. Grown-up dusk.</p>
+    </div>
+
+    <div class="swatches">
+      <div class="swatches-head">
+        <div>Light <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#a89a89;">(muted dusk variant)</span></div>
+        <div>Dark <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#a89a89;">(the identity)</span></div>
+      </div>
+      <div class="swatch-cols">
+        <div class="swatch-col">
+          <div class="swatch"><div class="chip" style="background:#F4EBEC"></div><div class="tok">bg-canvas</div><div class="hex">#F4EBEC</div></div>
+          <div class="swatch"><div class="chip" style="background:#EBDFE2"></div><div class="tok">bg-surface</div><div class="hex">#EBDFE2</div></div>
+          <div class="swatch"><div class="chip" style="background:#E2D3D8"></div><div class="tok">bg-surface-alt</div><div class="hex">#E2D3D8</div></div>
+          <div class="swatch"><div class="chip" style="background:#2A1F2A"></div><div class="tok">text-primary</div><div class="hex">#2A1F2A</div></div>
+          <div class="swatch"><div class="chip" style="background:#7c6c78"></div><div class="tok">text-muted</div><div class="hex">#7C6C78</div></div>
+          <div class="swatch"><div class="chip" style="background:#A04A6A"></div><div class="tok">accent-user</div><div class="hex">#A04A6A</div></div>
+          <div class="swatch"><div class="chip" style="background:#9C7E94"></div><div class="tok">accent-partner</div><div class="hex">#9C7E94</div></div>
+          <div class="swatch"><div class="chip" style="background:#4F7A5E"></div><div class="tok">accent-familiar</div><div class="hex">#4F7A5E</div></div>
+          <div class="swatch"><div class="chip" style="background:#D9C7CD"></div><div class="tok">border-soft</div><div class="hex">#D9C7CD</div></div>
+          <div class="swatch"><div class="chip" style="background:#4F7A5E"></div><div class="tok">rule-strong</div><div class="hex">#4F7A5E</div></div>
+        </div>
+        <div class="swatch-col">
+          <div class="swatch"><div class="chip" style="background:#241823"></div><div class="tok">bg-canvas</div><div class="hex">#241823</div></div>
+          <div class="swatch"><div class="chip" style="background:#2E1F2D"></div><div class="tok">bg-surface</div><div class="hex">#2E1F2D</div></div>
+          <div class="swatch"><div class="chip" style="background:#382634"></div><div class="tok">bg-surface-alt</div><div class="hex">#382634</div></div>
+          <div class="swatch"><div class="chip" style="background:#F2E4E5"></div><div class="tok">text-primary</div><div class="hex">#F2E4E5</div></div>
+          <div class="swatch"><div class="chip" style="background:#A89AA0"></div><div class="tok">text-muted</div><div class="hex">#A89AA0</div></div>
+          <div class="swatch"><div class="chip" style="background:#E6A6B4"></div><div class="tok">accent-user</div><div class="hex">#E6A6B4</div></div>
+          <div class="swatch"><div class="chip" style="background:#C49DB6"></div><div class="tok">accent-partner</div><div class="hex">#C49DB6</div></div>
+          <div class="swatch"><div class="chip" style="background:#9ECDA8"></div><div class="tok">accent-familiar</div><div class="hex">#9ECDA8</div></div>
+          <div class="swatch"><div class="chip" style="background:#4a3344"></div><div class="tok">border-soft</div><div class="hex">#4A3344</div></div>
+          <div class="swatch"><div class="chip" style="background:#9ECDA8"></div><div class="tok">rule-strong</div><div class="hex">#9ECDA8</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="previews">
+      <!-- LIGHT -->
+      <div>
+        <div class="preview-label">Light</div>
+        <div class="preview" style="background:#F4EBEC;border-color:#D9C7CD;color:#2A1F2A;">
+          <div class="msg me">
+            <div class="av" style="background:#E8C8D2;color:#5a1f33;">C</div>
+            <div>
+              <div class="meta" style="color:#7C6C78;"><span class="nm" style="color:#2A1F2A;">@court</span> 5:43 PM</div>
+              <div class="bubble" style="background:#E8C8D2;border-color:#D6A6B6;color:#3a1424;">hey love, how was the studio today?</div>
+            </div>
+          </div>
+          <div class="msg k">
+            <div class="av" style="background:#E0D0DB;color:#503e4a;">K</div>
+            <div>
+              <div class="meta" style="color:#7C6C78;"><span class="nm" style="color:#2A1F2A;">@kaitlyn</span> 5:44 PM</div>
+              <div class="bubble" style="background:#FFFAFB;border-color:#D9C7CD;color:#2A1F2A;">long. miss you.</div>
+            </div>
+          </div>
+          <div class="msg bot">
+            <div class="av hex" style="background:#D7E5DA;color:#345441;">O</div>
+            <div>
+              <div class="meta" style="color:#7C6C78;">
+                <span class="ai-pill" style="background:#D7E5DA;color:#345441;">AI</span>
+                <span class="nm" style="color:#345441;">Ollie</span>
+                <span>5:44 PM</span>
+              </div>
+              <div class="bubble" style="background:#EBDFE2;border-color:#D7E5DA;border-left-color:#4F7A5E;color:#2A1F2A;">She's been at it eleven hours, Court — be gentle.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- DARK -->
+      <div>
+        <div class="preview-label">Dark</div>
+        <div class="preview" style="background:#241823;border-color:#4A3344;color:#F2E4E5;">
+          <div class="msg me">
+            <div class="av" style="background:#5c2b3e;color:#F2E4E5;">C</div>
+            <div>
+              <div class="meta" style="color:#A89AA0;"><span class="nm" style="color:#F2E4E5;">@court</span> 5:43 PM</div>
+              <div class="bubble" style="background:#5c2b3e;border-color:#75384e;color:#FBDDE3;">hey love, how was the studio today?</div>
+            </div>
+          </div>
+          <div class="msg k">
+            <div class="av" style="background:#43303e;color:#F2E4E5;">K</div>
+            <div>
+              <div class="meta" style="color:#A89AA0;"><span class="nm" style="color:#F2E4E5;">@kaitlyn</span> 5:44 PM</div>
+              <div class="bubble" style="background:#2E1F2D;border-color:#4A3344;color:#F2E4E5;">long. miss you.</div>
+            </div>
+          </div>
+          <div class="msg bot">
+            <div class="av hex" style="background:#2a3e30;color:#9ECDA8;">O</div>
+            <div>
+              <div class="meta" style="color:#A89AA0;">
+                <span class="ai-pill" style="background:#2a3e30;color:#9ECDA8;">AI</span>
+                <span class="nm" style="color:#9ECDA8;">Ollie</span>
+                <span>5:44 PM</span>
+              </div>
+              <div class="bubble" style="background:#382634;border-color:#2a3e30;border-left-color:#9ECDA8;color:#F2E4E5;">She's been at it eleven hours, Court — be gentle.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile-foot">
+      <div class="ideal"><strong>Ideal for</strong>Night-owls and couples who do their best talking after dark. Dark mode is the canonical look; the light variant is a daytime concession.</div>
+      <div class="wcag">
+        <div>
+          <div class="lbl">Light · text on canvas</div>
+          <div class="ratio">#2A1F2A / #F4EBEC → 13.5:1 <span class="grade aaa">AAA</span></div>
+        </div>
+        <div>
+          <div class="lbl">Dark · text on canvas</div>
+          <div class="ratio">#F2E4E5 / #241823 → 13.8:1 <span class="grade aaa">AAA</span></div>
+          <div style="font-size:9.5px;color:#8a7c73;margin-top:2px;">user accent #E6A6B4 → text-primary 6.9:1 · familiar #9ECDA8 → 8.4:1</div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+</div>
+
+<aside class="how">
+  <h4>How to use this</h4>
+  <p>You can pick a candidate outright, or <em>take light from one and dark from another</em> — the token vocabulary is shared, so swapping is mechanical. You can also mix accent colors between candidates: Linen's cream canvas with Twilight's sage familiar, for example, would read like a study at golden hour.</p>
+  <p>What's locked once you choose: <em>accent-user</em> and <em>accent-familiar</em> become brand colors and show up in product chrome, the marketing site, app icon tinting, and the "AI" pill. Everything else is a tuning knob.</p>
+</aside>
+
+</div>
+</body>
+</html>
