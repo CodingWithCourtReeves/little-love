@@ -1,51 +1,24 @@
-use std::net::SocketAddr;
 use std::time::Duration;
 
-use axum::{routing::get, Router};
 use chrono::Utc;
+use ed25519_dalek::SigningKey;
 use futures::{SinkExt, StreamExt};
-use littlelove_api::{
-    routing::Routing,
-    store::{MessageRow, Store},
-    ws::{ws_handler, AppState, USER_HEADER},
-};
-use serial_test::file_serial;
-use tokio::net::TcpListener;
-use tokio_tungstenite::{
-    connect_async, tungstenite::client::IntoClientRequest, tungstenite::Message,
-};
+use littlelove_api::store::MessageRow;
+use serial_test::serial;
+use tokio_tungstenite::tungstenite::Message as WsMessage;
 use uuid::Uuid;
 
-async fn spawn_server(store: Store) -> SocketAddr {
-    let state = AppState {
-        routing: Routing::new(),
-        store: Some(store),
-    };
-    let app = Router::new()
-        .route("/ws", get(ws_handler))
-        .with_state(state);
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
-    addr
-}
-
-fn db_url() -> String {
-    std::env::var("DATABASE_URL").expect("DATABASE_URL must be set")
-}
+mod common;
+use common::{fresh_store, handshake_as, insert_account, spawn_server};
 
 #[tokio::test]
-#[file_serial(db)]
+#[serial]
 async fn stores_and_replays_history_for_disconnected_recipient() {
-    let store = Store::connect(&db_url()).await.unwrap();
-    sqlx::query("TRUNCATE TABLE messages")
-        .execute(store.pool())
-        .await
-        .unwrap();
+    let store = fresh_store().await;
+    let kaitlyn_sk = SigningKey::from_bytes(&[2u8; 32]);
+    insert_account(&store, "kaitlyn", &kaitlyn_sk.verifying_key()).await;
 
-    // Seed one stored message addressed to kaitlyn.
+    // Seed a stored message addressed to kaitlyn.
     store
         .insert(MessageRow {
             id: Uuid::new_v4(),
@@ -57,15 +30,10 @@ async fn stores_and_replays_history_for_disconnected_recipient() {
         .await
         .unwrap();
 
-    let addr = spawn_server(store).await;
+    let addr = spawn_server(Some(store)).await;
+    let mut sock = handshake_as(addr, "kaitlyn", &kaitlyn_sk).await;
 
-    let url = format!("ws://{addr}/ws");
-    let mut req = url.into_client_request().unwrap();
-    req.headers_mut()
-        .insert(USER_HEADER, "kaitlyn".parse().unwrap());
-    let (mut sock, _) = connect_async(req).await.unwrap();
-
-    sock.send(Message::Text(
+    sock.send(WsMessage::Text(
         serde_json::json!({
             "type": "hello",
             "since": (Utc::now() - chrono::Duration::days(1)).to_rfc3339()
@@ -77,11 +45,11 @@ async fn stores_and_replays_history_for_disconnected_recipient() {
 
     let received = tokio::time::timeout(Duration::from_secs(2), sock.next())
         .await
-        .expect("kaitlyn should receive a replay within 2s")
-        .expect("stream closed")
-        .expect("recv error");
+        .expect("recv within 2s")
+        .expect("stream open")
+        .expect("recv ok");
     let text = match received {
-        Message::Text(t) => t,
+        WsMessage::Text(t) => t,
         other => panic!("expected text, got {other:?}"),
     };
     let value: serde_json::Value = serde_json::from_str(&text).unwrap();
