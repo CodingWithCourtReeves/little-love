@@ -10,6 +10,8 @@ LittleLove is a private, end-to-end encrypted messenger **for couples**. Its dis
 
 LittleLove is positioned for couples. Multi-party rooms (e.g., a couple plus an AI familiar, or a couple plus one close third person) are a capability we inherit from MLS, not the marketed use case. The product voice, defaults, and onboarding flow all assume "two people in love" — group-chat affordances exist because the protocol gives them to us, not because we're chasing the family-chat market.
 
+The full product voice — what we claim, how we defend it, and what we deliberately are NOT — lives in `docs/positioning.md`. Implementation tasks that touch user-facing copy should defer to that document.
+
 Phase 1 is **desktop-first** (macOS / Windows / Linux) and ships a working private-beta product between two users (the author and his wife) plus a bot familiar running on a Windows home box. Mobile is deferred to Phase 1.5.
 
 Rough effort: ~2–3 months full-time, ~4–5 months calendar at side-project pace.
