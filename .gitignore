@@ -18,6 +18,9 @@ Cargo.lock
 
 # Dev scripts (per-worktree, generated)
 .dev.env
+
+# Superpowers brainstorming session content
+.superpowers/
 .dev.demo.key
 /.dev/
 
