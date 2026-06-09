@@ -77,7 +77,7 @@ No friend lists, no group rooms, no family threads. The "invite" surface is exac
 
 1. Client opens `wss://server/connect`.
 2. Server sends `{ kind: "Challenge", nonce: <32 random bytes, base64> }` as the first frame.
-3. Client signs the nonce bytes with its Ed25519 private key.
+3. Client computes the **domain-separated signing input** (see §8.5.1): `b"littlelove.v0.2.challenge" || 0x00 || nonce` (25 ASCII bytes + 1 NUL delimiter + 32 nonce bytes = 58 bytes). Client signs that input with its Ed25519 private key.
 4. Client replies with `{ kind: "Identify", username, signature: <base64> }`.
 5. Server looks up `(username, ed25519_pub)`, verifies the signature, and registers the connection.
 6. On failure, server closes with WSS close code 4001 (custom: "auth failed").
@@ -112,7 +112,7 @@ This is intentional. It's also what the positioning doc demands: structural priv
 7. Kaitlyn opens the app, picks "I have an invite," types the code (or pastes a code captured from a QR scan).
 8. Client `POST /invites/{code}/preview` (unauthenticated REST — Kaitlyn may not have an account yet) returns `{ inviter_username, inviter_ed25519_pub, inviter_x25519_pub, expires_at }`.
 9. Kaitlyn confirms ("Pair with @court?"). If she has no account yet she completes signup (§3.1.1–3.1.9) first, then connects via WSS (§3.3).
-10. Kaitlyn's client sends WSS frame `{ kind: "ConsumeInvite", code, signature_over_token }`. Server verifies the signature against her registered Ed25519 pubkey, marks the invite consumed, creates a `rooms` row with both accounts in `room_members`.
+10. Kaitlyn's client sends WSS frame `{ kind: "ConsumeInvite", code, signature_over_token }`. The signature is Ed25519 over the **domain-separated input** `b"littlelove.v0.2.invite-consume" || 0x00 || token` (30 ASCII bytes + 1 NUL delimiter + 32 raw token bytes = 63 bytes; see §8.5.1). Server verifies the signature against her registered Ed25519 pubkey, marks the invite consumed, creates a `rooms` row with both accounts in `room_members`.
 11. Server replies to Kaitlyn `{ kind: "InviteConsumed", room_id, peer_username, peer_ed25519_pub, peer_x25519_pub }` and pushes `{ kind: "RoomCreated", room_id, peer_username, peer_ed25519_pub, peer_x25519_pub }` to Court's connected sessions.
 12. Both clients derive the room key (§5). UI: room appears in inbox sidebar pinned at the top.
 
@@ -248,7 +248,7 @@ All frames are JSON with a `kind` discriminator.
 
 #### Client → server, response to Challenge
 ```json
-{ "kind": "Identify", "username": "court", "signature": "<base64 Ed25519 sig of the 32 nonce bytes>" }
+{ "kind": "Identify", "username": "court", "signature": "<base64 Ed25519 sig of the domain-separated nonce; see §3.3 and §8.5.1>" }
 ```
 
 #### Server → client after successful Identify
@@ -289,7 +289,7 @@ All frames are JSON with a `kind` discriminator.
 
 #### Client → server, consume an invite
 ```json
-{ "kind": "ConsumeInvite", "code": "amber-fern-locket-tide", "signature_over_token": "<base64 Ed25519 sig of the raw 32-byte token>" }
+{ "kind": "ConsumeInvite", "code": "amber-fern-locket-tide", "signature_over_token": "<base64 Ed25519 sig of the domain-separated token; see §4.1 and §8.5.1>" }
 ```
 
 #### Server → consumer, invite consumed
@@ -385,6 +385,36 @@ Day-1c's `to_user` / `from_user` columns are removed; routing is by room members
 | OS keystore | `flutter_secure_storage` 9.x | macOS Keychain / Windows DPAPI |
 
 All algorithm + library choices are fixed here. Workstreams MUST use these and not substitute.
+
+### 8.5.1 Domain separation for Ed25519 signatures
+
+Every Ed25519 signature in this protocol is computed over a **domain-separated input** of the form `tag || 0x00 || payload`, where:
+
+- `tag` is an ASCII string from the table below — no NUL bytes, no length prefix, no trailing whitespace.
+- `0x00` is a single NUL-byte delimiter (since tags are pure ASCII, the NUL byte cannot appear in any tag — the boundary between tag and payload is unambiguous).
+- `payload` is the context-specific byte string named in the table.
+
+| Context | Tag (ASCII string, length) | Payload | Total signed input |
+|---|---|---|---|
+| WSS Challenge response (§3.3) | `littlelove.v0.2.challenge` (25 bytes) | 32-byte server-issued nonce | 25 + 1 + 32 = **58 bytes** |
+| Invite consume (§4.1) | `littlelove.v0.2.invite-consume` (30 bytes) | 32-byte raw invite token | 30 + 1 + 32 = **63 bytes** |
+
+Signers MUST prepend the tag and NUL delimiter before invoking Ed25519 sign. Verifiers MUST prepend the identical tag and NUL delimiter before invoking Ed25519 verify (use the strict-verification variant on platforms that distinguish, e.g. `verify_strict` in `ed25519-dalek`). An implementation that omits the prefix on either side will not interoperate; tests MUST exercise the success path with the prefix present and fail-closed without it.
+
+**Rationale.** Without domain separation, the same Ed25519 key signs raw 32-byte blobs in two unrelated contexts (Challenge nonce and invite token). An attacker who could coerce a victim into producing one signature could replay it as the other. Today the probability of coincident inputs is negligible (the invite-token-hash padding in §8.6 means token-derived input bytes 6–31 are zero, which is structurally distinct from Challenge nonce entropy), but the defense is incidental rather than explicit. Domain-separation tags make the boundary structural so future spec revisions can't accidentally remove it. This is standard practice in modern signing protocols (ssh, age, Noise, MLS).
+
+**Test vector** (for cross-implementation parity):
+
+Given Ed25519 signing key seed (32 bytes hex) = `0101010101010101010101010101010101010101010101010101010101010101` and nonce (32 bytes hex) = `0202020202020202020202020202020202020202020202020202020202020202`, the domain-separated input for the Challenge response is the byte sequence:
+
+```
+6c 69 74 74 6c 65 6c 6f 76 65 2e 76 30 2e 32 2e   littlelove.v0.2.
+63 68 61 6c 6c 65 6e 67 65 00 02 02 02 02 02 02   challenge·······
+02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02   ················
+02 02 02 02 02 02 02 02 02 02                     ··········
+```
+
+(58 bytes total. The `·` in the rendering represents non-printing bytes; the actual bytes are as listed in hex.) WT-A and WT-C MUST agree byte-for-byte on this construction; the same convention applies for invite-consume with its tag.
 
 ### 8.6 BIP39 word ordering for invite codes — byte-deterministic
 
