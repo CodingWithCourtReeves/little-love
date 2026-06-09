@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
-import 'theme/hearth.dart';
+import 'theme/twilight.dart';
 import 'wire/message.dart';
 
 typedef SendCallback = void Function(String text);
@@ -143,13 +143,13 @@ class _ConversationPageState extends State<ConversationPage> {
     final sorted = [...widget.messages]..sort((a, b) => a.ts.compareTo(b.ts));
     final items = _itemize(sorted);
     return Scaffold(
-      backgroundColor: HearthColors.bgCanvas,
+      backgroundColor: TwilightColors.bgCanvas,
       appBar: AppBar(
-        backgroundColor: HearthColors.bgSurface,
+        backgroundColor: TwilightColors.bgSurface,
         elevation: 0,
         title: Text(
           widget.contactDisplayName,
-          style: const TextStyle(color: HearthColors.textPrimary),
+          style: const TextStyle(color: TwilightColors.textPrimary),
         ),
       ),
       body: Column(
@@ -183,8 +183,8 @@ class _ConversationPageState extends State<ConversationPage> {
                       ignoring: _atBottom,
                       child: FloatingActionButton.small(
                         key: const Key('jump-to-bottom'),
-                        backgroundColor: HearthColors.bgSurface,
-                        foregroundColor: HearthColors.accentUser,
+                        backgroundColor: TwilightColors.bgSurface,
+                        foregroundColor: TwilightColors.accentUser,
                         elevation: 4,
                         onPressed: _animateToBottom,
                         tooltip: 'Jump to latest',
@@ -220,7 +220,7 @@ class _ConversationPageState extends State<ConversationPage> {
         child: Material(
           elevation: 12,
           borderRadius: BorderRadius.circular(12),
-          color: HearthColors.bgSurface,
+          color: TwilightColors.bgSurface,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: EmojiPicker(
@@ -228,24 +228,24 @@ class _ConversationPageState extends State<ConversationPage> {
               config: Config(
                 height: 320,
                 emojiViewConfig: EmojiViewConfig(
-                  backgroundColor: HearthColors.bgSurface,
+                  backgroundColor: TwilightColors.bgSurface,
                   columns: 7,
                   emojiSizeMax: 32,
                 ),
                 categoryViewConfig: CategoryViewConfig(
-                  backgroundColor: HearthColors.bgSurface,
-                  indicatorColor: HearthColors.accentUser,
-                  iconColor: HearthColors.textMuted,
-                  iconColorSelected: HearthColors.accentUser,
+                  backgroundColor: TwilightColors.bgSurface,
+                  indicatorColor: TwilightColors.accentUser,
+                  iconColor: TwilightColors.textMuted,
+                  iconColorSelected: TwilightColors.accentUser,
                 ),
                 bottomActionBarConfig: BottomActionBarConfig(
-                  backgroundColor: HearthColors.bgSurface,
-                  buttonColor: HearthColors.bgSurfaceAlt,
-                  buttonIconColor: HearthColors.accentUser,
+                  backgroundColor: TwilightColors.bgSurface,
+                  buttonColor: TwilightColors.bgSurfaceAlt,
+                  buttonIconColor: TwilightColors.accentUser,
                 ),
                 searchViewConfig: SearchViewConfig(
-                  backgroundColor: HearthColors.bgSurface,
-                  buttonIconColor: HearthColors.accentUser,
+                  backgroundColor: TwilightColors.bgSurface,
+                  buttonIconColor: TwilightColors.accentUser,
                 ),
               ),
             ),
@@ -289,17 +289,17 @@ class _ConversationPageState extends State<ConversationPage> {
           constraints: const BoxConstraints(maxWidth: 480),
           decoration: BoxDecoration(
             color: mine
-                ? HearthColors.bubbleUserBg
-                : HearthColors.bubblePartnerBg,
+                ? TwilightColors.bubbleUserBg
+                : TwilightColors.bubblePartnerBg,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: HearthColors.borderSoft),
+            border: Border.all(color: TwilightColors.borderSoft),
           ),
           child: Text(
             m.body,
             style: TextStyle(
               color: mine
-                  ? HearthColors.bubbleUserText
-                  : HearthColors.textPrimary,
+                  ? TwilightColors.bubbleUserText
+                  : TwilightColors.textPrimary,
               fontSize: 16,
             ),
           ),
@@ -314,19 +314,19 @@ class _ConversationPageState extends State<ConversationPage> {
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Row(
         children: [
-          Expanded(child: Container(height: 1, color: HearthColors.borderSoft)),
+          Expanded(child: Container(height: 1, color: TwilightColors.borderSoft)),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Text(
               _formatDaySeparator(day),
               style: const TextStyle(
-                color: HearthColors.textMuted,
+                color: TwilightColors.textMuted,
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
               ),
             ),
           ),
-          Expanded(child: Container(height: 1, color: HearthColors.borderSoft)),
+          Expanded(child: Container(height: 1, color: TwilightColors.borderSoft)),
         ],
       ),
     );
@@ -339,7 +339,7 @@ class _ConversationPageState extends State<ConversationPage> {
       child: Center(
         child: Text(
           _formatGapHeader(t),
-          style: const TextStyle(color: HearthColors.textMuted, fontSize: 11),
+          style: const TextStyle(color: TwilightColors.textMuted, fontSize: 11),
         ),
       ),
     );
@@ -459,7 +459,7 @@ class _ConversationPageState extends State<ConversationPage> {
           const _SendIntent(),
     };
     return Container(
-      color: HearthColors.bgSurface,
+      color: TwilightColors.bgSurface,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -487,7 +487,7 @@ class _ConversationPageState extends State<ConversationPage> {
                     _emojiOverlay.isShowing
                         ? Icons.keyboard_alt_outlined
                         : Icons.emoji_emotions_outlined,
-                    color: HearthColors.textMuted,
+                    color: TwilightColors.textMuted,
                   ),
                   tooltip: _emojiOverlay.isShowing
                       ? 'Close emoji picker'
@@ -520,7 +520,7 @@ class _ConversationPageState extends State<ConversationPage> {
                         'Message ${widget.contactDisplayName}'
                         '   ·   ⌘↵ to send',
                     filled: true,
-                    fillColor: HearthColors.bgSurfaceAlt,
+                    fillColor: TwilightColors.bgSurfaceAlt,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
@@ -533,7 +533,7 @@ class _ConversationPageState extends State<ConversationPage> {
           const SizedBox(width: 12),
           IconButton(
             onPressed: () => _handleSubmit(_controller.text),
-            icon: const Icon(Icons.send, color: HearthColors.accentUser),
+            icon: const Icon(Icons.send, color: TwilightColors.accentUser),
           ),
         ],
       ),

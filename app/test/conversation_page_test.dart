@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/conversation_page.dart';
-import 'package:littlelove/theme/hearth.dart';
+import 'package:littlelove/theme/twilight.dart';
 import 'package:littlelove/wire/message.dart';
 
 void main() {
@@ -27,7 +27,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: buildHearthTheme(),
+        theme: buildTwilightTheme(),
         home: ConversationPage(
           meUsername: 'court',
           contactDisplayName: 'Kaitlyn',
@@ -45,7 +45,7 @@ void main() {
     String? sent;
     await tester.pumpWidget(
       MaterialApp(
-        theme: buildHearthTheme(),
+        theme: buildTwilightTheme(),
         home: ConversationPage(
           meUsername: 'court',
           contactDisplayName: 'Kaitlyn',
@@ -81,7 +81,7 @@ void main() {
     ];
     await tester.pumpWidget(
       MaterialApp(
-        theme: buildHearthTheme(),
+        theme: buildTwilightTheme(),
         home: ConversationPage(
           meUsername: 'court',
           contactDisplayName: 'Kaitlyn',
@@ -129,7 +129,7 @@ void main() {
       ];
       await tester.pumpWidget(
         MaterialApp(
-          theme: buildHearthTheme(),
+          theme: buildTwilightTheme(),
           home: ConversationPage(
             meUsername: 'court',
             contactDisplayName: 'Kaitlyn',
@@ -166,7 +166,7 @@ void main() {
     ];
     await tester.pumpWidget(
       MaterialApp(
-        theme: buildHearthTheme(),
+        theme: buildTwilightTheme(),
         home: ConversationPage(
           meUsername: 'court',
           contactDisplayName: 'Kaitlyn',
@@ -202,7 +202,7 @@ void main() {
     ];
     await tester.pumpWidget(
       MaterialApp(
-        theme: buildHearthTheme(),
+        theme: buildTwilightTheme(),
         home: ConversationPage(
           meUsername: 'court',
           contactDisplayName: 'Kaitlyn',
@@ -222,7 +222,7 @@ void main() {
   testWidgets('emoji button toggles the picker panel', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        theme: buildHearthTheme(),
+        theme: buildTwilightTheme(),
         home: ConversationPage(
           meUsername: 'court',
           contactDisplayName: 'Kaitlyn',
@@ -247,7 +247,7 @@ void main() {
     String? sent;
     await tester.pumpWidget(
       MaterialApp(
-        theme: buildHearthTheme(),
+        theme: buildTwilightTheme(),
         home: ConversationPage(
           meUsername: 'court',
           contactDisplayName: 'Kaitlyn',

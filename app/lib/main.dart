@@ -3,7 +3,7 @@ import 'package:uuid/uuid.dart';
 
 import 'config.dart';
 import 'conversation_page.dart';
-import 'theme/hearth.dart';
+import 'theme/twilight.dart';
 import 'wire/crypto.dart';
 import 'wire/message.dart';
 import 'ws_client.dart';
@@ -20,7 +20,7 @@ class LittleLoveApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'LittleLove',
-      theme: buildHearthTheme(),
+      theme: buildTwilightTheme(),
       home: const _Bootstrap(),
     );
   }
