@@ -1,3 +1,4 @@
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -30,11 +31,16 @@ class ConversationPage extends StatefulWidget {
 
 class _ConversationPageState extends State<ConversationPage> {
   final _controller = TextEditingController();
+  bool _emojiOpen = false;
 
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  void _toggleEmojiPicker() {
+    setState(() => _emojiOpen = !_emojiOpen);
   }
 
   void _handleSubmit(String value) {
@@ -72,6 +78,36 @@ class _ConversationPageState extends State<ConversationPage> {
             ),
           ),
           _composer(),
+          if (_emojiOpen)
+            SizedBox(
+              key: const Key('emoji-panel'),
+              height: 280,
+              child: EmojiPicker(
+                textEditingController: _controller,
+                config: Config(
+                  height: 280,
+                  emojiViewConfig: EmojiViewConfig(
+                    backgroundColor: HearthColors.bgSurface,
+                    columns: 8,
+                  ),
+                  categoryViewConfig: CategoryViewConfig(
+                    backgroundColor: HearthColors.bgSurface,
+                    indicatorColor: HearthColors.accentUser,
+                    iconColor: HearthColors.textMuted,
+                    iconColorSelected: HearthColors.accentUser,
+                  ),
+                  bottomActionBarConfig: BottomActionBarConfig(
+                    backgroundColor: HearthColors.bgSurface,
+                    buttonColor: HearthColors.bgSurfaceAlt,
+                    buttonIconColor: HearthColors.accentUser,
+                  ),
+                  searchViewConfig: SearchViewConfig(
+                    backgroundColor: HearthColors.bgSurface,
+                    buttonIconColor: HearthColors.accentUser,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -116,6 +152,17 @@ class _ConversationPageState extends State<ConversationPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          IconButton(
+            key: const Key('emoji-toggle'),
+            onPressed: _toggleEmojiPicker,
+            icon: Icon(
+              _emojiOpen
+                  ? Icons.keyboard_alt_outlined
+                  : Icons.emoji_emotions_outlined,
+              color: HearthColors.textMuted,
+            ),
+            tooltip: _emojiOpen ? 'Close emoji picker' : 'Emoji',
+          ),
           Expanded(
             child: Shortcuts(
               shortcuts: shortcuts,

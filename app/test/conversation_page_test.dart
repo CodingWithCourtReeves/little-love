@@ -48,6 +48,28 @@ void main() {
     expect(sent, 'hi');
   });
 
+  testWidgets('emoji button toggles the picker panel', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      theme: buildHearthTheme(),
+      home: ConversationPage(
+        meUsername: 'court',
+        contactDisplayName: 'Kaitlyn',
+        messages: const [],
+        onSend: (_) {},
+      ),
+    ));
+
+    expect(find.byKey(const Key('emoji-panel')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('emoji-toggle')));
+    await tester.pump();
+    expect(find.byKey(const Key('emoji-panel')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('emoji-toggle')));
+    await tester.pump();
+    expect(find.byKey(const Key('emoji-panel')), findsNothing);
+  });
+
   testWidgets('multi-line text is preserved through onSend', (tester) async {
     String? sent;
     await tester.pumpWidget(MaterialApp(
