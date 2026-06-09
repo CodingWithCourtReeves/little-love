@@ -31,7 +31,8 @@ class ConversationPage extends StatefulWidget {
 
 class _ConversationPageState extends State<ConversationPage> {
   final _controller = TextEditingController();
-  bool _emojiOpen = false;
+  final _emojiOverlay = OverlayPortalController();
+  final _emojiLink = LayerLink();
 
   @override
   void dispose() {
@@ -40,7 +41,12 @@ class _ConversationPageState extends State<ConversationPage> {
   }
 
   void _toggleEmojiPicker() {
-    setState(() => _emojiOpen = !_emojiOpen);
+    if (_emojiOverlay.isShowing) {
+      _emojiOverlay.hide();
+    } else {
+      _emojiOverlay.show();
+    }
+    setState(() {});
   }
 
   void _handleSubmit(String value) {
@@ -78,37 +84,59 @@ class _ConversationPageState extends State<ConversationPage> {
             ),
           ),
           _composer(),
-          if (_emojiOpen)
-            SizedBox(
-              key: const Key('emoji-panel'),
-              height: 280,
-              child: EmojiPicker(
-                textEditingController: _controller,
-                config: Config(
-                  height: 280,
-                  emojiViewConfig: EmojiViewConfig(
-                    backgroundColor: HearthColors.bgSurface,
-                    columns: 8,
-                  ),
-                  categoryViewConfig: CategoryViewConfig(
-                    backgroundColor: HearthColors.bgSurface,
-                    indicatorColor: HearthColors.accentUser,
-                    iconColor: HearthColors.textMuted,
-                    iconColorSelected: HearthColors.accentUser,
-                  ),
-                  bottomActionBarConfig: BottomActionBarConfig(
-                    backgroundColor: HearthColors.bgSurface,
-                    buttonColor: HearthColors.bgSurfaceAlt,
-                    buttonIconColor: HearthColors.accentUser,
-                  ),
-                  searchViewConfig: SearchViewConfig(
-                    backgroundColor: HearthColors.bgSurface,
-                    buttonIconColor: HearthColors.accentUser,
-                  ),
+        ],
+      ),
+    );
+  }
+
+  static const _emojiTapGroup = 'llove.emoji';
+
+  Widget _emojiPanel() {
+    return TapRegion(
+      groupId: _emojiTapGroup,
+      onTapOutside: (_) {
+        if (_emojiOverlay.isShowing) {
+          _emojiOverlay.hide();
+          setState(() {});
+        }
+      },
+      child: SizedBox(
+        key: const Key('emoji-panel'),
+        width: 340,
+        height: 320,
+        child: Material(
+          elevation: 12,
+          borderRadius: BorderRadius.circular(12),
+          color: HearthColors.bgSurface,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: EmojiPicker(
+              textEditingController: _controller,
+              config: Config(
+                height: 320,
+                emojiViewConfig: EmojiViewConfig(
+                  backgroundColor: HearthColors.bgSurface,
+                  columns: 8,
+                ),
+                categoryViewConfig: CategoryViewConfig(
+                  backgroundColor: HearthColors.bgSurface,
+                  indicatorColor: HearthColors.accentUser,
+                  iconColor: HearthColors.textMuted,
+                  iconColorSelected: HearthColors.accentUser,
+                ),
+                bottomActionBarConfig: BottomActionBarConfig(
+                  backgroundColor: HearthColors.bgSurface,
+                  buttonColor: HearthColors.bgSurfaceAlt,
+                  buttonIconColor: HearthColors.accentUser,
+                ),
+                searchViewConfig: SearchViewConfig(
+                  backgroundColor: HearthColors.bgSurface,
+                  buttonIconColor: HearthColors.accentUser,
                 ),
               ),
             ),
-        ],
+          ),
+        ),
       ),
     );
   }
@@ -152,16 +180,37 @@ class _ConversationPageState extends State<ConversationPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          IconButton(
-            key: const Key('emoji-toggle'),
-            onPressed: _toggleEmojiPicker,
-            icon: Icon(
-              _emojiOpen
-                  ? Icons.keyboard_alt_outlined
-                  : Icons.emoji_emotions_outlined,
-              color: HearthColors.textMuted,
+          CompositedTransformTarget(
+            link: _emojiLink,
+            child: OverlayPortal(
+              controller: _emojiOverlay,
+              overlayChildBuilder: (_) => Positioned(
+                width: 340,
+                child: CompositedTransformFollower(
+                  link: _emojiLink,
+                  targetAnchor: Alignment.topLeft,
+                  followerAnchor: Alignment.bottomLeft,
+                  offset: const Offset(0, -8),
+                  child: _emojiPanel(),
+                ),
+              ),
+              child: TapRegion(
+                groupId: _emojiTapGroup,
+                child: IconButton(
+                  key: const Key('emoji-toggle'),
+                  onPressed: _toggleEmojiPicker,
+                  icon: Icon(
+                    _emojiOverlay.isShowing
+                        ? Icons.keyboard_alt_outlined
+                        : Icons.emoji_emotions_outlined,
+                    color: HearthColors.textMuted,
+                  ),
+                  tooltip: _emojiOverlay.isShowing
+                      ? 'Close emoji picker'
+                      : 'Emoji',
+                ),
+              ),
             ),
-            tooltip: _emojiOpen ? 'Close emoji picker' : 'Emoji',
           ),
           Expanded(
             child: Shortcuts(
