@@ -74,7 +74,8 @@ pub fn verify_signature(pub_key: &[u8], nonce: &[u8], signature: &[u8]) -> Resul
     // malleability from curve25519's cofactor of 8. The dalek docs explicitly
     // warn that plain verify is "dangerous in identification protocols" —
     // exactly the use case here. See ed25519-dalek VerifyingKey docs.
-    vk.verify_strict(&input, &sig).map_err(|_| AuthError::Mismatch)
+    vk.verify_strict(&input, &sig)
+        .map_err(|_| AuthError::Mismatch)
 }
 
 #[cfg(test)]

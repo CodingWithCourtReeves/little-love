@@ -100,6 +100,8 @@ pub async fn create_account(
     }
 }
 
+type AccountRow = (String, Vec<u8>, Vec<u8>, DateTime<Utc>);
+
 pub async fn get_account_by_username(
     State(state): State<AppState>,
     Path(username): Path<String>,
@@ -108,14 +110,13 @@ pub async fn get_account_by_username(
         Some(s) => s,
         None => return (StatusCode::INTERNAL_SERVER_ERROR, "store unavailable").into_response(),
     };
-    let row: Result<Option<(String, Vec<u8>, Vec<u8>, DateTime<Utc>)>, sqlx::Error> =
-        sqlx::query_as(
-            "SELECT username, ed25519_pub, x25519_pub, created_at
+    let row: Result<Option<AccountRow>, sqlx::Error> = sqlx::query_as(
+        "SELECT username, ed25519_pub, x25519_pub, created_at
              FROM accounts WHERE username = $1",
-        )
-        .bind(&username)
-        .fetch_optional(store.pool())
-        .await;
+    )
+    .bind(&username)
+    .fetch_optional(store.pool())
+    .await;
     match row {
         Ok(Some((u, ed, x, ts))) => Json(AccountFull {
             username: u,

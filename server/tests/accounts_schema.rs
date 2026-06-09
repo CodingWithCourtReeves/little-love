@@ -62,11 +62,15 @@ async fn accounts_username_is_unique() {
         .await
         .unwrap();
 
-    let dup = sqlx::query("INSERT INTO accounts (username, ed25519_pub, x25519_pub) VALUES ($1, $2, $3)")
-        .bind("court")
-        .bind(&[1u8; 32][..])
-        .bind(&[1u8; 32][..])
-        .execute(store.pool())
-        .await;
-    assert!(dup.is_err(), "duplicate username must violate unique constraint");
+    let dup =
+        sqlx::query("INSERT INTO accounts (username, ed25519_pub, x25519_pub) VALUES ($1, $2, $3)")
+            .bind("court")
+            .bind(&[1u8; 32][..])
+            .bind(&[1u8; 32][..])
+            .execute(store.pool())
+            .await;
+    assert!(
+        dup.is_err(),
+        "duplicate username must violate unique constraint"
+    );
 }

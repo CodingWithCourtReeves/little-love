@@ -24,10 +24,7 @@ pub struct AppState {
 /// WSS close code for auth failures (spec §3.3 step 6).
 const CLOSE_AUTH_FAILED: u16 = 4001;
 
-pub async fn ws_handler(
-    State(state): State<AppState>,
-    ws: WebSocketUpgrade,
-) -> impl IntoResponse {
+pub async fn ws_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 

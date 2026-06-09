@@ -31,7 +31,10 @@ async fn forwards_message_to_recipient_when_both_connected() {
         "body": "hey love",
         "ts": "2026-06-09T17:00:00Z"
     });
-    court.send(WsMessage::Text(frame.to_string())).await.unwrap();
+    court
+        .send(WsMessage::Text(frame.to_string()))
+        .await
+        .unwrap();
 
     let received = tokio::time::timeout(Duration::from_secs(2), kaitlyn.next())
         .await
@@ -73,7 +76,10 @@ async fn server_overrides_from_with_authenticated_username() {
         "body": "fake",
         "ts": "2026-06-09T17:00:00Z"
     });
-    court.send(WsMessage::Text(frame.to_string())).await.unwrap();
+    court
+        .send(WsMessage::Text(frame.to_string()))
+        .await
+        .unwrap();
 
     let received = tokio::time::timeout(Duration::from_secs(2), kaitlyn.next())
         .await

@@ -36,7 +36,13 @@ async fn get_known_account_returns_publics() {
     assert_eq!(resp.status(), 200);
     let v: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(v["username"], "court");
-    assert_eq!(v["ed25519_pub"], "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
-    assert_eq!(v["x25519_pub"], "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+    assert_eq!(
+        v["ed25519_pub"],
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    );
+    assert_eq!(
+        v["x25519_pub"],
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    );
     assert!(v.get("created_at").is_some());
 }
