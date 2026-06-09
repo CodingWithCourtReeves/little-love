@@ -4,7 +4,7 @@ mod common;
 use common::{fresh_store, spawn_server};
 
 #[tokio::test]
-#[file_serial]
+#[file_serial(db)]
 async fn get_unknown_account_returns_404() {
     let store = fresh_store().await;
     let addr = spawn_server(Some(store)).await;
@@ -14,7 +14,7 @@ async fn get_unknown_account_returns_404() {
 }
 
 #[tokio::test]
-#[file_serial]
+#[file_serial(db)]
 async fn get_known_account_returns_publics() {
     let store = fresh_store().await;
     let addr = spawn_server(Some(store)).await;

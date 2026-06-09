@@ -9,7 +9,7 @@ mod common;
 use common::{fresh_store, handshake_as, insert_account, spawn_server};
 
 #[tokio::test]
-#[file_serial]
+#[file_serial(db)]
 async fn forwards_message_to_recipient_when_both_connected() {
     let store = fresh_store().await;
     let court_sk = SigningKey::from_bytes(&[1u8; 32]);
@@ -53,7 +53,7 @@ async fn forwards_message_to_recipient_when_both_connected() {
 }
 
 #[tokio::test]
-#[file_serial]
+#[file_serial(db)]
 async fn server_overrides_from_with_authenticated_username() {
     let store = fresh_store().await;
     let court_sk = SigningKey::from_bytes(&[1u8; 32]);

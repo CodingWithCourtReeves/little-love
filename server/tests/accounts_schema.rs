@@ -6,7 +6,7 @@ fn db_url() -> String {
 }
 
 #[tokio::test]
-#[file_serial]
+#[file_serial(db)]
 async fn accounts_table_has_required_columns() {
     let store = Store::connect(&db_url()).await.unwrap();
     let rows: Vec<(String, String, bool)> = sqlx::query_as(
@@ -46,7 +46,7 @@ async fn accounts_table_has_required_columns() {
 }
 
 #[tokio::test]
-#[file_serial]
+#[file_serial(db)]
 async fn accounts_username_is_unique() {
     let store = Store::connect(&db_url()).await.unwrap();
     sqlx::query("TRUNCATE TABLE accounts RESTART IDENTITY CASCADE")
