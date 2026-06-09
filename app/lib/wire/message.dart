@@ -48,7 +48,7 @@ class Hello {
   final DateTime since;
 
   Map<String, Object?> toJson() => {
-        'type': 'hello',
-        'since': since.toUtc().toIso8601String(),
-      };
+    'type': 'hello',
+    'since': since.toUtc().toIso8601String(),
+  };
 }

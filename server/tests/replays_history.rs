@@ -20,7 +20,9 @@ async fn spawn_server(store: Store) -> SocketAddr {
         routing: Routing::new(),
         store: Some(store),
     };
-    let app = Router::new().route("/ws", get(ws_handler)).with_state(state);
+    let app = Router::new()
+        .route("/ws", get(ws_handler))
+        .with_state(state);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -57,7 +59,8 @@ async fn stores_and_replays_history_for_disconnected_recipient() {
 
     let url = format!("ws://{addr}/ws");
     let mut req = url.into_client_request().unwrap();
-    req.headers_mut().insert(USER_HEADER, "kaitlyn".parse().unwrap());
+    req.headers_mut()
+        .insert(USER_HEADER, "kaitlyn".parse().unwrap());
     let (mut sock, _) = connect_async(req).await.unwrap();
 
     sock.send(Message::Text(

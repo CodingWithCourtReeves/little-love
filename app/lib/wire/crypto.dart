@@ -9,9 +9,9 @@ class EncryptedBody {
   final String nonceBase64;
 
   Map<String, Object?> toJson() => {
-        'ciphertext': ciphertextBase64,
-        'nonce': nonceBase64,
-      };
+    'ciphertext': ciphertextBase64,
+    'nonce': nonceBase64,
+  };
 
   factory EncryptedBody.fromJson(Map<String, Object?> json) {
     return EncryptedBody(
@@ -26,7 +26,8 @@ class EncryptedBody {
   String toWireString() => base64.encode(utf8.encode(jsonEncode(toJson())));
 
   factory EncryptedBody.fromWireString(String wire) {
-    final json = jsonDecode(utf8.decode(base64.decode(wire))) as Map<String, Object?>;
+    final json =
+        jsonDecode(utf8.decode(base64.decode(wire))) as Map<String, Object?>;
     return EncryptedBody.fromJson(json);
   }
 }
@@ -40,7 +41,8 @@ class SymmetricCipher {
   static SymmetricCipher fromHex(String hex) {
     if (hex.length != 64) {
       throw ArgumentError(
-          'shared key must be 64 hex chars (32 bytes), got ${hex.length}');
+        'shared key must be 64 hex chars (32 bytes), got ${hex.length}',
+      );
     }
     final bytes = Uint8List(32);
     for (var i = 0; i < 32; i++) {
@@ -59,8 +61,11 @@ class SymmetricCipher {
     // Pack ciphertext+mac as a single buffer.
     final out = Uint8List(box.cipherText.length + box.mac.bytes.length)
       ..setRange(0, box.cipherText.length, box.cipherText)
-      ..setRange(box.cipherText.length,
-          box.cipherText.length + box.mac.bytes.length, box.mac.bytes);
+      ..setRange(
+        box.cipherText.length,
+        box.cipherText.length + box.mac.bytes.length,
+        box.mac.bytes,
+      );
     return EncryptedBody(
       ciphertextBase64: base64.encode(out),
       nonceBase64: base64.encode(nonce),

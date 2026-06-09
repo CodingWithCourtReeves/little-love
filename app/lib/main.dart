@@ -113,21 +113,24 @@ class _LiveState extends State<_Live> {
       }
     }
     setState(() {
-      _messages.add(Msg(
-        id: m.id,
-        from: m.from,
-        to: m.to,
-        body: body,
-        ts: m.ts,
-        replayed: m.replayed,
-      ));
+      _messages.add(
+        Msg(
+          id: m.id,
+          from: m.from,
+          to: m.to,
+          body: body,
+          ts: m.ts,
+          replayed: m.replayed,
+        ),
+      );
     });
   }
 
   Future<void> _send(String text) async {
     final cipher = _cipher;
-    final wireBody =
-        (cipher != null) ? (await cipher.encrypt(text)).toWireString() : text;
+    final wireBody = (cipher != null)
+        ? (await cipher.encrypt(text)).toWireString()
+        : text;
     final msg = Msg(
       id: _uuid.v4(),
       from: widget.config.username,
@@ -137,14 +140,16 @@ class _LiveState extends State<_Live> {
     );
     _ws.send(msg);
     setState(() {
-      _messages.add(Msg(
-        id: msg.id,
-        from: msg.from,
-        to: msg.to,
-        body: text,
-        ts: msg.ts,
-        replayed: false,
-      ));
+      _messages.add(
+        Msg(
+          id: msg.id,
+          from: msg.from,
+          to: msg.to,
+          body: text,
+          ts: msg.ts,
+          replayed: false,
+        ),
+      );
     });
   }
 

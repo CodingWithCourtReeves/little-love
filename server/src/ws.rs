@@ -69,15 +69,12 @@ async fn handle_socket(socket: WebSocket, username: String, state: AppState) {
                     // x-llove-user header is Day-1 auth; trust it, not the client-supplied `from`.
                     payload.from = username.clone();
                     if let Some(store) = &state.store {
-                        if let Err(e) =
-                            store.insert(MessageRow::from(payload.clone())).await
-                        {
+                        if let Err(e) = store.insert(MessageRow::from(payload.clone())).await {
                             warn!("store insert failed: {e}");
                         }
                     }
                     let to = payload.to.clone();
-                    let delivered =
-                        state.routing.deliver(&to, ServerFrame::Msg(payload)).await;
+                    let delivered = state.routing.deliver(&to, ServerFrame::Msg(payload)).await;
                     if !delivered {
                         info!(%to, "recipient offline; stored only");
                     }

@@ -33,6 +33,7 @@ class AppConfig {
       }
       return v;
     }
+
     if (contact == null) {
       throw const FormatException('config: missing [contact] table');
     }
@@ -61,9 +62,7 @@ class AppConfig {
   static Future<AppConfig> load() async {
     final file = defaultConfigFile();
     if (!await file.exists()) {
-      throw FileSystemException(
-        'config not found; create it at ${file.path}',
-      );
+      throw FileSystemException('config not found; create it at ${file.path}');
     }
     return AppConfig.parse(await file.readAsString());
   }

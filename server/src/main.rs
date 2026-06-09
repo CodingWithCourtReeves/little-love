@@ -27,7 +27,10 @@ async fn main() -> Result<()> {
             None
         }
     };
-    let state = AppState { routing: Routing::new(), store };
+    let state = AppState {
+        routing: Routing::new(),
+        store,
+    };
     let app = Router::new()
         .route("/health", get(health))
         .route("/ws", get(ws_handler))

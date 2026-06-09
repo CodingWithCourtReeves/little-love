@@ -13,7 +13,10 @@ use tokio_tungstenite::{
 };
 
 async fn spawn_server() -> SocketAddr {
-    let state = AppState { routing: Routing::new(), store: None };
+    let state = AppState {
+        routing: Routing::new(),
+        store: None,
+    };
     let app = Router::new()
         .route("/ws", get(ws_handler))
         .with_state(state);

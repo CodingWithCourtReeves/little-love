@@ -140,8 +140,7 @@ class _ConversationPageState extends State<ConversationPage> {
 
   @override
   Widget build(BuildContext context) {
-    final sorted = [...widget.messages]
-      ..sort((a, b) => a.ts.compareTo(b.ts));
+    final sorted = [...widget.messages]..sort((a, b) => a.ts.compareTo(b.ts));
     final items = _itemize(sorted);
     return Scaffold(
       backgroundColor: HearthColors.bgCanvas,
@@ -160,7 +159,10 @@ class _ConversationPageState extends State<ConversationPage> {
               children: [
                 ListView.builder(
                   controller: _scrollController,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   itemCount: items.length,
                   itemBuilder: (_, i) {
                     final item = items[i];
@@ -286,16 +288,18 @@ class _ConversationPageState extends State<ConversationPage> {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           constraints: const BoxConstraints(maxWidth: 480),
           decoration: BoxDecoration(
-            color:
-                mine ? HearthColors.bubbleUserBg : HearthColors.bubblePartnerBg,
+            color: mine
+                ? HearthColors.bubbleUserBg
+                : HearthColors.bubblePartnerBg,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: HearthColors.borderSoft),
           ),
           child: Text(
             m.body,
             style: TextStyle(
-              color:
-                  mine ? HearthColors.bubbleUserText : HearthColors.textPrimary,
+              color: mine
+                  ? HearthColors.bubbleUserText
+                  : HearthColors.textPrimary,
               fontSize: 16,
             ),
           ),
@@ -310,9 +314,7 @@ class _ConversationPageState extends State<ConversationPage> {
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Row(
         children: [
-          Expanded(
-            child: Container(height: 1, color: HearthColors.borderSoft),
-          ),
+          Expanded(child: Container(height: 1, color: HearthColors.borderSoft)),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Text(
@@ -324,9 +326,7 @@ class _ConversationPageState extends State<ConversationPage> {
               ),
             ),
           ),
-          Expanded(
-            child: Container(height: 1, color: HearthColors.borderSoft),
-          ),
+          Expanded(child: Container(height: 1, color: HearthColors.borderSoft)),
         ],
       ),
     );
@@ -339,10 +339,7 @@ class _ConversationPageState extends State<ConversationPage> {
       child: Center(
         child: Text(
           _formatGapHeader(t),
-          style: const TextStyle(
-            color: HearthColors.textMuted,
-            fontSize: 11,
-          ),
+          style: const TextStyle(color: HearthColors.textMuted, fontSize: 11),
         ),
       ),
     );
@@ -369,8 +366,7 @@ class _ConversationPageState extends State<ConversationPage> {
     return out;
   }
 
-  static DateTime _dateOnly(DateTime dt) =>
-      DateTime(dt.year, dt.month, dt.day);
+  static DateTime _dateOnly(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
 
   static String _formatDaySeparator(DateTime day) {
     final today = _dateOnly(DateTime.now());
@@ -400,16 +396,31 @@ class _ConversationPageState extends State<ConversationPage> {
 
   static String _weekdayName(int wd) {
     const names = [
-      'Monday', 'Tuesday', 'Wednesday', 'Thursday',
-      'Friday', 'Saturday', 'Sunday',
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
     ];
     return names[wd - 1];
   }
 
   static String _monthName(int month) {
     const names = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return names[month - 1];
   }
@@ -423,7 +434,8 @@ class _ConversationPageState extends State<ConversationPage> {
     final runes = trimmed.runes.toList();
     if (runes.length > 8) return false;
     for (final r in runes) {
-      final emoji = (r >= 0x2600 && r <= 0x27BF) ||
+      final emoji =
+          (r >= 0x2600 && r <= 0x27BF) ||
           (r >= 0x1F300 && r <= 0x1F6FF) ||
           (r >= 0x1F900 && r <= 0x1F9FF) ||
           (r >= 0x1FA70 && r <= 0x1FAFF) ||
@@ -489,10 +501,12 @@ class _ConversationPageState extends State<ConversationPage> {
               shortcuts: shortcuts,
               child: Actions(
                 actions: {
-                  _SendIntent: CallbackAction<_SendIntent>(onInvoke: (_) {
-                    _submitFromIntent();
-                    return null;
-                  }),
+                  _SendIntent: CallbackAction<_SendIntent>(
+                    onInvoke: (_) {
+                      _submitFromIntent();
+                      return null;
+                    },
+                  ),
                 },
                 child: TextField(
                   key: const Key('composer'),
@@ -502,7 +516,8 @@ class _ConversationPageState extends State<ConversationPage> {
                   keyboardType: TextInputType.multiline,
                   textInputAction: TextInputAction.newline,
                   decoration: InputDecoration(
-                    hintText: 'Message ${widget.contactDisplayName}'
+                    hintText:
+                        'Message ${widget.contactDisplayName}'
                         '   ·   ⌘↵ to send',
                     filled: true,
                     fillColor: HearthColors.bgSurfaceAlt,

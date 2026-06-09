@@ -21,11 +21,7 @@ class LinearBackoff {
 }
 
 class WsClient {
-  WsClient({
-    required this.url,
-    required this.username,
-    this.helloSince,
-  });
+  WsClient({required this.url, required this.username, this.helloSince});
 
   final String url;
   final String username;
@@ -46,7 +42,8 @@ class WsClient {
           headers: {'x-llove-user': username},
         );
         // Send Hello immediately after upgrade so the server can replay history.
-        final since = helloSince ??
+        final since =
+            helloSince ??
             DateTime.now().toUtc().subtract(const Duration(days: 30));
         _channel!.sink.add(jsonEncode(Hello(since: since.toUtc()).toJson()));
 
