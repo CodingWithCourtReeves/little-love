@@ -22,7 +22,7 @@ Each day-end produces something usable. If Day-1b slips, Day-1a is still messagi
 
 ## 3. In scope
 
-- **Two clients** (Court's Mac and Kaitlyn's Mac). Flutter desktop, macOS target only.
+- **Two clients** (one on macOS, one on Windows — Court and Kaitlyn). Flutter desktop, **macOS + Windows targets**. Linux deferred.
 - **One server** (Rust + Axum) — runs locally on Court's machine for first usage; deployable to Railway once the wire works.
 - **One conversation** between two hardcoded users. No conversation list, no sidebar, no settings, no theme picker.
 - **Text only.** No attachments, no voice memo, no images.
@@ -47,14 +47,19 @@ Each day-end produces something usable. If Day-1b slips, Day-1a is still messagi
 | Cross-device history sync | Phase 1.5 |
 | Settings screen | Phase 1 |
 | Recovery / account loss | Phase 2 |
-| Windows / Linux desktop | Phase 1 |
+| Linux desktop | Phase 1 |
 | Conversation list, multiple rooms | Phase 1 |
 | iOS / Android | Phase 1.5 |
 | GitHub Actions CI for the client | Phase 1 (Day 1 builds locally) |
 
 ## 5. Identity & "auth"
 
-A config file at `~/.littlelove/config.toml`:
+A config file at a per-OS standard location:
+
+- **macOS:** `~/.littlelove/config.toml`
+- **Windows:** `%USERPROFILE%\.littlelove\config.toml`
+
+Same TOML format on both:
 
 ```toml
 username = "court"
@@ -109,7 +114,7 @@ Deploy target: **localhost first**. Once Day-1a works locally, we deploy the sam
 
 ## 8. Client (`app/`)
 
-- Flutter desktop, **macOS only** for Day 1.
+- Flutter desktop, **macOS and Windows** for Day 1. Same Dart codebase; no platform-specific Day-1 code paths.
 - Single screen: a conversation view styled with the Hearth palette (lifted directly from the mock).
 - Sidebar in the mock is hidden in Day 1 — only one conversation exists.
 - Theme switcher widget from the mock is hidden in Day 1 — only Hearth, only light.
@@ -147,14 +152,25 @@ cd server
 cargo run                   # listens on 127.0.0.1:7707
 ```
 
-### Client
+### Client — macOS (Court)
 
 ```sh
 cd app
 flutter run -d macos        # uses ~/.littlelove/config.toml
 ```
 
-Kaitlyn's machine: same `flutter run -d macos`, different config file pointing at Court's machine's IP (LAN) until we deploy the server.
+Prereq: Xcode command-line tools installed.
+
+### Client — Windows (Kaitlyn)
+
+```powershell
+cd app
+flutter run -d windows       # uses %USERPROFILE%\.littlelove\config.toml
+```
+
+Prereq: Visual Studio 2022 with the "Desktop development with C++" workload, plus Flutter Windows desktop enabled (`flutter config --enable-windows-desktop`). Kaitlyn builds + runs locally on her own machine; she does not receive a pre-built binary from Court.
+
+Until the server is on Railway, both clients point at Court's machine's LAN IP for `server_url` in their respective configs (`ws://192.168.x.x:7707/ws`).
 
 ## 11. Testing
 
@@ -168,7 +184,7 @@ TDD discipline per saved feedback: write the failing test first for each of thos
 
 ## 12. Acceptance criteria
 
-Day 1 is "done" when, on two separate macOS machines:
+Day 1 is "done" when, on Court's macOS machine and Kaitlyn's Windows machine:
 
 1. Court launches the app, sees an empty conversation.
 2. Kaitlyn launches the app on her machine, sees an empty conversation.
@@ -191,6 +207,7 @@ This is a sketch, not a commitment. Each slice gets brainstormed and spec'd when
 
 ## 14. Risks
 
-- **Networking gotchas on a home LAN** — firewalls, sleep/wake on a Mac, Wi-Fi router config. Mitigate by being prepared to deploy the server to Railway early if LAN turns out to be flaky.
+- **Networking gotchas on a home LAN** — firewalls (macOS *and* Windows Defender), sleep/wake on a Mac, Wi-Fi router config. Windows Defender will prompt on first run of the Axum server if Court hosts on his Windows box; allow on private network. Mitigate by being prepared to deploy the server to Railway early if LAN turns out to be flaky.
+- **Windows toolchain setup tax** — Kaitlyn needs Visual Studio Build Tools + "Desktop development with C++" workload (multi-GB download). Plan for an hour of toolchain install before her first `flutter run -d windows`. Once done, it's a one-time cost.
 - **Pure-Dart code becoming load-bearing** — be explicit in the README that Day-1 Dart is throwaway, so we don't accidentally lean on it past Day 3.
 - **Time pressure to add "just one more thing"** — Day 1 is intentionally tiny. Defer everything that doesn't fit the §3 list, even if it's tempting.
