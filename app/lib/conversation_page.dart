@@ -257,11 +257,13 @@ class _ConversationPageState extends State<ConversationPage> {
     final mine = m.from == widget.meUsername;
     final tip = _formatFullDateTime(m.ts.toLocal());
     if (_isEmojiOnly(m.body)) {
-      return Tooltip(
-        message: tip,
-        waitDuration: const Duration(milliseconds: 400),
-        child: Align(
-          alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      return Align(
+        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+        child: Tooltip(
+          message: tip,
+          waitDuration: const Duration(milliseconds: 400),
+          preferBelow: false,
+          verticalOffset: 18,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 14),
             child: Text(
@@ -272,11 +274,13 @@ class _ConversationPageState extends State<ConversationPage> {
         ),
       );
     }
-    return Tooltip(
-      message: tip,
-      waitDuration: const Duration(milliseconds: 400),
-      child: Align(
-        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+    return Align(
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Tooltip(
+        message: tip,
+        waitDuration: const Duration(milliseconds: 400),
+        preferBelow: false,
+        verticalOffset: 14,
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 4),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
