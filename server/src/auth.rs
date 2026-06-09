@@ -15,14 +15,29 @@ pub const NONCE_LEN: usize = 32;
 /// (25 ASCII bytes + 1 NUL delimiter + 32 nonce bytes = 58 bytes).
 pub const CHALLENGE_DOMAIN_TAG: &[u8] = b"littlelove.v0.2.challenge";
 
+/// Domain-separation tag for `ConsumeInvite`. See spec §4.1 step 10 + §8.5.1.
+/// The signed input is `INVITE_CONSUME_DOMAIN_TAG || 0x00 || canonical_token`
+/// (30 ASCII bytes + 1 NUL delimiter + 32 canonical token bytes = 63 bytes).
+pub const INVITE_CONSUME_DOMAIN_TAG: &[u8] = b"littlelove.v0.2.invite-consume";
+
+fn signing_input(tag: &[u8], payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(tag.len() + 1 + payload.len());
+    out.extend_from_slice(tag);
+    out.push(0u8);
+    out.extend_from_slice(payload);
+    out
+}
+
 /// Build the domain-separated signing input for a Challenge nonce.
 /// Used by both the verifier (this module) and by tests that sign on the client side.
 pub fn challenge_signing_input(nonce: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(CHALLENGE_DOMAIN_TAG.len() + 1 + nonce.len());
-    out.extend_from_slice(CHALLENGE_DOMAIN_TAG);
-    out.push(0u8);
-    out.extend_from_slice(nonce);
-    out
+    signing_input(CHALLENGE_DOMAIN_TAG, nonce)
+}
+
+/// Build the domain-separated signing input for an invite-consume token.
+/// Mirrors `challenge_signing_input` but uses the invite-consume tag (spec §8.5.1).
+pub fn invite_consume_signing_input(token: &[u8]) -> Vec<u8> {
+    signing_input(INVITE_CONSUME_DOMAIN_TAG, token)
 }
 
 /// Generate a 32-byte cryptographically-random nonce.
@@ -56,11 +71,11 @@ pub fn encode_b64(bytes: &[u8]) -> String {
     B64.encode(bytes)
 }
 
-/// Verify that `signature` is a valid Ed25519 sig over the domain-separated
-/// input derived from `nonce` (see `challenge_signing_input` + spec §8.5.1).
-/// The function takes the raw 32-byte nonce; it builds the prefixed input
-/// internally so callers cannot accidentally skip the tag.
-pub fn verify_signature(pub_key: &[u8], nonce: &[u8], signature: &[u8]) -> Result<(), AuthError> {
+fn verify_domain_separated(
+    pub_key: &[u8],
+    input: &[u8],
+    signature: &[u8],
+) -> Result<(), AuthError> {
     let key_arr: [u8; 32] = pub_key
         .try_into()
         .map_err(|_| AuthError::BadPubkey(pub_key.len()))?;
@@ -69,13 +84,30 @@ pub fn verify_signature(pub_key: &[u8], nonce: &[u8], signature: &[u8]) -> Resul
         .map_err(|_| AuthError::BadSignature(signature.len()))?;
     let vk = VerifyingKey::from_bytes(&key_arr).map_err(|_| AuthError::BadPubkey(32))?;
     let sig = Signature::from_bytes(&sig_arr);
-    let input = challenge_signing_input(nonce);
     // verify_strict (not verify): rejects weak public keys and signature
     // malleability from curve25519's cofactor of 8. The dalek docs explicitly
     // warn that plain verify is "dangerous in identification protocols" —
     // exactly the use case here. See ed25519-dalek VerifyingKey docs.
-    vk.verify_strict(&input, &sig)
-        .map_err(|_| AuthError::Mismatch)
+    vk.verify_strict(input, &sig).map_err(|_| AuthError::Mismatch)
+}
+
+/// Verify that `signature` is a valid Ed25519 sig over the domain-separated
+/// input derived from `nonce` (see `challenge_signing_input` + spec §8.5.1).
+/// The function takes the raw 32-byte nonce; it builds the prefixed input
+/// internally so callers cannot accidentally skip the tag.
+pub fn verify_signature(pub_key: &[u8], nonce: &[u8], signature: &[u8]) -> Result<(), AuthError> {
+    verify_domain_separated(pub_key, &challenge_signing_input(nonce), signature)
+}
+
+/// Verify a `ConsumeInvite` signature. Same shape as `verify_signature` but
+/// uses the `littlelove.v0.2.invite-consume` domain tag (spec §8.5.1).
+/// `token` is the canonical 32-byte invite token (see `crate::invites`).
+pub fn verify_invite_consume_signature(
+    pub_key: &[u8],
+    token: &[u8],
+    signature: &[u8],
+) -> Result<(), AuthError> {
+    verify_domain_separated(pub_key, &invite_consume_signing_input(token), signature)
 }
 
 #[cfg(test)]
@@ -155,6 +187,55 @@ mod tests {
         assert_eq!(&input[..25], CHALLENGE_DOMAIN_TAG);
         assert_eq!(input[25], 0u8);
         assert_eq!(&input[26..], &nonce[..]);
+    }
+
+    #[test]
+    fn invite_consume_signing_input_has_expected_layout() {
+        let token = [0u8; 32];
+        let input = invite_consume_signing_input(&token);
+        // 30 ASCII bytes (tag) + 1 NUL + 32 token bytes = 63.
+        assert_eq!(input.len(), 63);
+        assert_eq!(&input[..30], INVITE_CONSUME_DOMAIN_TAG);
+        assert_eq!(input[30], 0u8);
+        assert_eq!(&input[31..], &token[..]);
+    }
+
+    #[test]
+    fn verify_invite_consume_accepts_valid_sig() {
+        let sk = SigningKey::generate(&mut OsRng);
+        let pk = sk.verifying_key().to_bytes();
+        let token = [0x42u8; 32];
+        let sig = sk.sign(&invite_consume_signing_input(&token)).to_bytes();
+        assert!(verify_invite_consume_signature(&pk, &token, &sig).is_ok());
+    }
+
+    #[test]
+    fn verify_invite_consume_rejects_bare_token_signature() {
+        // §8.5.1 regression: signing the raw token bytes (no tag) must fail.
+        let sk = SigningKey::generate(&mut OsRng);
+        let pk = sk.verifying_key().to_bytes();
+        let token = [0x42u8; 32];
+        let bare_sig = sk.sign(&token).to_bytes();
+        assert_eq!(
+            verify_invite_consume_signature(&pk, &token, &bare_sig),
+            Err(AuthError::Mismatch)
+        );
+    }
+
+    #[test]
+    fn verify_invite_consume_rejects_cross_context_signature() {
+        // §8.5.1 rationale: a Challenge-tagged signature must not interop
+        // with the invite-consume verifier, even if the underlying payload
+        // bytes were arranged to coincide.
+        let sk = SigningKey::generate(&mut OsRng);
+        let pk = sk.verifying_key().to_bytes();
+        let token = [0x42u8; 32];
+        // Sign with the *Challenge* domain over the same bytes:
+        let wrong_domain_sig = sk.sign(&challenge_signing_input(&token)).to_bytes();
+        assert_eq!(
+            verify_invite_consume_signature(&pk, &token, &wrong_domain_sig),
+            Err(AuthError::Mismatch)
+        );
     }
 
     #[test]
