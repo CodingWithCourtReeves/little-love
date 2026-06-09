@@ -1,0 +1,32 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    ports:
+      - "${API_PORT:-7707}:7707"
+    environment:
+      RUST_LOG: ${RUST_LOG:-info}
+      PORT: 7707
+      DATABASE_URL: ${DATABASE_URL:-}
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: littlelove
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: littlelove
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U littlelove"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
