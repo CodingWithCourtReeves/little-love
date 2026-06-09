@@ -10,7 +10,7 @@ void main() {
     test('POSTs the request body and parses 201', () async {
       late http.Request seen;
       final client = MockClient((req) async {
-        seen = req as http.Request;
+        seen = req;
         return http.Response(
           jsonEncode({
             'username': 'court',

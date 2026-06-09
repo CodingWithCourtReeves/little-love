@@ -22,11 +22,11 @@ Uint8List generateSeed() {
 /// Encode a 16-byte seed as a 12-word BIP39 English phrase.
 String seedToPhrase(Uint8List seed) {
   if (seed.length != _seedLengthBytes) {
-    throw ArgumentError('seed must be $_seedLengthBytes bytes, got ${seed.length}');
+    throw ArgumentError(
+      'seed must be $_seedLengthBytes bytes, got ${seed.length}',
+    );
   }
-  final hex = seed
-      .map((b) => b.toRadixString(16).padLeft(2, '0'))
-      .join();
+  final hex = seed.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   return bip39.entropyToMnemonic(hex);
 }
 
@@ -42,10 +42,8 @@ Uint8List phraseToSeed(String phrase) {
     throw const FormatException('phrase contains invalid words or checksum');
   }
   final hex = bip39.mnemonicToEntropy(phrase);
-  return Uint8List.fromList(
-    [
-      for (var i = 0; i < hex.length; i += 2)
-        int.parse(hex.substring(i, i + 2), radix: 16),
-    ],
-  );
+  return Uint8List.fromList([
+    for (var i = 0; i < hex.length; i += 2)
+      int.parse(hex.substring(i, i + 2), radix: 16),
+  ]);
 }

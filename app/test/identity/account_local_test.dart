@@ -36,12 +36,14 @@ void main() {
 
   test('delete removes the file', () async {
     final store = AccountLocalStore(homeDirectory: tmp);
-    await store.save(LocalAccount(
-      username: 'k',
-      ed25519PubBase64: 'CCCC',
-      x25519PubBase64: 'DDDD',
-      createdAt: DateTime.utc(2026, 6, 9),
-    ));
+    await store.save(
+      LocalAccount(
+        username: 'k',
+        ed25519PubBase64: 'CCCC',
+        x25519PubBase64: 'DDDD',
+        createdAt: DateTime.utc(2026, 6, 9),
+      ),
+    );
     await store.delete();
     expect(await store.load(), isNull);
   });

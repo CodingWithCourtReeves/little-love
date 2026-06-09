@@ -31,10 +31,12 @@ void main() {
     final server = StreamController<dynamic>();
     final sink = _FakeSink();
 
-    server.add(jsonEncode({
-      'kind': 'Challenge',
-      'nonce': base64.encode(List<int>.filled(32, 7)),
-    }));
+    server.add(
+      jsonEncode({
+        'kind': 'Challenge',
+        'nonce': base64.encode(List<int>.filled(32, 7)),
+      }),
+    );
 
     final result = await performAuthHandshake(
       stream: server.stream,
@@ -60,10 +62,12 @@ void main() {
     final server = StreamController<dynamic>();
     final sink = _FakeSink();
 
-    server.add(jsonEncode({
-      'kind': 'Challenge',
-      'nonce': base64.encode(List<int>.filled(32, 7)),
-    }));
+    server.add(
+      jsonEncode({
+        'kind': 'Challenge',
+        'nonce': base64.encode(List<int>.filled(32, 7)),
+      }),
+    );
 
     final result = await performAuthHandshake(
       stream: server.stream,
@@ -71,11 +75,13 @@ void main() {
       username: 'court',
       identity: identity,
       timeout: const Duration(seconds: 5),
-      simulateAuthenticatedAfterIdentify: () => server.add(jsonEncode({
-        'kind': 'Error',
-        'code': 'InvalidSignature',
-        'message': 'no',
-      })),
+      simulateAuthenticatedAfterIdentify: () => server.add(
+        jsonEncode({
+          'kind': 'Error',
+          'code': 'InvalidSignature',
+          'message': 'no',
+        }),
+      ),
     );
 
     expect(result, isA<AuthHandshakeFailure>());

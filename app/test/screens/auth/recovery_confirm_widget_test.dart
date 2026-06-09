@@ -5,14 +5,14 @@ import 'package:littlelove/screens/auth/recovery_confirm.dart';
 void main() {
   final phrase = List<String>.generate(12, (i) => 'w${i + 1}').join(' ');
 
-  testWidgets('shows three labelled inputs and a disabled Confirm button',
-      (tester) async {
-    await tester.pumpWidget(MaterialApp(
-      home: RecoveryConfirmScreen(
-        phrase: phrase,
-        onConfirmed: () {},
+  testWidgets('shows three labelled inputs and a disabled Confirm button', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecoveryConfirmScreen(phrase: phrase, onConfirmed: () {}),
       ),
-    ));
+    );
     expect(find.text('Word 3'), findsOneWidget);
     expect(find.text('Word 7'), findsOneWidget);
     expect(find.text('Word 11'), findsOneWidget);
@@ -22,12 +22,14 @@ void main() {
 
   testWidgets('typing all three correct words enables Confirm', (tester) async {
     var fired = false;
-    await tester.pumpWidget(MaterialApp(
-      home: RecoveryConfirmScreen(
-        phrase: phrase,
-        onConfirmed: () => fired = true,
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecoveryConfirmScreen(
+          phrase: phrase,
+          onConfirmed: () => fired = true,
+        ),
       ),
-    ));
+    );
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), 'w3');
     await tester.enterText(fields.at(1), 'w7');
@@ -38,15 +40,18 @@ void main() {
     expect(fired, isTrue);
   });
 
-  testWidgets('wrong word surfaces an error and onConfirmed is not called',
-      (tester) async {
+  testWidgets('wrong word surfaces an error and onConfirmed is not called', (
+    tester,
+  ) async {
     var fired = false;
-    await tester.pumpWidget(MaterialApp(
-      home: RecoveryConfirmScreen(
-        phrase: phrase,
-        onConfirmed: () => fired = true,
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecoveryConfirmScreen(
+          phrase: phrase,
+          onConfirmed: () => fired = true,
+        ),
       ),
-    ));
+    );
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), 'w3');
     await tester.enterText(fields.at(1), 'WRONG');

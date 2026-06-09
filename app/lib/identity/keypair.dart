@@ -31,9 +31,8 @@ class DerivedIdentity {
     required this.ed25519PublicKey,
     required this.x25519PublicKey,
     required SimpleKeyPair signingKeyPair,
-    required SimpleKeyPair encryptionKeyPair,
-  })  : _signingKeyPair = signingKeyPair,
-        _encryptionKeyPair = encryptionKeyPair;
+    required this.encryptionKeyPair,
+  }) : _signingKeyPair = signingKeyPair; // ignore: prefer_initializing_formals
 
   /// Raw 32-byte Ed25519 public key.
   final Uint8List ed25519PublicKey;
@@ -42,10 +41,9 @@ class DerivedIdentity {
   final Uint8List x25519PublicKey;
 
   final SimpleKeyPair _signingKeyPair;
-  final SimpleKeyPair _encryptionKeyPair;
 
   /// X25519 keypair retained so WT-D can compute ECDH against a peer pubkey.
-  SimpleKeyPair get encryptionKeyPair => _encryptionKeyPair;
+  final SimpleKeyPair encryptionKeyPair;
 
   Future<Uint8List> sign(List<int> message) async {
     final sig = await Ed25519().sign(message, keyPair: _signingKeyPair);

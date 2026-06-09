@@ -37,8 +37,9 @@ final restClientProvider = Provider<RestClient>((ref) {
 
 final keystoreProvider = Provider<Keystore>((_) => SecureKeystore());
 
-final accountLocalStoreProvider =
-    Provider<AccountLocalStore>((_) => AccountLocalStore());
+final accountLocalStoreProvider = Provider<AccountLocalStore>(
+  (_) => AccountLocalStore(),
+);
 
 final accountProvider = FutureProvider<LocalAccount?>((ref) async {
   final store = ref.watch(accountLocalStoreProvider);

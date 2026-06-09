@@ -75,8 +75,10 @@ class _SignupScreenState extends State<SignupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Save these 12 words. They are the only way to restore '
-            '@${_username ?? ''}.'),
+        Text(
+          'Save these 12 words. They are the only way to restore '
+          '@${_username ?? ''}.',
+        ),
         const SizedBox(height: 16),
         GridView.builder(
           shrinkWrap: true,

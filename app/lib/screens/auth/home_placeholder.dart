@@ -14,10 +14,7 @@ class HomePlaceholder extends ConsumerWidget {
       body: const Center(
         child: Padding(
           padding: EdgeInsets.all(24),
-          child: Text(
-            'Inbox coming soon.',
-            textAlign: TextAlign.center,
-          ),
+          child: Text('Inbox coming soon.', textAlign: TextAlign.center),
         ),
       ),
     );

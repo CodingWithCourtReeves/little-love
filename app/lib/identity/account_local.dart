@@ -33,7 +33,7 @@ class LocalAccount {
 
 class AccountLocalStore {
   AccountLocalStore({Directory? homeDirectory})
-      : _home = homeDirectory ?? _defaultHome();
+    : _home = homeDirectory ?? _defaultHome();
 
   final Directory _home;
 

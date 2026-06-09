@@ -22,9 +22,11 @@ class _FakeStore implements AccountLocalStore {
 
 void main() {
   test('accountProvider returns null when no LocalAccount is saved', () async {
-    final container = ProviderContainer(overrides: [
-      accountLocalStoreProvider.overrideWithValue(_FakeStore(value: null)),
-    ]);
+    final container = ProviderContainer(
+      overrides: [
+        accountLocalStoreProvider.overrideWithValue(_FakeStore(value: null)),
+      ],
+    );
     addTearDown(container.dispose);
     expect(await container.read(accountProvider.future), isNull);
   });
@@ -36,9 +38,11 @@ void main() {
       x25519PubBase64: 'BBBB',
       createdAt: DateTime.utc(2026),
     );
-    final container = ProviderContainer(overrides: [
-      accountLocalStoreProvider.overrideWithValue(_FakeStore(value: acc)),
-    ]);
+    final container = ProviderContainer(
+      overrides: [
+        accountLocalStoreProvider.overrideWithValue(_FakeStore(value: acc)),
+      ],
+    );
     addTearDown(container.dispose);
     final got = await container.read(accountProvider.future);
     expect(got, isNotNull);
@@ -46,9 +50,13 @@ void main() {
   });
 
   test('serverEndpointProvider builds REST and WSS URIs', () {
-    final container = ProviderContainer(overrides: [
-      serverBaseProvider.overrideWithValue(Uri.parse('http://127.0.0.1:7707')),
-    ]);
+    final container = ProviderContainer(
+      overrides: [
+        serverBaseProvider.overrideWithValue(
+          Uri.parse('http://127.0.0.1:7707'),
+        ),
+      ],
+    );
     addTearDown(container.dispose);
     final ep = container.read(serverEndpointProvider);
     expect(ep.httpBase, Uri.parse('http://127.0.0.1:7707'));
@@ -56,18 +64,20 @@ void main() {
   });
 
   test('serverEndpointProvider promotes https to wss', () {
-    final container = ProviderContainer(overrides: [
-      serverBaseProvider.overrideWithValue(Uri.parse('https://prod.example')),
-    ]);
+    final container = ProviderContainer(
+      overrides: [
+        serverBaseProvider.overrideWithValue(Uri.parse('https://prod.example')),
+      ],
+    );
     addTearDown(container.dispose);
     final ep = container.read(serverEndpointProvider);
     expect(ep.wsConnect.toString(), 'wss://prod.example/connect');
   });
 
   test('keystoreProvider can be overridden with InMemoryKeystore', () async {
-    final container = ProviderContainer(overrides: [
-      keystoreProvider.overrideWithValue(InMemoryKeystore()),
-    ]);
+    final container = ProviderContainer(
+      overrides: [keystoreProvider.overrideWithValue(InMemoryKeystore())],
+    );
     addTearDown(container.dispose);
     final ks = container.read(keystoreProvider);
     await ks.write('k', 'v');

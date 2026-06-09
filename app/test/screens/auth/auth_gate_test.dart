@@ -23,31 +23,34 @@ class _StubStore implements AccountLocalStore {
 
 void main() {
   testWidgets('null account renders the choice screen', (tester) async {
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        accountLocalStoreProvider.overrideWithValue(_StubStore(null)),
-      ],
-      child: const MaterialApp(home: AuthGate()),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          accountLocalStoreProvider.overrideWithValue(_StubStore(null)),
+        ],
+        child: const MaterialApp(home: AuthGate()),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.text('Create account'), findsOneWidget);
     expect(find.text('Sign in with recovery phrase'), findsOneWidget);
   });
 
-  testWidgets('populated account renders the home placeholder',
-      (tester) async {
+  testWidgets('populated account renders the home placeholder', (tester) async {
     final acc = LocalAccount(
       username: 'court',
       ed25519PubBase64: 'AAAA',
       x25519PubBase64: 'BBBB',
       createdAt: DateTime.utc(2026),
     );
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        accountLocalStoreProvider.overrideWithValue(_StubStore(acc)),
-      ],
-      child: const MaterialApp(home: AuthGate()),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          accountLocalStoreProvider.overrideWithValue(_StubStore(acc)),
+        ],
+        child: const MaterialApp(home: AuthGate()),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.textContaining('@court'), findsOneWidget);
     expect(find.textContaining('Inbox coming soon'), findsOneWidget);

@@ -43,8 +43,10 @@ class _SigninScreenState extends State<SigninScreen> {
       }
       if (acc.ed25519PubBase64 != base64.encode(id.ed25519PublicKey) ||
           acc.x25519PubBase64 != base64.encode(id.x25519PublicKey)) {
-        setState(() => _error =
-            'That phrase belongs to a different account, not @$username.');
+        setState(
+          () => _error =
+              'That phrase belongs to a different account, not @$username.',
+        );
         return;
       }
       widget.onRestored(

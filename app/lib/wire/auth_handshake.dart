@@ -44,10 +44,12 @@ Future<AuthHandshakeResult> performAuthHandshake({
   }
 
   timer = Timer(timeout, () {
-    finish(const AuthHandshakeFailure(
-      code: 'Timeout',
-      message: 'server did not respond in time',
-    ));
+    finish(
+      const AuthHandshakeFailure(
+        code: 'Timeout',
+        message: 'server did not respond in time',
+      ),
+    );
   });
 
   var sentIdentify = false;
@@ -81,15 +83,19 @@ Future<AuthHandshakeResult> performAuthHandshake({
         case AuthenticatedFrame():
           if (sentIdentify) finish(const AuthHandshakeSuccess());
         case ErrorFrame():
-          finish(AuthHandshakeFailure(code: frame.code, message: frame.message));
+          finish(
+            AuthHandshakeFailure(code: frame.code, message: frame.message),
+          );
       }
     },
     onError: (Object e, StackTrace _) =>
         finish(AuthHandshakeFailure(code: 'StreamError', message: '$e')),
-    onDone: () => finish(const AuthHandshakeFailure(
-      code: 'StreamClosed',
-      message: 'server closed the connection',
-    )),
+    onDone: () => finish(
+      const AuthHandshakeFailure(
+        code: 'StreamClosed',
+        message: 'server closed the connection',
+      ),
+    ),
   );
 
   return completer.future;

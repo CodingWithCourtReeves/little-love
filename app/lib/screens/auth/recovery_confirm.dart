@@ -28,7 +28,8 @@ class _RecoveryConfirmScreenState extends State<RecoveryConfirmScreen> {
       _w11.text.trim().isNotEmpty;
 
   void _check() {
-    final ok = _w3.text.trim() == _words[2] &&
+    final ok =
+        _w3.text.trim() == _words[2] &&
         _w7.text.trim() == _words[6] &&
         _w11.text.trim() == _words[10];
     if (ok) {

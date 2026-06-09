@@ -50,8 +50,8 @@ class RestHttpException implements Exception {
 
 class RestClient {
   RestClient({required Uri baseUri, http.Client? httpClient})
-      : _base = baseUri,
-        _http = httpClient ?? http.Client();
+    : _base = baseUri,
+      _http = httpClient ?? http.Client();
 
   final Uri _base;
   final http.Client _http;

@@ -50,18 +50,14 @@ class _ChoiceScreen extends StatelessWidget {
           children: [
             FilledButton(
               onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const _SignupFlow(),
-                ),
+                MaterialPageRoute<void>(builder: (_) => const _SignupFlow()),
               ),
               child: const Text('Create account'),
             ),
             const SizedBox(height: 16),
             OutlinedButton(
               onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const _SigninFlow(),
-                ),
+                MaterialPageRoute<void>(builder: (_) => const _SigninFlow()),
               ),
               child: const Text('Sign in with recovery phrase'),
             ),
@@ -86,12 +82,14 @@ class _SignupFlowState extends ConsumerState<_SignupFlow> {
   Widget build(BuildContext context) {
     final phrase = _phrase;
     if (phrase == null) {
-      return SignupScreen(onPhraseReady: (u, p) {
-        setState(() {
-          _username = u;
-          _phrase = p;
-        });
-      });
+      return SignupScreen(
+        onPhraseReady: (u, p) {
+          setState(() {
+            _username = u;
+            _phrase = p;
+          });
+        },
+      );
     }
     return RecoveryConfirmScreen(
       phrase: phrase,
@@ -113,12 +111,14 @@ class _SignupFlowState extends ConsumerState<_SignupFlow> {
         x25519PubBase64: base64.encode(id.x25519PublicKey),
       );
       await keystore.write('llove.master.${_username!}', base64.encode(seed));
-      await store.save(LocalAccount(
-        username: reply.username,
-        ed25519PubBase64: base64.encode(id.ed25519PublicKey),
-        x25519PubBase64: base64.encode(id.x25519PublicKey),
-        createdAt: reply.createdAt,
-      ));
+      await store.save(
+        LocalAccount(
+          username: reply.username,
+          ed25519PubBase64: base64.encode(id.ed25519PublicKey),
+          x25519PubBase64: base64.encode(id.x25519PublicKey),
+          createdAt: reply.createdAt,
+        ),
+      );
       ref.invalidate(accountProvider);
       if (mounted) Navigator.of(context).pop();
     } on UsernameTakenException {
