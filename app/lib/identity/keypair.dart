@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart';
 
 const _masterSalt = 'littlelove.v0.2.master';
 const _signingSalt = 'littlelove.v0.2.signing';
@@ -70,6 +70,33 @@ Future<DerivedIdentity> deriveIdentity(Uint8List seed) async {
   final encryptionKeyPair = await X25519().newKeyPairFromSeed(encryptionSeed);
   final encryptionPub = await encryptionKeyPair.extractPublicKey();
 
+  return DerivedIdentity._(
+    ed25519PublicKey: Uint8List.fromList(signingPub.bytes),
+    x25519PublicKey: Uint8List.fromList(encryptionPub.bytes),
+    signingKeyPair: signingKeyPair,
+    encryptionKeyPair: encryptionKeyPair,
+  );
+}
+
+/// Build a DerivedIdentity directly from a 32-byte Ed25519 signing seed,
+/// bypassing BIP39/HKDF. Tests only — production identities always flow
+/// through [deriveIdentity] starting from a 16-byte BIP39 seed so the spec
+/// §8.5.1 vector (which fixes the signing seed) can be asserted byte-for-byte.
+/// The encryption keypair is derived from the same seed bytes so the
+/// returned object is consistent, but no test should depend on its content.
+@visibleForTesting
+Future<DerivedIdentity> derivedIdentityFromSigningSeedForTest(
+  Uint8List signingSeed32,
+) async {
+  if (signingSeed32.length != 32) {
+    throw ArgumentError(
+      'signing seed must be 32 bytes, got ${signingSeed32.length}',
+    );
+  }
+  final signingKeyPair = await Ed25519().newKeyPairFromSeed(signingSeed32);
+  final signingPub = await signingKeyPair.extractPublicKey();
+  final encryptionKeyPair = await X25519().newKeyPairFromSeed(signingSeed32);
+  final encryptionPub = await encryptionKeyPair.extractPublicKey();
   return DerivedIdentity._(
     ed25519PublicKey: Uint8List.fromList(signingPub.bytes),
     x25519PublicKey: Uint8List.fromList(encryptionPub.bytes),

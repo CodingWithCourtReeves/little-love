@@ -4,6 +4,10 @@ import 'dart:convert';
 import '../identity/keypair.dart';
 import 'frames.dart';
 
+/// Spec §8.5.1 domain-separation tag for the WSS Challenge response.
+/// Signer constructs `tag || 0x00 || nonce` (25 + 1 + 32 = 58 bytes).
+const _challengeTag = 'littlelove.v0.2.challenge';
+
 sealed class AuthHandshakeResult {
   const AuthHandshakeResult();
 }
@@ -72,7 +76,12 @@ Future<AuthHandshakeResult> performAuthHandshake({
       switch (frame) {
         case ChallengeFrame():
           final nonce = base64.decode(frame.nonceBase64);
-          final sig = await identity.sign(nonce);
+          final signingInput = <int>[
+            ...utf8.encode(_challengeTag),
+            0x00,
+            ...nonce,
+          ];
+          final sig = await identity.sign(signingInput);
           final ident = IdentifyFrame(
             username: username,
             signatureBase64: base64.encode(sig),

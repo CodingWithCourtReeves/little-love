@@ -104,4 +104,63 @@ void main() {
     expect((result as AuthHandshakeFailure).code, 'Timeout');
     await server.close();
   });
+
+  test(
+    'Identify signature is over the domain-separated input (§8.5.1)',
+    () async {
+      // Spec §8.5.1 test vector: signing-key seed = 0x01 × 32; nonce = 0x02 × 32.
+      final signingSeed = Uint8List.fromList(List<int>.filled(32, 0x01));
+      final nonceBytes = Uint8List.fromList(List<int>.filled(32, 0x02));
+      final identity = await derivedIdentityFromSigningSeedForTest(signingSeed);
+      final server = StreamController<dynamic>();
+      final sink = _FakeSink();
+
+      server.add(
+        jsonEncode({'kind': 'Challenge', 'nonce': base64.encode(nonceBytes)}),
+      );
+
+      final result = await performAuthHandshake(
+        stream: server.stream,
+        sink: sink,
+        username: 'court',
+        identity: identity,
+        timeout: const Duration(seconds: 2),
+        simulateAuthenticatedAfterIdentify: () =>
+            server.add(jsonEncode({'kind': 'Authenticated'})),
+      );
+      expect(result, isA<AuthHandshakeSuccess>());
+
+      final identifyJson =
+          jsonDecode(sink.writes.single) as Map<String, Object?>;
+      final actualSig = base64.decode(identifyJson['signature']! as String);
+
+      final expectedInput = Uint8List.fromList([
+        ...utf8.encode('littlelove.v0.2.challenge'),
+        0x00,
+        ...nonceBytes,
+      ]);
+      expect(
+        expectedInput.length,
+        58,
+        reason: 'spec §8.5.1: 25 tag + 1 NUL + 32 nonce = 58 bytes',
+      );
+
+      expect(
+        await identity.verify(expectedInput, actualSig),
+        isTrue,
+        reason:
+            'signature must verify against the §8.5.1 domain-separated input',
+      );
+
+      // Negative control: the same signature must NOT verify against the
+      // bare nonce. This guards against the §8.5.1 bug returning.
+      expect(
+        await identity.verify(nonceBytes, actualSig),
+        isFalse,
+        reason: 'signature must not verify against the bare nonce',
+      );
+
+      await server.close();
+    },
+  );
 }
