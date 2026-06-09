@@ -11,14 +11,17 @@ This is the smallest end-to-end LittleLove that two people can actually chat on.
 
 Everything not in §3 is deferred to the Phase 1 spec.
 
-## 2. Two-stage milestone
+## 2. Three-stage milestone
 
-Even within Day 1, we ship in two takes:
+We ship Day-1 in three takes. Each is a real release tagged in git and downloadable from GitHub Releases.
 
-- **Day-1a (one evening, ~4 hours):** plain text over WebSocket. Two Flutter desktop apps + one Axum server. No encryption. Proves the wire end-to-end.
-- **Day-1b (one evening, ~4 hours):** add libsodium-style symmetric encryption (XChaCha20-Poly1305 with a pre-shared key). Same UX, ciphertext on the wire and in server logs.
+- **Day-1a (~4 hours):** plain text over WebSocket. Two Flutter desktop apps + one Axum server. No encryption, no persistence. In-memory routing. Proves the wire end-to-end.
+- **Day-1b (~3–4 hours):** add **Postgres persistence + replay-on-connect**. Server stores every message; on connect, a client receives all messages addressed to it newer than its `since` timestamp. Survives server restarts. Kaitlyn can close her laptop overnight and see Court's messages in the morning. No client-side persistence yet (client still replays from server on every relaunch).
+- **Day-1c (~3–4 hours):** add **end-to-end symmetric encryption** (XChaCha20-Poly1305 with a pre-shared key). Same UX, ciphertext on the wire and in the server's database.
 
-Each day-end produces something usable. If Day-1b slips, Day-1a is still messaging.
+Each stage produces something usable. If Day-1c slips, Day-1b is still a real, persistent (server-trusted) messenger.
+
+Total: ~10–12 hours over 2–3 evenings.
 
 ## 3. In scope
 
@@ -27,15 +30,16 @@ Each day-end produces something usable. If Day-1b slips, Day-1a is still messagi
 - **One conversation** between two hardcoded users. No conversation list, no sidebar, no settings, no theme picker.
 - **Text only.** No attachments, no voice memo, no images.
 - **Hearth palette** hardcoded (the default).
-- **In-memory only** — no SQLite, no on-disk store. Restart = empty room. (Persistence arrives in Day 2.)
-- **Pure Dart for Day 1.** The `cryptography` package (XChaCha20-Poly1305 + X25519) covers encryption with no native deps. **No `flutter_rust_bridge`, no Rust core in the client yet** — that lands when we introduce MLS in Phase 1.
+- **Server-side persistence from Day-1b** — managed Postgres on Railway (locally via Docker Compose). Stores every message with a `since`-style replay on connect.
+- **No client-side persistence in Day-1** — every relaunch replays from the server. Client-side SQLite is Day-2.
+- **Pure Dart for Day 1.** The `cryptography` package (XChaCha20-Poly1305) covers Day-1c encryption with no native deps. **No `flutter_rust_bridge`, no Rust core in the client yet** — that lands when we introduce MLS in Phase 1.
 
 ## 4. Explicitly out of scope
 
 | Feature | Where it lives |
 |---|---|
 | MLS / E2EE protocol | Phase 1 |
-| SQLite + SQLCipher persistence | Day 2 (post-Day-1) |
+| Client-side SQLite (+ SQLCipher) persistence | Day 2 (post-Day-1) |
 | QR device pairing | Phase 1 |
 | Multi-device per user | Phase 1 |
 | Account signup, prekey directory | Phase 1 |
@@ -50,7 +54,6 @@ Each day-end produces something usable. If Day-1b slips, Day-1a is still messagi
 | Linux desktop | Phase 1 |
 | Conversation list, multiple rooms | Phase 1 |
 | iOS / Android | Phase 1.5 |
-| GitHub Actions CI for the client | Phase 1 (Day 1 builds locally) |
 
 ## 5. Identity & "auth"
 
@@ -81,41 +84,79 @@ display_name = "Kaitlyn"
 
 ## 6. Wire format
 
-### Day-1a (plain text)
+### Day-1a (plain text, no replay)
 
 JSON over WebSocket text frames:
 
 ```json
-{ "type": "msg", "from": "court", "to": "kaitlyn", "body": "hey love", "ts": 1717930800 }
+{ "type": "msg", "id": "<uuid>", "from": "court", "to": "kaitlyn", "body": "hey love", "ts": 1717930800 }
 ```
 
-### Day-1b (encrypted)
+### Day-1b (adds replay-on-connect)
 
-Same envelope, but `body` is `{ ciphertext, nonce }` and the inner plaintext is encrypted symmetrically with the pre-shared 32-byte key using XChaCha20-Poly1305:
+Two new frames:
 
 ```json
-{ "type": "msg", "from": "court", "to": "kaitlyn",
+// client → server, immediately after WSS upgrade
+{ "type": "hello", "since": "2026-06-08T00:00:00Z" }
+
+// server → client, replay of stored history
+{ "type": "msg", "id": "<uuid>", "from": "court", "to": "kaitlyn", "body": "hey", "ts": 1717930800, "replayed": true }
+```
+
+If the client doesn't send a `hello`, the server defaults `since` to "now". If `since` is provided, the server replays every stored message addressed to the connecting user with `ts > since`. Day-1 client (no local persistence) always sends `since = now - 30 days` on each launch.
+
+### Day-1c (adds encryption)
+
+Same envelope, but `body` becomes `{ ciphertext, nonce }`, encrypted symmetrically with the pre-shared 32-byte key using XChaCha20-Poly1305:
+
+```json
+{ "type": "msg", "id": "<uuid>", "from": "court", "to": "kaitlyn",
   "body": { "ciphertext": "<base64>", "nonce": "<base64>" },
   "ts": 1717930800 }
 ```
 
-The server cannot read `body` in 1b. The `from` / `to` / `ts` fields stay in cleartext for routing.
+The server can no longer read `body`; it stores and replays the ciphertext verbatim. `from` / `to` / `ts` / `id` stay in cleartext for routing and replay.
 
 ## 7. Server (`server/`)
 
-- Rust + Axum + `tokio-tungstenite`.
-- One process. A single in-memory `HashMap<username, WebSocketSink>`.
-- One endpoint: `GET /ws` (WebSocket upgrade).
-- One endpoint: `GET /health` (200 OK).
-- Behavior: on receiving a `msg` frame from `court`, look up the connection for `kaitlyn` and forward verbatim. If she isn't connected, drop the message (Day 1 has no offline queue).
-- No persistence. No database. The whole server is ~150 lines.
+Rust + Axum + `tokio-tungstenite`. Two endpoints: `GET /ws` (WebSocket upgrade) and `GET /health` (200 OK).
 
-Deploy target: **localhost first**. Once Day-1a works locally, we deploy the same binary to Railway (with a `Dockerfile` and the saved release/deploy workflow split) under the existing project domain:
+### 7.1 Day-1a behavior
 
-- `wss://api.littlelove.dev/ws` (CNAME `api.littlelove.dev` → Railway service)
-- `littlelove.dev` apex is reserved for a future marketing page; not used Day 1.
+A single in-memory `HashMap<username, WebSocketSink>`. On receiving a `msg` frame from `court`, look up the connection for `kaitlyn` and forward verbatim. If she isn't connected, drop the message. No database. ~150 lines.
 
-Day-1 infrastructure overlap with Phase 1: shares the same Railway project and `api.littlelove.dev` subdomain. The Day-1 server is replaced by the Phase 1 Axum server when MLS lands; the URL and Railway service name stay the same.
+### 7.2 Day-1b behavior (Postgres + replay)
+
+Add `sqlx` and a managed Postgres connection (Railway in production, Compose locally). One migration:
+
+```sql
+-- 0001_create_messages.sql
+CREATE TABLE messages (
+  id          uuid        PRIMARY KEY,
+  from_user   text        NOT NULL,
+  to_user     text        NOT NULL,
+  body        text        NOT NULL,             -- plain text in 1b, ciphertext in 1c
+  ts          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX messages_to_ts ON messages (to_user, ts);
+```
+
+On `msg` receive: `INSERT INTO messages …` and forward to the recipient's open connection (if any). On `hello` receive: `SELECT … WHERE to_user = $1 AND ts > $2 ORDER BY ts` and stream each row as a `msg` frame with `replayed: true`. Total addition: ~30 lines Rust + the migration.
+
+No retention sweeps yet — Day-1 stores forever. Retention policy is a Phase 1 concern.
+
+### 7.3 Day-1c behavior (encryption)
+
+Wire format change only. Server logic unchanged — it stores and replays whatever bytes the client sends. The `body` column now holds ciphertext; server is blind to it.
+
+### 7.4 Deployment
+
+- **Day-1a:** local Docker Compose, then deploy to Railway service `littlelove-api` (Postgres already provisioned but unused).
+- **Day-1b:** Railway with `DATABASE_URL` injected from the managed Postgres service. Migration runs at startup via `sqlx migrate run`.
+- **Day-1c:** no infra change.
+- All slices: `wss://api.littlelove.dev/ws` (CNAME `api.littlelove.dev` → Railway service). `littlelove.dev` apex unused.
+- Same Railway project and subdomain carry forward into Phase 1; only the server binary gets replaced when MLS lands.
 
 ## 8. Client (`app/`)
 
@@ -135,6 +176,8 @@ little-love/
 ├── server/                 # Rust + Axum (Day 1)
 │   ├── Cargo.toml
 │   ├── Dockerfile
+│   ├── migrations/
+│   │   └── 0001_create_messages.sql
 │   └── src/main.rs
 ├── app/                    # Flutter desktop (Day 1, macOS + Windows)
 │   ├── pubspec.yaml
@@ -144,7 +187,7 @@ little-love/
 │       ├── conversation_page.dart
 │       ├── ws_client.dart
 │       └── crypto.dart      # Day-1b only; XChaCha20-Poly1305 wrapper
-├── docker-compose.yml       # local dev stack (api only in Day 1; pg/minio later)
+├── docker-compose.yml       # local dev stack (api + postgres from Day-1b; minio in Phase 1)
 ├── scripts/
 │   ├── dev-up.sh            # worktree-aware: derives project name + ports
 │   ├── dev-down.sh
@@ -221,8 +264,9 @@ Three layers:
 
 1. **Unit tests** — TDD-first per saved feedback. Minimum set:
    - `config_test.dart` — parses a TOML config correctly.
-   - `crypto_test.dart` (Day-1b) — round-trip encrypt → decrypt with the same key.
-   - `server::forwards_message_to_recipient_when_both_connected` (Rust).
+   - `crypto_test.dart` (Day-1c) — round-trip encrypt → decrypt with the same key.
+   - `server::forwards_message_to_recipient_when_both_connected` (Rust, 1a).
+   - `server::stores_and_replays_history_for_disconnected_recipient` (Rust, 1b).
 
 2. **Integration tests against the full stack** — run against the Docker Compose stack started by `./scripts/dev-up.sh`. A small `tests/integration/` harness:
    - Brings up the stack (or uses the existing one if already running).
@@ -237,18 +281,20 @@ Three layers:
 
 Day 1 is "done" when, on Court's macOS machine and Kaitlyn's Windows machine:
 
-1. Court launches the app, sees an empty conversation.
-2. Kaitlyn launches the app on her machine, sees an empty conversation.
+1. Court launches the app, sees the last ~30 days of conversation history.
+2. Kaitlyn launches the app on her machine, sees the same history.
 3. Court types "hey love" → Kaitlyn sees it within ~500ms.
 4. Kaitlyn replies → Court sees it.
-5. If Day-1b: server logs show ciphertext, not plaintext.
-6. Killing the server, restarting it, killing each client, restarting each client — they reconnect and resume messaging within ~5 seconds.
+5. **Persistence (1b):** Court sends a message while Kaitlyn's laptop is closed; Kaitlyn opens her laptop hours later and immediately sees Court's message at the top of the unread set.
+6. **Persistence (1b):** restarting the Railway server does not lose any messages.
+7. **Encryption (1c):** the Railway Postgres console shows ciphertext in the `body` column, not plaintext.
+8. Killing the server, restarting it, killing each client, restarting each client — they reconnect and resume messaging within ~5 seconds.
 
 ## 13. What the next slices look like
 
 After Day 1 is working, the natural next slices (one weekend each, roughly):
 
-- **Day 2** — SQLite persistence (no SQLCipher yet). Messages survive restart.
+- **Day 2** — Client-side SQLite persistence. Client no longer replays from server on every launch; it tracks its own `last_seen_id` locally and asks the server only for what's new.
 - **Day 3** — Basic auth: real handshake with a per-user keypair, ditch the shared symmetric key, use libsodium box-encryption per recipient. Still not MLS.
 - **Day 4** — Introduce the Rust core via `flutter_rust_bridge`. Move encryption and WS transport behind the FFI. The pure-Dart code from Day 1 is thrown away here.
 - **Day 5+** — MLS via `openmls` in the Rust core; multiple rooms; QR device pairing.
