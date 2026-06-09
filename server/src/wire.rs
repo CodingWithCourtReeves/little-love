@@ -33,6 +33,31 @@ pub struct MsgPayload {
     pub replayed: bool,
 }
 
+/// Inbound auth frames (kind-tagged per spec §8.2).
+/// Distinct from the legacy `type`-tagged `ClientFrame` (Msg/Hello).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum AuthClientFrame {
+    Identify(IdentifyPayload),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdentifyPayload {
+    pub username: String,
+    /// Base64-encoded Ed25519 signature over the domain-separated input
+    /// (see spec §3.3 and §8.5.1).
+    pub signature: String,
+}
+
+/// Outbound auth frames (kind-tagged per spec §8.2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum AuthServerFrame {
+    Challenge { nonce: String },
+    Authenticated,
+    Error { code: String, message: String },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,5 +118,44 @@ mod tests {
         };
         let out = serde_json::to_string(&ServerFrame::Msg(m)).unwrap();
         assert!(out.contains("\"replayed\":true"));
+    }
+
+    #[test]
+    fn parses_an_identify_frame() {
+        let raw = r#"{"kind":"Identify","username":"court","signature":"AAAA"}"#;
+        let frame: AuthClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            AuthClientFrame::Identify(p) => {
+                assert_eq!(p.username, "court");
+                assert_eq!(p.signature, "AAAA");
+            }
+        }
+    }
+
+    #[test]
+    fn serializes_challenge_frame() {
+        let f = AuthServerFrame::Challenge {
+            nonce: "AAAA".to_string(),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"Challenge""#));
+        assert!(s.contains(r#""nonce":"AAAA""#));
+    }
+
+    #[test]
+    fn serializes_authenticated_frame() {
+        let s = serde_json::to_string(&AuthServerFrame::Authenticated).unwrap();
+        assert_eq!(s, r#"{"kind":"Authenticated"}"#);
+    }
+
+    #[test]
+    fn serializes_error_frame() {
+        let f = AuthServerFrame::Error {
+            code: "InvalidSignature".into(),
+            message: "bad sig".into(),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"Error""#));
+        assert!(s.contains(r#""code":"InvalidSignature""#));
     }
 }

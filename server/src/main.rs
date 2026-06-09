@@ -33,6 +33,14 @@ async fn main() -> Result<()> {
     };
     let app = Router::new()
         .route("/health", get(health))
+        .route(
+            "/accounts",
+            axum::routing::post(littlelove_api::accounts::create_account),
+        )
+        .route(
+            "/accounts/by-username/:username",
+            get(littlelove_api::accounts::get_account_by_username),
+        )
         .route("/ws", get(ws_handler))
         .with_state(state);
 
