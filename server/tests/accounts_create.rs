@@ -1,10 +1,10 @@
-use serial_test::serial;
+use serial_test::file_serial;
 
 mod common;
 use common::{fresh_store, spawn_server};
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn post_accounts_creates_an_account() {
     let store = fresh_store().await;
     let addr = spawn_server(Some(store)).await;
@@ -27,7 +27,7 @@ async fn post_accounts_creates_an_account() {
 }
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn post_accounts_returns_409_on_duplicate_username() {
     let store = fresh_store().await;
     let addr = spawn_server(Some(store)).await;
@@ -53,7 +53,7 @@ async fn post_accounts_returns_409_on_duplicate_username() {
 }
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn post_accounts_returns_400_on_bad_username() {
     let store = fresh_store().await;
     let addr = spawn_server(Some(store)).await;
@@ -76,7 +76,7 @@ async fn post_accounts_returns_400_on_bad_username() {
 }
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn post_accounts_returns_400_on_bad_pubkey_length() {
     let store = fresh_store().await;
     let addr = spawn_server(Some(store)).await;

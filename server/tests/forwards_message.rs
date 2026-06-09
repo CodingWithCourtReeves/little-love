@@ -2,14 +2,14 @@ use std::time::Duration;
 
 use ed25519_dalek::SigningKey;
 use futures::{SinkExt, StreamExt};
-use serial_test::serial;
+use serial_test::file_serial;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 mod common;
 use common::{fresh_store, handshake_as, insert_account, spawn_server};
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn forwards_message_to_recipient_when_both_connected() {
     let store = fresh_store().await;
     let court_sk = SigningKey::from_bytes(&[1u8; 32]);
@@ -53,7 +53,7 @@ async fn forwards_message_to_recipient_when_both_connected() {
 }
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn server_overrides_from_with_authenticated_username() {
     let store = fresh_store().await;
     let court_sk = SigningKey::from_bytes(&[1u8; 32]);

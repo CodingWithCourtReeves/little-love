@@ -4,14 +4,14 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use ed25519_dalek::{Signer, SigningKey};
 use futures::{SinkExt, StreamExt};
 use littlelove_api::auth::challenge_signing_input;
-use serial_test::serial;
+use serial_test::file_serial;
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
 mod common;
 use common::{fresh_store, handshake_as, insert_account, spawn_server};
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn handshake_succeeds_with_valid_signature() {
     let store = fresh_store().await;
     let sk = SigningKey::from_bytes(&[7u8; 32]);
@@ -40,7 +40,7 @@ async fn receive_close_code(
 }
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn handshake_fails_with_wrong_signature() {
     let store = fresh_store().await;
     let real_sk = SigningKey::from_bytes(&[7u8; 32]);
@@ -77,7 +77,7 @@ async fn handshake_fails_with_wrong_signature() {
 }
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn handshake_fails_for_unknown_username() {
     let store = fresh_store().await;
     let sk = SigningKey::from_bytes(&[9u8; 32]);
@@ -109,7 +109,7 @@ async fn handshake_fails_for_unknown_username() {
 }
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn handshake_nonce_is_single_use_per_connection() {
     // Open two separate connections to the same account. The server must
     // issue a fresh nonce on each connection — verified by checking that

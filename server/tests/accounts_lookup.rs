@@ -1,10 +1,10 @@
-use serial_test::serial;
+use serial_test::file_serial;
 
 mod common;
 use common::{fresh_store, spawn_server};
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn get_unknown_account_returns_404() {
     let store = fresh_store().await;
     let addr = spawn_server(Some(store)).await;
@@ -14,7 +14,7 @@ async fn get_unknown_account_returns_404() {
 }
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn get_known_account_returns_publics() {
     let store = fresh_store().await;
     let addr = spawn_server(Some(store)).await;

@@ -4,7 +4,7 @@ use chrono::Utc;
 use ed25519_dalek::SigningKey;
 use futures::{SinkExt, StreamExt};
 use littlelove_api::store::MessageRow;
-use serial_test::serial;
+use serial_test::file_serial;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 use uuid::Uuid;
 
@@ -12,7 +12,7 @@ mod common;
 use common::{fresh_store, handshake_as, insert_account, spawn_server};
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn stores_and_replays_history_for_disconnected_recipient() {
     let store = fresh_store().await;
     let kaitlyn_sk = SigningKey::from_bytes(&[2u8; 32]);

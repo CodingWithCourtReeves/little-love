@@ -1,12 +1,12 @@
 use littlelove_api::store::Store;
-use serial_test::serial;
+use serial_test::file_serial;
 
 fn db_url() -> String {
     std::env::var("DATABASE_URL").expect("DATABASE_URL must be set")
 }
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn accounts_table_has_required_columns() {
     let store = Store::connect(&db_url()).await.unwrap();
     let rows: Vec<(String, String, bool)> = sqlx::query_as(
@@ -46,7 +46,7 @@ async fn accounts_table_has_required_columns() {
 }
 
 #[tokio::test]
-#[serial]
+#[file_serial]
 async fn accounts_username_is_unique() {
     let store = Store::connect(&db_url()).await.unwrap();
     sqlx::query("TRUNCATE TABLE accounts RESTART IDENTITY CASCADE")
