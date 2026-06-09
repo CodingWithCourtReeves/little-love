@@ -48,6 +48,35 @@ void main() {
     expect(sent, 'hi');
   });
 
+  testWidgets('emoji-only messages render at large size without a bubble',
+      (tester) async {
+    final messages = <Msg>[
+      Msg(
+        id: '1', from: 'kaitlyn', to: 'court', body: '💔',
+        ts: DateTime.utc(2026, 6, 9, 17, 3),
+      ),
+      Msg(
+        id: '2', from: 'court', to: 'kaitlyn', body: 'hey love',
+        ts: DateTime.utc(2026, 6, 9, 17, 2),
+      ),
+    ];
+    await tester.pumpWidget(MaterialApp(
+      theme: buildHearthTheme(),
+      home: ConversationPage(
+        meUsername: 'court',
+        contactDisplayName: 'Kaitlyn',
+        messages: messages,
+        onSend: (_) {},
+      ),
+    ));
+
+    final emojiText = tester.widget<Text>(find.text('💔'));
+    expect(emojiText.style?.fontSize, 48);
+
+    final regularText = tester.widget<Text>(find.text('hey love'));
+    expect(regularText.style?.fontSize, 16);
+  });
+
   testWidgets('emoji button toggles the picker panel', (tester) async {
     await tester.pumpWidget(MaterialApp(
       theme: buildHearthTheme(),

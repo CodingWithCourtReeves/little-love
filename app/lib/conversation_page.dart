@@ -116,7 +116,8 @@ class _ConversationPageState extends State<ConversationPage> {
                 height: 320,
                 emojiViewConfig: EmojiViewConfig(
                   backgroundColor: HearthColors.bgSurface,
-                  columns: 8,
+                  columns: 7,
+                  emojiSizeMax: 32,
                 ),
                 categoryViewConfig: CategoryViewConfig(
                   backgroundColor: HearthColors.bgSurface,
@@ -143,6 +144,18 @@ class _ConversationPageState extends State<ConversationPage> {
 
   Widget _bubble(Msg m) {
     final mine = m.from == widget.meUsername;
+    if (_isEmojiOnly(m.body)) {
+      return Align(
+        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 14),
+          child: Text(
+            m.body.trim(),
+            style: const TextStyle(fontSize: 48, height: 1.1),
+          ),
+        ),
+      );
+    }
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -158,11 +171,34 @@ class _ConversationPageState extends State<ConversationPage> {
           m.body,
           style: TextStyle(
             color: mine ? HearthColors.bubbleUserText : HearthColors.textPrimary,
-            fontSize: 15,
+            fontSize: 16,
           ),
         ),
       ),
     );
+  }
+
+  /// True when every grapheme in the message is in an emoji-ish codepoint
+  /// range or is whitespace. Conservative: cap at 8 runes so a pasted wall
+  /// of emoji still renders as a normal bubble.
+  static bool _isEmojiOnly(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return false;
+    final runes = trimmed.runes.toList();
+    if (runes.length > 8) return false;
+    for (final r in runes) {
+      final emoji = (r >= 0x2600 && r <= 0x27BF) ||
+          (r >= 0x1F300 && r <= 0x1F6FF) ||
+          (r >= 0x1F900 && r <= 0x1F9FF) ||
+          (r >= 0x1FA70 && r <= 0x1FAFF) ||
+          (r >= 0x1F1E6 && r <= 0x1F1FF) ||
+          (r >= 0x1F3FB && r <= 0x1F3FF) ||
+          r == 0x200D ||
+          r == 0xFE0F;
+      final ws = r == 0x20 || r == 0x0A || r == 0x09;
+      if (!emoji && !ws) return false;
+    }
+    return true;
   }
 
   Widget _composer() {
