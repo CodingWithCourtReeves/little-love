@@ -6,7 +6,9 @@
 
 ## 1. Summary
 
-LittleLove is a private, end-to-end encrypted messenger for couples (and small groups). Its distinguishing feature is the ability to bring along an AI "familiar" — a self-hosted local AI model that participates in conversations as a real cryptographic member of the room. Users run the AI on their own hardware (Ollama on a home box) so plaintext never leaves devices the user controls.
+LittleLove is a private, end-to-end encrypted messenger **for couples**. Its distinguishing feature is the ability to bring along an AI "familiar" — a self-hosted local AI model that participates in conversations as a real cryptographic member of the room. Users run the AI on their own hardware (Ollama on a home box) so plaintext never leaves devices the user controls.
+
+LittleLove is positioned for couples. Multi-party rooms (e.g., a couple plus an AI familiar, or a couple plus one close third person) are a capability we inherit from MLS, not the marketed use case. The product voice, defaults, and onboarding flow all assume "two people in love" — group-chat affordances exist because the protocol gives them to us, not because we're chasing the family-chat market.
 
 Phase 1 is **desktop-first** (macOS / Windows / Linux) and ships a working private-beta product between two users (the author and his wife) plus a bot familiar running on a Windows home box. Mobile is deferred to Phase 1.5.
 
@@ -17,7 +19,7 @@ Rough effort: ~2–3 months full-time, ~4–5 months calendar at side-project pa
 ### Goals
 
 - True end-to-end encryption — server cannot read messages.
-- 1-to-N party rooms (1:1 and small groups) using MLS (RFC 9420).
+- 1:1 couples rooms as the default; multi-party rooms (couple + AI familiar, or couple + one close third person) supported by the same MLS protocol (RFC 9420) without any special-casing.
 - AI participants as first-class cryptographic members; **local-model only**.
 - Cross-device usage via QR pairing (e.g., a user's laptop + a user's desktop).
 - Photo and voice-memo attachments (encrypted, opaque to server).
@@ -170,7 +172,7 @@ A newly paired device sees messages **from the moment of pairing forward**. Exis
 ### 7.1 Rooms
 
 - A **room** is an MLS group.
-- 1:1 rooms have 2 user accounts as members. Family rooms have N user accounts. AI bots are extra members.
+- 1:1 rooms have 2 user accounts as members. Multi-party rooms (a couple plus a third trusted person, for example) follow the same protocol with more members. AI familiars are extra members alongside humans.
 - Membership is opaque to the server (MLS keeps the group state client-side). The server only knows there is a room with a given ID and ciphertext flows through it.
 
 ### 7.2 Sending a message
