@@ -70,18 +70,21 @@ impl Store {
         Ok(())
     }
 
+    /// History of every message either sent BY or addressed TO `user` since
+    /// the given timestamp. Both directions are replayed so the conversation
+    /// view fills in symmetrically when a client reconnects.
     pub async fn messages_for(
         &self,
-        recipient: &str,
+        user: &str,
         since: DateTime<Utc>,
     ) -> anyhow::Result<Vec<MessageRow>> {
         let rows = sqlx::query_as::<_, (Uuid, String, String, String, DateTime<Utc>)>(
             "SELECT id, from_user, to_user, body, ts
              FROM messages
-             WHERE to_user = $1 AND ts > $2
+             WHERE (to_user = $1 OR from_user = $1) AND ts > $2
              ORDER BY ts ASC",
         )
-        .bind(recipient)
+        .bind(user)
         .bind(since)
         .fetch_all(&self.pool)
         .await?;

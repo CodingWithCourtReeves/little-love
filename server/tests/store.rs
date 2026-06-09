@@ -41,14 +41,14 @@ async fn store_and_replay_round_trip() {
 }
 
 #[tokio::test]
-async fn store_only_returns_messages_addressed_to_user() {
+async fn store_returns_both_directions_for_user() {
     let store = fresh_store().await;
     store
         .insert(MessageRow {
             id: Uuid::new_v4(),
             from_user: "court".into(),
             to_user: "kaitlyn".into(),
-            body: "for k".into(),
+            body: "from c".into(),
             ts: Utc::now(),
         })
         .await
@@ -58,16 +58,29 @@ async fn store_only_returns_messages_addressed_to_user() {
             id: Uuid::new_v4(),
             from_user: "kaitlyn".into(),
             to_user: "court".into(),
-            body: "for c".into(),
+            body: "to c".into(),
+            ts: Utc::now(),
+        })
+        .await
+        .unwrap();
+    // Third-party message — must NOT appear in court's replay.
+    store
+        .insert(MessageRow {
+            id: Uuid::new_v4(),
+            from_user: "eve".into(),
+            to_user: "mallory".into(),
+            body: "unrelated".into(),
             ts: Utc::now(),
         })
         .await
         .unwrap();
 
-    let for_kaitlyn = store
-        .messages_for("kaitlyn", Utc::now() - chrono::Duration::days(1))
+    let for_court = store
+        .messages_for("court", Utc::now() - chrono::Duration::days(1))
         .await
         .unwrap();
-    assert_eq!(for_kaitlyn.len(), 1);
-    assert_eq!(for_kaitlyn[0].body, "for k");
+    assert_eq!(for_court.len(), 2);
+    let bodies: Vec<&str> = for_court.iter().map(|r| r.body.as_str()).collect();
+    assert!(bodies.contains(&"from c"));
+    assert!(bodies.contains(&"to c"));
 }
