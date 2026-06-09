@@ -1,5 +1,6 @@
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import 'theme/hearth.dart';
@@ -33,9 +34,67 @@ class _ConversationPageState extends State<ConversationPage> {
   final _controller = TextEditingController();
   final _emojiOverlay = OverlayPortalController();
   final _emojiLink = LayerLink();
+  final _scrollController = ScrollController();
+
+  /// Distance (in logical px) from the bottom that still counts as "at bottom".
+  static const _stickThreshold = 120.0;
+  bool _atBottom = true;
+  int _prevMessageCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _prevMessageCount = widget.messages.length;
+    _scrollController.addListener(_onScroll);
+    // Land at the bottom on first paint so replay history doesn't start at the top.
+    SchedulerBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
+  }
+
+  @override
+  void didUpdateWidget(covariant ConversationPage old) {
+    super.didUpdateWidget(old);
+    final grew = widget.messages.length > _prevMessageCount;
+    _prevMessageCount = widget.messages.length;
+    if (!grew) return;
+
+    // Did *I* send the newest one? If so, always scroll - the user just hit send.
+    final newest = widget.messages.fold<Msg?>(
+      null,
+      (acc, m) => acc == null || m.ts.isAfter(acc.ts) ? m : acc,
+    );
+    final mine = newest?.from == widget.meUsername;
+    if (mine || _atBottom) {
+      SchedulerBinding.instance.addPostFrameCallback((_) => _animateToBottom());
+    }
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    final atBottom = (pos.maxScrollExtent - pos.pixels) < _stickThreshold;
+    if (atBottom != _atBottom) {
+      setState(() => _atBottom = atBottom);
+    }
+  }
+
+  void _jumpToBottom() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+  }
+
+  void _animateToBottom() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.animateTo(
+      _scrollController.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+    );
+  }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -77,10 +136,35 @@ class _ConversationPageState extends State<ConversationPage> {
       body: Column(
         children: [
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              itemCount: sorted.length,
-              itemBuilder: (_, i) => _bubble(sorted[i]),
+            child: Stack(
+              children: [
+                ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  itemCount: sorted.length,
+                  itemBuilder: (_, i) => _bubble(sorted[i]),
+                ),
+                Positioned(
+                  right: 16,
+                  bottom: 16,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 150),
+                    opacity: _atBottom ? 0 : 1,
+                    child: IgnorePointer(
+                      ignoring: _atBottom,
+                      child: FloatingActionButton.small(
+                        key: const Key('jump-to-bottom'),
+                        backgroundColor: HearthColors.bgSurface,
+                        foregroundColor: HearthColors.accentUser,
+                        elevation: 4,
+                        onPressed: _animateToBottom,
+                        tooltip: 'Jump to latest',
+                        child: const Icon(Icons.arrow_downward),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           _composer(),
