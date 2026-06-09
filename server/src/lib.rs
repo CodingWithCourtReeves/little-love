@@ -1,6 +1,7 @@
 pub mod config;
 pub mod routing;
 pub mod wire;
+pub mod ws;
 
 pub fn placeholder() -> &'static str {
     "littlelove-api"
