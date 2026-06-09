@@ -20,8 +20,10 @@ impl ServerConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn defaults_to_port_7707_when_env_empty() {
         std::env::remove_var("PORT");
         std::env::remove_var("DATABASE_URL");
@@ -31,6 +33,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn reads_port_from_env() {
         std::env::set_var("PORT", "9999");
         let cfg = ServerConfig::from_env();
