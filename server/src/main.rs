@@ -3,6 +3,7 @@ use axum::{routing::get, Router};
 use littlelove_api::{
     config::ServerConfig,
     routing::Routing,
+    store::Store,
     ws::{ws_handler, AppState},
 };
 use std::net::SocketAddr;
@@ -19,7 +20,14 @@ async fn main() -> Result<()> {
         .init();
 
     let cfg = ServerConfig::from_env();
-    let state = AppState { routing: Routing::new() };
+    let store = match cfg.database_url.as_deref() {
+        Some(url) => Some(Store::connect(url).await?),
+        None => {
+            tracing::warn!("DATABASE_URL unset; running without persistence (Day-1a mode)");
+            None
+        }
+    };
+    let state = AppState { routing: Routing::new(), store };
     let app = Router::new()
         .route("/health", get(health))
         .route("/ws", get(ws_handler))
