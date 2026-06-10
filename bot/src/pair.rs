@@ -45,7 +45,7 @@ pub async fn run(args: PairArgs) -> Result<()> {
     .await
     .context("signup")?;
 
-    let ws_url = format!("{}/connect", args.server.trim_end_matches('/'));
+    let ws_url = format!("{}/ws", args.server.trim_end_matches('/'));
     let mut session = connect_and_identify(
         &ws_url,
         &ClientIdentity {

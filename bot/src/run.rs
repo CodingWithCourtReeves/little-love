@@ -69,7 +69,7 @@ pub async fn run(args: RunArgs) -> Result<()> {
         Duration::from_secs(60),
     )?;
 
-    let ws_url = format!("{}/connect", args.server.trim_end_matches('/'));
+    let ws_url = format!("{}/ws", args.server.trim_end_matches('/'));
     let mut session = connect_and_identify(
         &ws_url,
         &ClientIdentity {
