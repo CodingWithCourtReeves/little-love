@@ -181,23 +181,22 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use serde::Serialize;
 
-use crate::accounts::lookup_full_account_by_id;
 use crate::ws::AppState;
 
+/// v0.3 invite preview (spec §8.1) — full room roster so the joining client
+/// can render the inviting household (humans + familiars) and choose whether
+/// to proceed. Legacy v0.2 invites (no `invites.room_id`) return 404; the
+/// v0.3 client always issues CreateRoom + invite_human_partner together.
 #[derive(Debug, Serialize)]
 pub struct InvitePreviewResponse {
-    pub inviter_username: String,
-    pub inviter_ed25519_pub: String,
-    pub inviter_x25519_pub: String,
+    pub room_id: String,
+    pub name: String,
+    pub members: Vec<crate::wire::Member>,
     pub expires_at: DateTime<Utc>,
 }
 
-/// Unauthenticated REST per spec §8.1. Kaitlyn may not have an account yet
-/// when she pastes the code into her signup flow; possession of the code
-/// is the only authorization.
 pub async fn preview_invite(
     State(state): State<AppState>,
     Path(code): Path<String>,
@@ -228,15 +227,27 @@ pub async fn preview_invite(
         InviteState::Pending => {}
     }
 
-    let inviter = match lookup_full_account_by_id(store, invite.inviter_id).await {
-        Ok(Some(a)) => a,
-        _ => return (StatusCode::NOT_FOUND, "no such code").into_response(),
+    let room_id = match room_for_invite(store.pool(), &token_hash).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return (StatusCode::NOT_FOUND, "invite not bound to a room").into_response(),
+        Err(e) => {
+            tracing::warn!("room_for_invite: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+    let detail = match crate::rooms::room_detail(store.pool(), &room_id).await {
+        Ok(Some(d)) => d,
+        _ => return (StatusCode::NOT_FOUND, "room gone").into_response(),
     };
 
     Json(InvitePreviewResponse {
-        inviter_username: inviter.username,
-        inviter_ed25519_pub: B64.encode(&inviter.ed25519_pub),
-        inviter_x25519_pub: B64.encode(&inviter.x25519_pub),
+        room_id: detail.room_id,
+        name: detail.name,
+        members: detail
+            .members
+            .into_iter()
+            .map(crate::rooms::Member::into_wire)
+            .collect(),
         expires_at: invite.expires_at,
     })
     .into_response()
