@@ -58,7 +58,9 @@ void main() {
     expect(find.text('RAIL'), findsNothing);
     // Drawer chrome is wired via Scaffold.hasDrawer (Material only mounts
     // the Drawer widget when opened).
-    final ScaffoldState scaffoldState = tester.firstState(find.byType(Scaffold));
+    final ScaffoldState scaffoldState = tester.firstState(
+      find.byType(Scaffold),
+    );
     expect(scaffoldState.hasDrawer, isTrue);
     scaffoldState.openDrawer();
     await tester.pumpAndSettle();
@@ -83,10 +85,7 @@ void main() {
                 sidebar: const Text('SIDEBAR'),
                 rail: const Text('RAIL'),
                 drawer: const Text('DRAWER'),
-                detail: const SizedBox(
-                  key: detailKey,
-                  child: Text('DETAIL'),
-                ),
+                detail: const SizedBox(key: detailKey, child: Text('DETAIL')),
               ),
             ),
           ),

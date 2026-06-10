@@ -40,7 +40,12 @@ class LayoutScaffold extends StatelessWidget {
           );
         }
         if (w >= railBreakpoint) {
-          return Row(children: [rail, Expanded(child: detail)]);
+          return Row(
+            children: [
+              rail,
+              Expanded(child: detail),
+            ],
+          );
         }
         return Scaffold(
           appBar: AppBar(),

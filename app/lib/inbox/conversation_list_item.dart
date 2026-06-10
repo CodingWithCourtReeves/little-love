@@ -44,9 +44,7 @@ class ConversationListItem extends StatelessWidget {
                   label,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: TwilightColors.textPrimary,
-                    fontWeight: selected
-                        ? FontWeight.w600
-                        : FontWeight.w400,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                   ),
                 ),
               ),

@@ -15,35 +15,39 @@ Room _r(String id, String peer) => Room(
 );
 
 void main() {
-  testWidgets('tapping a drawer entry updates selection and closes the drawer',
-      (tester) async {
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
-    container.read(inboxStateProvider.notifier).setRooms([_r('1', 'kaitlyn')]);
-    final scaffoldKey = GlobalKey<ScaffoldState>();
+  testWidgets(
+    'tapping a drawer entry updates selection and closes the drawer',
+    (tester) async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      container.read(inboxStateProvider.notifier).setRooms([
+        _r('1', 'kaitlyn'),
+      ]);
+      final scaffoldKey = GlobalKey<ScaffoldState>();
 
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: MaterialApp(
-          theme: buildTwilightTheme(),
-          home: Scaffold(
-            key: scaffoldKey,
-            appBar: AppBar(),
-            drawer: const Drawer(child: DrawerContent(username: 'court')),
-            body: const SizedBox.shrink(),
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: buildTwilightTheme(),
+            home: Scaffold(
+              key: scaffoldKey,
+              appBar: AppBar(),
+              drawer: const Drawer(child: DrawerContent(username: 'court')),
+              body: const SizedBox.shrink(),
+            ),
           ),
         ),
-      ),
-    );
-    scaffoldKey.currentState!.openDrawer();
-    await tester.pumpAndSettle();
+      );
+      scaffoldKey.currentState!.openDrawer();
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('drawer-room-1')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('drawer-room-1')));
+      await tester.pumpAndSettle();
 
-    expect(container.read(inboxStateProvider).selectedRoomId, '1');
-    // Drawer is dismissed.
-    expect(find.byKey(const Key('drawer-room-1')), findsNothing);
-  });
+      expect(container.read(inboxStateProvider).selectedRoomId, '1');
+      // Drawer is dismissed.
+      expect(find.byKey(const Key('drawer-room-1')), findsNothing);
+    },
+  );
 }
