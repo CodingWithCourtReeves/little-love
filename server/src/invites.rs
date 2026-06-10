@@ -6,11 +6,16 @@
 
 use std::collections::HashMap;
 
+use chrono::{DateTime, Duration, Utc};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
+use sqlx::PgPool;
 use thiserror::Error;
 
 use crate::wordlist_bip39_en::BIP39_EN;
+
+/// Invites expire 1 hour after creation per spec §4.2.
+pub const INVITE_TTL_SECONDS: i64 = 60 * 60;
 
 /// Number of words in an invite code (spec §8.6).
 pub const CODE_WORDS: usize = 4;
@@ -159,6 +164,134 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&out);
     arr
+}
+
+/// One row in the `invites` table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InviteRow {
+    pub token_hash: Vec<u8>,
+    pub inviter_id: i64,
+    pub expires_at: DateTime<Utc>,
+    pub consumed_at: Option<DateTime<Utc>>,
+}
+
+/// State of an invite for handler error mapping (spec §4.2 + §8.2 Error
+/// frame codes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InviteState {
+    Pending,
+    Expired,
+    Consumed,
+}
+
+impl InviteRow {
+    /// Classify the row state against the current time.
+    pub fn state(&self, now: DateTime<Utc>) -> InviteState {
+        if self.consumed_at.is_some() {
+            InviteState::Consumed
+        } else if self.expires_at < now {
+            InviteState::Expired
+        } else {
+            InviteState::Pending
+        }
+    }
+}
+
+/// Insert a fresh invite. Any outstanding (unconsumed) invites for the same
+/// `inviter_id` are deleted first per spec §4.2 ("Creating a new one revokes
+/// the prior").
+pub async fn create_invite_record(
+    pool: &PgPool,
+    inviter_id: i64,
+    token_hash: &[u8],
+    expires_at: DateTime<Utc>,
+) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM invites WHERE inviter_id = $1 AND consumed_at IS NULL")
+        .bind(inviter_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("INSERT INTO invites (token_hash, inviter_id, expires_at) VALUES ($1, $2, $3)")
+        .bind(token_hash)
+        .bind(inviter_id)
+        .bind(expires_at)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+type InviteDbRow = (Vec<u8>, i64, DateTime<Utc>, Option<DateTime<Utc>>);
+
+/// Look up an invite by its token hash. Returns `None` if no such row.
+pub async fn lookup_invite(pool: &PgPool, token_hash: &[u8]) -> sqlx::Result<Option<InviteRow>> {
+    let row: Option<InviteDbRow> = sqlx::query_as(
+        "SELECT token_hash, inviter_id, expires_at, consumed_at FROM invites WHERE token_hash = $1",
+    )
+    .bind(token_hash)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(
+        |(token_hash, inviter_id, expires_at, consumed_at)| InviteRow {
+            token_hash,
+            inviter_id,
+            expires_at,
+            consumed_at,
+        },
+    ))
+}
+
+/// Atomically mark an invite consumed. Idempotent: if it was already
+/// consumed, the row stays as-is.
+pub async fn mark_consumed(
+    pool: &PgPool,
+    token_hash: &[u8],
+    when: DateTime<Utc>,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "UPDATE invites SET consumed_at = $2 WHERE token_hash = $1 AND consumed_at IS NULL",
+    )
+    .bind(token_hash)
+    .bind(when)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Compute the standard expiry for a freshly-created invite.
+pub fn default_expiry(now: DateTime<Utc>) -> DateTime<Utc> {
+    now + Duration::seconds(INVITE_TTL_SECONDS)
+}
+
+/// Render a QR PNG of `code` as base64.
+///
+/// Spec §4.3: the QR encodes the code string verbatim. No JSON, no URL
+/// scheme — typing and scanning feed the same downstream code path.
+pub fn qr_png_base64(code: &str) -> Result<String, QrError> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    use image::ImageEncoder;
+    use qrcode::QrCode;
+
+    let qr = QrCode::new(code.as_bytes()).map_err(|_| QrError::Encode)?;
+    let img = qr.render::<image::Luma<u8>>().build();
+    let mut png = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut png)
+        .write_image(
+            &img,
+            img.width(),
+            img.height(),
+            image::ExtendedColorType::L8,
+        )
+        .map_err(|_| QrError::Render)?;
+    Ok(B64.encode(&png))
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum QrError {
+    #[error("QR encode failed")]
+    Encode,
+    #[error("PNG render failed")]
+    Render,
 }
 
 #[cfg(test)]
