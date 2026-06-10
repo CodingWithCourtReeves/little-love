@@ -1,67 +1,51 @@
 #!/usr/bin/env bash
-# scripts/demo.sh — run a LittleLove desktop client wired to the dev stack.
+# scripts/demo.sh — launch a LittleLove desktop client against the dev stack.
 #
 # Usage:
-#   ./scripts/demo.sh court     # uses your real ~/.littlelove/
-#   ./scripts/demo.sh kaitlyn   # uses a fake $HOME under .dev/kaitlyn-home/
+#   ./scripts/demo.sh court     # uses your real $HOME
+#   ./scripts/demo.sh kaitlyn   # uses .dev/kaitlyn-home/ as $HOME so a
+#                               # separate ~/.littlelove/account.json
+#                               # gets created
 #
-# First run generates a shared 32-byte key and persists it to .dev.demo.key
-# (gitignored). Subsequent runs reuse the same key so the two clients can
-# decrypt each other.
+# Reads .dev.env for API_PORT (run ./scripts/dev-up.sh first to create it).
+# Launches with LLOVE_FIXTURES=demo so the inbox is pre-seeded with two
+# demo rooms (Kaitlyn + Sage) while WT-D's real pairing flow lands.
+#
+# Day-1 behavior (writing config.toml with a pre-shared key) is gone: spec
+# §10.3 removed the config.toml reader, and WT-C's signup flow now derives
+# identity from a 12-word recovery phrase persisted in the OS keystore.
 set -euo pipefail
 
-if [ $# -ne 1 ] || { [ "$1" != "court" ] && [ "$1" != "kaitlyn" ]; }; then
+WHO="${1:-}"
+if [[ "$WHO" != "court" && "$WHO" != "kaitlyn" ]]; then
   echo "usage: $0 court|kaitlyn" >&2
   exit 2
 fi
-WHO="$1"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
-if [ ! -f .dev.env ]; then
+if [[ ! -f .dev.env ]]; then
   echo "✗ .dev.env not found. Run ./scripts/dev-up.sh first." >&2
   exit 1
 fi
 # shellcheck disable=SC1091
 source .dev.env
 
-KEY_FILE="$ROOT_DIR/.dev.demo.key"
-if [ ! -f "$KEY_FILE" ]; then
-  openssl rand -hex 32 > "$KEY_FILE"
-  echo "▶ generated shared key → $KEY_FILE"
-fi
-SHARED_KEY="$(cat "$KEY_FILE")"
-
-if [ "$WHO" = "court" ]; then
+if [[ "$WHO" == "court" ]]; then
   DEMO_HOME="$HOME"
-  ME_DISPLAY="Court"
-  THEM_USER="kaitlyn"
-  THEM_DISPLAY="Kaitlyn"
 else
   DEMO_HOME="$ROOT_DIR/.dev/kaitlyn-home"
-  ME_DISPLAY="Kaitlyn"
-  THEM_USER="court"
-  THEM_DISPLAY="Court"
+  mkdir -p "$DEMO_HOME"
 fi
 
-mkdir -p "$DEMO_HOME/.littlelove"
-cat > "$DEMO_HOME/.littlelove/config.toml" <<EOF
-username = "$WHO"
-display_name = "$ME_DISPLAY"
-server_url = "ws://127.0.0.1:${API_PORT}/ws"
-shared_key = "$SHARED_KEY"
-
-[contact]
-username = "$THEM_USER"
-display_name = "$THEM_DISPLAY"
-EOF
-
-echo "▶ user:    $WHO  (talking to $THEM_USER)"
+echo "▶ user:    $WHO"
 echo "▶ home:    $DEMO_HOME"
-echo "▶ server:  ws://127.0.0.1:${API_PORT}/ws"
-echo "▶ launching flutter run -d macos…"
+echo "▶ server:  http://127.0.0.1:${API_PORT}"
+echo "▶ launching flutter run -d macos with demo fixtures…"
 
 cd app
-HOME="$DEMO_HOME" exec flutter run -d macos
+HOME="$DEMO_HOME" exec flutter run -d macos \
+  --dart-define=LLOVE_FIXTURES=demo \
+  --dart-define=LLOVE_SERVER="http://127.0.0.1:${API_PORT}"
