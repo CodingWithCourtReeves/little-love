@@ -1,0 +1,79 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../theme/twilight.dart';
+import 'conversation_list_item.dart';
+import 'inbox_state.dart';
+
+/// Persistent sidebar at ≥800px widths (spec §6.1). 240px wide.
+class Sidebar extends ConsumerWidget {
+  const Sidebar({super.key, required this.username});
+
+  final String username;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final inbox = ref.watch(inboxStateProvider);
+    final theme = Theme.of(context);
+    return Container(
+      color: TwilightColors.bgSurface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _sectionHeader('COUPLES', theme),
+          ...inbox.rooms.map(
+            (r) => ConversationListItem(
+              key: Key('room-${r.roomId}'),
+              label: r.peerUsername,
+              selected: inbox.selectedRoomId == r.roomId,
+              onTap: () =>
+                  ref.read(inboxStateProvider.notifier).select(r.roomId),
+            ),
+          ),
+          const SizedBox(height: 16),
+          _sectionHeader('FAMILIARS', theme),
+          const SizedBox(height: 16),
+          const Spacer(),
+          Container(height: 1, color: TwilightColors.borderSoft),
+          _footer(theme),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionHeader(String label, ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Text(
+        label,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: TwilightColors.textMuted,
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
+  }
+
+  Widget _footer(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          IconButton(
+            key: const Key('sidebar-settings'),
+            icon: const Icon(Icons.settings, color: TwilightColors.textMuted),
+            onPressed: () {},
+            tooltip: 'Settings',
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '@$username',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: TwilightColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
