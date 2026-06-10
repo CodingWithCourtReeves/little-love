@@ -82,7 +82,9 @@ if railway service Postgres >/dev/null 2>&1; then
   echo "→ Postgres already exists, skipping"
 else
   echo "→ adding Postgres plugin"
-  railway add --database postgres
+  # `</dev/null` keeps the CLI from dropping into its interactive prompt loop
+  # after the database is added.
+  railway add --database postgres </dev/null
 fi
 
 # ---------- 4. littlelove-api service ----------
@@ -92,22 +94,30 @@ if railway service "$API_SERVICE_NAME" >/dev/null 2>&1; then
   echo "→ $API_SERVICE_NAME already exists, skipping create"
 else
   echo "→ creating $API_SERVICE_NAME service from $API_IMAGE"
-  if ! railway add --service "$API_SERVICE_NAME" --image "$API_IMAGE" 2>/dev/null; then
-    railway add --service "$API_SERVICE_NAME"
-    echo "  ⚠ --image flag not supported by this CLI version."
-    echo "    Open railway.com → littlelove → $API_SERVICE_NAME → Settings → Source"
-    echo "    and set source image to: $API_IMAGE"
-  fi
+  # Pre-supply --variables so the CLI's post-create "now add env vars"
+  # interactive loop sees that everything is set and exits cleanly.
+  # `</dev/null` is the belt-and-suspenders: closes stdin so any remaining
+  # prompts can't block.
+  railway add \
+    --service "$API_SERVICE_NAME" \
+    --image "$API_IMAGE" \
+    --variables "RUST_LOG=info,littlelove_api=info" \
+    --variables 'DATABASE_URL=${{ Postgres.DATABASE_URL }}' \
+    </dev/null
 fi
 
-# ---------- 5. Env vars on littlelove-api ----------
+# ---------- 5. Ensure env vars on littlelove-api ----------
+#
+# If the service already existed before this run, --variables on `add` was
+# skipped — set them explicitly. `railway variables --set` is idempotent
+# and prints a no-op message if the value is already correct.
 
-echo "→ setting RUST_LOG on $API_SERVICE_NAME"
+echo "→ ensuring RUST_LOG on $API_SERVICE_NAME"
 railway variables \
   --service "$API_SERVICE_NAME" \
   --set "RUST_LOG=info,littlelove_api=info"
 
-echo "→ wiring DATABASE_URL reference on $API_SERVICE_NAME"
+echo "→ ensuring DATABASE_URL reference on $API_SERVICE_NAME"
 railway variables \
   --service "$API_SERVICE_NAME" \
   --set 'DATABASE_URL=${{ Postgres.DATABASE_URL }}'
