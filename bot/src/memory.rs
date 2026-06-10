@@ -76,17 +76,17 @@ pub fn parse_summary_response(raw: &str) -> Result<(String, String)> {
     let mut events: Option<String> = None;
     let mut character: Option<String> = None;
 
-    let mut spans: Vec<(usize, usize, &str)> = Vec::new();
-    for m in re.find_iter(raw) {
-        let caps = re.captures(&raw[m.start()..m.end()]).unwrap();
-        let kind = caps.get(1).unwrap().as_str();
-        let kind_static: &str = match kind {
-            "EVENTS" => "EVENTS",
-            "CHARACTER" => "CHARACTER",
-            _ => continue,
-        };
-        spans.push((m.end(), m.start(), kind_static));
-    }
+    // (header_end, header_start, kind) — kind is taken directly from the
+    // regex capture; the regex only matches the two literal alternatives so
+    // no separate validation arm is needed.
+    let spans: Vec<(usize, usize, &str)> = re
+        .captures_iter(raw)
+        .map(|caps| {
+            let m = caps.get(0).unwrap();
+            let kind = caps.get(1).unwrap().as_str();
+            (m.end(), m.start(), kind)
+        })
+        .collect();
     if spans.is_empty() {
         return Err(anyhow!(
             "summary response missing EVENTS:/CHARACTER: headers"
@@ -98,7 +98,7 @@ pub fn parse_summary_response(raw: &str) -> Result<(String, String)> {
         match *kind {
             "EVENTS" => events = Some(body),
             "CHARACTER" => character = Some(body),
-            _ => {}
+            _ => unreachable!("regex restricts kind to EVENTS|CHARACTER"),
         }
     }
     let events = events.ok_or_else(|| anyhow!("summary missing EVENTS section"))?;
@@ -146,6 +146,13 @@ impl Memory {
 
         migrate_up(&mut db, &db_path, SCHEMA_VERSION)?;
         set_file_perms_0600(&db_path)?;
+        // WAL/SHM sidecars contain identical plaintext to the main DB and are
+        // created by the WAL pragma + first write. The 0700 on the parent
+        // dir is the real backstop, but harden file-level too to match. Both
+        // sidecars may be absent on platforms that haven't materialized them
+        // yet; that's fine, set_file_perms_0600_if_exists is a no-op then.
+        set_file_perms_0600_if_exists(&room_dir.join("memory.sqlite-wal"))?;
+        set_file_perms_0600_if_exists(&room_dir.join("memory.sqlite-shm"))?;
 
         let summary = load_summary(&db)?;
 
@@ -214,7 +221,10 @@ impl Memory {
             .as_ref()
             .map(|s| s.covers_up_to_turn_id)
             .unwrap_or(0);
-        Ok((latest - covers) as usize > threshold)
+        // saturating_sub: a stale covers > latest (partial restore, future
+        // schema, or a bug elsewhere) would underflow i64 → wrap to a huge
+        // usize → permanent needs_summary=true. Saturate at zero instead.
+        Ok(latest.saturating_sub(covers) as usize > threshold)
     }
 
     pub fn snapshot_for_summary(&self) -> Result<SummarySnapshot> {
@@ -250,6 +260,13 @@ impl Memory {
         })
     }
 
+    /// Assemble the chat prompt for the next LLM call.
+    ///
+    /// `latest_user_msg` is the *incoming* message the caller has just received
+    /// but has NOT yet recorded as a turn. It is appended as the final user
+    /// message after the system block and the recent turn history. Call this
+    /// BEFORE record_turn(User, ...) — otherwise the same message appears
+    /// twice (once via recent_turns, once via the final append).
     pub fn assemble_prompt(
         &self,
         persona: &str,
@@ -332,13 +349,19 @@ fn migrate_up(db: &mut Connection, db_path: &Path, expected: u32) -> Result<()> 
             db_path.display()
         ));
     }
-    let backup = db_path.with_file_name(format!(
-        "{}.bak-v{}",
-        db_path.file_name().unwrap().to_string_lossy(),
-        current
-    ));
-    std::fs::copy(db_path, &backup)
-        .with_context(|| format!("backup {} -> {}", db_path.display(), backup.display()))?;
+    // Skip backup on the first-ever open (user_version = 0). The "DB" is an
+    // empty file created by sqlite::open just above; snapshotting it produces
+    // a confusing zero-byte .bak-v0 file that ships with every fresh install
+    // and has nothing worth recovering.
+    if current > 0 {
+        let backup = db_path.with_file_name(format!(
+            "{}.bak-v{}",
+            db_path.file_name().unwrap().to_string_lossy(),
+            current
+        ));
+        std::fs::copy(db_path, &backup)
+            .with_context(|| format!("backup {} -> {}", db_path.display(), backup.display()))?;
+    }
     for v in (current + 1)..=expected {
         let tx = db.transaction()?;
         apply_migration(&tx, v)?;
@@ -503,6 +526,13 @@ fn set_file_perms_0600(_p: &Path) -> Result<()> {
     Ok(())
 }
 
+fn set_file_perms_0600_if_exists(p: &Path) -> Result<()> {
+    if p.exists() {
+        set_file_perms_0600(p)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -518,13 +548,16 @@ mod tests {
     }
 
     #[test]
-    fn open_is_idempotent() {
+    fn open_is_idempotent_and_skips_fresh_db_backup() {
         let dir = tempdir().unwrap();
         let _m1 = Memory::open(dir.path(), "01TESTROOM").unwrap();
         let _m2 = Memory::open(dir.path(), "01TESTROOM").unwrap();
         let room_dir = dir.path().join("rooms").join("01TESTROOM");
-        let bak = room_dir.join("memory.sqlite.bak-v0");
-        assert!(bak.exists(), "first open should create bak-v0");
+        // user_version was 0 on first open → no backup of an empty DB.
+        assert!(
+            !room_dir.join("memory.sqlite.bak-v0").exists(),
+            "fresh-DB backup (v=0) should be skipped"
+        );
         assert!(!room_dir.join("memory.sqlite.bak-v1").exists());
     }
 
