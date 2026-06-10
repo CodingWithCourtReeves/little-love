@@ -226,6 +226,54 @@ impl Memory {
         })
     }
 
+    pub fn assemble_prompt(
+        &self,
+        persona: &str,
+        _peer_name: &str,
+        latest_user_msg: &str,
+        recent_n: usize,
+        max_chars: usize,
+    ) -> Result<Vec<crate::llm::ChatMessage>> {
+        use crate::llm::ChatMessage;
+
+        let facts = read_facts(&self.facts_path).unwrap_or_default();
+        let facts_section = if facts.trim().is_empty() {
+            "(none yet)".to_string()
+        } else {
+            facts
+        };
+        let (events_section, character_section) = match &self.summary {
+            Some(s) => (s.events.clone(), s.character.clone()),
+            None => (
+                "(early days — no summary yet)".to_string(),
+                "(no reflections yet)".to_string(),
+            ),
+        };
+        let system_content = format!(
+            "{persona}\n\n# What you know about your partner\n{facts_section}\n\n# Recent context\n{events_section}\n\n# How you've been feeling\n{character_section}"
+        );
+
+        let recent = self.recent_turns(recent_n)?;
+        let mut msgs: Vec<ChatMessage> = Vec::with_capacity(recent.len() + 2);
+        msgs.push(ChatMessage {
+            role: "system".into(),
+            content: system_content,
+        });
+        for t in &recent {
+            msgs.push(ChatMessage {
+                role: t.role.as_str().into(),
+                content: t.content.clone(),
+            });
+        }
+        msgs.push(ChatMessage {
+            role: "user".into(),
+            content: latest_user_msg.to_string(),
+        });
+
+        let _ = max_chars;
+        Ok(msgs)
+    }
+
     pub fn commit_summary(
         &mut self,
         events: String,
@@ -334,6 +382,10 @@ fn load_summary(db: &Connection) -> Result<Option<Summary>> {
     }
 }
 
+fn read_facts(path: &Path) -> Option<String> {
+    std::fs::read_to_string(path).ok()
+}
+
 #[cfg(unix)]
 fn set_dir_perms_0700(p: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -402,6 +454,23 @@ mod tests {
         let dir = tempdir().unwrap();
         let m = Memory::open(dir.path(), "01TESTROOM").unwrap();
         assert_eq!(m.latest_turn_id().unwrap(), 0);
+    }
+
+    #[test]
+    fn assemble_prompt_empty_memory_returns_system_plus_latest_user() {
+        let dir = tempdir().unwrap();
+        let m = Memory::open(dir.path(), "01TESTROOM").unwrap();
+        let msgs = m
+            .assemble_prompt("PERSONA", "alice", "hello bot", 20, 28_000)
+            .unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].role, "system");
+        assert!(msgs[0].content.starts_with("PERSONA"));
+        assert!(msgs[0].content.contains("(none yet)"));
+        assert!(msgs[0].content.contains("(early days — no summary yet)"));
+        assert!(msgs[0].content.contains("(no reflections yet)"));
+        assert_eq!(msgs[1].role, "user");
+        assert_eq!(msgs[1].content, "hello bot");
     }
 
     #[test]
