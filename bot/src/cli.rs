@@ -79,7 +79,11 @@ pub struct RunArgs {
     #[arg(long, env = "LITTLELOVE_BOT_SUMMARY_EVERY", default_value_t = 20)]
     pub summary_every: usize,
 
-    #[arg(long, env = "LITTLELOVE_BOT_MAX_CONTEXT_CHARS", default_value_t = 28_000)]
+    #[arg(
+        long,
+        env = "LITTLELOVE_BOT_MAX_CONTEXT_CHARS",
+        default_value_t = 28_000
+    )]
     pub max_context_chars: usize,
 
     /// Character Card v2/v3 PNG. Mutually exclusive with --system-prompt-file and the env var.

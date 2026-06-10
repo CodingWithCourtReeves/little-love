@@ -37,8 +37,8 @@ pub fn run(args: DoctorArgs) -> Result<()> {
         return Ok(());
     }
     println!("rooms:");
-    for entry in std::fs::read_dir(&rooms_dir)
-        .with_context(|| format!("read {}", rooms_dir.display()))?
+    for entry in
+        std::fs::read_dir(&rooms_dir).with_context(|| format!("read {}", rooms_dir.display()))?
     {
         let entry = entry?;
         if !entry.file_type()?.is_dir() {
@@ -65,7 +65,11 @@ fn report_room(room_dir: &Path) -> Result<()> {
     }
     let conn = Connection::open(&db_path)?;
     let v: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    let marker = if v == SCHEMA_VERSION { "✓" } else { "MISMATCH" };
+    let marker = if v == SCHEMA_VERSION {
+        "✓"
+    } else {
+        "MISMATCH"
+    };
     println!("    memory.sqlite:    schema version {v} ({marker})");
     if v != SCHEMA_VERSION {
         return Err(anyhow!(

@@ -45,7 +45,7 @@ pub fn build_summary_messages(
     let covers_to = snap.covers_up_to_turn_id;
 
     let user_content = format!(
-"You are summarizing a conversation between {character_name} and {peer_name}.
+        "You are summarizing a conversation between {character_name} and {peer_name}.
 
 Previous summary (covers turns 1..{covers_to}):
 EVENTS:
@@ -67,7 +67,8 @@ Speaking as {character_name}, write a brief first-person reflection — how you'
 feeling, what you've learned about {peer_name}, what feels significant. Max 200 words.
 
 Reply with EVENTS: followed by the events text, then CHARACTER: on a new line followed
-by the character text. Nothing else.");
+by the character text. Nothing else."
+    );
 
     vec![ChatMessage {
         role: "user".into(),

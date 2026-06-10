@@ -88,7 +88,9 @@ pub fn parse_summary_response(raw: &str) -> Result<(String, String)> {
         spans.push((m.end(), m.start(), kind_static));
     }
     if spans.is_empty() {
-        return Err(anyhow!("summary response missing EVENTS:/CHARACTER: headers"));
+        return Err(anyhow!(
+            "summary response missing EVENTS:/CHARACTER: headers"
+        ));
     }
     for (i, (header_end, _start, kind)) in spans.iter().enumerate() {
         let end = spans.get(i + 1).map(|(_, s, _)| *s).unwrap_or(raw.len());
@@ -116,8 +118,8 @@ impl Memory {
         let db_path = room_dir.join("memory.sqlite");
         let facts_path = room_dir.join("facts.md");
 
-        let mut db = Connection::open(&db_path)
-            .with_context(|| format!("open {}", db_path.display()))?;
+        let mut db =
+            Connection::open(&db_path).with_context(|| format!("open {}", db_path.display()))?;
         db.pragma_update(None, "journal_mode", "WAL")?;
 
         migrate_up(&mut db, &db_path, SCHEMA_VERSION)?;
@@ -157,9 +159,9 @@ impl Memory {
     }
 
     pub fn recent_turns(&self, limit: usize) -> Result<Vec<TurnRecord>> {
-        let mut stmt = self.db.prepare(
-            "SELECT id, ts, role, content FROM turn ORDER BY id DESC LIMIT ?1",
-        )?;
+        let mut stmt = self
+            .db
+            .prepare("SELECT id, ts, role, content FROM turn ORDER BY id DESC LIMIT ?1")?;
         let rows = stmt.query_map(rusqlite::params![limit as i64], |r| {
             let role_s: String = r.get(2)?;
             let role = match role_s.as_str() {
@@ -199,9 +201,9 @@ impl Memory {
             .as_ref()
             .map(|s| s.covers_up_to_turn_id)
             .unwrap_or(0);
-        let mut stmt = self.db.prepare(
-            "SELECT id, ts, role, content FROM turn WHERE id > ?1 ORDER BY id ASC",
-        )?;
+        let mut stmt = self
+            .db
+            .prepare("SELECT id, ts, role, content FROM turn WHERE id > ?1 ORDER BY id ASC")?;
         let rows = stmt.query_map(rusqlite::params![covers], |r| {
             let role_s: String = r.get(2)?;
             let role = match role_s.as_str() {
@@ -346,7 +348,9 @@ fn apply_migration(tx: &rusqlite::Transaction, target: u32) -> Result<()> {
             )?;
             Ok(())
         }
-        other => Err(anyhow!("no migration registered for user_version = {other}")),
+        other => Err(anyhow!(
+            "no migration registered for user_version = {other}"
+        )),
     }
 }
 
@@ -616,7 +620,9 @@ mod tests {
         for i in 0..10 {
             m.record_turn(Role::User, &format!("u{i}")).unwrap();
         }
-        let msgs = m.assemble_prompt("P", "alice", "latest", 3, 28_000).unwrap();
+        let msgs = m
+            .assemble_prompt("P", "alice", "latest", 3, 28_000)
+            .unwrap();
         assert_eq!(msgs.len(), 5);
         assert_eq!(msgs[1].content, "u7");
         assert_eq!(msgs[2].content, "u8");
