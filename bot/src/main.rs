@@ -1,6 +1,6 @@
 use clap::Parser;
 
-mod cli;
+use littlelove_bot::cli;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
