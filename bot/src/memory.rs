@@ -474,6 +474,43 @@ mod tests {
     }
 
     #[test]
+    fn assemble_prompt_uses_facts_md_when_present() {
+        let dir = tempdir().unwrap();
+        let m = Memory::open(dir.path(), "01TESTROOM").unwrap();
+        let room_dir = dir.path().join("rooms").join("01TESTROOM");
+        std::fs::write(room_dir.join("facts.md"), "- alice's cat is Mittens").unwrap();
+        let msgs = m.assemble_prompt("P", "alice", "hi", 10, 28_000).unwrap();
+        assert!(msgs[0].content.contains("alice's cat is Mittens"));
+    }
+
+    #[test]
+    fn assemble_prompt_uses_summary_when_present() {
+        let dir = tempdir().unwrap();
+        let mut m = Memory::open(dir.path(), "01TESTROOM").unwrap();
+        m.record_turn(Role::User, "u1").unwrap();
+        m.commit_summary("e1".into(), "c1".into(), m.latest_turn_id().unwrap())
+            .unwrap();
+        let msgs = m.assemble_prompt("P", "alice", "hi", 10, 28_000).unwrap();
+        assert!(msgs[0].content.contains("e1"));
+        assert!(msgs[0].content.contains("c1"));
+        assert!(!msgs[0].content.contains("(early days"));
+    }
+
+    #[test]
+    fn assemble_prompt_caps_recent_turns_at_recent_n() {
+        let dir = tempdir().unwrap();
+        let mut m = Memory::open(dir.path(), "01TESTROOM").unwrap();
+        for i in 0..10 {
+            m.record_turn(Role::User, &format!("u{i}")).unwrap();
+        }
+        let msgs = m.assemble_prompt("P", "alice", "latest", 3, 28_000).unwrap();
+        assert_eq!(msgs.len(), 5);
+        assert_eq!(msgs[1].content, "u7");
+        assert_eq!(msgs[2].content, "u8");
+        assert_eq!(msgs[3].content, "u9");
+    }
+
+    #[test]
     fn needs_summary_false_on_empty_db() {
         let dir = tempdir().unwrap();
         let m = Memory::open(dir.path(), "01TESTROOM").unwrap();
