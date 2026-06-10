@@ -2,3 +2,4 @@
 pub mod addr_guard;
 pub mod cli;
 pub mod identity_store;
+pub mod rest;
