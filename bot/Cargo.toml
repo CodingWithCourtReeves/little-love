@@ -20,6 +20,7 @@ base64            = { workspace = true }
 chrono            = { workspace = true }
 clap              = { workspace = true }
 directories       = { workspace = true }
+ed25519-dalek     = { workspace = true }
 futures           = { workspace = true }
 png               = { workspace = true }
 rand              = { workspace = true }
