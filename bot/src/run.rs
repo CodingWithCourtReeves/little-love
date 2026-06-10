@@ -205,6 +205,16 @@ pub async fn run(args: RunArgs) -> Result<()> {
                     // we never produced a real reply and don't want the
                     // error or this exchange leaking into the next summary
                     // as if it were real conversation.
+                    //
+                    // Tradeoff: the bot has no memory it ever said "having
+                    // trouble" — when the user re-sends, the next reply sees
+                    // the user message as the first occurrence, with no
+                    // acknowledgment of the prior attempt. We accept that:
+                    // poisoning the summary with error strings is worse than
+                    // a one-turn amnesia. If we ever want the bot to remember
+                    // "I told them I was struggling earlier", add a distinct
+                    // Role variant (e.g. Role::SystemNotice) that is excluded
+                    // from the summary input but kept in recent turns.
                     let fallback = "(having trouble right now — try again in a moment)";
                     let wire = aead::encrypt_wire(&room_key, fallback.as_bytes())?;
                     send_message(&mut session, &room.room_id, &wire).await?;
