@@ -108,6 +108,35 @@ pub async fn insert_account(store: &Store, username: &str, vk: &VerifyingKey) {
         .unwrap();
 }
 
+/// Re-run the v0.3 backfill UPDATE statements idempotently against a
+/// freshly-seeded v0.2-shaped dataset. Migration 0006 already ran at
+/// `connect()` time; this helper re-applies the backfill so tests can
+/// insert legacy rows after the migration has run and still observe the
+/// post-migration state.
+pub async fn apply_v0_3_backfills(pool: &sqlx::PgPool) {
+    sqlx::query(
+        "UPDATE messages m SET recipient_account_id = (
+           SELECT rm.account_id FROM room_members rm
+           WHERE rm.room_id = m.room_id AND rm.account_id <> m.from_account_id
+           LIMIT 1)
+         WHERE recipient_account_id IS NULL",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE accounts a SET partner_account_id = (
+           SELECT b.id FROM room_members rm_a
+           JOIN room_members rm_b ON rm_b.room_id = rm_a.room_id AND rm_b.account_id <> rm_a.account_id
+           JOIN accounts b ON b.id = rm_b.account_id
+           WHERE rm_a.account_id = a.id AND b.is_bot = FALSE LIMIT 1)
+         WHERE a.is_bot = FALSE AND a.partner_account_id IS NULL",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 /// Sign the **domain-separated** ConsumeInvite input (spec §8.5.1) over the
 /// canonical 32-byte token. Returns base64 of the signature.
 pub fn sign_invite_consume_b64(sk: &SigningKey, canonical_token: &[u8]) -> String {

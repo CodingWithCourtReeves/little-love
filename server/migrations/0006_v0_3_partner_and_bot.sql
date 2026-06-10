@@ -40,3 +40,47 @@ DROP INDEX room_members_one_per_account;
 -- couple-only room on the fly to preserve the v0.2 pair flow.
 ALTER TABLE invites
   ADD COLUMN room_id TEXT REFERENCES rooms(id) ON DELETE CASCADE;
+
+-- messages: switch from one-row-per-message to one-row-per-recipient
+-- (spec §6.2). The recipient column is initially nullable so we can
+-- backfill before flipping NOT NULL.
+ALTER TABLE messages
+  ADD COLUMN recipient_account_id BIGINT REFERENCES accounts(id) ON DELETE CASCADE;
+
+-- Backfill: for each existing v0.2 row, the recipient is the room member
+-- who isn't the sender. v0.2's room_members_one_per_account unique index
+-- guaranteed exactly one other member per room, so LIMIT 1 is unambiguous.
+UPDATE messages m
+SET recipient_account_id = (
+  SELECT rm.account_id
+  FROM room_members rm
+  WHERE rm.room_id = m.room_id
+    AND rm.account_id <> m.from_account_id
+  LIMIT 1
+)
+WHERE recipient_account_id IS NULL;
+
+ALTER TABLE messages
+  ALTER COLUMN recipient_account_id SET NOT NULL;
+
+-- v0.2 had PK on messages.id alone. In v0.3 the same logical message has
+-- N rows (one per recipient), so the PK becomes composite.
+ALTER TABLE messages
+  DROP CONSTRAINT messages_pkey,
+  ADD PRIMARY KEY (id, recipient_account_id);
+
+CREATE INDEX messages_room_recipient_idx
+  ON messages(room_id, recipient_account_id, id);
+
+-- Backfill partner_account_id from existing 2-human couple rooms.
+UPDATE accounts a
+SET partner_account_id = (
+  SELECT b.id
+  FROM room_members rm_a
+  JOIN room_members rm_b ON rm_b.room_id = rm_a.room_id AND rm_b.account_id <> rm_a.account_id
+  JOIN accounts b        ON b.id = rm_b.account_id
+  WHERE rm_a.account_id = a.id
+    AND b.is_bot = FALSE
+  LIMIT 1
+)
+WHERE a.is_bot = FALSE AND a.partner_account_id IS NULL;
