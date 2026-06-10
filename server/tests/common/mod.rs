@@ -108,6 +108,31 @@ pub async fn insert_account(store: &Store, username: &str, vk: &VerifyingKey) {
         .unwrap();
 }
 
+/// Seed a single human plus an owned bot familiar. Returns `(human_id, bot_id)`.
+pub async fn seed_human_plus_owned_bot(store: &Store) -> (i64, i64) {
+    let pool = store.pool();
+    let (human,): (i64,) = sqlx::query_as(
+        "INSERT INTO accounts (username, ed25519_pub, x25519_pub)
+         VALUES ('court', $1, $2) RETURNING id",
+    )
+    .bind(vec![10u8; 32])
+    .bind(vec![11u8; 32])
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let (bot,): (i64,) = sqlx::query_as(
+        "INSERT INTO accounts (username, ed25519_pub, x25519_pub, is_bot, owner_account_id)
+         VALUES ('court-garden', $1, $2, TRUE, $3) RETURNING id",
+    )
+    .bind(vec![30u8; 32])
+    .bind(vec![31u8; 32])
+    .bind(human)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    (human, bot)
+}
+
 /// Seed two humans with no partner link set. Returns `(a_id, b_id)`.
 pub async fn seed_two_humans(store: &Store) -> (i64, i64) {
     let pool = store.pool();

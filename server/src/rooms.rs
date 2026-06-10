@@ -257,46 +257,90 @@ pub async fn bot_owned_by(pool: &PgPool, bot_id: i64, human_id: i64) -> sqlx::Re
     Ok(owner == human_id || matches!(partner, Some(p) if p == owner))
 }
 
-/// Possible outcomes of `create_room_with_members`.
 #[derive(Debug, thiserror::Error)]
 pub enum CreateRoomError {
-    #[error("account {0} is already paired")]
-    AlreadyPaired(i64),
     #[error(transparent)]
     Db(#[from] sqlx::Error),
 }
 
-/// Transactional: create a new room and insert both members atomically.
-/// Returns the new ULID `room_id`. Legacy v0.2-style couple-only helper used
-/// by `handle_consume_invite` for invites that don't carry a parent room.
+/// Create a room with `host` as the initiating human and `bots` as the
+/// pre-joined familiar account_ids. The host's partner is NOT added; if
+/// they're in the room it's via a subsequent ConsumeInvite. Returns the
+/// ULID `room_id`. Caller validates bot ownership via `bot_owned_by`
+/// before calling — this function does not re-check.
 pub async fn create_room_with_members(
     pool: &PgPool,
-    inviter_account_id: i64,
-    consumer_account_id: i64,
+    host: i64,
+    bots: &[i64],
+    name: String,
 ) -> Result<String, CreateRoomError> {
     let room_id = Ulid::new().to_string();
     let mut tx = pool.begin().await?;
-
-    sqlx::query("INSERT INTO rooms (id) VALUES ($1)")
+    sqlx::query("INSERT INTO rooms (id, name) VALUES ($1, $2)")
         .bind(&room_id)
+        .bind(&name)
         .execute(&mut *tx)
         .await?;
-
-    for account_id in [inviter_account_id, consumer_account_id] {
-        let res = sqlx::query("INSERT INTO room_members (room_id, account_id) VALUES ($1, $2)")
-            .bind(&room_id)
-            .bind(account_id)
-            .execute(&mut *tx)
-            .await;
-        if let Err(sqlx::Error::Database(db)) = &res {
-            if db.code().as_deref() == Some("23505") {
-                tx.rollback().await?;
-                return Err(CreateRoomError::AlreadyPaired(account_id));
-            }
-        }
-        res?;
+    for account_id in std::iter::once(host).chain(bots.iter().copied()) {
+        sqlx::query(
+            "INSERT INTO room_members (room_id, account_id) VALUES ($1, $2)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(&room_id)
+        .bind(account_id)
+        .execute(&mut *tx)
+        .await?;
     }
-
     tx.commit().await?;
     Ok(room_id)
+}
+
+pub async fn rename_room(pool: &PgPool, room_id: &str, name: &str) -> sqlx::Result<()> {
+    sqlx::query("UPDATE rooms SET name = $2 WHERE id = $1")
+        .bind(room_id)
+        .bind(name)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LeaveOutcome {
+    pub room_deleted: bool,
+}
+
+/// Remove `account_id` from `room_id`. If the room has no humans left
+/// afterward, cascade-delete the room (and via ON DELETE CASCADE, its
+/// invites + messages). The WS handler resolves remaining usernames via
+/// `members_for_room` before issuing the `MemberLeft` broadcast.
+pub async fn leave_room(
+    pool: &PgPool,
+    room_id: &str,
+    account_id: i64,
+) -> sqlx::Result<LeaveOutcome> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM room_members WHERE room_id = $1 AND account_id = $2")
+        .bind(room_id)
+        .bind(account_id)
+        .execute(&mut *tx)
+        .await?;
+    let (humans,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM room_members m
+         JOIN accounts a ON a.id = m.account_id
+         WHERE m.room_id = $1 AND a.is_bot = FALSE",
+    )
+    .bind(room_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let room_deleted = if humans == 0 {
+        sqlx::query("DELETE FROM rooms WHERE id = $1")
+            .bind(room_id)
+            .execute(&mut *tx)
+            .await?;
+        true
+    } else {
+        false
+    };
+    tx.commit().await?;
+    Ok(LeaveOutcome { room_deleted })
 }
