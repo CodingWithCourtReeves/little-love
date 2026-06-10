@@ -31,7 +31,6 @@ set -euo pipefail
 
 PROJECT_NAME="littlelove"
 API_SERVICE_NAME="littlelove-api"
-PROJECT_ID="${RAILWAY_PROJECT_ID:-21c1e727-a06c-449d-81b4-8cdf194bd196}"
 ENVIRONMENT="production"
 
 # ---------- 1. Pre-flight ----------
@@ -49,14 +48,33 @@ fi
 echo "→ railway CLI: $(railway --version 2>&1 | head -1)"
 echo "→ authenticated as: $(railway whoami 2>&1 | head -1)"
 
-# ---------- 2. Link to project ----------
+# ---------- 2. Confirm an existing project link ----------
+#
+# Earlier versions of this script hardcoded a project ID from a one-off
+# MCP create_project response. That ID turned out to be stale (the MCP
+# layer reported a UUID that didn't actually land in this workspace).
+# Rely on the user's existing `railway link` instead — they'll run
+# `railway link` interactively once, then this script is repeatable.
 
-echo "→ linking to project $PROJECT_NAME ($PROJECT_ID), environment $ENVIRONMENT"
-if ! railway link --project "$PROJECT_ID" --environment "$ENVIRONMENT" 2>&1; then
-  echo "✗ link failed. Verify the project exists at railway.com." >&2
-  echo "  If not, create it: railway init --name $PROJECT_NAME" >&2
+LINKED_PROJECT_NAME="$(railway status --json 2>/dev/null \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("name",""))' \
+  2>/dev/null || true)"
+
+if [[ -z "$LINKED_PROJECT_NAME" ]]; then
+  echo "✗ no Railway project is linked in this directory." >&2
+  echo "  Run: railway link" >&2
+  echo "  Select workspace → littlelove → production, then re-run this script." >&2
   exit 1
 fi
+
+if [[ "$LINKED_PROJECT_NAME" != "$PROJECT_NAME" ]]; then
+  echo "⚠ linked project is \"$LINKED_PROJECT_NAME\", expected \"$PROJECT_NAME\"." >&2
+  echo "  If that's intentional, set PROJECT_NAME at the top of this script." >&2
+  echo "  Otherwise: railway link  (and pick littlelove)" >&2
+  exit 1
+fi
+
+echo "→ linked to project $LINKED_PROJECT_NAME"
 
 # ---------- 3. Postgres plugin ----------
 
