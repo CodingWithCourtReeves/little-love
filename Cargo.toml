@@ -1,5 +1,5 @@
 [workspace]
-members = ["server"]
+members = ["crypto", "server"]
 resolver = "2"
 
 [workspace.package]
@@ -21,3 +21,14 @@ tokio-tungstenite = "0.21"
 tracing     = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid        = { version = "1", features = ["v4", "serde"] }
+base64           = "0.22"
+ed25519-dalek    = "2"
+x25519-dalek     = { version = "2", features = ["static_secrets"] }
+hkdf             = "0.12"
+sha2             = "0.10"
+chacha20poly1305 = "0.10"
+rand             = "0.8"
+hex              = "0.4"
+qrcode           = "0.14"
+image            = { version = "0.25", default-features = false, features = ["png"] }
+littlelove-crypto = { path = "crypto" }
