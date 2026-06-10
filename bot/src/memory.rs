@@ -25,6 +25,14 @@ impl Role {
 }
 
 #[derive(Debug, Clone)]
+pub struct SummarySnapshot {
+    pub prev_events: Option<String>,
+    pub prev_character: Option<String>,
+    pub covers_up_to_turn_id: i64,
+    pub new_turns: Vec<TurnRecord>,
+}
+
+#[derive(Debug, Clone)]
 pub struct TurnRecord {
     pub id: i64,
     pub ts: i64,
@@ -169,6 +177,82 @@ impl Memory {
         let mut out: Vec<TurnRecord> = rows.collect::<rusqlite::Result<_>>()?;
         out.reverse();
         Ok(out)
+    }
+
+    pub fn summary(&self) -> Option<&Summary> {
+        self.summary.as_ref()
+    }
+
+    pub fn needs_summary(&self, threshold: usize) -> Result<bool> {
+        let latest = self.latest_turn_id()?;
+        let covers = self
+            .summary
+            .as_ref()
+            .map(|s| s.covers_up_to_turn_id)
+            .unwrap_or(0);
+        Ok((latest - covers) as usize > threshold)
+    }
+
+    pub fn snapshot_for_summary(&self) -> Result<SummarySnapshot> {
+        let covers = self
+            .summary
+            .as_ref()
+            .map(|s| s.covers_up_to_turn_id)
+            .unwrap_or(0);
+        let mut stmt = self.db.prepare(
+            "SELECT id, ts, role, content FROM turn WHERE id > ?1 ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![covers], |r| {
+            let role_s: String = r.get(2)?;
+            let role = match role_s.as_str() {
+                "user" => Role::User,
+                "assistant" => Role::Assistant,
+                _ => Role::User,
+            };
+            Ok(TurnRecord {
+                id: r.get(0)?,
+                ts: r.get(1)?,
+                role,
+                content: r.get(3)?,
+            })
+        })?;
+        let new_turns: Vec<TurnRecord> = rows.collect::<rusqlite::Result<_>>()?;
+        let latest = new_turns.last().map(|t| t.id).unwrap_or(covers);
+        Ok(SummarySnapshot {
+            prev_events: self.summary.as_ref().map(|s| s.events.clone()),
+            prev_character: self.summary.as_ref().map(|s| s.character.clone()),
+            covers_up_to_turn_id: latest,
+            new_turns,
+        })
+    }
+
+    pub fn commit_summary(
+        &mut self,
+        events: String,
+        character: String,
+        covers_up_to_turn_id: i64,
+    ) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        self.db.execute(
+            "INSERT INTO summary (id, events, character, covers_up_to_turn_id, updated_ts)
+             VALUES (1, ?1, ?2, ?3, ?4)
+             ON CONFLICT(id) DO UPDATE SET
+                events = excluded.events,
+                character = excluded.character,
+                covers_up_to_turn_id = excluded.covers_up_to_turn_id,
+                updated_ts = excluded.updated_ts",
+            rusqlite::params![events, character, covers_up_to_turn_id, now],
+        )?;
+        self.summary = Some(Summary {
+            events,
+            character,
+            covers_up_to_turn_id,
+            updated_ts: now,
+        });
+        Ok(())
     }
 }
 
@@ -318,6 +402,63 @@ mod tests {
         let dir = tempdir().unwrap();
         let m = Memory::open(dir.path(), "01TESTROOM").unwrap();
         assert_eq!(m.latest_turn_id().unwrap(), 0);
+    }
+
+    #[test]
+    fn needs_summary_false_on_empty_db() {
+        let dir = tempdir().unwrap();
+        let m = Memory::open(dir.path(), "01TESTROOM").unwrap();
+        assert!(!m.needs_summary(5).unwrap());
+    }
+
+    #[test]
+    fn needs_summary_true_after_threshold_exceeded() {
+        let dir = tempdir().unwrap();
+        let mut m = Memory::open(dir.path(), "01TESTROOM").unwrap();
+        for i in 0..6 {
+            m.record_turn(Role::User, &format!("u{i}")).unwrap();
+        }
+        assert!(m.needs_summary(5).unwrap());
+    }
+
+    #[test]
+    fn commit_summary_then_needs_summary_false_under_threshold() {
+        let dir = tempdir().unwrap();
+        let mut m = Memory::open(dir.path(), "01TESTROOM").unwrap();
+        for i in 0..6 {
+            m.record_turn(Role::User, &format!("u{i}")).unwrap();
+        }
+        let latest = m.latest_turn_id().unwrap();
+        m.commit_summary("events text".into(), "character text".into(), latest)
+            .unwrap();
+        assert!(!m.needs_summary(5).unwrap());
+        let s = m.summary().expect("summary loaded");
+        assert_eq!(s.events, "events text");
+        assert_eq!(s.character, "character text");
+        assert_eq!(s.covers_up_to_turn_id, latest);
+    }
+
+    #[test]
+    fn snapshot_for_summary_returns_only_new_turns() {
+        let dir = tempdir().unwrap();
+        let mut m = Memory::open(dir.path(), "01TESTROOM").unwrap();
+        for i in 0..3 {
+            m.record_turn(Role::User, &format!("u{i}")).unwrap();
+        }
+        m.commit_summary(
+            "prev events".into(),
+            "prev character".into(),
+            m.latest_turn_id().unwrap(),
+        )
+        .unwrap();
+        for i in 0..2 {
+            m.record_turn(Role::Assistant, &format!("a{i}")).unwrap();
+        }
+        let snap = m.snapshot_for_summary().unwrap();
+        assert_eq!(snap.new_turns.len(), 2);
+        assert_eq!(snap.prev_events.as_deref(), Some("prev events"));
+        assert_eq!(snap.prev_character.as_deref(), Some("prev character"));
+        assert_eq!(snap.covers_up_to_turn_id, m.latest_turn_id().unwrap());
     }
 
     #[test]
