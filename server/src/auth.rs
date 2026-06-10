@@ -88,7 +88,8 @@ fn verify_domain_separated(
     // malleability from curve25519's cofactor of 8. The dalek docs explicitly
     // warn that plain verify is "dangerous in identification protocols" —
     // exactly the use case here. See ed25519-dalek VerifyingKey docs.
-    vk.verify_strict(input, &sig).map_err(|_| AuthError::Mismatch)
+    vk.verify_strict(input, &sig)
+        .map_err(|_| AuthError::Mismatch)
 }
 
 /// Verify that `signature` is a valid Ed25519 sig over the domain-separated

@@ -12,8 +12,11 @@ use tracing::{info, warn};
 use crate::accounts::lookup_ed25519_pub;
 use crate::auth::{decode_b64, encode_b64, random_nonce, verify_signature};
 use crate::routing::Routing;
-use crate::store::{MessageRow, Store};
-use crate::wire::{AuthClientFrame, AuthServerFrame, ClientFrame, IdentifyPayload, ServerFrame};
+use crate::store::Store;
+use crate::wire::{
+    error_codes, AuthClientFrame, AuthServerFrame, IdentifyPayload, RoomClientFrame,
+    RoomServerFrame,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -113,8 +116,13 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     info!(%username, "client authenticated");
 
     let (mut sink, mut stream) = socket.split();
-    let (tx, mut rx) = mpsc::unbounded_channel::<ServerFrame>();
+    let (tx, mut rx) = mpsc::unbounded_channel::<RoomServerFrame>();
     state.routing.register(username.clone(), tx.clone()).await;
+
+    // Spec §8.2: server pushes the user's room list immediately after
+    // Authenticated. Until the rooms DB ops land, this is an empty list
+    // — sending the frame still confirms the post-auth contract is wired.
+    let _ = tx.send(RoomServerFrame::Rooms { rooms: Vec::new() });
 
     let outbound = tokio::spawn(async move {
         while let Some(frame) = rx.recv().await {
@@ -133,42 +141,40 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
 
     while let Some(Ok(msg)) = stream.next().await {
         if let Message::Text(text) = msg {
-            match serde_json::from_str::<ClientFrame>(&text) {
-                Ok(ClientFrame::Msg(mut payload)) => {
-                    // Authenticated identity overrides any client-supplied `from`.
-                    payload.from = username.clone();
-                    if let Some(store) = &state.store {
-                        if let Err(e) = store.insert(MessageRow::from(payload.clone())).await {
-                            warn!("store insert failed: {e}");
-                        }
-                    }
-                    let to = payload.to.clone();
-                    let delivered = state.routing.deliver(&to, ServerFrame::Msg(payload)).await;
-                    if !delivered {
-                        info!(%to, "recipient offline; stored only");
-                    }
+            match serde_json::from_str::<RoomClientFrame>(&text) {
+                Ok(RoomClientFrame::CreateInvite) => {
+                    // TODO(WT-B T5): generate_invite, persist, encode QR,
+                    // reply InviteCreated. For now, return a not-implemented
+                    // error so callers see a coherent frame.
+                    let _ = tx.send(RoomServerFrame::Error {
+                        code: "NotImplemented".into(),
+                        message: "CreateInvite handler pending".into(),
+                    });
                 }
-                Ok(ClientFrame::Hello(h)) => {
-                    if let Some(store) = &state.store {
-                        match store.messages_for(&username, h.since).await {
-                            Ok(rows) => {
-                                for row in rows {
-                                    let frame = ServerFrame::Msg(row.into_payload(true));
-                                    let _ = tx.send(frame);
-                                }
-                            }
-                            Err(e) => warn!("replay query failed: {e}"),
-                        }
-                    } else {
-                        info!("hello received but store disabled");
-                    }
+                Ok(RoomClientFrame::ConsumeInvite { .. }) => {
+                    let _ = tx.send(RoomServerFrame::Error {
+                        code: "NotImplemented".into(),
+                        message: "ConsumeInvite handler pending".into(),
+                    });
+                }
+                Ok(RoomClientFrame::Subscribe { .. }) => {
+                    let _ = tx.send(RoomServerFrame::Error {
+                        code: error_codes::UNKNOWN_ROOM.into(),
+                        message: "Subscribe handler pending".into(),
+                    });
+                }
+                Ok(RoomClientFrame::Send { .. }) => {
+                    let _ = tx.send(RoomServerFrame::Error {
+                        code: error_codes::UNKNOWN_ROOM.into(),
+                        message: "Send handler pending".into(),
+                    });
                 }
                 Err(e) => warn!("invalid frame from {username}: {e}"),
             }
         }
     }
 
-    state.routing.unregister(&username).await;
+    state.routing.unregister(&username, &tx).await;
     outbound.abort();
     info!(%username, "client disconnected");
 }

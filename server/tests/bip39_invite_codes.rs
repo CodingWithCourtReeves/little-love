@@ -32,7 +32,8 @@ struct Vector {
     code: String,
 }
 
-/// 8 deterministic test inputs exercising edge cases.
+/// 8 deterministic test inputs exercising edge cases (44-bit values).
+#[allow(clippy::unusual_byte_groupings)]
 const N44_VECTORS: [u64; 8] = [
     0,
     (1u64 << 44) - 1,
@@ -81,10 +82,9 @@ fn fixture_round_trips_against_implementation() {
         return;
     }
 
-    let on_disk: Vec<Vector> = serde_json::from_str(
-        &fs::read_to_string(&path).expect("read fixture"),
-    )
-    .expect("parse fixture");
+    let on_disk: Vec<Vector> =
+        serde_json::from_str(&fs::read_to_string(&path).expect("read fixture"))
+            .expect("parse fixture");
 
     assert_eq!(
         on_disk.len(),
