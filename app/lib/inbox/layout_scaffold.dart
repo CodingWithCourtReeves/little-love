@@ -42,8 +42,11 @@ class LayoutScaffold extends StatelessWidget {
         if (w >= railBreakpoint) {
           return Row(children: [rail, Expanded(child: detail)]);
         }
-        // Drawer branch lands in T6.
-        return detail;
+        return Scaffold(
+          appBar: AppBar(),
+          drawer: Drawer(child: drawer),
+          body: detail,
+        );
       },
     );
   }
