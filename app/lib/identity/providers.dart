@@ -11,7 +11,7 @@ class ServerEndpoint {
 
   Uri get wsConnect {
     final scheme = httpBase.scheme == 'https' ? 'wss' : 'ws';
-    return httpBase.replace(scheme: scheme, path: '/connect');
+    return httpBase.replace(scheme: scheme, path: '/ws');
   }
 }
 

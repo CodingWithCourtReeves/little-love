@@ -11,12 +11,12 @@ use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use futures::{SinkExt, StreamExt};
 use littlelove_api::{
     accounts::{create_account, get_account_by_username},
-    auth::{challenge_signing_input, invite_consume_signing_input},
     invites::preview_invite,
     routing::Routing,
     store::Store,
     ws::{ws_handler, AppState},
 };
+use littlelove_crypto::sig::{challenge_signing_input, invite_consume_signing_input};
 use tokio::net::TcpListener;
 use tokio_tungstenite::{
     connect_async, tungstenite::Message as WsMessage, MaybeTlsStream, WebSocketStream,

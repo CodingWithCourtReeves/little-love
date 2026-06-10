@@ -1,0 +1,24 @@
+[package]
+name        = "littlelove-crypto"
+version     = "0.1.0"
+edition     = { workspace = true }
+rust-version = { workspace = true }
+license     = { workspace = true }
+
+[dependencies]
+base64           = { workspace = true }
+ed25519-dalek    = { workspace = true }
+x25519-dalek     = { workspace = true }
+hkdf             = { workspace = true }
+sha2             = { workspace = true }
+chacha20poly1305 = { workspace = true }
+rand             = { workspace = true }
+thiserror        = { workspace = true }
+serde            = { workspace = true }
+serde_json       = { workspace = true }
+hex              = { workspace = true }
+
+[dev-dependencies]
+hex        = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }

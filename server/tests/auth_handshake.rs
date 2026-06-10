@@ -3,7 +3,7 @@ use std::time::Duration;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use ed25519_dalek::{Signer, SigningKey};
 use futures::{SinkExt, StreamExt};
-use littlelove_api::auth::challenge_signing_input;
+use littlelove_crypto::sig::challenge_signing_input;
 use serial_test::file_serial;
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
