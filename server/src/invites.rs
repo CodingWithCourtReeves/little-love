@@ -294,6 +294,77 @@ pub enum QrError {
     Render,
 }
 
+// =========================================================================
+// REST handler: POST /invites/{code}/preview (spec §8.1)
+// =========================================================================
+
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use serde::Serialize;
+
+use crate::accounts::lookup_full_account_by_id;
+use crate::ws::AppState;
+
+#[derive(Debug, Serialize)]
+pub struct InvitePreviewResponse {
+    pub inviter_username: String,
+    pub inviter_ed25519_pub: String,
+    pub inviter_x25519_pub: String,
+    pub expires_at: DateTime<Utc>,
+}
+
+/// Unauthenticated REST per spec §8.1. Kaitlyn may not have an account yet
+/// when she pastes the code into her signup flow; possession of the code
+/// is the only authorization.
+pub async fn preview_invite(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return (StatusCode::INTERNAL_SERVER_ERROR, "store unavailable").into_response(),
+    };
+
+    let canonical = match decode_code(&code) {
+        Ok(t) => t,
+        Err(_) => return (StatusCode::NOT_FOUND, "no such code").into_response(),
+    };
+    let token_hash = sha256(&canonical);
+
+    let invite = match lookup_invite(store.pool(), &token_hash).await {
+        Ok(Some(i)) => i,
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such code").into_response(),
+        Err(e) => {
+            tracing::warn!("lookup_invite failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+
+    match invite.state(Utc::now()) {
+        InviteState::Expired => return (StatusCode::GONE, "expired").into_response(),
+        InviteState::Consumed => return (StatusCode::GONE, "consumed").into_response(),
+        InviteState::Pending => {}
+    }
+
+    let inviter = match lookup_full_account_by_id(store, invite.inviter_id).await {
+        Ok(Some(a)) => a,
+        _ => return (StatusCode::NOT_FOUND, "no such code").into_response(),
+    };
+
+    Json(InvitePreviewResponse {
+        inviter_username: inviter.username,
+        inviter_ed25519_pub: B64.encode(&inviter.ed25519_pub),
+        inviter_x25519_pub: B64.encode(&inviter.x25519_pub),
+        expires_at: invite.expires_at,
+    })
+    .into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
