@@ -92,17 +92,15 @@ void main() {
     final conn = _FakeConn();
     final container = await _container(conn: conn, me: me);
 
-    container
-        .read(inboxStateProvider.notifier)
-        .setRooms([
-          Room(
-            roomId: 'room1',
-            peerUsername: 'kaitlyn',
-            peerEd25519PubBase64: base64.encode(peer.ed25519PublicKey),
-            peerX25519PubBase64: base64.encode(peer.x25519PublicKey),
-            createdAt: DateTime.utc(2026, 6, 10),
-          ),
-        ]);
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        peerUsername: 'kaitlyn',
+        peerEd25519PubBase64: base64.encode(peer.ed25519PublicKey),
+        peerX25519PubBase64: base64.encode(peer.x25519PublicKey),
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
     container.read(roomMessageRouterProvider);
 
     // Encrypt as the peer would (their priv + my pub → same shared secret).
@@ -136,17 +134,15 @@ void main() {
     final conn = _FakeConn();
     final container = await _container(conn: conn, me: me);
 
-    container
-        .read(inboxStateProvider.notifier)
-        .setRooms([
-          Room(
-            roomId: 'room1',
-            peerUsername: 'kaitlyn',
-            peerEd25519PubBase64: base64.encode(peer.ed25519PublicKey),
-            peerX25519PubBase64: base64.encode(peer.x25519PublicKey),
-            createdAt: DateTime.utc(2026, 6, 10),
-          ),
-        ]);
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        peerUsername: 'kaitlyn',
+        peerEd25519PubBase64: base64.encode(peer.ed25519PublicKey),
+        peerX25519PubBase64: base64.encode(peer.x25519PublicKey),
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
     container.read(roomMessageRouterProvider);
 
     conn.emit(

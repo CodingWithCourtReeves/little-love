@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/identity/keypair.dart';
 import 'package:littlelove/pairing/pairing_transport.dart';
-import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/live_connection.dart';
 import 'package:littlelove/wire/live_pairing_transport.dart';
 
@@ -23,7 +22,9 @@ class _FakeSink implements StreamSink<dynamic> {
   Future<void> get done async {}
 }
 
-Future<({LiveConnection conn, StreamController<dynamic> server, _FakeSink sink})>
+Future<
+  ({LiveConnection conn, StreamController<dynamic> server, _FakeSink sink})
+>
 _harness() async {
   final seed = Uint8List.fromList(List<int>.generate(16, (i) => i + 1));
   final identity = await deriveIdentity(seed);
@@ -50,27 +51,30 @@ _harness() async {
 }
 
 void main() {
-  test('createInvite writes CreateInvite, returns next InviteCreated', () async {
-    final h = await _harness();
-    addTearDown(h.conn.close);
-    final transport = LivePairingTransport(h.conn);
+  test(
+    'createInvite writes CreateInvite, returns next InviteCreated',
+    () async {
+      final h = await _harness();
+      addTearDown(h.conn.close);
+      final transport = LivePairingTransport(h.conn);
 
-    final fut = transport.createInvite();
-    await Future<void>.delayed(Duration.zero);
-    expect(jsonDecode(h.sink.writes.last)['kind'], 'CreateInvite');
+      final fut = transport.createInvite();
+      await Future<void>.delayed(Duration.zero);
+      expect(jsonDecode(h.sink.writes.last)['kind'], 'CreateInvite');
 
-    h.server.add(
-      jsonEncode({
-        'kind': 'InviteCreated',
-        'code': 'amber-fern-locket-tide',
-        'qr_png_base64': 'AAAA',
-        'expires_at': '2026-06-09T20:32:00Z',
-      }),
-    );
-    final created = await fut.timeout(const Duration(seconds: 2));
-    expect(created.code, 'amber-fern-locket-tide');
-    await h.server.close();
-  });
+      h.server.add(
+        jsonEncode({
+          'kind': 'InviteCreated',
+          'code': 'amber-fern-locket-tide',
+          'qr_png_base64': 'AAAA',
+          'expires_at': '2026-06-09T20:32:00Z',
+        }),
+      );
+      final created = await fut.timeout(const Duration(seconds: 2));
+      expect(created.code, 'amber-fern-locket-tide');
+      await h.server.close();
+    },
+  );
 
   test('consumeInvite returns next InviteConsumed', () async {
     final h = await _harness();
@@ -108,11 +112,7 @@ void main() {
     final fut = transport.createInvite();
     await Future<void>.delayed(Duration.zero);
     h.server.add(
-      jsonEncode({
-        'kind': 'Error',
-        'code': 'AlreadyPaired',
-        'message': 'no',
-      }),
+      jsonEncode({'kind': 'Error', 'code': 'AlreadyPaired', 'message': 'no'}),
     );
     await expectLater(fut, throwsA(isA<PairingTransportException>()));
     await h.server.close();

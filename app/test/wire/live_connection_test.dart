@@ -24,7 +24,9 @@ class _FakeSink implements StreamSink<dynamic> {
   Future<void> get done async {}
 }
 
-Future<({LiveConnection conn, StreamController<dynamic> server, _FakeSink sink})>
+Future<
+  ({LiveConnection conn, StreamController<dynamic> server, _FakeSink sink})
+>
 _openConn() async {
   final seed = Uint8List.fromList(List<int>.generate(16, (i) => i + 1));
   final identity = await deriveIdentity(seed);

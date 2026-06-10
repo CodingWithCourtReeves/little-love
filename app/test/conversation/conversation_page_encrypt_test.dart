@@ -58,17 +58,15 @@ void main() {
       await container.read(currentIdentityProvider.future);
       await container.read(liveConnectionProvider.future);
 
-      container
-          .read(inboxStateProvider.notifier)
-          .setRooms([
-            Room(
-              roomId: 'room1',
-              peerUsername: 'kaitlyn',
-              peerEd25519PubBase64: base64.encode(peer.ed25519PublicKey),
-              peerX25519PubBase64: base64.encode(peer.x25519PublicKey),
-              createdAt: DateTime.utc(2026, 6, 10),
-            ),
-          ]);
+      container.read(inboxStateProvider.notifier).setRooms([
+        Room(
+          roomId: 'room1',
+          peerUsername: 'kaitlyn',
+          peerEd25519PubBase64: base64.encode(peer.ed25519PublicKey),
+          peerX25519PubBase64: base64.encode(peer.x25519PublicKey),
+          createdAt: DateTime.utc(2026, 6, 10),
+        ),
+      ]);
       container.read(inboxStateProvider.notifier).select('room1');
 
       await tester.binding.setSurfaceSize(const Size(1200, 900));
@@ -88,9 +86,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pumpAndSettle();
 
-      final sendFrames = conn.sent
-          .where((m) => m['kind'] == 'Send')
-          .toList();
+      final sendFrames = conn.sent.where((m) => m['kind'] == 'Send').toList();
       expect(sendFrames, hasLength(1));
       final body = sendFrames.single['body'] as String;
       expect(

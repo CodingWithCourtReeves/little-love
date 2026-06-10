@@ -76,10 +76,9 @@ abstract class LiveConnection {
 class _RealLiveConnection implements LiveConnection {
   _RealLiveConnection({
     required Stream<dynamic> rawStream,
-    required StreamSink<dynamic> sink,
-    WebSocketChannel? channel,
-  }) : _sink = sink,
-       _channel = channel {
+    required this._sink,
+    this._channel,
+  }) {
     _sub = rawStream.listen(_onMessage, onDone: _onDone, onError: _onError);
   }
 
