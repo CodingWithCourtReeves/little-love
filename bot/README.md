@@ -78,7 +78,10 @@ All flags can be set via env var. See `littlelove-bot run --help` for the full l
 | `--model` | `LITTLELOVE_BOT_MODEL` | `local-model` | Exact model ID your LLM server reports |
 | `--temperature` | `LITTLELOVE_BOT_TEMPERATURE` | `0.8` | Persona warmth |
 | `--max-tokens` | `LITTLELOVE_BOT_MAX_TOKENS` | `512` | Reply length cap |
-| `--history` | `LITTLELOVE_BOT_HISTORY` | `20` | How many past turns to send to the LLM |
+| `--history` | `LITTLELOVE_BOT_HISTORY` | `20` | How many past raw turns to inject into the prompt |
+| `--memory-dir` | `LITTLELOVE_BOT_MEMORY_DIR` | OS config dir | Per-room SQLite + `facts.md` location (see Memory) |
+| `--summary-every` | `LITTLELOVE_BOT_SUMMARY_EVERY` | `20` | Turn-count threshold for background summary refresh |
+| `--max-context-chars` | `LITTLELOVE_BOT_MAX_CONTEXT_CHARS` | `28000` | Char budget for assembled prompt + history |
 | `--character-card` | — | — | CCv2/v3 PNG (mutually exclusive with `--system-prompt-file`) |
 
 ## Where the bot's identity lives
@@ -97,11 +100,80 @@ To see the bot's pubkey fingerprints without exposing secrets:
 ./target/release/littlelove-bot show-identity
 ```
 
-## Known limitations (v0.2)
+## Memory
+
+The bot stores per-room state on local disk:
+
+```
+<memory-dir>/
+  identity.json
+  rooms/<room_id>/
+    memory.sqlite      # turn log + summary (SQLite, WAL)
+    facts.md           # hand-edited notes about your partner (you write, the bot reads)
+```
+
+`<memory-dir>` defaults to the same OS-appropriate location as `identity.json`:
+
+- macOS: `~/Library/Application Support/dev.littlelove.littlelove-bot/`
+- Linux: `~/.local/share/dev.littlelove.littlelove-bot/`
+- Windows: `%APPDATA%\dev.littlelove\littlelove-bot\`
+
+Override with `--memory-dir <path>` or `LITTLELOVE_BOT_MEMORY_DIR`.
+
+### Knobs
+
+- `--summary-every <N>` (default `20`) — turn-count threshold for the background summary refresh.
+- `--max-context-chars <N>` (default `28000`) — char budget for the assembled system prompt + history.
+- `--history <N>` (default `20`) — max recent raw turns injected into the prompt.
+
+### Editing facts.md
+
+`facts.md` is yours — the bot reads it on every reply but never writes to it. Open it in any text editor and add what you want the bot to know. Examples:
+
+```markdown
+# About alice
+- Allergic to cilantro.
+- Lives in Lisbon, originally from Calgary.
+- Has two cats: Mittens (calico) and Bandit (tuxedo).
+
+# Tone
+- Likes dry humor, hates apologetic pre-ambles.
+```
+
+### Deleting memory
+
+For v0.3 there is no `forget` subcommand. To wipe a single conversation:
+
+```bash
+sqlite3 ~/Library/Application\ Support/dev.littlelove.littlelove-bot/rooms/<room_id>/memory.sqlite "DELETE FROM turn; DELETE FROM summary;"
+```
+
+Or delete the room directory entirely; the bot recreates it on next message.
+
+### Backup / machine migration
+
+The memory directory is just files — `rsync` or copy it. **Bring `identity.json` along** or you'll lose pairing with the LittleLove server.
+
+### Inspecting state
+
+```bash
+littlelove-bot doctor
+```
+
+Reports schema version, turn count, summary status, and `facts.md` size for each room. Read-only.
+
+### Schema upgrades
+
+`memory.sqlite` carries a `PRAGMA user_version`. On startup, a newer bot copies `memory.sqlite` to `memory.sqlite.bak-v<old>` before applying schema migrations in a transaction. Migrations are additive — no renames, no drops.
+
+If you downgrade the bot, it will refuse to open a newer database and tell you what to do.
+
+## Known limitations (v0.3)
 
 - **No auto-reconnect.** If the WSS connection drops (network blip, ngrok timeout, server restart), the bot exits. Wrap it in a shell loop or a systemd/launchd service if you want it persistent.
-- **No long-term memory.** The bot only sees the last `--history` messages. Anything older is forgotten. (This is on the v0.3 roadmap.)
 - **One room only.** The bot pairs into exactly one room. Re-running `pair` with `--force` replaces its identity.
+- **No semantic recall yet.** Memory is a turn log + a rolling LLM-written summary + a hand-edited `facts.md`. Vector RAG and automatic fact extraction are v0.4+.
+- **No `forget` subcommand.** Edit `facts.md` or use `sqlite3` (see above) to scrub data manually.
 - **Manual setup.** The whole flow assumes you're comfortable in a terminal. A GUI wrapper is planned — see [issue tracker](https://github.com/CodingWithCourtReeves/little-love/issues) for the discussion.
 
 ## Troubleshooting
