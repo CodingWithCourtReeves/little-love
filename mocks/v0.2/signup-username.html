@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove — Pick a name</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-canvas:#F4EBEC;--bg-surface:#EBDFE2;--bg-surface-alt:#E2D3D8;
+    --text-primary:#2A1F2A;--text-muted:#7C6C78;
+    --accent-user:#A04A6A;--accent-familiar:#4F7A5E;
+    --border-soft:#D9C7CD;--rule-strong:#4F7A5E;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg-canvas);color:var(--text-primary);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:48px 24px}
+  .topnav{position:fixed;top:24px;left:32px;right:32px;display:flex;align-items:center}
+  .back{font-size:13px;color:var(--text-muted);text-decoration:none;display:inline-flex;align-items:center;gap:8px;letter-spacing:-.005em}
+  .back:hover{color:var(--text-primary)}
+  .crumb{margin-left:auto;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-muted)}
+  .crumb b{color:var(--accent-user);font-weight:500}
+  .stage{width:100%;max-width:520px;position:relative}
+  .stepmark{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em;color:var(--accent-familiar);margin-bottom:24px;display:flex;align-items:center;gap:10px}
+  .stepmark .bar{width:24px;height:1px;background:var(--rule-strong)}
+  h1{font-family:'Inter Tight',serif;font-weight:500;font-size:38px;line-height:1.1;letter-spacing:-.025em;margin:0 0 14px;max-width:18ch}
+  h1 em{font-style:italic;color:var(--accent-user);font-weight:500}
+  .sub{font-size:14px;line-height:1.6;color:var(--text-muted);max-width:42ch;margin:0 0 48px}
+  .field{position:relative;margin-bottom:8px}
+  .at{
+    position:absolute;left:0;top:50%;transform:translateY(-50%);
+    font-family:'Inter Tight',serif;font-size:32px;color:var(--text-muted);
+    font-weight:400;letter-spacing:-.02em;pointer-events:none;
+  }
+  input{
+    font:inherit;font-family:'Inter Tight',serif;font-size:32px;font-weight:500;
+    color:var(--text-primary);letter-spacing:-.02em;
+    width:100%;background:transparent;border:0;outline:0;
+    padding:18px 0 18px 28px;
+    border-bottom:1px solid var(--border-soft);
+    transition:border-color 200ms ease;
+  }
+  input:focus{border-bottom-color:var(--accent-familiar)}
+  input::placeholder{color:var(--border-soft)}
+  .hint{font-size:12px;color:var(--text-muted);letter-spacing:.01em;margin:14px 0 0;font-family:'JetBrains Mono',monospace}
+  .hint b{color:var(--text-primary);font-weight:500}
+  .actions{margin-top:56px;display:flex;align-items:center;gap:20px}
+  .btn-primary{
+    background:var(--text-primary);color:#F4EBEC;font:inherit;
+    padding:15px 22px;border:0;border-radius:2px;font-size:15px;font-weight:500;
+    cursor:pointer;min-height:52px;letter-spacing:-.005em;display:inline-flex;align-items:center;gap:12px;
+  }
+  .btn-primary[disabled]{opacity:.35;cursor:not-allowed}
+  .btn-primary:not([disabled]):hover{background:#3A2D3A}
+  .actions .note{font-size:12px;color:var(--text-muted);max-width:24ch;line-height:1.5}
+</style>
+</head>
+<body>
+  <nav class="topnav">
+    <a href="welcome.html" class="back">← Back</a>
+    <span class="crumb">Step <b>01</b> · 02 · 03</span>
+  </nav>
+  <div class="stage">
+    <div class="stepmark"><span class="bar"></span>Choose how your partner finds you</div>
+    <h1>Pick a username your partner will <em>recognize</em>.</h1>
+    <p class="sub">Lowercase letters, numbers, or underscores. Three to twenty characters. You can't change this later, so pick something they'd write on an envelope.</p>
+    <div class="field">
+      <span class="at">@</span>
+      <input type="text" placeholder="court" value="court" autocomplete="off" spellcheck="false" />
+    </div>
+    <p class="hint">Available · 3–20 chars · <b>a–z 0–9 _</b></p>
+    <div class="actions">
+      <button class="btn-primary">Continue <span style="font-family:'Inter Tight';font-size:18px">→</span></button>
+      <span class="note">Next we'll show you the only twelve words that can restore this account.</span>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove — Inbox</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-canvas:#F4EBEC;--bg-surface:#EBDFE2;--bg-surface-alt:#E2D3D8;
+    --text-primary:#2A1F2A;--text-muted:#7C6C78;
+    --accent-user:#A04A6A;--accent-partner:#9C7E94;--accent-familiar:#4F7A5E;
+    --border-soft:#D9C7CD;--rule-strong:#4F7A5E;
+    --bubble-user-bg:#E8C8D2;--bubble-user-text:#3A1424;--bubble-partner-bg:#FFFAFB;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg-canvas);color:var(--text-primary);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .app{display:grid;grid-template-columns:240px 1fr;min-height:100vh;height:100vh;overflow:hidden}
+  /* SIDEBAR */
+  .sidebar{
+    background:var(--bg-surface);position:relative;
+    display:flex;flex-direction:column;border-right:1px solid var(--border-soft);
+  }
+  .sidebar::after{
+    content:"";position:absolute;top:24px;bottom:24px;right:-1px;width:1px;
+    background:linear-gradient(to bottom, transparent, var(--rule-strong) 20%, var(--rule-strong) 80%, transparent);
+    opacity:.35;
+  }
+  .brand{display:flex;align-items:center;gap:10px;padding:22px 20px 20px;border-bottom:1px solid var(--border-soft)}
+  .brand .dot{width:7px;height:7px;background:var(--accent-user);border-radius:50%}
+  .brand .name{font-family:'Inter Tight';font-weight:500;font-size:14px;letter-spacing:-.005em}
+  .brand .meta{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.12em}
+  .section{padding:24px 20px 6px}
+  .section .h{
+    font-family:'JetBrains Mono',monospace;font-size:10px;
+    letter-spacing:.22em;color:var(--text-muted);
+    display:flex;align-items:center;gap:8px;margin-bottom:6px;
+  }
+  .section .h .num{color:var(--accent-familiar)}
+  .section .h .line{flex:1;height:1px;background:var(--border-soft)}
+  .row{
+    position:relative;display:grid;grid-template-columns:28px 1fr auto;align-items:center;gap:10px;
+    padding:10px 12px 10px 16px;margin:0 4px;border-radius:2px;cursor:pointer;min-height:48px;
+    transition:background 150ms ease;
+  }
+  .row:hover{background:var(--bg-surface-alt)}
+  .row.selected{background:var(--bg-surface-alt)}
+  .row.selected::before{
+    content:"";position:absolute;left:-4px;top:8px;bottom:8px;width:2px;
+    background:var(--rule-strong);border-radius:2px;
+  }
+  .row .av{
+    width:28px;height:28px;border-radius:50%;
+    background:var(--accent-partner);color:#FFFAFB;
+    display:inline-flex;align-items:center;justify-content:center;
+    font-family:'Inter Tight';font-weight:500;font-size:12px;
+  }
+  .row .name{font-family:'Inter Tight';font-weight:500;font-size:14px;letter-spacing:-.005em}
+  .row.selected .name{font-weight:600}
+  .row .sub{display:block;font-family:'Inter',sans-serif;font-weight:400;font-size:11.5px;color:var(--text-muted);letter-spacing:0;margin-top:1px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px}
+  .row .when{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);align-self:start;padding-top:2px}
+  .row.unread .when{color:var(--accent-user)}
+  .row.unread::after{
+    content:"";width:6px;height:6px;border-radius:50%;background:var(--accent-user);
+    position:absolute;right:14px;bottom:14px;
+  }
+  .footer{
+    margin-top:auto;padding:14px 18px;border-top:1px solid var(--border-soft);
+    display:flex;align-items:center;gap:12px;
+  }
+  .gear{
+    width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;
+    border-radius:2px;background:transparent;border:0;cursor:pointer;color:var(--text-muted);
+  }
+  .gear:hover{background:var(--bg-surface-alt);color:var(--text-primary)}
+  .handle{font-size:13px;font-weight:500}
+  .handle .at{color:var(--text-muted);font-weight:400}
+
+  /* DETAIL */
+  .detail{display:flex;flex-direction:column;height:100vh;overflow:hidden;background:var(--bg-canvas)}
+  .topbar{
+    background:var(--bg-surface);border-bottom:1px solid var(--border-soft);
+    padding:14px 28px;display:flex;align-items:center;gap:14px;min-height:64px;
+  }
+  .topbar .av{
+    width:36px;height:36px;border-radius:50%;
+    background:var(--accent-partner);color:#FFFAFB;
+    display:inline-flex;align-items:center;justify-content:center;
+    font-family:'Inter Tight';font-weight:500;font-size:15px;
+  }
+  .topbar .who{display:flex;flex-direction:column}
+  .topbar .who .n{font-family:'Inter Tight';font-weight:500;font-size:15px;letter-spacing:-.005em}
+  .topbar .who .s{font-size:11px;color:var(--accent-familiar);display:flex;align-items:center;gap:6px;margin-top:2px;font-family:'JetBrains Mono',monospace;letter-spacing:.05em}
+  .topbar .who .s::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent-familiar)}
+  .topbar .seal{margin-left:auto;display:flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.18em}
+  .topbar .seal .lock{width:14px;height:14px;color:var(--accent-familiar)}
+
+  .messages{flex:1;overflow:auto;padding:32px 32px 12px;display:flex;flex-direction:column;gap:8px}
+  .day{display:flex;align-items:center;gap:12px;margin:18px 0 12px}
+  .day .line{flex:1;height:1px;background:var(--border-soft)}
+  .day .label{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.18em}
+  .gap{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);text-align:center;margin:14px 0 6px;letter-spacing:.06em}
+  .bubble{max-width:520px;padding:10px 14px;border-radius:14px;font-size:15px;line-height:1.5;letter-spacing:-.005em;position:relative}
+  .b-mine{align-self:flex-end;background:var(--bubble-user-bg);color:var(--bubble-user-text);border:1px solid #DCB5C2;border-bottom-right-radius:4px}
+  .b-theirs{align-self:flex-start;background:var(--bubble-partner-bg);color:var(--text-primary);border:1px solid var(--border-soft);border-bottom-left-radius:4px}
+  .b-emoji{font-size:44px;line-height:1.1;padding:4px 12px;border:0;background:transparent}
+  .sigline{align-self:center;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--text-muted);letter-spacing:.18em;margin:6px 0 0;opacity:.7}
+
+  /* COMPOSER */
+  .composer{
+    background:var(--bg-surface);padding:14px 24px 20px;border-top:1px solid var(--border-soft);
+  }
+  .composer .well{
+    display:grid;grid-template-columns:auto 1fr auto;align-items:end;gap:12px;
+    background:var(--bg-surface-alt);border:1px solid transparent;border-radius:14px;padding:8px 8px 8px 14px;
+    transition:border-color 180ms ease;
+  }
+  .composer .well:focus-within{border-color:var(--accent-familiar)}
+  .composer textarea{
+    font:inherit;font-family:'Inter Tight';font-size:15px;font-weight:500;
+    background:transparent;border:0;outline:0;resize:none;color:var(--text-primary);
+    width:100%;padding:10px 0;letter-spacing:-.005em;line-height:1.5;
+  }
+  .composer textarea::placeholder{color:var(--text-muted)}
+  .composer .ico{
+    width:44px;height:44px;border-radius:8px;border:0;background:transparent;
+    color:var(--text-muted);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;
+  }
+  .composer .ico:hover{color:var(--text-primary);background:rgba(42,31,42,.04)}
+  .composer .send{
+    width:44px;height:44px;border-radius:8px;border:0;
+    background:var(--accent-user);color:#FFFAFB;cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;
+    transition:background 150ms ease;
+  }
+  .composer .send:hover{background:#8A3E5A}
+  .composer .meta{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:6px 6px 0;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.06em;
+  }
+  .composer .meta .kbd{display:inline-flex;gap:4px;align-items:center}
+  .composer .meta .kbd b{font-family:'Inter Tight';font-weight:500;background:var(--bg-canvas);border:1px solid var(--border-soft);border-radius:3px;padding:1px 6px;color:var(--text-primary)}
+</style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="dot"></span>
+        <span class="name">LittleLove</span>
+        <span class="meta">v0.2</span>
+      </div>
+      <div class="section">
+        <div class="h"><span class="num">01</span><span>COUPLES</span><span class="line"></span></div>
+        <div class="row selected">
+          <div class="av">K</div>
+          <div>
+            <div class="name">Kaitlyn</div>
+            <div class="sub">I'll be home by seven, leftover…</div>
+          </div>
+          <div class="when">7:02p</div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="h"><span class="num">02</span><span>FAMILIARS</span><span class="line"></span></div>
+        <div class="row" style="opacity:.55;cursor:default">
+          <div class="av" style="background:var(--accent-familiar)">·</div>
+          <div>
+            <div class="name" style="font-weight:400">No familiars yet</div>
+            <div class="sub">Add one in Settings →</div>
+          </div>
+          <div class="when"></div>
+        </div>
+      </div>
+      <div class="footer">
+        <button class="gear" title="Settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
+        <span class="handle"><span class="at">@</span>court</span>
+      </div>
+    </aside>
+
+    <main class="detail">
+      <div class="topbar">
+        <div class="av">K</div>
+        <div class="who">
+          <div class="n">Kaitlyn</div>
+          <div class="s">paired · keys exchanged</div>
+        </div>
+        <div class="seal">
+          <svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></svg>
+          <span>END-TO-END · ONLY YOU TWO</span>
+        </div>
+      </div>
+
+      <div class="messages">
+        <div class="day"><span class="line"></span><span class="label">YESTERDAY</span><span class="line"></span></div>
+        <div class="bubble b-theirs">don't forget we said we'd actually cook tonight 🥬</div>
+        <div class="bubble b-mine">I bought the leeks. consider it cooked.</div>
+        <div class="bubble b-theirs">that is not how cooking works</div>
+
+        <div class="day"><span class="line"></span><span class="label">TODAY</span><span class="line"></span></div>
+        <div class="bubble b-theirs">just landed. trains are a mess.</div>
+        <div class="bubble b-mine">how mess-y are we talking</div>
+        <div class="bubble b-theirs">like an hour-and-a-half mess-y</div>
+        <div class="bubble b-mine">ok I'll feed the cats. take your time ♥</div>
+        <div class="gap">— 6:47 PM —</div>
+        <div class="bubble b-theirs">I'll be home by seven, leftover stir-fry sounds amazing actually</div>
+        <div class="bubble b-emoji b-mine">☺️</div>
+        <div class="sigline">· · · ·</div>
+      </div>
+
+      <div class="composer">
+        <div class="well">
+          <button class="ico" title="Emoji">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+          </button>
+          <textarea placeholder="Message Kaitlyn" rows="1">drive safe</textarea>
+          <button class="send" title="Send">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+          </button>
+        </div>
+        <div class="meta">
+          <span>encrypted on this device before sending</span>
+          <span class="kbd"><b>⌘</b><b>↵</b> to send</span>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

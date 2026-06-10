@@ -25,12 +25,13 @@ class _SignupScreenState extends State<SignupScreen> {
   void _create() {
     final seed = generateSeed();
     final phrase = seedToPhrase(seed);
-    final username = _usernameCtl.text;
     setState(() {
       _phrase = phrase;
-      _username = username;
+      _username = _usernameCtl.text;
     });
-    widget.onPhraseReady(username, phrase);
+    // Do not fire onPhraseReady yet — the user must SEE the phrase before
+    // we advance to confirmation (spec §3.1 step 6). The "I've saved these
+    // words" button in _step2 fires it.
   }
 
   @override
@@ -91,6 +92,12 @@ class _SignupScreenState extends State<SignupScreen> {
             padding: const EdgeInsets.all(4),
             child: Text('${i + 1}. ${words[i]}'),
           ),
+        ),
+        const SizedBox(height: 24),
+        FilledButton(
+          key: const Key('phrase-saved'),
+          onPressed: () => widget.onPhraseReady(_username!, phrase),
+          child: const Text("I've saved these words"),
         ),
       ],
     );

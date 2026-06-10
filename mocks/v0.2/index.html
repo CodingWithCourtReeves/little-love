@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove v0.2 — UI mocks</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-canvas:#F4EBEC;--bg-surface:#EBDFE2;--bg-surface-alt:#E2D3D8;
+    --text-primary:#2A1F2A;--text-muted:#7C6C78;
+    --accent-user:#A04A6A;--accent-familiar:#4F7A5E;
+    --border-soft:#D9C7CD;--rule-strong:#4F7A5E;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg-canvas);color:var(--text-primary);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:880px;margin:0 auto;padding:72px 32px 96px}
+  .topline{display:flex;align-items:baseline;gap:12px;margin-bottom:48px}
+  .topline .dot{width:8px;height:8px;background:var(--accent-user);border-radius:50%;display:inline-block;transform:translateY(-1px)}
+  .topline .name{font-family:'Inter Tight';font-weight:500;font-size:15px;letter-spacing:-.005em}
+  .topline .meta{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.18em;color:var(--text-muted)}
+  h1{font-family:'Inter Tight';font-weight:500;font-size:44px;line-height:1.08;letter-spacing:-.025em;margin:0 0 14px;max-width:18ch}
+  h1 em{font-style:italic;color:var(--accent-user)}
+  .lede{font-size:15px;color:var(--text-muted);line-height:1.6;max-width:56ch;margin:0 0 64px}
+  .group{margin-bottom:56px}
+  .group .ghdr{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.22em;color:var(--accent-familiar);display:flex;align-items:center;gap:12px;margin-bottom:18px}
+  .group .ghdr .bar{flex:1;height:1px;background:var(--border-soft)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1px;background:var(--border-soft);border:1px solid var(--border-soft)}
+  .card{
+    background:var(--bg-canvas);padding:24px 22px 22px;
+    display:flex;flex-direction:column;gap:8px;
+    text-decoration:none;color:inherit;
+    transition:background 150ms ease;
+    position:relative;
+  }
+  .card:hover{background:var(--bg-surface)}
+  .card .num{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.18em;color:var(--text-muted)}
+  .card .ttl{font-family:'Inter Tight';font-weight:500;font-size:18px;letter-spacing:-.015em;line-height:1.2}
+  .card .d{font-size:13px;color:var(--text-muted);line-height:1.5;margin-top:2px}
+  .card .arrow{position:absolute;top:24px;right:22px;font-family:'Inter Tight';font-size:18px;color:var(--text-muted);transition:transform 150ms ease, color 150ms ease}
+  .card:hover .arrow{color:var(--accent-user);transform:translateX(2px)}
+  .footer{margin-top:80px;font-size:12px;color:var(--text-muted);line-height:1.6;max-width:50ch;border-top:1px solid var(--border-soft);padding-top:24px}
+  .footer .swatch{display:inline-flex;gap:6px;margin-top:8px}
+  .footer .sw{width:14px;height:14px;border-radius:50%;border:1px solid var(--border-soft)}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="topline">
+      <span class="dot"></span>
+      <span class="name">LittleLove</span>
+      <span class="meta">v0.2 UI MOCKS · 2026-06-09</span>
+    </header>
+    <h1>Mockups for the <em>warm, lived-in</em> rebuild.</h1>
+    <p class="lede">Eight standalone HTML files. Open one, hold it next to the running app, and see what the screen <em>wants</em> to be. Companion plan + Dart patches live in <code style="font-family:'JetBrains Mono',monospace">docs/superpowers/plans/2026-06-09-v0.2-WT-E-ui-polish-proposals.md</code>.</p>
+
+    <section class="group">
+      <div class="ghdr"><span>ONBOARDING — THE FIRST IMPRESSION</span><span class="bar"></span></div>
+      <div class="grid">
+        <a class="card" href="welcome.html">
+          <span class="num">01 / 08</span>
+          <span class="ttl">welcome.html</span>
+          <span class="d">The choice screen. Editorial typography, one decisive primary action, the brand sentence as footnote.</span>
+          <span class="arrow">→</span>
+        </a>
+        <a class="card" href="signup-username.html">
+          <span class="num">02 / 08</span>
+          <span class="ttl">signup-username.html</span>
+          <span class="d">Username step. The "@" becomes part of the typography. Step progress reads like a footer in a book.</span>
+          <span class="arrow">→</span>
+        </a>
+        <a class="card" href="signup-phrase.html">
+          <span class="num">03 / 08</span>
+          <span class="ttl">signup-phrase.html</span>
+          <span class="d">The 12-word phrase as a printed page. Numbered, generous, dotted baselines. Words 3/7/11 ticked sage.</span>
+          <span class="arrow">→</span>
+        </a>
+        <a class="card" href="confirm-phrase.html">
+          <span class="num">04 / 08</span>
+          <span class="ttl">confirm-phrase.html</span>
+          <span class="d">Type back words 3, 7, 11. Underline-only inputs at display size. Wrong answer doesn't shout.</span>
+          <span class="arrow">→</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="group">
+      <div class="ghdr"><span>INBOX — THE DAILY EXPERIENCE</span><span class="bar"></span></div>
+      <div class="grid">
+        <a class="card" href="inbox-empty.html">
+          <span class="num">05 / 08</span>
+          <span class="ttl">inbox-empty.html</span>
+          <span class="d">Signed in, no rooms. Invitation, not error. Two pairing options framed like a letterpress card.</span>
+          <span class="arrow">→</span>
+        </a>
+        <a class="card" href="inbox-with-rooms.html">
+          <span class="num">06 / 08</span>
+          <span class="ttl">inbox-with-rooms.html</span>
+          <span class="d">The daily view at sidebar width. The encryption claim sits in the topbar — quiet, structural.</span>
+          <span class="arrow">→</span>
+        </a>
+        <a class="card" href="inbox-rail.html">
+          <span class="num">07 / 08</span>
+          <span class="ttl">inbox-rail.html</span>
+          <span class="d">700px frame — rail variant. Same vocabulary, fewer words. Section labels go vertical.</span>
+          <span class="arrow">→</span>
+        </a>
+        <a class="card" href="inbox-drawer.html">
+          <span class="num">08 / 08</span>
+          <span class="ttl">inbox-drawer.html</span>
+          <span class="d">500px phone frame — drawer closed and open side by side. The sage hairline keeps its job.</span>
+          <span class="arrow">→</span>
+        </a>
+      </div>
+    </section>
+
+    <div class="footer">
+      Twilight palette · light variant · all colors lifted from <code>app/lib/theme/twilight.dart</code>.
+      <div class="swatch" aria-hidden="true">
+        <span class="sw" style="background:#F4EBEC" title="bgCanvas"></span>
+        <span class="sw" style="background:#EBDFE2" title="bgSurface"></span>
+        <span class="sw" style="background:#E2D3D8" title="bgSurfaceAlt"></span>
+        <span class="sw" style="background:#A04A6A" title="accentUser"></span>
+        <span class="sw" style="background:#9C7E94" title="accentPartner"></span>
+        <span class="sw" style="background:#4F7A5E" title="accentFamiliar"></span>
+        <span class="sw" style="background:#2A1F2A" title="textPrimary"></span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
