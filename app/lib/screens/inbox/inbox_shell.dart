@@ -132,20 +132,13 @@ class _PairCard extends StatelessWidget {
   const _PairCard();
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: TwilightColors.bubblePartnerBg,
-        border: Border.all(color: TwilightColors.borderSoft),
-        borderRadius: const BorderRadius.all(Radius.circular(2)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x1A2A1F2A),
-            blurRadius: 48,
-            offset: Offset(0, 24),
-            spreadRadius: -32,
-          ),
-        ],
+    return Material(
+      color: TwilightColors.bubblePartnerBg,
+      shape: const RoundedRectangleBorder(
+        side: BorderSide(color: TwilightColors.borderSoft),
+        borderRadius: BorderRadius.all(Radius.circular(2)),
       ),
+      elevation: 0,
       child: Column(
         children: [
           _PairOption(

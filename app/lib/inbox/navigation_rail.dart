@@ -16,7 +16,7 @@ class NavigationRailChrome extends ConsumerWidget {
     if (inbox.rooms.isEmpty) {
       return const SizedBox(width: 56);
     }
-    return Container(
+    return Material(
       color: TwilightColors.bgSurface,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
