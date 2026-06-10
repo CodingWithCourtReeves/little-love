@@ -38,10 +38,8 @@ _openConn() async {
     sink: sink,
     username: 'court',
     identity: identity,
-    simulateAuthenticatedAfterIdentify: () =>
-        server.add(jsonEncode({'kind': 'Authenticated'})),
   );
-  // Let the handshake subscribe before we feed Challenge.
+  // Let _RealLiveConnection's listener attach before we feed frames.
   await Future<void>.delayed(Duration.zero);
   server.add(
     jsonEncode({
@@ -49,6 +47,7 @@ _openConn() async {
       'nonce': base64.encode(List<int>.filled(32, 7)),
     }),
   );
+  server.add(jsonEncode({'kind': 'Authenticated'}));
   final conn = await connFut;
   return (conn: conn, server: server, sink: sink);
 }
@@ -79,4 +78,28 @@ void main() {
     await h.conn.close();
     await h.server.close();
   });
+
+  test(
+    'room-phase frames arriving before first subscriber are buffered (no drop)',
+    () async {
+      final h = await _openConn();
+
+      // Server pushes Rooms immediately after Authenticated — before any
+      // subscriber attaches. Pre-fix this was lost between asBroadcastStream
+      // teardown + re-listen.
+      h.server.add(jsonEncode({'kind': 'Rooms', 'rooms': []}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // Now subscribe — buffered Rooms should be delivered.
+      final received = <RoomServerFrame>[];
+      final sub = h.conn.incoming.listen(received.add);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(received, hasLength(1));
+      expect(received.single, isA<RoomsFrame>());
+
+      await sub.cancel();
+      await h.conn.close();
+      await h.server.close();
+    },
+  );
 }

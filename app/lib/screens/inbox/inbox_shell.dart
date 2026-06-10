@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../conversation/conversation_page.dart';
 import '../../conversation/room_key_cache.dart';
@@ -135,7 +136,7 @@ class InboxShell extends ConsumerWidget {
       SendFrame(
         roomId: room.roomId,
         body: body,
-        clientMsgId: 'c-${DateTime.now().microsecondsSinceEpoch}',
+        clientMsgId: const Uuid().v4(),
       ).toJson(),
     );
   }

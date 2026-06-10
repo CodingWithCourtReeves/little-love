@@ -96,6 +96,16 @@ void main() {
       );
       expect(body.length, greaterThan(0));
       expect(sendFrames.single['room_id'], 'room1');
+      // Server types client_msg_id as Uuid; non-UUID strings cause
+      // serde_json to silently drop the entire Send frame.
+      expect(
+        sendFrames.single['client_msg_id'] as String,
+        matches(
+          RegExp(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+          ),
+        ),
+      );
     },
   );
 }

@@ -36,8 +36,6 @@ _harness() async {
     sink: sink,
     username: 'court',
     identity: identity,
-    simulateAuthenticatedAfterIdentify: () =>
-        server.add(jsonEncode({'kind': 'Authenticated'})),
   );
   await Future<void>.delayed(Duration.zero);
   server.add(
@@ -46,6 +44,7 @@ _harness() async {
       'nonce': base64.encode(List<int>.filled(32, 7)),
     }),
   );
+  server.add(jsonEncode({'kind': 'Authenticated'}));
   final conn = await connFut;
   return (conn: conn, server: server, sink: sink);
 }
