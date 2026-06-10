@@ -39,12 +39,15 @@ void main() {
     expect(consumed.roomId, '01J');
   });
 
-  test('default Riverpod transport throws — integration must override', () {
+  test('default provider requires liveConnectionProvider to be ready', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);
     expect(
       () => container.read(pairingTransportProvider),
-      throwsA(isA<UnimplementedError>()),
+      throwsA(anything),
+      reason:
+          'reading the transport without a ready liveConnectionProvider must '
+          'fail loudly rather than silently constructing a no-op',
     );
   });
 }
