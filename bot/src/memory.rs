@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use rusqlite::Connection;
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -106,10 +106,32 @@ pub fn parse_summary_response(raw: &str) -> Result<(String, String)> {
     Ok((events, character))
 }
 
+/// Reject anything that isn't a safe filename component. Defends against a
+/// hostile or buggy server handing us a `room_id` like `../etc` or an
+/// absolute path that would escape `<memory-dir>/rooms/`.
+pub fn validate_room_id(room_id: &str) -> Result<()> {
+    if room_id.is_empty() || room_id.len() > 64 {
+        return Err(anyhow!(
+            "invalid room_id (must be 1..=64 chars, got {})",
+            room_id.len()
+        ));
+    }
+    if !room_id
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(anyhow!(
+            "invalid room_id (only ASCII alphanumeric, '_' and '-' allowed)"
+        ));
+    }
+    Ok(())
+}
+
 impl Memory {
     pub fn open(memory_dir: &Path, room_id: &str) -> Result<Self> {
         use anyhow::Context;
 
+        validate_room_id(room_id)?;
         let room_dir = memory_dir.join("rooms").join(room_id);
         std::fs::create_dir_all(&room_dir)
             .with_context(|| format!("create {}", room_dir.display()))?;
@@ -728,5 +750,46 @@ mod tests {
         let msg = format!("{err}");
         assert!(msg.contains("newer bot"), "got: {msg}");
         assert!(msg.contains("schema 99"), "got: {msg}");
+    }
+
+    #[test]
+    fn validate_room_id_accepts_safe_ids() {
+        validate_room_id("01TESTROOM").unwrap();
+        validate_room_id("abc_123-XYZ").unwrap();
+        validate_room_id("a").unwrap();
+        validate_room_id(&"x".repeat(64)).unwrap();
+    }
+
+    #[test]
+    fn validate_room_id_rejects_traversal_and_absolute_paths() {
+        for bad in [
+            "",
+            "..",
+            "../etc",
+            "../../etc/passwd",
+            "/etc/passwd",
+            "rooms/escape",
+            "with space",
+            "nul\0byte",
+            "back\\slash",
+            "dot.dot",
+            &"x".repeat(65),
+        ] {
+            assert!(
+                validate_room_id(bad).is_err(),
+                "expected reject for {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn open_rejects_traversal_room_id() {
+        let dir = tempdir().unwrap();
+        let err = Memory::open(dir.path(), "../escape").unwrap_err();
+        assert!(format!("{err}").contains("invalid room_id"));
+        assert!(
+            !dir.path().join("rooms").join("..").exists(),
+            "must not create traversal paths"
+        );
     }
 }
