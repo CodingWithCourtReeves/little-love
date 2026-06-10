@@ -179,9 +179,9 @@ class _SignupFlowState extends ConsumerState<_SignupFlow> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not finish signup: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not finish signup: $e')));
     }
   }
 }
