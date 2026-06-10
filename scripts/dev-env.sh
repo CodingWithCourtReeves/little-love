@@ -18,9 +18,16 @@ _offset=$(( 0x$_hash_hex % 100 ))
 _api_port=$(( 7707 + _offset ))
 _pg_port=$(( 5432 + _offset ))
 
-export COMPOSE_PROJECT_NAME="$_workdir_name"
+# docker compose rejects project names containing uppercase letters
+# ("must consist only of lowercase alphanumeric characters, hyphens, and
+# underscores"). The port offset is still derived from the case-sensitive
+# basename above, so two worktrees that differ only by case still get
+# different ports.
+_compose_name="$(printf '%s' "$_workdir_name" | tr '[:upper:]' '[:lower:]')"
+
+export COMPOSE_PROJECT_NAME="$_compose_name"
 export API_PORT="$_api_port"
 export POSTGRES_PORT="$_pg_port"
 export DATABASE_URL="postgres://littlelove:dev@localhost:${_pg_port}/littlelove"
 
-unset _workdir_name _hash_hex _offset _api_port _pg_port
+unset _workdir_name _hash_hex _offset _api_port _pg_port _compose_name
