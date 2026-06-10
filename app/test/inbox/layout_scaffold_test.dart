@@ -33,4 +33,15 @@ void main() {
     expect(find.text('DRAWER'), findsNothing);
     expect(find.text('DETAIL'), findsOneWidget);
   });
+
+  testWidgets('renders rail at 700px wide', (tester) async {
+    tester.view.physicalSize = const Size(700, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(_harness(width: 700));
+    expect(find.text('RAIL'), findsOneWidget);
+    expect(find.text('SIDEBAR'), findsNothing);
+    expect(find.text('DRAWER'), findsNothing);
+    expect(find.text('DETAIL'), findsOneWidget);
+  });
 }

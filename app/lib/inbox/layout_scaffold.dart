@@ -30,7 +30,8 @@ class LayoutScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth >= sidebarBreakpoint) {
+        final w = constraints.maxWidth;
+        if (w >= sidebarBreakpoint) {
           return Row(
             children: [
               SizedBox(width: sidebarWidth, child: sidebar),
@@ -38,7 +39,10 @@ class LayoutScaffold extends StatelessWidget {
             ],
           );
         }
-        // Rail + drawer branches land in T5 + T6.
+        if (w >= railBreakpoint) {
+          return Row(children: [rail, Expanded(child: detail)]);
+        }
+        // Drawer branch lands in T6.
         return detail;
       },
     );
