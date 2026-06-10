@@ -42,13 +42,15 @@ class _RecoveryConfirmScreenState extends State<RecoveryConfirmScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Confirm recovery')),
+      appBar: AppBar(title: const Text('Confirm your phrase')),
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('Re-type words 3, 7, and 11 from your phrase.'),
+            const Text(
+              'Type words 3, 7, and 11 from the phrase you just saved.',
+            ),
             const SizedBox(height: 16),
             _slot('Word 3', _w3),
             const SizedBox(height: 8),
