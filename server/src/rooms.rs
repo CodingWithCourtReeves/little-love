@@ -1,38 +1,103 @@
 //! Rooms: DB ops for room creation, membership, and fan-out resolution.
 //!
-//! Spec: §4 (Pairing — `ConsumeInvite` creates rooms), §7 (Multi-Device fan-out),
+//! Spec: §4 (Pairing), §5 (Rooms), §7 (Multi-Device fan-out),
 //! §8.4 (Postgres schema for rooms + room_members).
 
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use ulid::Ulid;
 
-use crate::wire::RoomSummary;
+use crate::wire::{Member as WireMember, RoomDetail as WireRoomDetail};
 
-/// One row in the `Rooms` server frame — a couples chat the caller is in,
-/// pre-joined with the peer's account info.
+/// One member of a room, populated from `room_members` joined to `accounts`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RoomSummaryRow {
+pub struct Member {
+    pub account_id: i64,
+    pub username: String,
+    pub ed25519_pub: Vec<u8>,
+    pub x25519_pub: Vec<u8>,
+    pub is_bot: bool,
+    pub owner_username: Option<String>,
+}
+
+impl Member {
+    pub fn into_wire(self) -> WireMember {
+        WireMember {
+            username: self.username,
+            ed25519_pub: B64.encode(self.ed25519_pub),
+            x25519_pub: B64.encode(self.x25519_pub),
+            is_bot: self.is_bot,
+            owner_username: self.owner_username,
+        }
+    }
+}
+
+/// A room with its full roster, used to build `RoomServerFrame::Rooms` /
+/// `RoomCreated` / `InviteConsumed` payloads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoomDetail {
     pub room_id: String,
-    pub peer_account_id: i64,
-    pub peer_username: String,
-    pub peer_ed25519_pub: Vec<u8>,
-    pub peer_x25519_pub: Vec<u8>,
+    pub name: String,
+    pub members: Vec<Member>,
     pub created_at: DateTime<Utc>,
 }
 
-impl RoomSummaryRow {
-    /// Encode the peer pubkeys as base64 for the on-wire shape.
-    pub fn into_wire(self) -> RoomSummary {
-        use base64::{engine::general_purpose::STANDARD as B64, Engine};
-        RoomSummary {
+impl RoomDetail {
+    pub fn into_wire(self) -> WireRoomDetail {
+        WireRoomDetail {
             room_id: self.room_id,
-            peer_username: self.peer_username,
-            peer_ed25519_pub: B64.encode(self.peer_ed25519_pub),
-            peer_x25519_pub: B64.encode(self.peer_x25519_pub),
+            name: self.name,
+            members: self.members.into_iter().map(Member::into_wire).collect(),
             created_at: self.created_at,
         }
     }
+}
+
+type MemberDbRow = (i64, String, Vec<u8>, Vec<u8>, bool, Option<String>);
+
+pub async fn members_for_room(pool: &PgPool, room_id: &str) -> sqlx::Result<Vec<Member>> {
+    let rows: Vec<MemberDbRow> = sqlx::query_as(
+        "SELECT a.id, a.username, a.ed25519_pub, a.x25519_pub, a.is_bot,
+                owner.username AS owner_username
+         FROM room_members m
+         JOIN accounts a ON a.id = m.account_id
+         LEFT JOIN accounts owner ON owner.id = a.owner_account_id
+         WHERE m.room_id = $1
+         ORDER BY m.joined_at ASC",
+    )
+    .bind(room_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, u, ed, x, b, ow)| Member {
+            account_id: id,
+            username: u,
+            ed25519_pub: ed,
+            x25519_pub: x,
+            is_bot: b,
+            owner_username: ow,
+        })
+        .collect())
+}
+
+pub async fn room_detail(pool: &PgPool, room_id: &str) -> sqlx::Result<Option<RoomDetail>> {
+    let row: Option<(String, String, DateTime<Utc>)> =
+        sqlx::query_as("SELECT id, name, created_at FROM rooms WHERE id = $1")
+            .bind(room_id)
+            .fetch_optional(pool)
+            .await?;
+    let Some((rid, name, created_at)) = row else {
+        return Ok(None);
+    };
+    let members = members_for_room(pool, &rid).await?;
+    Ok(Some(RoomDetail {
+        room_id: rid,
+        name,
+        members,
+        created_at,
+    }))
 }
 
 /// Fetch the integer `accounts.id` for a username. Returns `None` if no such
@@ -45,9 +110,9 @@ pub async fn account_id_by_username(pool: &PgPool, username: &str) -> sqlx::Resu
     Ok(row.map(|(id,)| id))
 }
 
-/// True iff `account_id` is currently in any room. Used to enforce the
-/// monogamy constraint at the handler layer (the DB unique index on
-/// `room_members.account_id` is the structural guarantee).
+/// True iff `account_id` is currently in any room. Used by tests; the
+/// authoritative monogamy check now lives in `accounts.partner_account_id`
+/// rather than the v0.2 unique index on `room_members.account_id`.
 pub async fn is_paired(pool: &PgPool, account_id: i64) -> sqlx::Result<bool> {
     let row: Option<(i64,)> = sqlx::query_as(
         "SELECT 1::bigint AS exists FROM room_members WHERE account_id = $1 LIMIT 1",
@@ -87,39 +152,29 @@ pub async fn member_usernames(pool: &PgPool, room_id: &str) -> sqlx::Result<Vec<
     Ok(rows.into_iter().map(|(u,)| u).collect())
 }
 
-type RoomSummaryDbRow = (String, i64, String, Vec<u8>, Vec<u8>, DateTime<Utc>);
-
-/// All rooms `account_id` is in, with peer info pre-joined. Returns rooms
-/// ordered by `created_at` ascending (oldest first) so the inbox sidebar's
-/// "couples chat pinned at top" semantics are stable across reconnects.
+/// All rooms `account_id` is in, with full rosters. Ordered by `r.created_at`
+/// ascending so the sidebar's "couples chat pinned at top" semantics are
+/// stable across reconnects.
 pub async fn list_rooms_for_account(
     pool: &PgPool,
     account_id: i64,
-) -> sqlx::Result<Vec<RoomSummaryRow>> {
-    let rows: Vec<RoomSummaryDbRow> = sqlx::query_as(
-        "SELECT r.id, peer.id, peer.username, peer.ed25519_pub, peer.x25519_pub, r.created_at
-         FROM rooms r
-         JOIN room_members me ON me.room_id = r.id AND me.account_id = $1
-         JOIN room_members peer_link ON peer_link.room_id = r.id AND peer_link.account_id <> $1
-         JOIN accounts peer ON peer.id = peer_link.account_id
+) -> sqlx::Result<Vec<RoomDetail>> {
+    let room_ids: Vec<(String,)> = sqlx::query_as(
+        "SELECT r.id FROM rooms r
+         JOIN room_members m ON m.room_id = r.id
+         WHERE m.account_id = $1
          ORDER BY r.created_at ASC",
     )
     .bind(account_id)
     .fetch_all(pool)
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(
-            |(room_id, peer_account_id, peer_username, ed, x, created_at)| RoomSummaryRow {
-                room_id,
-                peer_account_id,
-                peer_username,
-                peer_ed25519_pub: ed,
-                peer_x25519_pub: x,
-                created_at,
-            },
-        )
-        .collect())
+    let mut out = Vec::with_capacity(room_ids.len());
+    for (rid,) in room_ids {
+        if let Some(d) = room_detail(pool, &rid).await? {
+            out.push(d);
+        }
+    }
+    Ok(out)
 }
 
 /// Possible outcomes of `create_room_with_members`.
@@ -132,12 +187,8 @@ pub enum CreateRoomError {
 }
 
 /// Transactional: create a new room and insert both members atomically.
-/// Returns the new ULID `room_id`.
-///
-/// Returns `AlreadyPaired` if either account is already in a room. The
-/// underlying guarantee is the unique index `room_members_one_per_account`
-/// on `account_id` (migration 0004) — this function maps the resulting
-/// 23505 to a structured error.
+/// Returns the new ULID `room_id`. Legacy v0.2-style couple-only helper used
+/// by `handle_consume_invite` for invites that don't carry a parent room.
 pub async fn create_room_with_members(
     pool: &PgPool,
     inviter_account_id: i64,
@@ -159,10 +210,6 @@ pub async fn create_room_with_members(
             .await;
         if let Err(sqlx::Error::Database(db)) = &res {
             if db.code().as_deref() == Some("23505") {
-                // Either the (room_id, account_id) PK or the unique
-                // monogamy index fired. The former cannot happen here
-                // because the ULID is fresh; only the monogamy index
-                // matters in practice.
                 tx.rollback().await?;
                 return Err(CreateRoomError::AlreadyPaired(account_id));
             }

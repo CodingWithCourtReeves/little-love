@@ -108,6 +108,77 @@ pub async fn insert_account(store: &Store, username: &str, vk: &VerifyingKey) {
         .unwrap();
 }
 
+/// Seed a v0.3-shaped couple-plus-bot scenario:
+/// - `court` (human), `kaitlyn` (human, monogamy partner)
+/// - `court-garden` (bot owned by court)
+/// - a room with all 3 members.
+///
+/// Returns `(court_id, kaitlyn_id, garden_bot_id, room_id)`.
+pub async fn seed_couple_plus_bot(store: &Store) -> (i64, i64, i64, String) {
+    let pool = store.pool();
+
+    let (court_id,): (i64,) = sqlx::query_as(
+        "INSERT INTO accounts (username, ed25519_pub, x25519_pub)
+         VALUES ('court', $1, $2) RETURNING id",
+    )
+    .bind(vec![10u8; 32])
+    .bind(vec![11u8; 32])
+    .fetch_one(pool)
+    .await
+    .unwrap();
+
+    let (kait_id,): (i64,) = sqlx::query_as(
+        "INSERT INTO accounts (username, ed25519_pub, x25519_pub)
+         VALUES ('kaitlyn', $1, $2) RETURNING id",
+    )
+    .bind(vec![20u8; 32])
+    .bind(vec![21u8; 32])
+    .fetch_one(pool)
+    .await
+    .unwrap();
+
+    sqlx::query("UPDATE accounts SET partner_account_id = $1 WHERE id = $2")
+        .bind(kait_id)
+        .bind(court_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE accounts SET partner_account_id = $1 WHERE id = $2")
+        .bind(court_id)
+        .bind(kait_id)
+        .execute(pool)
+        .await
+        .unwrap();
+
+    let (bot_id,): (i64,) = sqlx::query_as(
+        "INSERT INTO accounts (username, ed25519_pub, x25519_pub, is_bot, owner_account_id)
+         VALUES ('court-garden', $1, $2, TRUE, $3) RETURNING id",
+    )
+    .bind(vec![30u8; 32])
+    .bind(vec![31u8; 32])
+    .bind(court_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+
+    let room_id = ulid::Ulid::new().to_string();
+    sqlx::query("INSERT INTO rooms (id, name) VALUES ($1, '')")
+        .bind(&room_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    for who in [court_id, kait_id, bot_id] {
+        sqlx::query("INSERT INTO room_members (room_id, account_id) VALUES ($1, $2)")
+            .bind(&room_id)
+            .bind(who)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    (court_id, kait_id, bot_id, room_id)
+}
+
 /// Re-run the v0.3 backfill UPDATE statements idempotently against a
 /// freshly-seeded v0.2-shaped dataset. Migration 0006 already ran at
 /// `connect()` time; this helper re-applies the backfill so tests can
