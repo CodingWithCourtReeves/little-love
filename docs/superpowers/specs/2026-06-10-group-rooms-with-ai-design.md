@@ -4,6 +4,11 @@
 **Date:** 2026-06-10
 **Supersedes:** v0.2 §4 (Pairing), §5 (Per-Conversation Encryption), §8.2 (WS frames), §8.4 (Postgres schema) — in part.
 
+**Amendments (2026-06-10, post-plan-writing):**
+- §5.2 step 5 — InviteConsumed (consumer-only ack) AND RoomCreated (broadcast to others) both fire, both carrying the v0.3 multi-member payload.
+- §8.2 Rooms frame — adds `owned_bots: [Member]` so the Create-Chat picker can list familiars that aren't yet in any room.
+- §9 migration 0006 — adds `invites.room_id` column binding an invite to its parent room created by `CreateRoom { invite_human_partner: true }`.
+
 ---
 
 ## 1. Summary
@@ -177,8 +182,8 @@ The host shares the 4-word code with their partner. The partner enters it on the
    ```
 2. Client renders the consent screen (mocks/v0.3/invite-preview-multi.html) showing **all** members the room would contain, including which familiars are present. The user reviews → confirms.
 3. Client sends `ConsumeInvite` (unchanged wire shape from v0.2, including the §8.5.1 domain-separated signature over the canonical token).
-4. Server validates the signature, runs the §5.3 monogamy check, marks the invite consumed, inserts the consumer into `room_members`, sets `accounts.partner_account_id` on both humans if not already set.
-5. Server broadcasts `RoomCreated` to all members (existing + new) with the now-complete roster.
+4. Server validates the signature, runs the §5.3 monogamy check, marks the invite consumed, inserts the consumer into `room_members` for the **room the invite was bound to** (see §9 `invites.room_id` column added 2026-06-10), sets `accounts.partner_account_id` on both humans if not already set.
+5. Server emits `InviteConsumed { room_id, name, members }` to the consumer's own session(s) as a single-shot ack, AND broadcasts `RoomCreated { room_id, name, members, pending_invite: null }` to every OTHER member (host + familiars + any additional humans already in the room). The two frames carry identical payloads; the discriminator is the direction. _(Amendment 2026-06-10: §8.2's "Existing frames unchanged: InviteConsumed" line refers to the wire-level discriminator, not the v0.2 payload. The new payload is the v0.3 multi-member shape.)_
 
 ### 5.3 Monogamy enforcement
 
@@ -347,7 +352,11 @@ Rooms {                                  // server → client on Authenticated
       ],
       created_at: ISO-8601 UTC,
     }
-  ]
+  ],
+  // Amendment 2026-06-10: every familiar whose `owner_account_id` is the
+  // authenticated user. Lets the Create-Chat picker list owned bots even
+  // before they're in any room. Empty array when the user has no familiars.
+  owned_bots: [/* same Member shape as rooms[].members */]
 }
 ```
 
@@ -449,6 +458,13 @@ ALTER TABLE rooms
 
 -- room_members: drop v0.2 monogamy index; replaced by app-layer partner check
 DROP INDEX room_members_one_per_account;
+
+-- Amendment 2026-06-10: bind invites to their parent room so ConsumeInvite
+-- knows which room the consumer joins. Legacy v0.2 CreateInvite (no parent
+-- room) inserts NULL; the consume handler lazily creates a 2-member couples
+-- room in that case (preserves the v0.2 first-time pair flow).
+ALTER TABLE invites
+  ADD COLUMN room_id TEXT REFERENCES rooms(id) ON DELETE CASCADE;
 
 -- messages: switch from one-row-per-message to one-row-per-recipient
 ALTER TABLE messages
