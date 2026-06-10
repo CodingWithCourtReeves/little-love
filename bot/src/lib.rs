@@ -5,6 +5,7 @@ pub mod cli;
 pub mod history;
 pub mod identity_store;
 pub mod llm;
+pub mod memory;
 pub mod pair;
 pub mod persona;
 pub mod rest;
