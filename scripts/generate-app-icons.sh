@@ -30,8 +30,8 @@ magick "$MASTER" \
 echo "Generated Windows icon at $WIN_ICON"
 
 # iOS — filenames/sizes per the AppIcon.appiconset/Contents.json scaffolded
-# by `flutter create --platforms=ios`. Apple rejects PNGs with an alpha
-# channel on the App Store marketing icon, so flatten on white.
+# by `flutter create --platforms=ios`. Preserve the master PNG transparency so
+# the app icon artwork does not get baked onto a visible white square.
 if [[ -d "$IOS_ICONSET" ]]; then
   IOS_ICONS=(
     "Icon-App-20x20@1x.png:20"
@@ -53,9 +53,7 @@ if [[ -d "$IOS_ICONSET" ]]; then
   for entry in "${IOS_ICONS[@]}"; do
     name="${entry%%:*}"
     size="${entry##*:}"
-    magick "$MASTER" -resize "${size}x${size}" \
-      -background white -alpha remove -alpha off \
-      "PNG24:$IOS_ICONSET/$name"
+    magick "$MASTER" -resize "${size}x${size}" "PNG32:$IOS_ICONSET/$name"
   done
   echo "Generated iOS icons in $IOS_ICONSET"
 else
