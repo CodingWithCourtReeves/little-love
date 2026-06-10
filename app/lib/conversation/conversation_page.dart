@@ -76,7 +76,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
   void _onScroll() {
     if (!_scrollController.hasClients) return;
     final pos = _scrollController.position;
-    final atBottom = (pos.maxScrollExtent - pos.pixels) < _stickThreshold;
+    final atBottom = pos.pixels < _stickThreshold;
     if (atBottom != _atBottom) {
       setState(() => _atBottom = atBottom);
     }
@@ -84,13 +84,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
   void _jumpToBottom() {
     if (!_scrollController.hasClients) return;
-    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    _scrollController.jumpTo(0);
   }
 
   void _animateToBottom() {
     if (!_scrollController.hasClients) return;
     _scrollController.animateTo(
-      _scrollController.position.maxScrollExtent,
+      0,
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOut,
     );
@@ -146,7 +146,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     _prevMessageCount = messages.length;
 
     final sorted = [...messages]..sort((a, b) => a.ts.compareTo(b.ts));
-    final items = _itemize(sorted);
+    final items = _itemize(sorted).reversed.toList();
     return Scaffold(
       backgroundColor: TwilightColors.bgCanvas,
       appBar: AppBar(
@@ -211,6 +211,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
               children: [
                 ListView.builder(
                   controller: _scrollController,
+                  reverse: true,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 12,
@@ -511,10 +512,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
       const SingleActivator(LogicalKeyboardKey.enter, control: true):
           const _SendIntent(),
     };
-    return Container(
-      color: TwilightColors.bgSurface,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      child: Row(
+    return TapRegion(
+      onTapOutside: (_) =>
+          FocusManager.instance.primaryFocus?.unfocus(),
+      child: Container(
+        color: TwilightColors.bgSurface,
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           CompositedTransformTarget(
@@ -589,6 +593,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
             icon: const Icon(Icons.send, color: TwilightColors.accentUser),
           ),
         ],
+      ),
       ),
     );
   }
