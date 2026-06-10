@@ -2,5 +2,6 @@
 pub mod addr_guard;
 pub mod cli;
 pub mod identity_store;
+pub mod pair;
 pub mod rest;
 pub mod ws_client;

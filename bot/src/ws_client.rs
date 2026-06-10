@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use ed25519_dalek::{Signer, SigningKey};
 use futures::{SinkExt, StreamExt};
-use littlelove_crypto::sig::challenge_signing_input;
+use littlelove_crypto::sig::{challenge_signing_input, invite_consume_signing_input};
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -111,4 +111,80 @@ pub async fn connect_and_identify(ws_url: &str, identity: &ClientIdentity) -> Re
         socket: sock,
         initial_rooms,
     })
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+pub struct RoomDescriptor {
+    pub room_id: String,
+    pub peer_username: String,
+    pub peer_ed25519_pub: String,
+    pub peer_x25519_pub: String,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind")]
+#[allow(dead_code)]
+enum RoomServerFrame {
+    InviteConsumed(RoomDescriptor),
+    RoomCreated(RoomDescriptor),
+    Rooms {
+        rooms: Vec<RoomSummary>,
+    },
+    Message {
+        id: String,
+        room_id: String,
+        from: String,
+        ts: chrono::DateTime<chrono::Utc>,
+        body: String,
+        #[serde(default)]
+        replayed: bool,
+    },
+    Error {
+        code: String,
+        #[serde(default)]
+        message: String,
+    },
+    InviteCreated {
+        code: String,
+        qr_png_base64: String,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    },
+}
+
+pub async fn consume_invite(
+    session: &mut Session,
+    identity: &ClientIdentity,
+    code: &str,
+) -> Result<RoomDescriptor> {
+    let canonical = littlelove_crypto::invite::decode_code(code)
+        .map_err(|e| anyhow!("invalid invite code: {e}"))?;
+    let sig = identity
+        .ed25519_signing
+        .sign(&invite_consume_signing_input(&canonical));
+    let frame = serde_json::json!({
+        "kind": "ConsumeInvite",
+        "code": code,
+        "signature_over_token": B64.encode(sig.to_bytes()),
+    });
+    session
+        .socket
+        .send(Message::Text(frame.to_string()))
+        .await?;
+    loop {
+        let next = session
+            .socket
+            .next()
+            .await
+            .ok_or_else(|| anyhow!("server closed waiting for InviteConsumed"))??;
+        if let Message::Text(t) = next {
+            let parsed: RoomServerFrame = serde_json::from_str(&t)?;
+            match parsed {
+                RoomServerFrame::InviteConsumed(d) => return Ok(d),
+                RoomServerFrame::Error { code, message } => {
+                    return Err(anyhow!("consume invite error: {code} {message}"));
+                }
+                _ => continue,
+            }
+        }
+    }
 }

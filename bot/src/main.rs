@@ -13,9 +13,7 @@ async fn main() -> anyhow::Result<()> {
 
     let args = cli::Cli::parse();
     match args.command {
-        cli::Command::Pair(_) => {
-            anyhow::bail!("pair: not yet implemented");
-        }
+        cli::Command::Pair(args) => littlelove_bot::pair::run(args).await,
         cli::Command::Run(_) => {
             anyhow::bail!("run: not yet implemented");
         }
