@@ -51,14 +51,28 @@ pub fn parse_png(bytes: &[u8]) -> Result<Card> {
     let reader = decoder.read_info().context("decode png header")?;
     let info = reader.info();
 
-    let pick = info
-        .utf8_text
+    // Collect text from both iTXt (CCv3 spec) and tEXt (where most CCv2 cards
+    // actually live — SillyTavern's default exporter writes a tEXt "chara"
+    // chunk holding the base64 JSON).
+    let mut texts: Vec<(String, String)> = Vec::new();
+    for c in info.utf8_text.iter() {
+        if let Ok(t) = c.get_text() {
+            texts.push((c.keyword.clone(), t));
+        }
+    }
+    for c in info.uncompressed_latin1_text.iter() {
+        texts.push((c.keyword.clone(), c.text.clone()));
+    }
+    for c in info.compressed_latin1_text.iter() {
+        if let Ok(t) = c.get_text() {
+            texts.push((c.keyword.clone(), t));
+        }
+    }
+    let pick = texts
         .iter()
-        .find(|c| c.keyword == "ccv3")
-        .or_else(|| info.utf8_text.iter().find(|c| c.keyword == "chara"));
-    let text = pick.ok_or_else(|| anyhow!("no ccv3 or chara iTXt chunk in PNG"))?;
-
-    let payload = text.get_text().context("itxt text")?;
+        .find(|(k, _)| k == "ccv3")
+        .or_else(|| texts.iter().find(|(k, _)| k == "chara"));
+    let (_, payload) = pick.ok_or_else(|| anyhow!("no ccv3 or chara text chunk in PNG"))?;
     let decoded = B64
         .decode(payload.trim().as_bytes())
         .context("base64-decode CCv2 payload")?;
