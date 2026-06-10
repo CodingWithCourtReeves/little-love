@@ -54,3 +54,21 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed .
       - run: flutter analyze
       - run: flutter test
+
+  ios-build:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.x'
+      - run: flutter pub get
+      - name: pod install
+        working-directory: app/ios
+        run: pod install
+      - name: build ios (simulator, no codesign)
+        run: flutter build ios --simulator --no-codesign

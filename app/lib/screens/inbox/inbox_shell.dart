@@ -1,17 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../conversation/conversation_page.dart';
-import '../../conversation/message_store.dart';
+import '../../conversation/room_key_cache.dart';
+import '../../conversation/room_message_router.dart';
 import '../../identity/account_local.dart';
+import '../../identity/current_identity.dart';
+import '../../identity/keypair.dart';
 import '../../inbox/drawer.dart';
 import '../../inbox/inbox_state.dart';
 import '../../inbox/layout_scaffold.dart';
 import '../../inbox/navigation_rail.dart';
 import '../../inbox/room.dart';
 import '../../inbox/sidebar.dart';
+import '../../pairing/encryption.dart';
 import '../../theme/twilight.dart';
-import '../../wire/message.dart';
+import '../../wire/frames.dart';
+import '../../wire/live_connection.dart';
+import '../pair/enter_code.dart';
+import '../pair/show_invite.dart';
 
 /// Top-level inbox screen for a signed-in user. Wraps `LayoutScaffold` and
 /// supplies sidebar / rail / drawer chrome around a `ConversationPage` keyed
@@ -23,6 +31,12 @@ class InboxShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Activate the router for this signed-in session. Reading the provider
+    // is enough — it stays alive while InboxShell is mounted.
+    ref
+        .watch(liveConnectionProvider)
+        .whenData((_) => ref.watch(roomMessageRouterProvider));
+
     final inbox = ref.watch(inboxStateProvider);
     final detail = _detail(context, ref, inbox.selectedRoomId, inbox.rooms);
 
@@ -47,14 +61,14 @@ class InboxShell extends ConsumerWidget {
           child: SingleChildScrollView(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 440),
-              child: const Padding(
-                padding: EdgeInsets.all(32),
+              child: Padding(
+                padding: const EdgeInsets.all(32),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     // 'No conversations yet' kept verbatim for widget tests.
-                    Text(
+                    const Text(
                       'No conversations yet',
                       style: TextStyle(
                         fontFamily: 'Inter',
@@ -64,8 +78,8 @@ class InboxShell extends ConsumerWidget {
                         color: TwilightColors.accentFamiliar,
                       ),
                     ),
-                    SizedBox(height: 14),
-                    Text(
+                    const SizedBox(height: 14),
+                    const Text(
                       'Pair with your partner to begin.',
                       style: TextStyle(
                         fontFamily: 'Inter',
@@ -76,15 +90,15 @@ class InboxShell extends ConsumerWidget {
                         color: TwilightColors.textPrimary,
                       ),
                     ),
-                    SizedBox(height: 12),
-                    Text(
+                    const SizedBox(height: 12),
+                    const Text(
                       'A pairing handshake exchanges public keys directly '
                       'between your two devices. Until that happens, there is '
                       'nothing for the server to deliver.',
                       style: TwilightType.lede,
                     ),
-                    SizedBox(height: 28),
-                    _PairCard(),
+                    const SizedBox(height: 28),
+                    _PairCard(account: account),
                   ],
                 ),
               ),
@@ -109,29 +123,31 @@ class InboxShell extends ConsumerWidget {
       key: ValueKey(selectedId),
       roomId: selectedId,
       contactDisplayName: room.peerUsername,
-      onSend: (text) => _localSend(ref, selectedId, text),
+      onSend: (text) => _sendEncrypted(ref, room, text),
     );
   }
 
-  /// v0.2 placeholder: append a local Msg with `from = account.username` so
-  /// the demo round-trips locally. The integration session replaces this
-  /// with the real WSS `Send` frame path.
-  void _localSend(WidgetRef ref, String roomId, String text) {
-    final msg = Msg(
-      id: 'local-${DateTime.now().microsecondsSinceEpoch}',
-      from: account.username,
-      to: roomId,
-      body: text,
-      ts: DateTime.now().toUtc(),
+  Future<void> _sendEncrypted(WidgetRef ref, Room room, String text) async {
+    final me = await ref.read(currentIdentityProvider.future);
+    final key = await ref.read(roomKeyCacheProvider).getOrDerive(room, me);
+    final body = await encryptOutgoing(key, text);
+    final conn = ref.read(liveConnectionProvider).requireValue;
+    conn.send(
+      SendFrame(
+        roomId: room.roomId,
+        body: body,
+        clientMsgId: const Uuid().v4(),
+      ).toJson(),
     );
-    ref.read(messageStoreProvider(roomId).notifier).add(msg);
   }
 }
 
-class _PairCard extends StatelessWidget {
-  const _PairCard();
+class _PairCard extends ConsumerWidget {
+  const _PairCard({required this.account});
+  final LocalAccount account;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Material(
       color: TwilightColors.bubblePartnerBg,
       shape: const RoundedRectangleBorder(
@@ -145,7 +161,9 @@ class _PairCard extends StatelessWidget {
             glyph: '+',
             title: 'Invite them with a code',
             detail: 'Generates a one-time code they enter on their device.',
-            onTap: () {}, // pairing-WT wires this.
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const ShowInviteScreen()),
+            ),
           ),
           const Divider(
             height: 1,
@@ -158,9 +176,30 @@ class _PairCard extends StatelessWidget {
             glyph: '⌗',
             title: 'I have an invite code',
             detail: 'Enter a code your partner sent you.',
-            onTap: () {},
+            onTap: () => _openEnterCode(context, ref),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openEnterCode(BuildContext context, WidgetRef ref) async {
+    final DerivedIdentity identity;
+    try {
+      identity = await ref.read(currentIdentityProvider.future);
+    } on StateError {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not unlock identity — please sign in again.'),
+        ),
+      );
+      return;
+    }
+    if (!context.mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => EnterCodeScreen(identity: identity),
       ),
     );
   }

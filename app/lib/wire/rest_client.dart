@@ -102,4 +102,51 @@ class RestClient {
       'GET /accounts/by-username failed: HTTP ${res.statusCode}',
     );
   }
+
+  Future<InvitePreviewResponse> previewInvite(String code) async {
+    final res = await _http.post(_resolve('/invites/$code/preview'));
+    if (res.statusCode == 200) {
+      final j = jsonDecode(res.body) as Map<String, Object?>;
+      return InvitePreviewResponse.fromJson(j);
+    }
+    if (res.statusCode == 404) throw const InviteNotFoundException();
+    if (res.statusCode == 410) throw const InviteGoneException();
+    throw RestHttpException(
+      'POST /invites/$code/preview failed: HTTP ${res.statusCode}',
+    );
+  }
+}
+
+class InvitePreviewResponse {
+  InvitePreviewResponse({
+    required this.inviterUsername,
+    required this.inviterEd25519PubBase64,
+    required this.inviterX25519PubBase64,
+    required this.expiresAt,
+  });
+
+  final String inviterUsername;
+  final String inviterEd25519PubBase64;
+  final String inviterX25519PubBase64;
+  final DateTime expiresAt;
+
+  factory InvitePreviewResponse.fromJson(Map<String, Object?> json) =>
+      InvitePreviewResponse(
+        inviterUsername: json['inviter_username']! as String,
+        inviterEd25519PubBase64: json['inviter_ed25519_pub']! as String,
+        inviterX25519PubBase64: json['inviter_x25519_pub']! as String,
+        expiresAt: DateTime.parse(json['expires_at']! as String).toUtc(),
+      );
+}
+
+class InviteNotFoundException implements Exception {
+  const InviteNotFoundException();
+  @override
+  String toString() => 'invite not found';
+}
+
+class InviteGoneException implements Exception {
+  const InviteGoneException();
+  @override
+  String toString() => 'invite expired or consumed';
 }
