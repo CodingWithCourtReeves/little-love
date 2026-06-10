@@ -60,7 +60,7 @@ void main() {
     addTearDown(container.dispose);
     final ep = container.read(serverEndpointProvider);
     expect(ep.httpBase, Uri.parse('http://127.0.0.1:7707'));
-    expect(ep.wsConnect.toString(), 'ws://127.0.0.1:7707/connect');
+    expect(ep.wsConnect.toString(), 'ws://127.0.0.1:7707/ws');
   });
 
   test('serverEndpointProvider promotes https to wss', () {
@@ -71,7 +71,7 @@ void main() {
     );
     addTearDown(container.dispose);
     final ep = container.read(serverEndpointProvider);
-    expect(ep.wsConnect.toString(), 'wss://prod.example/connect');
+    expect(ep.wsConnect.toString(), 'wss://prod.example/ws');
   });
 
   test('keystoreProvider can be overridden with InMemoryKeystore', () async {
