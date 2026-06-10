@@ -8,4 +8,5 @@ pub mod llm;
 pub mod pair;
 pub mod persona;
 pub mod rest;
+pub mod run;
 pub mod ws_client;

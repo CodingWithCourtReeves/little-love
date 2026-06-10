@@ -22,7 +22,9 @@ clap              = { workspace = true }
 directories       = { workspace = true }
 ed25519-dalek     = { workspace = true }
 futures           = { workspace = true }
+hkdf              = { workspace = true }
 png               = { workspace = true }
+sha2              = { workspace = true }
 rand              = { workspace = true }
 reqwest           = { workspace = true }
 serde             = { workspace = true }

@@ -11,6 +11,7 @@ use futures::{SinkExt, StreamExt};
 use littlelove_crypto::sig::{challenge_signing_input, invite_consume_signing_input};
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message;
+use uuid::Uuid;
 
 pub struct ClientIdentity {
     pub username: String,
@@ -187,4 +188,97 @@ pub async fn consume_invite(
             }
         }
     }
+}
+
+/// Inbound frame variants the run loop cares about. Variants the bot
+/// never expects to receive (e.g. RoomCreated for a paired bot) are
+/// deserialized into `Other` and silently dropped.
+#[derive(Debug, Clone)]
+pub enum Inbound {
+    Message {
+        id: String,
+        room_id: String,
+        from: String,
+        ts: chrono::DateTime<chrono::Utc>,
+        body: String,
+        replayed: bool,
+    },
+    Other,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind")]
+enum InboundRaw {
+    Message {
+        id: String,
+        room_id: String,
+        from: String,
+        ts: chrono::DateTime<chrono::Utc>,
+        body: String,
+        #[serde(default)]
+        replayed: bool,
+    },
+    #[serde(other)]
+    Other,
+}
+
+pub async fn next_inbound(session: &mut Session) -> Result<Option<Inbound>> {
+    while let Some(msg) = session.socket.next().await {
+        let m = msg?;
+        if let Message::Text(t) = m {
+            let parsed: InboundRaw = match serde_json::from_str(&t) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!("skip un-parseable frame: {e}");
+                    continue;
+                }
+            };
+            return Ok(Some(match parsed {
+                InboundRaw::Message {
+                    id,
+                    room_id,
+                    from,
+                    ts,
+                    body,
+                    replayed,
+                } => Inbound::Message {
+                    id,
+                    room_id,
+                    from,
+                    ts,
+                    body,
+                    replayed,
+                },
+                InboundRaw::Other => Inbound::Other,
+            }));
+        }
+    }
+    Ok(None)
+}
+
+pub async fn subscribe(session: &mut Session, room_id: &str) -> Result<()> {
+    let frame = serde_json::json!({
+        "kind": "Subscribe",
+        "room_id": room_id,
+        "since_message_id": serde_json::Value::Null,
+    });
+    session
+        .socket
+        .send(Message::Text(frame.to_string()))
+        .await?;
+    Ok(())
+}
+
+pub async fn send_message(session: &mut Session, room_id: &str, wire_body: &str) -> Result<()> {
+    let frame = serde_json::json!({
+        "kind": "Send",
+        "room_id": room_id,
+        "body": wire_body,
+        "client_msg_id": Uuid::new_v4(),
+    });
+    session
+        .socket
+        .send(Message::Text(frame.to_string()))
+        .await?;
+    Ok(())
 }
