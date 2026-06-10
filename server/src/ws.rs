@@ -5,15 +5,33 @@ use axum::{
     },
     response::IntoResponse,
 };
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use chrono::Utc;
 use futures::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
+use ulid::Ulid;
 
-use crate::accounts::lookup_ed25519_pub;
-use crate::auth::{decode_b64, encode_b64, random_nonce, verify_signature};
+use crate::accounts::{
+    lookup_ed25519_pub, lookup_full_account, lookup_full_account_by_id, AccountRecord,
+};
+use crate::auth::{
+    decode_b64, encode_b64, random_nonce, verify_invite_consume_signature, verify_signature,
+};
+use crate::invites::{
+    create_invite_record, decode_code, default_expiry, generate_invite, lookup_invite,
+    mark_consumed, qr_png_base64, sha256, InviteState,
+};
+use crate::rooms::{
+    account_id_by_username, create_room_with_members, is_member, is_paired, list_rooms_for_account,
+    member_usernames, CreateRoomError,
+};
 use crate::routing::Routing;
 use crate::store::{MessageRow, Store};
-use crate::wire::{AuthClientFrame, AuthServerFrame, ClientFrame, IdentifyPayload, ServerFrame};
+use crate::wire::{
+    error_codes, AuthClientFrame, AuthServerFrame, IdentifyPayload, RoomClientFrame,
+    RoomDescriptor, RoomServerFrame,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -28,9 +46,9 @@ pub async fn ws_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> 
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
-/// Run the Challenge → Identify → Authenticated handshake.
-/// Returns the authenticated username on success.
-async fn handshake(socket: &mut WebSocket, state: &AppState) -> Option<String> {
+/// Run the Challenge → Identify → Authenticated handshake. Returns the
+/// authenticated account record on success.
+async fn handshake(socket: &mut WebSocket, state: &AppState) -> Option<AccountRecord> {
     let nonce = random_nonce();
     let challenge = AuthServerFrame::Challenge {
         nonce: encode_b64(&nonce),
@@ -89,11 +107,20 @@ async fn handshake(socket: &mut WebSocket, state: &AppState) -> Option<String> {
         return None;
     }
 
+    // Re-fetch the full record so handlers have the account id + both pubkeys.
+    let account = match lookup_full_account(store, &username).await {
+        Ok(Some(a)) => a,
+        _ => {
+            close_auth_failed(socket).await;
+            return None;
+        }
+    };
+
     let ok = serde_json::to_string(&AuthServerFrame::Authenticated).ok()?;
     if socket.send(Message::Text(ok)).await.is_err() {
         return None;
     }
-    Some(username)
+    Some(account)
 }
 
 async fn close_auth_failed(socket: &mut WebSocket) {
@@ -106,15 +133,34 @@ async fn close_auth_failed(socket: &mut WebSocket) {
 }
 
 async fn handle_socket(mut socket: WebSocket, state: AppState) {
-    let username = match handshake(&mut socket, &state).await {
-        Some(u) => u,
+    let me = match handshake(&mut socket, &state).await {
+        Some(a) => a,
         None => return,
     };
-    info!(%username, "client authenticated");
+    info!(username = %me.username, "client authenticated");
 
     let (mut sink, mut stream) = socket.split();
-    let (tx, mut rx) = mpsc::unbounded_channel::<ServerFrame>();
-    state.routing.register(username.clone(), tx.clone()).await;
+    let (tx, mut rx) = mpsc::unbounded_channel::<RoomServerFrame>();
+    state
+        .routing
+        .register(me.username.clone(), tx.clone())
+        .await;
+
+    // Spec §8.2: push the user's room list immediately after Authenticated.
+    if let Some(store) = state.store.as_ref() {
+        match list_rooms_for_account(store.pool(), me.id).await {
+            Ok(rows) => {
+                let rooms = rows.into_iter().map(|r| r.into_wire()).collect::<Vec<_>>();
+                let _ = tx.send(RoomServerFrame::Rooms { rooms });
+            }
+            Err(e) => {
+                warn!("list_rooms_for_account failed: {e}");
+                let _ = tx.send(RoomServerFrame::Rooms { rooms: Vec::new() });
+            }
+        }
+    } else {
+        let _ = tx.send(RoomServerFrame::Rooms { rooms: Vec::new() });
+    }
 
     let outbound = tokio::spawn(async move {
         while let Some(frame) = rx.recv().await {
@@ -133,42 +179,340 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
 
     while let Some(Ok(msg)) = stream.next().await {
         if let Message::Text(text) = msg {
-            match serde_json::from_str::<ClientFrame>(&text) {
-                Ok(ClientFrame::Msg(mut payload)) => {
-                    // Authenticated identity overrides any client-supplied `from`.
-                    payload.from = username.clone();
-                    if let Some(store) = &state.store {
-                        if let Err(e) = store.insert(MessageRow::from(payload.clone())).await {
-                            warn!("store insert failed: {e}");
-                        }
-                    }
-                    let to = payload.to.clone();
-                    let delivered = state.routing.deliver(&to, ServerFrame::Msg(payload)).await;
-                    if !delivered {
-                        info!(%to, "recipient offline; stored only");
-                    }
+            match serde_json::from_str::<RoomClientFrame>(&text) {
+                Ok(RoomClientFrame::CreateInvite) => {
+                    handle_create_invite(&state, &me, &tx).await;
                 }
-                Ok(ClientFrame::Hello(h)) => {
-                    if let Some(store) = &state.store {
-                        match store.messages_for(&username, h.since).await {
-                            Ok(rows) => {
-                                for row in rows {
-                                    let frame = ServerFrame::Msg(row.into_payload(true));
-                                    let _ = tx.send(frame);
-                                }
-                            }
-                            Err(e) => warn!("replay query failed: {e}"),
-                        }
-                    } else {
-                        info!("hello received but store disabled");
-                    }
+                Ok(RoomClientFrame::ConsumeInvite {
+                    code,
+                    signature_over_token,
+                }) => {
+                    handle_consume_invite(&state, &me, &code, &signature_over_token, &tx).await;
                 }
-                Err(e) => warn!("invalid frame from {username}: {e}"),
+                Ok(RoomClientFrame::Subscribe {
+                    room_id,
+                    since_message_id,
+                }) => {
+                    handle_subscribe(&state, &me, &room_id, since_message_id.as_deref(), &tx).await;
+                }
+                Ok(RoomClientFrame::Send {
+                    room_id,
+                    body,
+                    client_msg_id: _,
+                }) => {
+                    handle_send(&state, &me, &room_id, &body, &tx).await;
+                }
+                Err(e) => warn!("invalid frame from {}: {e}", me.username),
             }
         }
     }
 
-    state.routing.unregister(&username).await;
+    state.routing.unregister(&me.username, &tx).await;
     outbound.abort();
-    info!(%username, "client disconnected");
+    info!(username = %me.username, "client disconnected");
+}
+
+fn send_error(tx: &mpsc::UnboundedSender<RoomServerFrame>, code: &str, message: &str) {
+    let _ = tx.send(RoomServerFrame::Error {
+        code: code.to_string(),
+        message: message.to_string(),
+    });
+}
+
+async fn handle_create_invite(
+    state: &AppState,
+    me: &AccountRecord,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => {
+            send_error(tx, "Internal", "store unavailable");
+            return;
+        }
+    };
+
+    match is_paired(store.pool(), me.id).await {
+        Ok(true) => {
+            send_error(tx, error_codes::ALREADY_PAIRED, "");
+            return;
+        }
+        Ok(false) => {}
+        Err(e) => {
+            warn!("is_paired failed: {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+    }
+
+    let (canonical, code, hash) = generate_invite();
+    let expires_at = default_expiry(Utc::now());
+    if let Err(e) = create_invite_record(store.pool(), me.id, &hash, expires_at).await {
+        warn!("create_invite_record failed: {e}");
+        send_error(tx, "Internal", "");
+        return;
+    }
+    let qr_png_base64 = match qr_png_base64(&code) {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("qr render failed: {e}");
+            String::new()
+        }
+    };
+    // The canonical bytes don't escape into the reply (they're recoverable
+    // from the code via decode_code); silence the unused-var lint.
+    let _ = canonical;
+    let _ = tx.send(RoomServerFrame::InviteCreated {
+        code,
+        qr_png_base64,
+        expires_at,
+    });
+}
+
+async fn handle_consume_invite(
+    state: &AppState,
+    me: &AccountRecord,
+    code: &str,
+    signature_over_token_b64: &str,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => {
+            send_error(tx, "Internal", "store unavailable");
+            return;
+        }
+    };
+
+    let canonical = match decode_code(code) {
+        Ok(t) => t,
+        Err(_) => {
+            send_error(tx, error_codes::BAD_CODE, "");
+            return;
+        }
+    };
+    let token_hash = sha256(&canonical);
+
+    let invite = match lookup_invite(store.pool(), &token_hash).await {
+        Ok(Some(i)) => i,
+        Ok(None) => {
+            send_error(tx, error_codes::INVITE_NOT_FOUND, "");
+            return;
+        }
+        Err(e) => {
+            warn!("lookup_invite failed: {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+    };
+
+    match invite.state(Utc::now()) {
+        InviteState::Expired => {
+            send_error(tx, error_codes::INVITE_EXPIRED, "");
+            return;
+        }
+        InviteState::Consumed => {
+            send_error(tx, error_codes::INVITE_CONSUMED, "");
+            return;
+        }
+        InviteState::Pending => {}
+    }
+
+    // The signature is over the canonical 32-byte token using me's Ed25519
+    // private key; verify against me's stored public key.
+    let sig_bytes = match decode_b64(signature_over_token_b64) {
+        Ok(b) => b,
+        Err(_) => {
+            send_error(tx, error_codes::INVALID_SIGNATURE, "");
+            return;
+        }
+    };
+    if verify_invite_consume_signature(&me.ed25519_pub, &canonical, &sig_bytes).is_err() {
+        send_error(tx, error_codes::INVALID_SIGNATURE, "");
+        return;
+    }
+
+    let inviter = match lookup_full_account_by_id(store, invite.inviter_id).await {
+        Ok(Some(a)) => a,
+        _ => {
+            send_error(tx, error_codes::INVITE_NOT_FOUND, "");
+            return;
+        }
+    };
+
+    // Refuse self-pairing — the same account cannot consume its own invite.
+    if inviter.id == me.id {
+        send_error(tx, error_codes::ALREADY_PAIRED, "self-invite");
+        return;
+    }
+
+    let room_id = match create_room_with_members(store.pool(), inviter.id, me.id).await {
+        Ok(id) => id,
+        Err(CreateRoomError::AlreadyPaired(_)) => {
+            send_error(tx, error_codes::ALREADY_PAIRED, "");
+            return;
+        }
+        Err(CreateRoomError::Db(e)) => {
+            warn!("create_room_with_members failed: {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+    };
+
+    if let Err(e) = mark_consumed(store.pool(), &token_hash, Utc::now()).await {
+        warn!("mark_consumed failed: {e}");
+        // Already-committed room creation is the source of truth; don't roll back.
+    }
+
+    let consumer_desc = RoomDescriptor {
+        room_id: room_id.clone(),
+        peer_username: inviter.username.clone(),
+        peer_ed25519_pub: B64.encode(&inviter.ed25519_pub),
+        peer_x25519_pub: B64.encode(&inviter.x25519_pub),
+    };
+    let _ = tx.send(RoomServerFrame::InviteConsumed(consumer_desc));
+
+    // Push RoomCreated to all of the inviter's open sessions (spec §4.1 step 11).
+    let inviter_desc = RoomDescriptor {
+        room_id,
+        peer_username: me.username.clone(),
+        peer_ed25519_pub: B64.encode(&me.ed25519_pub),
+        peer_x25519_pub: B64.encode(&me.x25519_pub),
+    };
+    let delivered = state
+        .routing
+        .deliver(
+            &inviter.username,
+            RoomServerFrame::RoomCreated(inviter_desc),
+        )
+        .await;
+    if delivered == 0 {
+        info!(
+            "RoomCreated for {} queued only — no sessions online (will surface on next connect via Rooms)",
+            inviter.username
+        );
+    }
+}
+
+async fn handle_subscribe(
+    state: &AppState,
+    me: &AccountRecord,
+    room_id: &str,
+    since_message_id: Option<&str>,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => {
+            send_error(tx, "Internal", "store unavailable");
+            return;
+        }
+    };
+    match is_member(store.pool(), room_id, me.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            send_error(tx, error_codes::UNKNOWN_ROOM, "");
+            return;
+        }
+        Err(e) => {
+            warn!("is_member failed: {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+    }
+    let rows = match store.messages_for_room(room_id, since_message_id).await {
+        Ok(rs) => rs,
+        Err(e) => {
+            warn!("messages_for_room failed: {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+    };
+    for row in rows {
+        // Resolve from_account_id → username for the wire `from` field.
+        let from_username = match lookup_full_account_by_id(store, row.from_account_id).await {
+            Ok(Some(a)) => a.username,
+            _ => continue,
+        };
+        let _ = tx.send(RoomServerFrame::Message {
+            id: row.id,
+            room_id: row.room_id,
+            from: from_username,
+            ts: row.ts,
+            body: row.body,
+            replayed: true,
+        });
+    }
+}
+
+async fn handle_send(
+    state: &AppState,
+    me: &AccountRecord,
+    room_id: &str,
+    body: &str,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => {
+            send_error(tx, "Internal", "store unavailable");
+            return;
+        }
+    };
+    match is_member(store.pool(), room_id, me.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            send_error(tx, error_codes::UNKNOWN_ROOM, "");
+            return;
+        }
+        Err(e) => {
+            warn!("is_member failed: {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+    }
+
+    let id = Ulid::new().to_string();
+    let ts = Utc::now();
+    let row = MessageRow {
+        id: id.clone(),
+        room_id: room_id.to_string(),
+        from_account_id: me.id,
+        body: body.to_string(),
+        ts,
+    };
+    if let Err(e) = store.insert(row).await {
+        warn!("store.insert failed: {e}");
+        send_error(tx, "Internal", "");
+        return;
+    }
+
+    // Fan-out to every member's open sessions (including the sender — clients
+    // get a server-confirmed copy of their own message rather than relying on
+    // optimistic local echo).
+    let members = match member_usernames(store.pool(), room_id).await {
+        Ok(m) => m,
+        Err(e) => {
+            warn!("member_usernames failed: {e}");
+            return;
+        }
+    };
+    let frame = RoomServerFrame::Message {
+        id,
+        room_id: room_id.to_string(),
+        from: me.username.clone(),
+        ts,
+        body: body.to_string(),
+        replayed: false,
+    };
+    for username in members {
+        state.routing.deliver(&username, frame.clone()).await;
+    }
+}
+
+// `account_id_by_username` is used by integration tests + the REST preview
+// handler; keep a `use` here so the symbol is reachable across the crate.
+#[allow(dead_code)]
+fn _ensure_account_id_lookup_is_used() {
+    let _ = account_id_by_username;
 }

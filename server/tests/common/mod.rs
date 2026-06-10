@@ -11,7 +11,8 @@ use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use futures::{SinkExt, StreamExt};
 use littlelove_api::{
     accounts::{create_account, get_account_by_username},
-    auth::challenge_signing_input,
+    auth::{challenge_signing_input, invite_consume_signing_input},
+    invites::preview_invite,
     routing::Routing,
     store::Store,
     ws::{ws_handler, AppState},
@@ -29,14 +30,21 @@ pub fn db_url() -> String {
 
 pub async fn fresh_store() -> Store {
     let store = Store::connect(&db_url()).await.expect("connect");
-    sqlx::query("TRUNCATE TABLE accounts RESTART IDENTITY CASCADE")
-        .execute(store.pool())
-        .await
-        .expect("truncate accounts");
-    sqlx::query("TRUNCATE TABLE messages")
-        .execute(store.pool())
-        .await
-        .expect("truncate messages");
+    // Order matters: messages and room_members FK rooms; invites FK accounts.
+    // Truncate the dependent tables first, then the parents, with CASCADE on
+    // accounts and rooms to catch anything we missed.
+    for table in [
+        "TRUNCATE TABLE messages",
+        "TRUNCATE TABLE room_members",
+        "TRUNCATE TABLE rooms CASCADE",
+        "TRUNCATE TABLE invites",
+        "TRUNCATE TABLE accounts RESTART IDENTITY CASCADE",
+    ] {
+        sqlx::query(table)
+            .execute(store.pool())
+            .await
+            .unwrap_or_else(|e| panic!("{table}: {e}"));
+    }
     store
 }
 
@@ -51,6 +59,7 @@ pub fn build_app(store: Option<Store>) -> Router {
             "/accounts/by-username/:username",
             get(get_account_by_username),
         )
+        .route("/invites/:code/preview", post(preview_invite))
         .route("/ws", get(ws_handler))
         .with_state(state)
 }
@@ -83,14 +92,47 @@ pub fn sign_nonce_b64(sk: &SigningKey, nonce: &[u8]) -> String {
 }
 
 /// Insert an account row directly via SQL (skips REST round-trip).
+/// `x25519_pub` is filled with deterministic bytes derived from the username
+/// so room peers have distinguishable x25519_pubs in the wire output.
 pub async fn insert_account(store: &Store, username: &str, vk: &VerifyingKey) {
+    let mut x = [0u8; 32];
+    for (i, b) in username.bytes().enumerate().take(32) {
+        x[i] = b;
+    }
     sqlx::query("INSERT INTO accounts (username, ed25519_pub, x25519_pub) VALUES ($1, $2, $3)")
         .bind(username)
         .bind(vk.to_bytes().to_vec())
-        .bind(vec![0u8; 32]) // x25519 not exercised in WT-A
+        .bind(x.to_vec())
         .execute(store.pool())
         .await
         .unwrap();
+}
+
+/// Sign the **domain-separated** ConsumeInvite input (spec §8.5.1) over the
+/// canonical 32-byte token. Returns base64 of the signature.
+pub fn sign_invite_consume_b64(sk: &SigningKey, canonical_token: &[u8]) -> String {
+    let input = invite_consume_signing_input(canonical_token);
+    let sig = sk.sign(&input).to_bytes();
+    B64.encode(sig)
+}
+
+/// Read a single WS text frame as JSON. Panics if the next item is not text.
+pub async fn next_frame(sock: &mut Ws) -> serde_json::Value {
+    let next = sock.next().await.expect("stream open").expect("recv ok");
+    let text = match next {
+        WsMessage::Text(t) => t,
+        other => panic!("expected text, got {other:?}"),
+    };
+    serde_json::from_str(&text).expect("valid JSON")
+}
+
+/// Consume the immediate post-Authenticated `Rooms` frame (which every
+/// handshake_as session receives). Tests use this to skip past it before
+/// awaiting handler-specific responses.
+pub async fn drain_rooms(sock: &mut Ws) -> serde_json::Value {
+    let v = next_frame(sock).await;
+    assert_eq!(v["kind"], "Rooms", "expected initial Rooms frame, got {v}");
+    v
 }
 
 /// Open a WS connection and complete the Challenge → Identify → Authenticated handshake.

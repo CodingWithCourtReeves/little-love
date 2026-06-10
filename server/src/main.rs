@@ -41,6 +41,10 @@ async fn main() -> Result<()> {
             "/accounts/by-username/:username",
             get(littlelove_api::accounts::get_account_by_username),
         )
+        .route(
+            "/invites/:code/preview",
+            axum::routing::post(littlelove_api::invites::preview_invite),
+        )
         .route("/ws", get(ws_handler))
         .with_state(state);
 

@@ -147,6 +147,53 @@ pub async fn lookup_ed25519_pub(
     Ok(row.map(|(b,)| b))
 }
 
+/// Full account record needed by post-handshake handlers (CreateInvite,
+/// ConsumeInvite, Subscribe, Send).
+#[derive(Debug, Clone)]
+pub struct AccountRecord {
+    pub id: i64,
+    pub username: String,
+    pub ed25519_pub: Vec<u8>,
+    pub x25519_pub: Vec<u8>,
+}
+
+/// Fetch the full account record by username. None if no such account.
+pub async fn lookup_full_account(
+    store: &crate::store::Store,
+    username: &str,
+) -> sqlx::Result<Option<AccountRecord>> {
+    let row: Option<(i64, Vec<u8>, Vec<u8>)> =
+        sqlx::query_as("SELECT id, ed25519_pub, x25519_pub FROM accounts WHERE username = $1")
+            .bind(username)
+            .fetch_optional(store.pool())
+            .await?;
+    Ok(row.map(|(id, ed, x)| AccountRecord {
+        id,
+        username: username.to_string(),
+        ed25519_pub: ed,
+        x25519_pub: x,
+    }))
+}
+
+/// Fetch the full account record by integer id. Used by ConsumeInvite to
+/// look up the inviter once the invite row resolves.
+pub async fn lookup_full_account_by_id(
+    store: &crate::store::Store,
+    account_id: i64,
+) -> sqlx::Result<Option<AccountRecord>> {
+    let row: Option<(String, Vec<u8>, Vec<u8>)> =
+        sqlx::query_as("SELECT username, ed25519_pub, x25519_pub FROM accounts WHERE id = $1")
+            .bind(account_id)
+            .fetch_optional(store.pool())
+            .await?;
+    Ok(row.map(|(username, ed, x)| AccountRecord {
+        id: account_id,
+        username,
+        ed25519_pub: ed,
+        x25519_pub: x,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

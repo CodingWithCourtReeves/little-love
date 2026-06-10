@@ -1,0 +1,42 @@
+[
+  {
+    "n44_hex": "00000000000",
+    "canonical_token_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+    "code": "abandon-abandon-abandon-abandon"
+  },
+  {
+    "n44_hex": "fffffffffff",
+    "canonical_token_hex": "fffffffffff00000000000000000000000000000000000000000000000000000",
+    "code": "zoo-zoo-zoo-zoo"
+  },
+  {
+    "n44_hex": "05555555555",
+    "canonical_token_hex": "0555555555500000000000000000000000000000000000000000000000000000",
+    "code": "aim-primary-fetch-primary"
+  },
+  {
+    "n44_hex": "0aaaaaaaaaa",
+    "canonical_token_hex": "0aaaaaaaaaa00000000000000000000000000000000000000000000000000000",
+    "code": "apple-fetch-primary-fetch"
+  },
+  {
+    "n44_hex": "0123456789a",
+    "canonical_token_hex": "0123456789a00000000000000000000000000000000000000000000000000000",
+    "code": "abuse-boss-fly-battle"
+  },
+  {
+    "n44_hex": "0fedcba9876",
+    "canonical_token_hex": "0fedcba987600000000000000000000000000000000000000000000000000000",
+    "code": "avocado-hour-tuna-attract"
+  },
+  {
+    "n44_hex": "00000000001",
+    "canonical_token_hex": "0000000000100000000000000000000000000000000000000000000000000000",
+    "code": "abandon-abandon-abandon-ability"
+  },
+  {
+    "n44_hex": "08000000000",
+    "canonical_token_hex": "0800000000000000000000000000000000000000000000000000000000000000",
+    "code": "amount-abandon-abandon-abandon"
+  }
+]
