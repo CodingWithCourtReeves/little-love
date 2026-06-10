@@ -20,6 +20,16 @@ pub const CHALLENGE_DOMAIN_TAG: &[u8] = b"littlelove.v0.2.challenge";
 /// (30 ASCII bytes + 1 NUL delimiter + 32 canonical token bytes = 63 bytes).
 pub const INVITE_CONSUME_DOMAIN_TAG: &[u8] = b"littlelove.v0.2.invite-consume";
 
+/// Domain-separation tag for `POST /accounts/bot` (spec v0.3 §4.1 + §8.3).
+/// Signed input: `BOT_REGISTER_DOMAIN_TAG || 0x00 || bot_ed25519_pub`
+/// (28 ASCII bytes + 1 NUL delimiter + 32 pubkey bytes = 61 bytes).
+pub const BOT_REGISTER_DOMAIN_TAG: &[u8] = b"littlelove.v0.3.bot-register";
+
+/// Domain-separation tag for `DELETE /accounts/bot/{label}` (spec v0.3 §4.x).
+/// Signed input: `BOT_DELETE_DOMAIN_TAG || 0x00 || label_utf8`
+/// (26 ASCII bytes + 1 NUL delimiter + label length).
+pub const BOT_DELETE_DOMAIN_TAG: &[u8] = b"littlelove.v0.3.bot-delete";
+
 fn signing_input(tag: &[u8], payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(tag.len() + 1 + payload.len());
     out.extend_from_slice(tag);
@@ -109,6 +119,38 @@ pub fn verify_invite_consume_signature(
     signature: &[u8],
 ) -> Result<(), AuthError> {
     verify_domain_separated(pub_key, &invite_consume_signing_input(token), signature)
+}
+
+/// Build the domain-separated signing input for `POST /accounts/bot`.
+pub fn bot_register_signing_input(bot_ed25519_pub: &[u8]) -> Vec<u8> {
+    signing_input(BOT_REGISTER_DOMAIN_TAG, bot_ed25519_pub)
+}
+
+/// Build the domain-separated signing input for `DELETE /accounts/bot/{label}`.
+pub fn bot_delete_signing_input(label: &[u8]) -> Vec<u8> {
+    signing_input(BOT_DELETE_DOMAIN_TAG, label)
+}
+
+/// Verify an owner's signature authorising a bot registration.
+pub fn verify_bot_register_signature(
+    owner_pub: &[u8],
+    bot_ed25519_pub: &[u8],
+    signature: &[u8],
+) -> Result<(), AuthError> {
+    verify_domain_separated(
+        owner_pub,
+        &bot_register_signing_input(bot_ed25519_pub),
+        signature,
+    )
+}
+
+/// Verify an owner's signature authorising a bot deletion.
+pub fn verify_bot_delete_signature(
+    owner_pub: &[u8],
+    label: &[u8],
+    signature: &[u8],
+) -> Result<(), AuthError> {
+    verify_domain_separated(owner_pub, &bot_delete_signing_input(label), signature)
 }
 
 #[cfg(test)]
@@ -266,5 +308,70 @@ mod tests {
         let bytes = [0u8, 1, 2, 254, 255];
         let s = encode_b64(&bytes);
         assert_eq!(decode_b64(&s).unwrap(), bytes);
+    }
+
+    #[test]
+    fn bot_register_signing_input_has_expected_layout() {
+        let pk = [0xAAu8; 32];
+        let input = bot_register_signing_input(&pk);
+        // 28 ASCII bytes (tag) + 1 NUL + 32 pubkey bytes = 61.
+        assert_eq!(input.len(), 61);
+        assert_eq!(&input[..28], BOT_REGISTER_DOMAIN_TAG);
+        assert_eq!(input[28], 0u8);
+        assert_eq!(&input[29..], &pk[..]);
+    }
+
+    #[test]
+    fn bot_delete_signing_input_has_expected_layout() {
+        let label = b"garden";
+        let input = bot_delete_signing_input(label);
+        // 26 ASCII bytes (tag) + 1 NUL + 6 label bytes = 33.
+        assert_eq!(input.len(), 26 + 1 + label.len());
+        assert_eq!(&input[..26], BOT_DELETE_DOMAIN_TAG);
+        assert_eq!(input[26], 0u8);
+        assert_eq!(&input[27..], &label[..]);
+    }
+
+    #[test]
+    fn verify_bot_register_accepts_valid_sig() {
+        let owner = SigningKey::generate(&mut OsRng);
+        let bot_pk = [0x42u8; 32];
+        let sig = owner.sign(&bot_register_signing_input(&bot_pk)).to_bytes();
+        let owner_pk = owner.verifying_key().to_bytes();
+        assert!(verify_bot_register_signature(&owner_pk, &bot_pk, &sig).is_ok());
+    }
+
+    #[test]
+    fn verify_bot_register_rejects_cross_domain_sig() {
+        // Signing with the Challenge tag over the same payload must fail —
+        // domain separation enforces context (spec §8.5.1).
+        let owner = SigningKey::generate(&mut OsRng);
+        let bot_pk = [0x42u8; 32];
+        let cross = owner.sign(&challenge_signing_input(&bot_pk)).to_bytes();
+        let owner_pk = owner.verifying_key().to_bytes();
+        assert_eq!(
+            verify_bot_register_signature(&owner_pk, &bot_pk, &cross),
+            Err(AuthError::Mismatch)
+        );
+    }
+
+    #[test]
+    fn verify_bot_delete_accepts_valid_sig() {
+        let owner = SigningKey::generate(&mut OsRng);
+        let label = b"journal";
+        let sig = owner.sign(&bot_delete_signing_input(label)).to_bytes();
+        let owner_pk = owner.verifying_key().to_bytes();
+        assert!(verify_bot_delete_signature(&owner_pk, label, &sig).is_ok());
+    }
+
+    #[test]
+    fn verify_bot_delete_rejects_wrong_label() {
+        let owner = SigningKey::generate(&mut OsRng);
+        let sig = owner.sign(&bot_delete_signing_input(b"garden")).to_bytes();
+        let owner_pk = owner.verifying_key().to_bytes();
+        assert_eq!(
+            verify_bot_delete_signature(&owner_pk, b"journal", &sig),
+            Err(AuthError::Mismatch)
+        );
     }
 }
