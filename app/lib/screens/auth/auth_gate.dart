@@ -8,7 +8,7 @@ import '../../identity/bip39.dart';
 import '../../identity/keypair.dart';
 import '../../identity/providers.dart';
 import '../../wire/rest_client.dart';
-import 'home_placeholder.dart';
+import '../inbox/inbox_shell.dart';
 import 'recovery_confirm.dart';
 import 'signin.dart';
 import 'signup.dart';
@@ -31,7 +31,7 @@ class AuthGate extends ConsumerWidget {
         ),
       ),
       data: (acc) =>
-          acc == null ? const _ChoiceScreen() : HomePlaceholder(account: acc),
+          acc == null ? const _ChoiceScreen() : InboxShell(account: acc),
     );
   }
 }

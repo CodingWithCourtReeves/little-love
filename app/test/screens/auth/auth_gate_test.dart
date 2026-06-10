@@ -36,7 +36,7 @@ void main() {
     expect(find.text('Sign in with recovery phrase'), findsOneWidget);
   });
 
-  testWidgets('populated account renders the home placeholder', (tester) async {
+  testWidgets('populated account renders the inbox shell', (tester) async {
     final acc = LocalAccount(
       username: 'court',
       ed25519PubBase64: 'AAAA',
@@ -52,7 +52,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('@court'), findsOneWidget);
-    expect(find.textContaining('Inbox coming soon'), findsOneWidget);
+    // InboxShell renders the empty-rooms placeholder when no rooms are
+    // registered (the default state until WT-D or the demo fixtures wire
+    // rooms in).
+    expect(find.textContaining('No conversations yet'), findsOneWidget);
   });
 }
