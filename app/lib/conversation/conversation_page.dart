@@ -513,87 +513,86 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
           const _SendIntent(),
     };
     return TapRegion(
-      onTapOutside: (_) =>
-          FocusManager.instance.primaryFocus?.unfocus(),
+      onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
       child: Container(
         color: TwilightColors.bgSurface,
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          CompositedTransformTarget(
-            link: _emojiLink,
-            child: OverlayPortal(
-              controller: _emojiOverlay,
-              overlayChildBuilder: (_) => Positioned(
-                width: 340,
-                child: CompositedTransformFollower(
-                  link: _emojiLink,
-                  targetAnchor: Alignment.topLeft,
-                  followerAnchor: Alignment.bottomLeft,
-                  offset: const Offset(0, -8),
-                  child: _emojiPanel(),
-                ),
-              ),
-              child: TapRegion(
-                groupId: _emojiTapGroup,
-                child: IconButton(
-                  key: const Key('emoji-toggle'),
-                  onPressed: _toggleEmojiPicker,
-                  icon: Icon(
-                    _emojiOverlay.isShowing
-                        ? Icons.keyboard_alt_outlined
-                        : Icons.emoji_emotions_outlined,
-                    color: TwilightColors.textMuted,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            CompositedTransformTarget(
+              link: _emojiLink,
+              child: OverlayPortal(
+                controller: _emojiOverlay,
+                overlayChildBuilder: (_) => Positioned(
+                  width: 340,
+                  child: CompositedTransformFollower(
+                    link: _emojiLink,
+                    targetAnchor: Alignment.topLeft,
+                    followerAnchor: Alignment.bottomLeft,
+                    offset: const Offset(0, -8),
+                    child: _emojiPanel(),
                   ),
-                  tooltip: _emojiOverlay.isShowing
-                      ? 'Close emoji picker'
-                      : 'Emoji',
+                ),
+                child: TapRegion(
+                  groupId: _emojiTapGroup,
+                  child: IconButton(
+                    key: const Key('emoji-toggle'),
+                    onPressed: _toggleEmojiPicker,
+                    icon: Icon(
+                      _emojiOverlay.isShowing
+                          ? Icons.keyboard_alt_outlined
+                          : Icons.emoji_emotions_outlined,
+                      color: TwilightColors.textMuted,
+                    ),
+                    tooltip: _emojiOverlay.isShowing
+                        ? 'Close emoji picker'
+                        : 'Emoji',
+                  ),
                 ),
               ),
             ),
-          ),
-          Expanded(
-            child: Shortcuts(
-              shortcuts: shortcuts,
-              child: Actions(
-                actions: {
-                  _SendIntent: CallbackAction<_SendIntent>(
-                    onInvoke: (_) {
-                      _submitFromIntent();
-                      return null;
-                    },
-                  ),
-                },
-                child: TextField(
-                  key: const Key('composer'),
-                  controller: _controller,
-                  minLines: 1,
-                  maxLines: 8,
-                  keyboardType: TextInputType.multiline,
-                  textInputAction: TextInputAction.newline,
-                  decoration: InputDecoration(
-                    hintText:
-                        'Message ${widget.contactDisplayName}'
-                        '   ·   ⌘↵ to send',
-                    filled: true,
-                    fillColor: TwilightColors.bgSurfaceAlt,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
+            Expanded(
+              child: Shortcuts(
+                shortcuts: shortcuts,
+                child: Actions(
+                  actions: {
+                    _SendIntent: CallbackAction<_SendIntent>(
+                      onInvoke: (_) {
+                        _submitFromIntent();
+                        return null;
+                      },
+                    ),
+                  },
+                  child: TextField(
+                    key: const Key('composer'),
+                    controller: _controller,
+                    minLines: 1,
+                    maxLines: 8,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
+                    decoration: InputDecoration(
+                      hintText:
+                          'Message ${widget.contactDisplayName}'
+                          '   ·   ⌘↵ to send',
+                      filled: true,
+                      fillColor: TwilightColors.bgSurfaceAlt,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          IconButton(
-            onPressed: () => _handleSubmit(_controller.text),
-            icon: const Icon(Icons.send, color: TwilightColors.accentUser),
-          ),
-        ],
-      ),
+            const SizedBox(width: 12),
+            IconButton(
+              onPressed: () => _handleSubmit(_controller.text),
+              icon: const Icon(Icons.send, color: TwilightColors.accentUser),
+            ),
+          ],
+        ),
       ),
     );
   }
