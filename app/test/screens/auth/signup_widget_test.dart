@@ -38,28 +38,60 @@ void main() {
     },
   );
 
-  testWidgets('tapping Create shows exactly 12 numbered words', (tester) async {
-    String? capturedUser;
-    String? capturedPhrase;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SignupScreen(
-          onPhraseReady: (u, p) {
-            capturedUser = u;
-            capturedPhrase = p;
-          },
+  testWidgets(
+    'tapping Create shows exactly 12 numbered words without firing onPhraseReady',
+    (tester) async {
+      String? capturedUser;
+      String? capturedPhrase;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SignupScreen(
+            onPhraseReady: (u, p) {
+              capturedUser = u;
+              capturedPhrase = p;
+            },
+          ),
         ),
-      ),
-    );
-    await tester.enterText(find.byType(TextField), 'court');
-    await tester.pump();
-    await tester.tap(find.byType(FilledButton));
-    await tester.pumpAndSettle();
-    for (var i = 1; i <= 12; i++) {
-      expect(find.textContaining('$i.'), findsWidgets);
-    }
-    expect(capturedUser, 'court');
-    expect(capturedPhrase, isNotNull);
-    expect(capturedPhrase!.split(' ').length, 12);
-  });
+      );
+      await tester.enterText(find.byType(TextField), 'court');
+      await tester.pump();
+      await tester.tap(find.byType(FilledButton));
+      await tester.pumpAndSettle();
+      for (var i = 1; i <= 12; i++) {
+        expect(find.textContaining('$i.'), findsWidgets);
+      }
+      // onPhraseReady must NOT fire until the user confirms they've saved
+      // the phrase (spec §3.1 step 6).
+      expect(capturedUser, isNull);
+      expect(capturedPhrase, isNull);
+    },
+  );
+
+  testWidgets(
+    "tapping 'I've saved these words' fires onPhraseReady with the phrase",
+    (tester) async {
+      String? capturedUser;
+      String? capturedPhrase;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SignupScreen(
+            onPhraseReady: (u, p) {
+              capturedUser = u;
+              capturedPhrase = p;
+            },
+          ),
+        ),
+      );
+      await tester.enterText(find.byType(TextField), 'court');
+      await tester.pump();
+      await tester.tap(find.byType(FilledButton));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('phrase-saved')));
+      await tester.pumpAndSettle();
+      expect(capturedUser, 'court');
+      expect(capturedPhrase, isNotNull);
+      expect(capturedPhrase!.split(' ').length, 12);
+    },
+  );
 }
