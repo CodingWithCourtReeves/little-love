@@ -93,11 +93,3 @@ pub struct RunArgs {
     #[arg(long)]
     pub system_prompt_file: Option<std::path::PathBuf>,
 }
-
-impl RunArgs {
-    /// Best-effort character name for summary prompts. Falls back to None;
-    /// callers can default to "bot".
-    pub fn character_name(&self) -> Option<&str> {
-        None
-    }
-}

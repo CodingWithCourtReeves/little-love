@@ -1,6 +1,7 @@
 //! `run` subcommand: subscribe to the room, decrypt inbound, call LLM,
 //! encrypt + send reply, persist turns to per-room memory.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -46,6 +47,12 @@ pub async fn run(args: RunArgs) -> Result<()> {
         }
         None => None,
     };
+    // Extract the persona's name *before* moving `card` into PersonaSources so
+    // summary prompts can address the character by name instead of "bot".
+    let character_name = card
+        .as_ref()
+        .map(|c| c.data.name.clone())
+        .unwrap_or_else(|| "bot".to_string());
     let file_prompt = match &args.system_prompt_file {
         Some(p) => Some(std::fs::read_to_string(p).with_context(|| format!("read {p:?}"))?),
         None => None,
@@ -124,7 +131,7 @@ pub async fn run(args: RunArgs) -> Result<()> {
             if let Err(e) = run_summary_refresh(
                 memory.clone(),
                 llm.clone(),
-                args.character_name().unwrap_or("bot").to_string(),
+                character_name.clone(),
                 room.peer_username.clone(),
             )
             .await
@@ -133,6 +140,13 @@ pub async fn run(args: RunArgs) -> Result<()> {
             }
         }
     }
+
+    // Guard against concurrent summary refreshes. The threshold check
+    // (`needs_summary`) stays true until the summary row commits, so without
+    // this flag a burst of turns can spawn N parallel tasks that snapshot
+    // different `covers_up_to_turn_id` values and clobber each other on
+    // commit (last writer wins, possibly with a *smaller* covers value).
+    let summary_in_flight = Arc::new(AtomicBool::new(false));
 
     while let Some(inbound) = next_inbound(&mut session).await? {
         match inbound {
@@ -151,15 +165,23 @@ pub async fn run(args: RunArgs) -> Result<()> {
                 };
                 if replayed {
                     // Server is re-delivering history we've already persisted.
-                    // Skip before record_turn to avoid polluting the turn log
-                    // (and indirectly the summary) with duplicates.
+                    // Skip before record_turn so we don't duplicate user turns
+                    // in the log (and indirectly in the next summary).
+                    //
+                    // Tradeoff: if the bot crashed between receiving a live
+                    // (non-replayed) message and calling record_turn, the
+                    // server's replay on next start is the only way to
+                    // recover those turns — but this skip drops them too.
+                    // Acceptable for v0.3; a content-aware dedup (per-room
+                    // last-persisted ts or message-id) would let us trust
+                    // replays without double-writing.
                     continue;
                 }
                 let text = String::from_utf8_lossy(&plain).into_owned();
-                {
-                    let mut m = memory.lock().await;
-                    m.record_turn(Role::User, &text)?;
-                }
+                // Assemble the prompt BEFORE recording the user turn, otherwise
+                // assemble_prompt pulls the just-recorded turn into `recent` AND
+                // appends `latest_user_msg` again, so the LLM sees the same
+                // message twice. record_turn happens after the LLM call.
                 let msgs = {
                     let m = memory.lock().await;
                     m.assemble_prompt(
@@ -170,30 +192,48 @@ pub async fn run(args: RunArgs) -> Result<()> {
                         args.max_context_chars,
                     )?
                 };
-                let reply_text = match llm.chat(&msgs).await {
-                    Ok(r) => r,
+                let reply_text: Option<String> = match llm.chat(&msgs).await {
+                    Ok(r) => Some(r),
                     Err(e) => {
                         tracing::error!("LLM error: {e}");
-                        format!("[llm error: {e}]")
+                        None
                     }
+                };
+                let Some(reply_text) = reply_text else {
+                    // LLM hiccuped. Tell the peer something brief so they
+                    // aren't left hanging, but do NOT persist either turn —
+                    // we never produced a real reply and don't want the
+                    // error or this exchange leaking into the next summary
+                    // as if it were real conversation.
+                    let fallback = "(having trouble right now — try again in a moment)";
+                    let wire = aead::encrypt_wire(&room_key, fallback.as_bytes())?;
+                    send_message(&mut session, &room.room_id, &wire).await?;
+                    continue;
                 };
                 {
                     let mut m = memory.lock().await;
+                    m.record_turn(Role::User, &text)?;
                     m.record_turn(Role::Assistant, &reply_text)?;
                 }
                 let wire = aead::encrypt_wire(&room_key, reply_text.as_bytes())?;
                 send_message(&mut session, &room.room_id, &wire).await?;
 
                 let trigger = { memory.lock().await.needs_summary(args.summary_every)? };
-                if trigger {
+                // Only spawn if no other refresh is in flight. swap returns
+                // the previous value: if it was false we won the race (and
+                // it's now true); if it was true another task already owns
+                // the slot and we skip.
+                if trigger && !summary_in_flight.swap(true, Ordering::SeqCst) {
                     let mem_c = memory.clone();
                     let llm_c = llm.clone();
-                    let char_name = args.character_name().unwrap_or("bot").to_string();
+                    let char_name = character_name.clone();
                     let peer = room.peer_username.clone();
+                    let flag = summary_in_flight.clone();
                     tokio::spawn(async move {
                         if let Err(e) = run_summary_refresh(mem_c, llm_c, char_name, peer).await {
                             tracing::warn!("summary refresh failed: {e}");
                         }
+                        flag.store(false, Ordering::SeqCst);
                     });
                 }
             }
