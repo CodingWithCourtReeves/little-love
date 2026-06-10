@@ -149,13 +149,16 @@ pub async fn run(args: RunArgs) -> Result<()> {
                         continue;
                     }
                 };
+                if replayed {
+                    // Server is re-delivering history we've already persisted.
+                    // Skip before record_turn to avoid polluting the turn log
+                    // (and indirectly the summary) with duplicates.
+                    continue;
+                }
                 let text = String::from_utf8_lossy(&plain).into_owned();
                 {
                     let mut m = memory.lock().await;
                     m.record_turn(Role::User, &text)?;
-                }
-                if replayed {
-                    continue;
                 }
                 let msgs = {
                     let m = memory.lock().await;
