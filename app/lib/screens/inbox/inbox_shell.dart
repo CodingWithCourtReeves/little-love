@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../conversation/conversation_page.dart';
 import '../../conversation/room_key_cache.dart';
+import '../../conversation/room_message_router.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
 import '../../identity/keypair.dart';
@@ -29,6 +30,12 @@ class InboxShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Activate the router for this signed-in session. Reading the provider
+    // is enough — it stays alive while InboxShell is mounted.
+    ref.watch(liveConnectionProvider).whenData(
+      (_) => ref.watch(roomMessageRouterProvider),
+    );
+
     final inbox = ref.watch(inboxStateProvider);
     final detail = _detail(context, ref, inbox.selectedRoomId, inbox.rooms);
 
