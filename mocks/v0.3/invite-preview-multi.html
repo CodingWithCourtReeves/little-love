@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove — You've been invited</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-canvas:#F4EBEC;--bg-surface:#EBDFE2;--bg-surface-alt:#E2D3D8;
+    --text-primary:#2A1F2A;--text-muted:#7C6C78;
+    --accent-user:#A04A6A;--accent-partner:#9C7E94;--accent-familiar:#4F7A5E;
+    --border-soft:#D9C7CD;--rule-strong:#4F7A5E;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;min-height:100vh;background:var(--bg-canvas);color:var(--text-primary);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:600px;margin:0 auto;padding:56px 32px 96px}
+  .topline{display:flex;align-items:baseline;gap:12px;margin-bottom:56px}
+  .topline .dot{width:8px;height:8px;background:var(--accent-user);border-radius:50%}
+  .topline .name{font-family:'Inter Tight';font-weight:500;font-size:14px}
+  .topline .meta{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.18em;color:var(--text-muted)}
+  .step{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.22em;color:var(--accent-familiar);margin-bottom:16px}
+  h1{font-family:'Inter Tight';font-weight:500;font-size:36px;line-height:1.12;letter-spacing:-.025em;margin:0 0 12px}
+  h1 em{font-style:italic;color:var(--accent-user)}
+  .lede{font-size:15px;color:var(--text-muted);line-height:1.6;margin:0 0 40px;max-width:50ch}
+
+  .card{background:#FFFAFB;border:1px solid var(--border-soft);border-radius:2px;padding:28px 28px 32px;margin-bottom:32px}
+  .card .h{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.22em;color:var(--text-muted);margin-bottom:18px;display:flex;align-items:center;gap:10px}
+  .card .h .bar{flex:1;height:1px;background:var(--border-soft)}
+  .card .h .ct{color:var(--accent-familiar)}
+  .members{display:flex;flex-direction:column;gap:14px}
+  .m{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:14px}
+  .m .av{width:36px;height:36px;border-radius:50%;color:#FFFAFB;display:inline-flex;align-items:center;justify-content:center;font-family:'Inter Tight';font-weight:500;font-size:14px}
+  .m .av.host{background:var(--accent-user)}
+  .m .av.partner{background:var(--accent-partner)}
+  .m .av.familiar{background:var(--accent-familiar)}
+  .m .av.you{background:transparent;border:1.5px dashed var(--accent-user);color:var(--accent-user)}
+  .m .name{font-family:'Inter Tight';font-weight:500;font-size:16px;letter-spacing:-.005em}
+  .m .sub{font-size:12px;color:var(--text-muted);margin-top:2px;line-height:1.45}
+  .m .sub .role{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em}
+  .m .sub .role.host{color:var(--accent-user)}
+  .m .sub .role.familiar{color:var(--accent-familiar)}
+  .m .ts{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.12em}
+
+  .consent{padding:18px 20px;background:var(--bg-surface);border-left:2px solid var(--rule-strong);font-size:13.5px;line-height:1.6;color:var(--text-primary);margin-bottom:32px}
+  .consent strong{font-weight:600}
+  .consent .quiet{color:var(--text-muted);display:block;margin-top:6px;font-size:12px}
+
+  .actions{display:flex;align-items:center;gap:14px}
+  .btn{font-family:'Inter Tight';font-weight:500;font-size:15px;border-radius:2px;padding:14px 22px;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--text-primary)}
+  .btn.primary{background:var(--accent-user);color:#FFFAFB}
+  .btn.primary:hover{background:#8A3E5A}
+  .btn.ghost{color:var(--text-muted);border-color:var(--border-soft)}
+  .btn.ghost:hover{color:var(--text-primary);background:var(--bg-surface)}
+
+  @media (max-width:600px){
+    .wrap{padding:40px 20px 64px}
+    .topline{margin-bottom:36px}
+    h1{font-size:26px;line-height:1.15}
+    .lede{font-size:14px;margin-bottom:32px}
+    .card{padding:20px 18px 24px}
+    .m{grid-template-columns:auto 1fr;row-gap:2px}
+    .m .av{width:32px;height:32px;font-size:13px}
+    .m .name{font-size:14.5px}
+    .m .sub{font-size:11.5px}
+    .m .ts{grid-column:2;padding-top:0;font-size:9.5px}
+    .consent{padding:14px 16px;font-size:13px;margin-bottom:24px}
+    .actions{flex-wrap:wrap;gap:10px}
+    .btn{padding:12px 18px;font-size:14px}
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="topline">
+      <span class="dot"></span>
+      <span class="name">LittleLove</span>
+      <span class="meta">INVITE PREVIEW</span>
+    </header>
+
+    <div class="step">PAIRING / REVIEW MEMBERS</div>
+    <h1>Court is inviting you into a <em>chat</em>.</h1>
+    <p class="lede">Before you accept, here's everyone who'll be in the room. Membership is fixed once you join — no one can be added later without making a different chat.</p>
+
+    <div class="card">
+      <div class="h"><span>ROOM ROSTER</span><span class="bar"></span><span class="ct">3 SEATS · ALL E2EE</span></div>
+      <div class="members">
+        <div class="m">
+          <span class="av host">C</span>
+          <div>
+            <div class="name">Court</div>
+            <div class="sub"><span class="role host">HOST · YOUR PARTNER</span> · paired with you since June 9</div>
+          </div>
+          <span class="ts">IN</span>
+        </div>
+        <div class="m">
+          <span class="av familiar">G</span>
+          <div>
+            <div class="name">Garden</div>
+            <div class="sub"><span class="role familiar">FAMILIAR · COURT'S</span> · llama 3.1 8B, runs on Court's machine</div>
+          </div>
+          <span class="ts">IN</span>
+        </div>
+        <div class="m">
+          <span class="av you">K</span>
+          <div>
+            <div class="name">You<span style="font-weight:400;color:var(--text-muted)"> · Kaitlyn</span></div>
+            <div class="sub">if you accept, your device exchanges keys with the two members above</div>
+          </div>
+          <span class="ts" style="color:var(--accent-user)">JOINING</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="consent">
+      <strong>Joining means:</strong> Garden will see your messages in this chat and can reply. Garden is a local AI running on Court's computer — its replies don't leave your household, but its <em>presence</em> is up to you to accept.
+      <span class="quiet">You can leave any time. Leaving removes you from the room; messages already sent stay encrypted on the other devices.</span>
+    </div>
+
+    <div class="actions">
+      <button class="btn primary">Join chat</button>
+      <button class="btn ghost">Decline</button>
+    </div>
+  </div>
+</body>
+</html>

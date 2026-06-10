@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove — New chat: pick participants</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-canvas:#F4EBEC;--bg-surface:#EBDFE2;--bg-surface-alt:#E2D3D8;
+    --text-primary:#2A1F2A;--text-muted:#7C6C78;
+    --accent-user:#A04A6A;--accent-partner:#9C7E94;--accent-familiar:#4F7A5E;
+    --border-soft:#D9C7CD;--rule-strong:#4F7A5E;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;min-height:100vh;background:var(--bg-canvas);color:var(--text-primary);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:680px;margin:0 auto;padding:48px 32px 96px}
+  .topline{display:flex;align-items:baseline;gap:12px;margin-bottom:48px}
+  .topline .dot{width:8px;height:8px;background:var(--accent-user);border-radius:50%}
+  .topline .name{font-family:'Inter Tight';font-weight:500;font-size:14px}
+  .topline .meta{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.18em;color:var(--text-muted)}
+  .step{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.22em;color:var(--accent-familiar);margin-bottom:16px}
+  h1{font-family:'Inter Tight';font-weight:500;font-size:38px;line-height:1.1;letter-spacing:-.025em;margin:0 0 12px}
+  h1 em{font-style:italic;color:var(--accent-user)}
+  .lede{font-size:15px;color:var(--text-muted);line-height:1.6;margin:0 0 48px;max-width:54ch}
+
+  .group{margin-bottom:36px}
+  .group .ghdr{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.22em;color:var(--text-muted);display:flex;align-items:baseline;gap:12px;margin-bottom:14px}
+  .group .ghdr .num{color:var(--accent-familiar)}
+  .group .ghdr .bar{flex:1;height:1px;background:var(--border-soft)}
+  .group .hint{font-family:'Inter',sans-serif;font-size:11.5px;color:var(--text-muted);letter-spacing:0;text-transform:none}
+
+  .pick{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:14px;padding:14px 18px;background:transparent;border:1px solid var(--border-soft);border-top-width:0;cursor:pointer;transition:background 150ms ease}
+  .pick:first-of-type{border-top-width:1px}
+  .pick:hover{background:var(--bg-surface)}
+  .pick.checked{background:var(--bg-surface)}
+  .pick .av{width:32px;height:32px;border-radius:50%;color:#FFFAFB;display:inline-flex;align-items:center;justify-content:center;font-family:'Inter Tight';font-weight:500;font-size:13px}
+  .pick .av.partner{background:var(--accent-partner)}
+  .pick .av.familiar{background:var(--accent-familiar)}
+  .pick .name{font-family:'Inter Tight';font-weight:500;font-size:15px;letter-spacing:-.005em}
+  .pick .sub{font-size:12px;color:var(--text-muted);margin-top:2px}
+  .pick .sub .role{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;color:var(--accent-familiar);margin-right:6px}
+  .pick .box{width:22px;height:22px;border-radius:2px;border:1.5px solid var(--text-muted);display:inline-flex;align-items:center;justify-content:center;color:transparent}
+  .pick.checked .box{background:var(--accent-user);border-color:var(--accent-user);color:#FFFAFB}
+  .pick.checked .box svg{width:14px;height:14px}
+  .pick.disabled{opacity:.45;cursor:not-allowed}
+
+  .preview{margin:32px 0 0;padding:18px 20px;background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:2px}
+  .preview .h{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.22em;color:var(--text-muted);margin-bottom:10px}
+  .preview .members{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .preview .chip{display:inline-flex;align-items:center;gap:8px;background:var(--bg-canvas);border:1px solid var(--border-soft);border-radius:2px;padding:6px 10px 6px 6px}
+  .preview .chip .av{width:22px;height:22px;font-size:11px;border-radius:50%;color:#FFFAFB;display:inline-flex;align-items:center;justify-content:center;font-family:'Inter Tight';font-weight:500}
+  .preview .chip .av.me{background:var(--accent-user)}
+  .preview .chip .av.partner{background:var(--accent-partner)}
+  .preview .chip .av.familiar{background:var(--accent-familiar)}
+  .preview .chip .lbl{font-size:13px;font-family:'Inter Tight';font-weight:500}
+  .preview .ct{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--accent-familiar);letter-spacing:.18em;margin-left:auto}
+
+  .actions{margin-top:36px;display:flex;align-items:center;gap:14px}
+  .btn{font-family:'Inter Tight';font-weight:500;font-size:15px;letter-spacing:-.005em;border-radius:2px;padding:14px 22px;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--text-primary);transition:background 150ms ease, color 150ms ease}
+  .btn.primary{background:var(--accent-user);color:#FFFAFB}
+  .btn.primary:hover{background:#8A3E5A}
+  .btn.ghost{color:var(--text-muted);border-color:var(--border-soft)}
+  .btn.ghost:hover{color:var(--text-primary);background:var(--bg-surface)}
+  .actions .footnote{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:.12em}
+
+  @media (max-width:600px){
+    .wrap{padding:32px 20px 64px}
+    .topline{margin-bottom:32px}
+    h1{font-size:28px;line-height:1.15;max-width:none}
+    .lede{font-size:14px;margin-bottom:32px}
+    .step{margin-bottom:12px}
+    .group{margin-bottom:28px}
+    .group .ghdr{flex-wrap:wrap;gap:6px}
+    .group .ghdr .hint{font-size:11px;width:100%;margin-top:2px}
+    .pick{padding:12px 14px;gap:10px}
+    .pick .av{width:30px;height:30px;font-size:12px}
+    .pick .name{font-size:14.5px}
+    .pick .sub{font-size:11.5px}
+    .preview{padding:14px 16px}
+    .preview .members{gap:6px}
+    .preview .chip{padding:5px 8px 5px 5px;font-size:12.5px}
+    .preview .ct{display:none}
+    .actions{flex-wrap:wrap;gap:10px;margin-top:24px}
+    .btn{padding:12px 18px;font-size:14px}
+    .actions .footnote{width:100%;margin-left:0;order:-1;margin-bottom:6px}
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="topline">
+      <span class="dot"></span>
+      <span class="name">LittleLove</span>
+      <span class="meta">NEW CHAT · STEP 1 OF 2</span>
+    </header>
+
+    <div class="step">CREATE / PICK PARTICIPANTS</div>
+    <h1>Who's in this <em>chat</em>?</h1>
+    <p class="lede">You'll always be in it. Pick your partner if they should be, and any familiars you want listening. Membership is fixed once the chat is created — bring everyone you want now.</p>
+
+    <div class="group">
+      <div class="ghdr"><span class="num">01</span><span>PARTNER</span><span class="hint">one and only — your monogamous pair</span><span class="bar"></span></div>
+      <div class="pick checked">
+        <div class="av partner">K</div>
+        <div>
+          <div class="name">Kaitlyn</div>
+          <div class="sub"><span class="role">PARTNER</span>paired since June 9</div>
+        </div>
+        <div class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="ghdr"><span class="num">02</span><span>FAMILIARS</span><span class="hint">your local AI helpers — pick any combination</span><span class="bar"></span></div>
+      <div class="pick">
+        <div class="av familiar">J</div>
+        <div>
+          <div class="name">Journal</div>
+          <div class="sub"><span class="role">FAMILIAR · COURT'S</span>memory keeper · llama 3.1 8B</div>
+        </div>
+        <div class="box"></div>
+      </div>
+      <div class="pick checked">
+        <div class="av familiar">G</div>
+        <div>
+          <div class="name">Garden</div>
+          <div class="sub"><span class="role">FAMILIAR · COURT'S</span>plant-and-soil advisor · llama 3.1 8B</div>
+        </div>
+        <div class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+      </div>
+      <div class="pick">
+        <div class="av familiar">T</div>
+        <div>
+          <div class="name">Tonight</div>
+          <div class="sub"><span class="role">FAMILIAR · COURT'S</span>fridge-to-dinner planner · llama 3.1 8B</div>
+        </div>
+        <div class="box"></div>
+      </div>
+      <div class="pick disabled">
+        <div class="av familiar" style="background:transparent;border:1px dashed var(--accent-familiar);color:var(--accent-familiar)">+</div>
+        <div>
+          <div class="name" style="color:var(--text-muted);font-weight:400">Spawn a new familiar</div>
+          <div class="sub">opens the familiar setup flow</div>
+        </div>
+        <div class="box" style="border-color:var(--border-soft)"></div>
+      </div>
+    </div>
+
+    <div class="preview">
+      <div class="h">PREVIEW · THIS CHAT WILL HAVE</div>
+      <div class="members">
+        <span class="chip"><span class="av me">C</span><span class="lbl">you</span></span>
+        <span class="chip"><span class="av partner">K</span><span class="lbl">Kaitlyn</span></span>
+        <span class="chip"><span class="av familiar">G</span><span class="lbl">Garden</span></span>
+        <span class="ct">3 SEATS · ALL E2EE</span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn ghost">Cancel</button>
+      <button class="btn primary">Continue →</button>
+      <span class="footnote">⌘↵ TO CONTINUE</span>
+    </div>
+  </div>
+</body>
+</html>

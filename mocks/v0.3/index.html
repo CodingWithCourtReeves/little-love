@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove v0.3 — Group rooms with familiars (mocks)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-canvas:#F4EBEC;--bg-surface:#EBDFE2;--bg-surface-alt:#E2D3D8;
+    --text-primary:#2A1F2A;--text-muted:#7C6C78;
+    --accent-user:#A04A6A;--accent-familiar:#4F7A5E;
+    --border-soft:#D9C7CD;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg-canvas);color:var(--text-primary);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:880px;margin:0 auto;padding:72px 32px 96px}
+  .topline{display:flex;align-items:baseline;gap:12px;margin-bottom:48px}
+  .topline .dot{width:8px;height:8px;background:var(--accent-user);border-radius:50%}
+  .topline .name{font-family:'Inter Tight';font-weight:500;font-size:15px;letter-spacing:-.005em}
+  .topline .meta{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.18em;color:var(--text-muted)}
+  h1{font-family:'Inter Tight';font-weight:500;font-size:44px;line-height:1.08;letter-spacing:-.025em;margin:0 0 14px;max-width:18ch}
+  h1 em{font-style:italic;color:var(--accent-user)}
+  .lede{font-size:15px;color:var(--text-muted);line-height:1.6;max-width:60ch;margin:0 0 64px}
+  .group{margin-bottom:56px}
+  .group .ghdr{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.22em;color:var(--accent-familiar);display:flex;align-items:center;gap:12px;margin-bottom:18px}
+  .group .ghdr .bar{flex:1;height:1px;background:var(--border-soft)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1px;background:var(--border-soft);border:1px solid var(--border-soft)}
+  .card{background:var(--bg-canvas);padding:24px 22px 22px;display:flex;flex-direction:column;gap:8px;text-decoration:none;color:inherit;transition:background 150ms ease;position:relative}
+  .card:hover{background:var(--bg-surface)}
+  .card .num{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.18em;color:var(--text-muted)}
+  .card .ttl{font-family:'Inter Tight';font-weight:500;font-size:18px;letter-spacing:-.015em;line-height:1.2}
+  .card .d{font-size:13px;color:var(--text-muted);line-height:1.5;margin-top:2px}
+  .card .arrow{position:absolute;top:24px;right:22px;font-family:'Inter Tight';font-size:18px;color:var(--text-muted)}
+  .card:hover .arrow{color:var(--accent-user)}
+  .footer{margin-top:80px;font-size:12px;color:var(--text-muted);line-height:1.6;max-width:60ch;border-top:1px solid var(--border-soft);padding-top:24px}
+  .swatch{display:inline-flex;gap:6px;margin-top:8px}
+  .sw{width:14px;height:14px;border-radius:50%;border:1px solid var(--border-soft)}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="topline">
+      <span class="dot"></span>
+      <span class="name">LittleLove</span>
+      <span class="meta">v0.3 UI MOCKS · 2026-06-10</span>
+    </header>
+    <h1>Group rooms with <em>familiars</em>.</h1>
+    <p class="lede">Couples stay couples — humans pair monogamously. But a chat can include any number of local AI familiars. These mocks walk the new "create chat" flow end-to-end: host picks members, host shares an invite code if a human partner is in the mix, guest reviews the roster before joining, and the three-way conversation lands with sender-tagged bubbles.</p>
+
+    <section class="group">
+      <div class="ghdr"><span>INBOX · DAILY EXPERIENCE</span><span class="bar"></span></div>
+      <div class="grid">
+        <a class="card" href="inbox-familiars.html">
+          <span class="num">01 / 05</span>
+          <span class="ttl">inbox-familiars.html</span>
+          <span class="d">Sidebar with populated FAMILIARS section. Three rooms shown including a 3-way (Kaitlyn + Garden). Detail pane is the 3-way conversation, with sender-tagged sage / mauve / wine bubbles.</span>
+          <span class="arrow">→</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="group">
+      <div class="ghdr"><span>CREATE CHAT · HOST FLOW</span><span class="bar"></span></div>
+      <div class="grid">
+        <a class="card" href="create-chat-pick.html">
+          <span class="num">02 / 05</span>
+          <span class="ttl">create-chat-pick.html</span>
+          <span class="d">Step 1 of 2. Two checkbox sections — one partner slot, N familiars. Live preview chip row at the bottom shows the room composition before you commit.</span>
+          <span class="arrow">→</span>
+        </a>
+        <a class="card" href="create-chat-invite.html">
+          <span class="num">03 / 05</span>
+          <span class="ttl">create-chat-invite.html</span>
+          <span class="d">Step 2 of 2. 4-word invite code + QR for the human partner. Roster shows host + familiars already IN, partner PENDING. Familiars don't need a code — they join at creation.</span>
+          <span class="arrow">→</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="group">
+      <div class="ghdr"><span>JOIN CHAT · GUEST FLOW</span><span class="bar"></span></div>
+      <div class="grid">
+        <a class="card" href="invite-preview-multi.html">
+          <span class="num">04 / 05</span>
+          <span class="ttl">invite-preview-multi.html</span>
+          <span class="d">Kaitlyn sees the full roster before she taps Join. Consent is explicit about the familiars in the room — their replies stay local, but their presence is up to her.</span>
+          <span class="arrow">→</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="group">
+      <div class="ghdr"><span>SUCCESS STATE</span><span class="bar"></span></div>
+      <div class="grid">
+        <a class="card" href="conversation-three.html">
+          <span class="num">05 / 05</span>
+          <span class="ttl">conversation-three.html</span>
+          <span class="d">Full-width 3-way conversation. Sender labels above each non-self bubble; familiar bubbles take a sage tint; the composer meta line surfaces the fan-out crypto ("3 ciphertexts on send").</span>
+          <span class="arrow">→</span>
+        </a>
+      </div>
+    </section>
+
+    <div class="footer">
+      Same Twilight palette as v0.2. Sender colors map: <strong>wine</strong> = you, <strong>mauve</strong> = partner, <strong>sage</strong> = familiar — exactly the slots already defined in <code style="font-family:'JetBrains Mono',monospace">app/lib/theme/twilight.dart</code>. No new design vocabulary, just composed differently for the 3+ participant case.
+      <div class="swatch" aria-hidden="true">
+        <span class="sw" style="background:#F4EBEC" title="bgCanvas"></span>
+        <span class="sw" style="background:#EBDFE2" title="bgSurface"></span>
+        <span class="sw" style="background:#A04A6A" title="accentUser"></span>
+        <span class="sw" style="background:#9C7E94" title="accentPartner"></span>
+        <span class="sw" style="background:#4F7A5E" title="accentFamiliar"></span>
+        <span class="sw" style="background:#EFEDDF" title="bubbleFamiliarBg"></span>
+        <span class="sw" style="background:#2A1F2A" title="textPrimary"></span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
