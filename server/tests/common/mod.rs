@@ -10,7 +10,7 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use futures::{SinkExt, StreamExt};
 use littlelove_api::{
-    accounts::{create_account, get_account_by_username},
+    accounts::{create_account, create_bot_account, delete_bot_account, get_account_by_username},
     invites::preview_invite,
     routing::Routing,
     store::Store,
@@ -58,6 +58,11 @@ pub fn build_app(store: Option<Store>) -> Router {
         .route(
             "/accounts/by-username/:username",
             get(get_account_by_username),
+        )
+        .route("/accounts/bot", post(create_bot_account))
+        .route(
+            "/accounts/bot/:label",
+            axum::routing::delete(delete_bot_account),
         )
         .route("/invites/:code/preview", post(preview_invite))
         .route("/ws", get(ws_handler))
