@@ -19,21 +19,24 @@ pub fn run(args: DoctorArgs) -> Result<()> {
 
     println!("memory directory: {}", memory_dir.display());
 
+    let mut any_error = false;
     match load_identity(&id_path) {
         Ok(f) => println!("identity:         present (@{})", f.username),
         Err(e) => {
             println!("identity:         MISSING ({e})");
-            std::process::exit(2);
+            any_error = true;
         }
     }
 
     let rooms_dir = memory_dir.join("rooms");
     if !rooms_dir.exists() {
         println!("rooms:            (none — bot has not run yet)");
+        if any_error {
+            std::process::exit(2);
+        }
         return Ok(());
     }
     println!("rooms:");
-    let mut any_error = false;
     for entry in std::fs::read_dir(&rooms_dir)
         .with_context(|| format!("read {}", rooms_dir.display()))?
     {
