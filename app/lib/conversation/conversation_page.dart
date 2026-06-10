@@ -2,9 +2,12 @@ import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'theme/twilight.dart';
-import 'wire/message.dart';
+import '../identity/providers.dart';
+import '../theme/twilight.dart';
+import '../wire/message.dart';
+import 'message_store.dart';
 
 typedef SendCallback = void Function(String text);
 
@@ -31,25 +34,28 @@ class _GapItem extends _Item {
   final DateTime time;
 }
 
-class ConversationPage extends StatefulWidget {
+/// Conversation detail pane for a single room. Reads messages from
+/// `messageStoreProvider(roomId)` and the signed-in username from
+/// `accountProvider`. `onSend` is provided by the caller (inbox_shell) so
+/// the integration session can plug the real WSS send path here without
+/// re-touching the page.
+class ConversationPage extends ConsumerStatefulWidget {
   const ConversationPage({
     super.key,
-    required this.meUsername,
+    required this.roomId,
     required this.contactDisplayName,
-    required this.messages,
     required this.onSend,
   });
 
-  final String meUsername;
+  final String roomId;
   final String contactDisplayName;
-  final List<Msg> messages;
   final SendCallback onSend;
 
   @override
-  State<ConversationPage> createState() => _ConversationPageState();
+  ConsumerState<ConversationPage> createState() => _ConversationPageState();
 }
 
-class _ConversationPageState extends State<ConversationPage> {
+class _ConversationPageState extends ConsumerState<ConversationPage> {
   final _controller = TextEditingController();
   final _emojiOverlay = OverlayPortalController();
   final _emojiLink = LayerLink();
@@ -63,28 +69,8 @@ class _ConversationPageState extends State<ConversationPage> {
   @override
   void initState() {
     super.initState();
-    _prevMessageCount = widget.messages.length;
     _scrollController.addListener(_onScroll);
-    // Land at the bottom on first paint so replay history doesn't start at the top.
     SchedulerBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
-  }
-
-  @override
-  void didUpdateWidget(covariant ConversationPage old) {
-    super.didUpdateWidget(old);
-    final grew = widget.messages.length > _prevMessageCount;
-    _prevMessageCount = widget.messages.length;
-    if (!grew) return;
-
-    // Did *I* send the newest one? If so, always scroll - the user just hit send.
-    final newest = widget.messages.fold<Msg?>(
-      null,
-      (acc, m) => acc == null || m.ts.isAfter(acc.ts) ? m : acc,
-    );
-    final mine = newest?.from == widget.meUsername;
-    if (mine || _atBottom) {
-      SchedulerBinding.instance.addPostFrameCallback((_) => _animateToBottom());
-    }
   }
 
   void _onScroll() {
@@ -140,7 +126,26 @@ class _ConversationPageState extends State<ConversationPage> {
 
   @override
   Widget build(BuildContext context) {
-    final sorted = [...widget.messages]..sort((a, b) => a.ts.compareTo(b.ts));
+    final messages = ref.watch(messageStoreProvider(widget.roomId));
+    final me = ref.watch(accountProvider).valueOrNull?.username ?? '';
+
+    // React to new messages: if I sent the newest, or I was already at the
+    // bottom, animate down.
+    if (messages.length > _prevMessageCount) {
+      final newest = messages.fold<Msg?>(
+        null,
+        (acc, m) => acc == null || m.ts.isAfter(acc.ts) ? m : acc,
+      );
+      final mine = newest?.from == me;
+      if (mine || _atBottom) {
+        SchedulerBinding.instance.addPostFrameCallback(
+          (_) => _animateToBottom(),
+        );
+      }
+    }
+    _prevMessageCount = messages.length;
+
+    final sorted = [...messages]..sort((a, b) => a.ts.compareTo(b.ts));
     final items = _itemize(sorted);
     return Scaffold(
       backgroundColor: TwilightColors.bgCanvas,
@@ -167,7 +172,7 @@ class _ConversationPageState extends State<ConversationPage> {
                   itemBuilder: (_, i) {
                     final item = items[i];
                     return switch (item) {
-                      _BubbleItem(:final msg) => _bubble(msg),
+                      _BubbleItem(:final msg) => _bubble(msg, me),
                       _DayItem(:final day) => _daySeparator(day),
                       _GapItem(:final time) => _gapHeader(time),
                     };
@@ -255,8 +260,8 @@ class _ConversationPageState extends State<ConversationPage> {
     );
   }
 
-  Widget _bubble(Msg m) {
-    final mine = m.from == widget.meUsername;
+  Widget _bubble(Msg m, String me) {
+    final mine = m.from == me;
     final tip = _formatFullDateTime(m.ts.toLocal());
     if (_isEmojiOnly(m.body)) {
       return Align(
@@ -383,7 +388,6 @@ class _ConversationPageState extends State<ConversationPage> {
   }
 
   static String _formatGapHeader(DateTime t) {
-    // Just the time of day; the day separator above already establishes the date.
     return _formatTime(t);
   }
 
@@ -454,8 +458,6 @@ class _ConversationPageState extends State<ConversationPage> {
   }
 
   Widget _composer() {
-    // Cmd+Enter on Mac, Ctrl+Enter on Windows/Linux both send.
-    // Plain Enter inserts a newline, matching Slack / Discord conventions.
     final shortcuts = <ShortcutActivator, Intent>{
       const SingleActivator(LogicalKeyboardKey.enter, meta: true):
           const _SendIntent(),
