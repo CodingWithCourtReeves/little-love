@@ -21,8 +21,10 @@ pub const CHALLENGE_DOMAIN_TAG: &[u8] = b"littlelove.v0.2.challenge";
 pub const INVITE_CONSUME_DOMAIN_TAG: &[u8] = b"littlelove.v0.2.invite-consume";
 
 /// Domain-separation tag for `POST /accounts/bot` (spec v0.3 §4.1 + §8.3).
-/// Signed input: `BOT_REGISTER_DOMAIN_TAG || 0x00 || bot_ed25519_pub`
-/// (28 ASCII bytes + 1 NUL delimiter + 32 pubkey bytes = 61 bytes).
+/// Signed input: `BOT_REGISTER_DOMAIN_TAG || 0x00 || bot_ed25519_pub || bot_x25519_pub`
+/// (28 ASCII bytes + 1 NUL delimiter + 32 + 32 pubkey bytes = 93 bytes).
+/// Binding BOTH pubkeys prevents an attacker who intercepts the registration
+/// request from substituting their own x25519 key for end-to-end attacks.
 pub const BOT_REGISTER_DOMAIN_TAG: &[u8] = b"littlelove.v0.3.bot-register";
 
 /// Domain-separation tag for `DELETE /accounts/bot/{label}` (spec v0.3 §4.x).
@@ -122,8 +124,14 @@ pub fn verify_invite_consume_signature(
 }
 
 /// Build the domain-separated signing input for `POST /accounts/bot`.
-pub fn bot_register_signing_input(bot_ed25519_pub: &[u8]) -> Vec<u8> {
-    signing_input(BOT_REGISTER_DOMAIN_TAG, bot_ed25519_pub)
+/// Binds both of the bot's pubkeys so the owner's signature authorises a
+/// *specific* identity (preventing x25519 key substitution by an attacker
+/// who can intercept the registration request).
+pub fn bot_register_signing_input(bot_ed25519_pub: &[u8], bot_x25519_pub: &[u8]) -> Vec<u8> {
+    let mut combined = Vec::with_capacity(bot_ed25519_pub.len() + bot_x25519_pub.len());
+    combined.extend_from_slice(bot_ed25519_pub);
+    combined.extend_from_slice(bot_x25519_pub);
+    signing_input(BOT_REGISTER_DOMAIN_TAG, &combined)
 }
 
 /// Build the domain-separated signing input for `DELETE /accounts/bot/{label}`.
@@ -135,11 +143,12 @@ pub fn bot_delete_signing_input(label: &[u8]) -> Vec<u8> {
 pub fn verify_bot_register_signature(
     owner_pub: &[u8],
     bot_ed25519_pub: &[u8],
+    bot_x25519_pub: &[u8],
     signature: &[u8],
 ) -> Result<(), AuthError> {
     verify_domain_separated(
         owner_pub,
-        &bot_register_signing_input(bot_ed25519_pub),
+        &bot_register_signing_input(bot_ed25519_pub, bot_x25519_pub),
         signature,
     )
 }
@@ -312,13 +321,15 @@ mod tests {
 
     #[test]
     fn bot_register_signing_input_has_expected_layout() {
-        let pk = [0xAAu8; 32];
-        let input = bot_register_signing_input(&pk);
-        // 28 ASCII bytes (tag) + 1 NUL + 32 pubkey bytes = 61.
-        assert_eq!(input.len(), 61);
+        let ed = [0xAAu8; 32];
+        let x = [0xBBu8; 32];
+        let input = bot_register_signing_input(&ed, &x);
+        // 28 ASCII bytes (tag) + 1 NUL + 32 + 32 pubkey bytes = 93.
+        assert_eq!(input.len(), 93);
         assert_eq!(&input[..28], BOT_REGISTER_DOMAIN_TAG);
         assert_eq!(input[28], 0u8);
-        assert_eq!(&input[29..], &pk[..]);
+        assert_eq!(&input[29..61], &ed[..]);
+        assert_eq!(&input[61..], &x[..]);
     }
 
     #[test]
@@ -335,10 +346,13 @@ mod tests {
     #[test]
     fn verify_bot_register_accepts_valid_sig() {
         let owner = SigningKey::generate(&mut OsRng);
-        let bot_pk = [0x42u8; 32];
-        let sig = owner.sign(&bot_register_signing_input(&bot_pk)).to_bytes();
+        let bot_ed = [0x42u8; 32];
+        let bot_x = [0x43u8; 32];
+        let sig = owner
+            .sign(&bot_register_signing_input(&bot_ed, &bot_x))
+            .to_bytes();
         let owner_pk = owner.verifying_key().to_bytes();
-        assert!(verify_bot_register_signature(&owner_pk, &bot_pk, &sig).is_ok());
+        assert!(verify_bot_register_signature(&owner_pk, &bot_ed, &bot_x, &sig).is_ok());
     }
 
     #[test]
@@ -346,11 +360,30 @@ mod tests {
         // Signing with the Challenge tag over the same payload must fail —
         // domain separation enforces context (spec §8.5.1).
         let owner = SigningKey::generate(&mut OsRng);
-        let bot_pk = [0x42u8; 32];
-        let cross = owner.sign(&challenge_signing_input(&bot_pk)).to_bytes();
+        let bot_ed = [0x42u8; 32];
+        let bot_x = [0x43u8; 32];
+        let cross = owner.sign(&challenge_signing_input(&bot_ed)).to_bytes();
         let owner_pk = owner.verifying_key().to_bytes();
         assert_eq!(
-            verify_bot_register_signature(&owner_pk, &bot_pk, &cross),
+            verify_bot_register_signature(&owner_pk, &bot_ed, &bot_x, &cross),
+            Err(AuthError::Mismatch)
+        );
+    }
+
+    #[test]
+    fn verify_bot_register_rejects_x25519_substitution() {
+        // An attacker who reuses the owner's signature with a different
+        // x25519_pub must be rejected — both keys are bound.
+        let owner = SigningKey::generate(&mut OsRng);
+        let bot_ed = [0x42u8; 32];
+        let real_x = [0x43u8; 32];
+        let attacker_x = [0x99u8; 32];
+        let sig = owner
+            .sign(&bot_register_signing_input(&bot_ed, &real_x))
+            .to_bytes();
+        let owner_pk = owner.verifying_key().to_bytes();
+        assert_eq!(
+            verify_bot_register_signature(&owner_pk, &bot_ed, &attacker_x, &sig),
             Err(AuthError::Mismatch)
         );
     }

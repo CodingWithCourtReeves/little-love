@@ -24,7 +24,7 @@ async fn invite_preview_returns_room_roster_including_bots() {
         *b = 0xCC ^ (i as u8);
     }
     let sig = owner_sk
-        .sign(&bot_register_signing_input(&bot_ed))
+        .sign(&bot_register_signing_input(&bot_ed, &bot_x))
         .to_bytes();
     let body = json!({
         "owner_username":  "court",

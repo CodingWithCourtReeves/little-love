@@ -280,6 +280,17 @@ pub async fn create_bot_account(
     if owner.is_bot {
         return (StatusCode::UNAUTHORIZED, "owner must be human").into_response();
     }
+    // Enforce the canonical bot_username = "{owner}-{label}" so the owner
+    // can't be tricked into authorising a familiar that squats on another
+    // human's username namespace.
+    let canonical_bot_username = format!("{}-{}", owner.username, req.bot_label);
+    if req.bot_username != canonical_bot_username {
+        return (
+            StatusCode::BAD_REQUEST,
+            "bot_username must equal owner-label",
+        )
+            .into_response();
+    }
     let bot_ed = match decode_pubkey(&req.bot_ed25519_pub) {
         Some(b) => b,
         None => return (StatusCode::BAD_REQUEST, "bad bot_ed25519_pub").into_response(),
@@ -292,8 +303,16 @@ pub async fn create_bot_account(
         Ok(s) => s,
         Err(_) => return (StatusCode::UNAUTHORIZED, "bad signature").into_response(),
     };
-    if littlelove_crypto::sig::verify_bot_register_signature(&owner.ed25519_pub, &bot_ed, &sig)
-        .is_err()
+    // Binds both pubkeys so an attacker intercepting the request can't swap
+    // bot_x25519_pub for their own (would otherwise let them MITM the E2E
+    // channel).
+    if littlelove_crypto::sig::verify_bot_register_signature(
+        &owner.ed25519_pub,
+        &bot_ed,
+        &bot_x,
+        &sig,
+    )
+    .is_err()
     {
         return (StatusCode::UNAUTHORIZED, "signature did not verify").into_response();
     }

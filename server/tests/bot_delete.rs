@@ -14,7 +14,7 @@ async fn register_bot(addr: std::net::SocketAddr, owner_sk: &ed25519_dalek::Sign
         *b = 0xCC ^ (i as u8);
     }
     let sig = owner_sk
-        .sign(&bot_register_signing_input(&bot_ed))
+        .sign(&bot_register_signing_input(&bot_ed, &bot_x))
         .to_bytes();
     let body = json!({
         "owner_username":  "court",
@@ -75,7 +75,9 @@ async fn delete_bot_rejects_wrong_signature() {
     register_bot(addr, &owner_sk).await;
 
     let stranger = common::signing_key_from_seed([0xCC; 32]);
-    let sig = stranger.sign(&bot_delete_signing_input(b"garden")).to_bytes();
+    let sig = stranger
+        .sign(&bot_delete_signing_input(b"garden"))
+        .to_bytes();
     let resp = reqwest::Client::new()
         .delete(format!("http://{addr}/accounts/bot/garden"))
         .header("X-Owner-Username", "court")
@@ -94,9 +96,7 @@ async fn delete_bot_returns_404_when_label_unknown() {
     common::insert_account(&store, "court", &owner_sk.verifying_key()).await;
     let addr = common::spawn_server(Some(store)).await;
 
-    let sig = owner_sk
-        .sign(&bot_delete_signing_input(b"nope"))
-        .to_bytes();
+    let sig = owner_sk.sign(&bot_delete_signing_input(b"nope")).to_bytes();
     let resp = reqwest::Client::new()
         .delete(format!("http://{addr}/accounts/bot/nope"))
         .header("X-Owner-Username", "court")

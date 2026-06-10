@@ -31,7 +31,7 @@ async fn post_accounts_bot_creates_a_familiar_account() {
 
     let (bot_ed, bot_x) = bot_keys(0xBB);
     let sig = owner_sk
-        .sign(&bot_register_signing_input(&bot_ed))
+        .sign(&bot_register_signing_input(&bot_ed, &bot_x))
         .to_bytes();
 
     let body = json!({
@@ -65,7 +65,7 @@ async fn post_accounts_bot_rejects_wrong_owner_signature() {
     let stranger = common::signing_key_from_seed([0xCC; 32]);
     let (bot_ed, bot_x) = bot_keys(0xDD);
     let sig = stranger
-        .sign(&bot_register_signing_input(&bot_ed))
+        .sign(&bot_register_signing_input(&bot_ed, &bot_x))
         .to_bytes();
 
     let body = json!({
@@ -94,7 +94,7 @@ async fn post_accounts_bot_idempotent_on_same_label() {
 
     let (bot_ed, bot_x) = bot_keys(0xEE);
     let sig = owner_sk
-        .sign(&bot_register_signing_input(&bot_ed))
+        .sign(&bot_register_signing_input(&bot_ed, &bot_x))
         .to_bytes();
     let body = json!({
         "owner_username":  "court",
