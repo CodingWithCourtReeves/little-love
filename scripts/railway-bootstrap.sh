@@ -142,9 +142,17 @@ echo "Variables on $API_SERVICE_NAME:"
 railway variables --service "$API_SERVICE_NAME" || true
 echo
 echo "Next steps:"
+PROJECT_ID_FROM_STATUS="$(railway status --json 2>/dev/null \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id",""))' \
+  2>/dev/null || true)"
+
 echo "  1. Add GitHub Actions secrets:"
 echo "       gh secret set RAILWAY_TOKEN       # paste from Railway → Settings → Tokens"
-echo "       gh secret set RAILWAY_PROJECT_ID  # value: $PROJECT_ID"
+if [[ -n "$PROJECT_ID_FROM_STATUS" ]]; then
+  echo "       gh secret set RAILWAY_PROJECT_ID --body \"$PROJECT_ID_FROM_STATUS\""
+else
+  echo "       gh secret set RAILWAY_PROJECT_ID  # value: see 'railway status --json' → .id"
+fi
 echo
 echo "  2. Trigger the 'release' workflow with a version (builds + pushes GHCR image)."
 echo "  3. Trigger the 'deploy' workflow with that tag."
