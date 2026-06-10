@@ -86,10 +86,7 @@ pub async fn create_invite_record(
 /// The `room_id` the invite is tied to, if any. `None` means the invite was
 /// created via the legacy v0.2 `CreateInvite` WSS path — the consume handler
 /// should create a couple-only room on the fly.
-pub async fn room_for_invite(
-    pool: &PgPool,
-    token_hash: &[u8],
-) -> sqlx::Result<Option<String>> {
+pub async fn room_for_invite(pool: &PgPool, token_hash: &[u8]) -> sqlx::Result<Option<String>> {
     let row: Option<(Option<String>,)> =
         sqlx::query_as("SELECT room_id FROM invites WHERE token_hash = $1")
             .bind(token_hash)

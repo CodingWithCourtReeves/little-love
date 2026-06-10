@@ -22,7 +22,10 @@ async fn members_for_room_returns_full_roster() {
         .collect();
     assert_eq!(usernames, expected);
 
-    let bot = members.iter().find(|m| m.username == "court-garden").unwrap();
+    let bot = members
+        .iter()
+        .find(|m| m.username == "court-garden")
+        .unwrap();
     assert!(bot.is_bot);
     assert_eq!(bot.owner_username.as_deref(), Some("court"));
 

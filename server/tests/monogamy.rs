@@ -87,7 +87,9 @@ async fn consume_invite_from_already_paired_consumer_returns_already_paired() {
         .unwrap();
     let frame = next_frame(&mut kaitlyn).await;
     assert_eq!(frame["kind"], "Error");
-    assert_eq!(frame["code"], "AlreadyPaired");
+    // v0.3: already-paired humans get a MonogamyViolation when trying to
+    // partner with someone who isn't their existing partner.
+    assert_eq!(frame["code"], "MonogamyViolation");
 }
 
 #[file_serial(db)]

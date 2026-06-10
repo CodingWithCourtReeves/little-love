@@ -44,7 +44,10 @@ async fn leave_room_removes_member_and_cascades_when_last_human_leaves() {
         .unwrap();
 
     let outcome = leave_room(store.pool(), &room, court).await.unwrap();
-    assert!(outcome.room_deleted, "last human left → room cascade-deleted");
+    assert!(
+        outcome.room_deleted,
+        "last human left → room cascade-deleted"
+    );
     assert!(room_detail(store.pool(), &room).await.unwrap().is_none());
 }
 

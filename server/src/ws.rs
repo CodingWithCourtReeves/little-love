@@ -22,9 +22,9 @@ use crate::invites::{
     room_for_invite, InviteState,
 };
 use crate::rooms::{
-    account_id_by_username, bot_owned_by, create_room_with_members, is_member,
-    list_rooms_for_account, leave_room, members_for_room, monogamy_check, rename_room,
-    room_detail, set_partner_link, CreateRoomError, Member,
+    account_id_by_username, bot_owned_by, create_room_with_members, is_member, leave_room,
+    list_rooms_for_account, members_for_room, monogamy_check, rename_room, room_detail,
+    set_partner_link, CreateRoomError, Member,
 };
 use crate::routing::Routing;
 use crate::store::{MessageRow, Store};
@@ -379,16 +379,16 @@ async fn handle_consume_invite(
     // create a couple-only room on the fly.
     let room_id = match room_for_invite(store.pool(), &token_hash).await {
         Ok(Some(r)) => r,
-        Ok(None) => match create_room_with_members(store.pool(), inviter.id, &[], String::new())
-            .await
-        {
-            Ok(r) => r,
-            Err(CreateRoomError::Db(e)) => {
-                warn!("create_room_with_members (legacy invite): {e}");
-                send_error(tx, "Internal", "");
-                return;
+        Ok(None) => {
+            match create_room_with_members(store.pool(), inviter.id, &[], String::new()).await {
+                Ok(r) => r,
+                Err(CreateRoomError::Db(e)) => {
+                    warn!("create_room_with_members (legacy invite): {e}");
+                    send_error(tx, "Internal", "");
+                    return;
+                }
             }
-        },
+        }
         Err(e) => {
             warn!("room_for_invite: {e}");
             send_error(tx, "Internal", "");
@@ -423,8 +423,12 @@ async fn handle_consume_invite(
             return;
         }
     };
-    let members_wire: Vec<WireMember> =
-        detail.members.iter().cloned().map(Member::into_wire).collect();
+    let members_wire: Vec<WireMember> = detail
+        .members
+        .iter()
+        .cloned()
+        .map(Member::into_wire)
+        .collect();
 
     let _ = tx.send(RoomServerFrame::InviteConsumed {
         room_id: detail.room_id.clone(),
@@ -671,8 +675,12 @@ async fn handle_create_room(
             return;
         }
     };
-    let members_wire: Vec<WireMember> =
-        detail.members.iter().cloned().map(Member::into_wire).collect();
+    let members_wire: Vec<WireMember> = detail
+        .members
+        .iter()
+        .cloned()
+        .map(Member::into_wire)
+        .collect();
     let frame = RoomServerFrame::RoomCreated {
         room_id: detail.room_id.clone(),
         name: detail.name.clone(),
@@ -702,7 +710,10 @@ async fn handle_rename_room(
             return;
         }
     };
-    if !is_member(store.pool(), room_id, me.id).await.unwrap_or(false) {
+    if !is_member(store.pool(), room_id, me.id)
+        .await
+        .unwrap_or(false)
+    {
         send_error(tx, error_codes::UNKNOWN_ROOM, "");
         return;
     }
@@ -740,7 +751,10 @@ async fn handle_leave_room(
             return;
         }
     };
-    if !is_member(store.pool(), room_id, me.id).await.unwrap_or(false) {
+    if !is_member(store.pool(), room_id, me.id)
+        .await
+        .unwrap_or(false)
+    {
         send_error(tx, error_codes::UNKNOWN_ROOM, "");
         return;
     }
