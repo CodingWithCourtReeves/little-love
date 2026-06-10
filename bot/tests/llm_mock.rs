@@ -3,8 +3,7 @@ use std::net::SocketAddr;
 use axum::{routing::post, Json, Router};
 use tokio::net::TcpListener;
 
-use littlelove_bot::history::{History, Role};
-use littlelove_bot::llm::{LlmClient, LlmRequest};
+use littlelove_bot::llm::{ChatMessage, LlmClient};
 
 #[tokio::test]
 async fn mock_chat_returns_reply() {
@@ -29,15 +28,16 @@ async fn mock_chat_returns_reply() {
         std::time::Duration::from_secs(5),
     )
     .expect("client");
-    let mut history = History::new(5);
-    history.push(Role::User, "hello".into());
-    let reply = client
-        .chat(&LlmRequest {
-            system_prompt: "be brief".into(),
-            history: &history,
-            latest_user: "hello",
-        })
-        .await
-        .expect("chat");
+    let msgs = vec![
+        ChatMessage {
+            role: "system".into(),
+            content: "be brief".into(),
+        },
+        ChatMessage {
+            role: "user".into(),
+            content: "hello".into(),
+        },
+    ];
+    let reply = client.chat(&msgs).await.expect("chat");
     assert_eq!(reply.trim(), "ok");
 }

@@ -6,7 +6,12 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::addr_guard::ensure_url_is_private;
-use crate::history::{History, Role};
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
 
 pub struct LlmClient {
     base_url: String,
@@ -16,25 +21,13 @@ pub struct LlmClient {
     http: reqwest::Client,
 }
 
-pub struct LlmRequest<'a> {
-    pub system_prompt: String,
-    pub history: &'a History,
-    pub latest_user: &'a str,
-}
-
 #[derive(Serialize)]
 struct ChatBody<'a> {
     model: &'a str,
-    messages: Vec<ChatMsg>,
+    messages: &'a [ChatMessage],
     stream: bool,
     temperature: f32,
     max_tokens: u32,
-}
-
-#[derive(Serialize)]
-struct ChatMsg {
-    role: &'static str,
-    content: String,
 }
 
 #[derive(Deserialize)]
@@ -75,28 +68,9 @@ impl LlmClient {
         })
     }
 
-    pub async fn chat(&self, req: &LlmRequest<'_>) -> Result<String> {
+    pub async fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
         ensure_url_is_private(&self.base_url)
             .with_context(|| format!("LLM endpoint flipped to non-private: {}", self.base_url))?;
-
-        let mut messages = vec![ChatMsg {
-            role: "system",
-            content: req.system_prompt.clone(),
-        }];
-        for turn in req.history.iter() {
-            messages.push(ChatMsg {
-                role: match turn.role {
-                    Role::User => "user",
-                    Role::Assistant => "assistant",
-                },
-                content: turn.content.clone(),
-            });
-        }
-        messages.push(ChatMsg {
-            role: "user",
-            content: req.latest_user.to_string(),
-        });
-
         let body = ChatBody {
             model: &self.model,
             messages,

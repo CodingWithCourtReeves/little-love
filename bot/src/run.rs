@@ -10,7 +10,7 @@ use ed25519_dalek::SigningKey;
 use crate::cli::RunArgs;
 use crate::history::{History, Role};
 use crate::identity_store::{default_identity_path, load_identity};
-use crate::llm::{LlmClient, LlmRequest};
+use crate::llm::{ChatMessage, LlmClient};
 use crate::persona::{resolve, PersonaSources};
 use crate::ws_client::{
     connect_and_identify, next_inbound, send_message, subscribe, ClientIdentity, Inbound,
@@ -123,14 +123,24 @@ pub async fn run(args: RunArgs) -> Result<()> {
                 if replayed {
                     continue;
                 }
-                let reply_text = match llm
-                    .chat(&LlmRequest {
-                        system_prompt: system_prompt.clone(),
-                        history: &history,
-                        latest_user: &text,
-                    })
-                    .await
-                {
+                let mut msgs: Vec<ChatMessage> = vec![ChatMessage {
+                    role: "system".into(),
+                    content: system_prompt.clone(),
+                }];
+                for t in history.iter() {
+                    msgs.push(ChatMessage {
+                        role: match t.role {
+                            Role::User => "user".into(),
+                            Role::Assistant => "assistant".into(),
+                        },
+                        content: t.content.clone(),
+                    });
+                }
+                msgs.push(ChatMessage {
+                    role: "user".into(),
+                    content: text.clone(),
+                });
+                let reply_text = match llm.chat(&msgs).await {
                     Ok(r) => r,
                     Err(e) => {
                         tracing::error!("LLM error: {e}");
