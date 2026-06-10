@@ -12,3 +12,9 @@ PRODUCT_BUNDLE_IDENTIFIER = dev.littlelove.littlelove
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 dev.littlelove. All rights reserved.
+
+// Apple Developer Team ID. Used by Xcode to populate $(AppIdentifierPrefix)
+// in the keychain-access-groups entitlement so flutter_secure_storage can
+// write to the macOS Keychain on signed local-dev builds.
+DEVELOPMENT_TEAM = 33HDFY8B9F
+CODE_SIGN_STYLE = Automatic
