@@ -234,8 +234,6 @@ impl Memory {
         recent_n: usize,
         max_chars: usize,
     ) -> Result<Vec<crate::llm::ChatMessage>> {
-        use crate::llm::ChatMessage;
-
         let facts = read_facts(&self.facts_path).unwrap_or_default();
         let facts_section = if facts.trim().is_empty() {
             "(none yet)".to_string()
@@ -249,29 +247,16 @@ impl Memory {
                 "(no reflections yet)".to_string(),
             ),
         };
-        let system_content = format!(
-            "{persona}\n\n# What you know about your partner\n{facts_section}\n\n# Recent context\n{events_section}\n\n# How you've been feeling\n{character_section}"
-        );
-
         let recent = self.recent_turns(recent_n)?;
-        let mut msgs: Vec<ChatMessage> = Vec::with_capacity(recent.len() + 2);
-        msgs.push(ChatMessage {
-            role: "system".into(),
-            content: system_content,
-        });
-        for t in &recent {
-            msgs.push(ChatMessage {
-                role: t.role.as_str().into(),
-                content: t.content.clone(),
-            });
-        }
-        msgs.push(ChatMessage {
-            role: "user".into(),
-            content: latest_user_msg.to_string(),
-        });
-
-        let _ = max_chars;
-        Ok(msgs)
+        Ok(enforce_budget(
+            persona,
+            &facts_section,
+            &events_section,
+            &character_section,
+            &recent,
+            latest_user_msg,
+            max_chars,
+        ))
     }
 
     pub fn commit_summary(
@@ -386,6 +371,90 @@ fn read_facts(path: &Path) -> Option<String> {
     std::fs::read_to_string(path).ok()
 }
 
+fn build_system(persona: &str, facts: &str, events: &str, character: &str) -> String {
+    format!(
+        "{persona}\n\n# What you know about your partner\n{facts}\n\n# Recent context\n{events}\n\n# How you've been feeling\n{character}"
+    )
+}
+
+fn enforce_budget(
+    persona: &str,
+    facts: &str,
+    events: &str,
+    character: &str,
+    recent: &[TurnRecord],
+    latest_user_msg: &str,
+    max_chars: usize,
+) -> Vec<crate::llm::ChatMessage> {
+    use crate::llm::ChatMessage;
+
+    let mut events_buf = events.to_string();
+    let mut character_buf = character.to_string();
+    let mut persona_buf = persona.to_string();
+    let mut turns: Vec<&TurnRecord> = recent.iter().collect();
+
+    let total_len = |system: &str, turns: &[&TurnRecord], latest: &str| -> usize {
+        system.len() + turns.iter().map(|t| t.content.len()).sum::<usize>() + latest.len()
+    };
+
+    let mut system = build_system(&persona_buf, facts, &events_buf, &character_buf);
+    while total_len(&system, &turns, latest_user_msg) > max_chars && !turns.is_empty() {
+        turns.remove(0);
+    }
+    let orig_events_len = events_buf.len();
+    while total_len(&system, &turns, latest_user_msg) > max_chars
+        && events_buf.len() > orig_events_len / 4
+    {
+        let cut = (events_buf.len() * 3) / 4;
+        events_buf.truncate(cut);
+        system = build_system(&persona_buf, facts, &events_buf, &character_buf);
+    }
+    if total_len(&system, &turns, latest_user_msg) > max_chars && !events_buf.is_empty() {
+        events_buf.clear();
+        system = build_system(&persona_buf, facts, &events_buf, &character_buf);
+    }
+    let orig_char_len = character_buf.len();
+    while total_len(&system, &turns, latest_user_msg) > max_chars
+        && character_buf.len() > orig_char_len / 4
+    {
+        let cut = (character_buf.len() * 3) / 4;
+        character_buf.truncate(cut);
+        system = build_system(&persona_buf, facts, &events_buf, &character_buf);
+    }
+    if total_len(&system, &turns, latest_user_msg) > max_chars && !character_buf.is_empty() {
+        character_buf.clear();
+        system = build_system(&persona_buf, facts, &events_buf, &character_buf);
+    }
+    if total_len(&system, &turns, latest_user_msg) > max_chars && !persona_buf.is_empty() {
+        let overflow = total_len(&system, &turns, latest_user_msg).saturating_sub(max_chars);
+        let new_len = persona_buf.len().saturating_sub(overflow);
+        persona_buf.truncate(new_len);
+        tracing::warn!(
+            "persona truncated from {} to {} chars to fit budget — character may break",
+            persona.len(),
+            persona_buf.len()
+        );
+        system = build_system(&persona_buf, facts, &events_buf, &character_buf);
+    }
+
+    let mut msgs: Vec<ChatMessage> = Vec::with_capacity(turns.len() + 2);
+    msgs.push(ChatMessage {
+        role: "system".into(),
+        content: system,
+    });
+    for t in &turns {
+        msgs.push(ChatMessage {
+            role: t.role.as_str().into(),
+            content: t.content.clone(),
+        });
+    }
+    msgs.push(ChatMessage {
+        role: "user".into(),
+        content: latest_user_msg.to_string(),
+    });
+    msgs
+}
+
 #[cfg(unix)]
 fn set_dir_perms_0700(p: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -471,6 +540,50 @@ mod tests {
         assert!(msgs[0].content.contains("(no reflections yet)"));
         assert_eq!(msgs[1].role, "user");
         assert_eq!(msgs[1].content, "hello bot");
+    }
+
+    #[test]
+    fn assemble_prompt_drops_oldest_turns_when_over_budget() {
+        let dir = tempdir().unwrap();
+        let mut m = Memory::open(dir.path(), "01TESTROOM").unwrap();
+        for _ in 0..6 {
+            m.record_turn(Role::User, &"x".repeat(200)).unwrap();
+        }
+        let msgs = m
+            .assemble_prompt("PERSONA", "alice", "the last message", 100, 1500)
+            .unwrap();
+        let total_chars: usize = msgs.iter().map(|m| m.content.len()).sum();
+        assert!(total_chars <= 1500, "got {total_chars}");
+        assert_eq!(msgs.last().unwrap().content, "the last message");
+    }
+
+    #[test]
+    fn assemble_prompt_never_drops_final_user_message() {
+        let dir = tempdir().unwrap();
+        let m = Memory::open(dir.path(), "01TESTROOM").unwrap();
+        let huge = "z".repeat(500);
+        let msgs = m
+            .assemble_prompt(&"P".repeat(5000), "alice", &huge, 100, 200)
+            .unwrap();
+        assert_eq!(msgs.last().unwrap().content, huge);
+    }
+
+    #[test]
+    fn assemble_prompt_truncates_summary_events_then_character_then_persona() {
+        let dir = tempdir().unwrap();
+        let mut m = Memory::open(dir.path(), "01TESTROOM").unwrap();
+        m.record_turn(Role::User, "u").unwrap();
+        m.commit_summary(
+            "E".repeat(2000),
+            "C".repeat(1000),
+            m.latest_turn_id().unwrap(),
+        )
+        .unwrap();
+        let msgs = m.assemble_prompt("PERSONA", "alice", "hi", 1, 800).unwrap();
+        let sys = &msgs[0].content;
+        assert!(sys.contains("PERSONA"));
+        let total: usize = msgs.iter().map(|m| m.content.len()).sum();
+        assert!(total <= 800, "got {total}");
     }
 
     #[test]
