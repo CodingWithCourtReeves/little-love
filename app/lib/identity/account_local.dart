@@ -38,6 +38,13 @@ class AccountLocalStore {
   final Directory _home;
 
   static Directory _defaultHome() {
+    if (Platform.isIOS || Platform.isAndroid) {
+      // Sandboxed mobile apps don't reliably receive HOME in their process
+      // environment, AND the iOS sandbox container root isn't writable —
+      // only Documents/, Library/, and tmp/ subdirs are. Anchor under
+      // Documents/, which is the sibling of systemTemp (tmp/).
+      return Directory('${Directory.systemTemp.parent.path}/Documents');
+    }
     final home = Platform.isWindows
         ? Platform.environment['USERPROFILE'] ?? ''
         : Platform.environment['HOME'] ?? '';

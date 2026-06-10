@@ -1,0 +1,19 @@
+// Application-level settings for the iOS Runner target.
+// Mirrors app/macos/Runner/Configs/AppInfo.xcconfig so iOS and macOS share
+// bundle identifier and development team.
+
+PRODUCT_NAME = littlelove
+PRODUCT_BUNDLE_IDENTIFIER = dev.littlelove.littlelove
+
+// Display name shown under the iOS app icon.
+PRODUCT_BUNDLE_DISPLAY_NAME = LittleLove
+
+// Apple Developer Team ID — same team the iOS pbxproj uses (the one
+// Court's Xcode is signed into). The macOS xcconfig nominally lists
+// 33HDFY8B9F but the macOS pbxproj also resolves to 9PVUX2535W at
+// build time, so iOS is consistent with what actually signs.
+DEVELOPMENT_TEAM = 9PVUX2535W
+CODE_SIGN_STYLE = Automatic
+
+// iOS deployment target. Flutter 3.44 stable defaults to iOS 13.0.
+IPHONEOS_DEPLOYMENT_TARGET = 13.0
