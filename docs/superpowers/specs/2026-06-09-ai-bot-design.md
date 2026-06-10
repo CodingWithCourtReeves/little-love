@@ -33,12 +33,12 @@ Tag target: rolled into the next `v0.2.x` release after WT-D and WT-E land.
 - One pre-built binary per OS, cross-compiled in CI, downloadable from a GitHub release.
 - `bot pair --code <four-words>` consumes a LittleLove invite, completes signup, persists identity.
 - `bot run` connects to the server, subscribes to its room, listens for messages, calls the local LLM, encrypts the reply, sends it back.
+- The bot's persona is shaped by a Character Card v2 / v3 PNG (`--character-card`) when present, or a plain-text system prompt (`--system-prompt-file` / env / default) otherwise. Honors the `docs/positioning.md` "character cards by default" promise.
 - 100% of message plaintext stays on Court's machine. The LLM endpoint is verified to be local before any request goes out.
 - Crypto byte layouts match the server byte-for-byte. No second implementation.
 
 ### Non-Goals (this WT)
 - Multi-room support. The bot is in exactly one room.
-- Character cards / personas. The system prompt is configurable but the format is a plain string.
 - Streaming responses. We send a single `Send` frame with the complete reply.
 - Tool-use, function calling, image input, audio. Text in, text out.
 - Voice for the bot (TTS). Defer to Phase 1.
@@ -127,6 +127,8 @@ bot/                        # NEW: littlelove-bot (binary)
     llm.rs                  # OpenAI-compatible chat-completions client
     history.rs              # bounded in-memory conversation buffer
     addr_guard.rs           # private-IP check for the LLM endpoint
+    persona.rs              # resolves: --character-card | --system-prompt-file | env | default
+    character_card.rs       # CCv2/v3 PNG → card struct → flattened system prompt
   tests/                    # crate-level integration tests (no DB)
 ```
 
@@ -148,6 +150,7 @@ chacha20poly1305 = "0.10"  # XChaCha20-Poly1305 (XChaCha20Poly1305 type)
 rand          = "0.8"
 reqwest       = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 hex           = "0.4"
+png           = "0.17"     # CCv2 PNG chunk extraction (tEXt/iTXt)
 # base64, serde, serde_json, tokio, tokio-tungstenite, tracing already exist
 ```
 
@@ -329,16 +332,28 @@ this is trustworthy.
 
 ---
 
-## 8. System Prompt
+## 8. Persona — Character Cards + Plain System Prompts
 
-### 8.1 Resolution order
+The bot's persona is shaped by exactly one of these sources, picked at
+startup and held for the lifetime of the process. The sources are
+**mutually exclusive**: setting more than one is a configuration error
+and the bot exits non-zero with a clear message. This is clearer than a
+precedence rule when the operator inevitably forgets which one is set.
 
-1. `--system-prompt-file <path>` CLI flag (highest precedence).
-2. `LITTLELOVE_BOT_SYSTEM_PROMPT` env var (a literal prompt string, not a
-   file path).
-3. Default baked-in constant (below).
+### 8.1 Persona sources (mutually exclusive)
 
-### 8.2 Default system prompt
+1. `--character-card <path.png>` — Character Card v2/v3 PNG. See §8.3.
+2. `--system-prompt-file <path>` — plain UTF-8 text file. File contents
+   used verbatim as the system prompt.
+3. `LITTLELOVE_BOT_SYSTEM_PROMPT` env var — literal prompt string, not a
+   path. Convenient for `systemd`-style deployments.
+4. None of the above → the default below (§8.2).
+
+If two or more of (1), (2), (3) are set simultaneously, the bot prints
+`error: pass only one of --character-card, --system-prompt-file, or
+LITTLELOVE_BOT_SYSTEM_PROMPT` to stderr and exits with status 2.
+
+### 8.2 Default system prompt (if no source is given)
 
 > You are an AI familiar running locally on your operator's hardware. You
 > live in a private end-to-end encrypted chat with one person — the person
@@ -348,8 +363,93 @@ this is trustworthy.
 > unless asked. You do not moralize. If the operator wants longer or
 > warmer responses, they will ask, and you will oblige.
 
-**Status:** Recommendation. Court should approve or rewrite before merge —
+**Status:** Recommendation. Court approves or rewrites before merge —
 this prompt represents him to himself.
+
+### 8.3 Character Card v2 / v3 PNG handling
+
+**Loader.**
+1. Open the PNG with the `png` crate; iterate over tEXt and iTXt chunks.
+2. Look for a chunk whose keyword is `ccv3` first, then `chara` (V2
+   fallback). The chunk value is base64-encoded JSON.
+3. Base64-decode → `serde_json::from_slice` into a struct mirroring the
+   CCv2 shape:
+
+   ```rust
+   struct CharacterCardEnvelope { spec: String, data: CharacterCardData }
+   struct CharacterCardData {
+     name: String,                    // used + required (for {{char}})
+     description: String,             // optional, used in template
+     personality: String,             // optional, used in template
+     scenario: String,                // optional, used in template
+     system_prompt: String,           // optional, overrides template
+     creator: Option<String>,         // logged, not used in prompt
+     character_version: Option<String>,
+     // every other CCv2 field is parsed-but-ignored
+   }
+   ```
+4. Unknown fields are ignored (`#[serde(deny_unknown_fields)] is NOT
+   used`) so cards from the wild don't crash the loader.
+
+**Field selection.** v0.2-bot uses exactly:
+- `name` — for `{{char}}` substitution.
+- `system_prompt` — used verbatim when non-empty (highest priority).
+- `description`, `personality`, `scenario` — combined via §8.4 template
+  when `system_prompt` is empty.
+- `creator`, `character_version` — logged at startup, not sent to LLM.
+
+**Fields explicitly dropped in v0.2-bot** (parsed and ignored; documented
+so users understand the limitation):
+- `first_mes` — would require a "send first message on pair" hook; out.
+- `mes_example` — few-shot examples need careful wiring into history; out.
+- `alternate_greetings` — no UI to choose; out.
+- `character_book` (lorebook) — full retrieval system; out.
+- `post_history_instructions` — would require injecting between history
+  and the latest user message; out.
+
+A follow-up WT picks these up if Court wants them.
+
+### 8.4 Default template (when `system_prompt` is empty)
+
+```
+{{char}}'s Persona: {description}
+
+Personality: {personality}
+
+Scenario: {scenario}
+
+[Start a new chat between {{user}} and {{char}}]
+```
+
+- Any section whose source field is empty after trimming is dropped
+  entirely (no blank "Personality:" header dangling).
+- After the template is assembled, `{{char}}` is substituted with `name`
+  and `{{user}}` with the bot operator's `username` (from
+  `identity.json`). The double-brace placeholders are the SillyTavern
+  convention; community cards rely on them.
+- The same `{{char}}`/`{{user}}` substitution is applied even when a
+  card's `system_prompt` is used verbatim, since cards in the wild
+  commonly put `{{char}}` inside their own `system_prompt`.
+
+### 8.5 Startup logging
+
+On a successful card load, the bot logs (at `INFO`):
+
+```
+loaded character card: "Aria" (V2, by @somecreator, version 1.3)
+```
+
+Missing fields show as `unknown` (e.g. `by unknown`). This is a sanity
+check, not a security boundary — Court sees what loaded before any
+encrypted message goes out.
+
+### 8.6 Error cases
+
+- PNG has no `ccv3`/`chara` chunk → exit 2 with `error: <path>: not a
+  Character Card PNG (no ccv3 or chara chunk found)`.
+- Chunk present but not valid base64 → exit 2 with the underlying error.
+- Decoded JSON missing `data.name` → exit 2.
+- File doesn't exist / not a PNG → exit 2 with the IO/decode error.
 
 ---
 
@@ -508,6 +608,14 @@ plan starts with a failing test.
 - `llm`: a Tokio test that spins up a tiny `axum` mock server speaking
   OpenAI chat-completions; bot sends, parses reply, encrypts, would have
   sent (uses a fake ws sink).
+- `character_card`: parse a V2 fixture PNG, parse a V3 fixture PNG,
+  `{{char}}`/`{{user}}` substitution, `system_prompt`-present uses
+  verbatim, `system_prompt`-empty assembles the §8.4 template, empty
+  optional sections are dropped, malformed PNG exits non-zero with a
+  clear message.
+- `persona`: mutual-exclusion of `--character-card`,
+  `--system-prompt-file`, and the env var (setting any two exits 2);
+  default-baked prompt is selected when none is set.
 - `ws_client`: handshake against an embedded server-side simulator that
   reuses `littlelove-crypto::sig::verify_signature`. Doesn't need a real
   Postgres.
@@ -551,6 +659,9 @@ The PR may not be merged until:
       showing the history payload it built).
 5. The cross-platform release builds attach to the next `v0.2.x` tag
    without manual intervention.
+6. The bot accepts a community-shaped Character Card v2 PNG via
+   `--character-card` and uses its persona for replies. A V3 PNG also
+   loads. The startup log line names the character.
 
 ---
 
@@ -564,18 +675,27 @@ The PR may not be merged until:
 | Operator misconfigures `--llm-url` to a public IP and silently loses privacy | `addr_guard` refuses; on `pair` the bot exits non-zero; on `run` the bot logs and skips replies. Operator sees the error. |
 | `identity.json` is exfiltrated | Documented: equivalent to losing the bot's account. The human account (Court's own) is unaffected because it's a separate identity with its own keypair behind the Flutter keystore. |
 | Bot replies to its own messages, infinite loop | Skip-self check on `from`. Test covers it. |
+| Character Card with weaponized JSON (huge fields, deeply nested) crashes the bot | `png` crate has a built-in chunk-size cap; we additionally cap card JSON at 1 MiB before base64-decode; flattened prompt string is capped at 64 KiB. |
+| Unsupported CCv2 fields (`character_book`, `mes_example`) silently make the card behave differently than its author intended | Documented in §8.3; startup log emits `note: dropped fields: <list>` when present so the operator sees what was ignored. |
 
 ---
 
 ## 16. Open Questions (must be closed before plan)
 
-These are surfaced explicitly so Court can answer in one pass.
+Closed inline by Court during brainstorming:
+- **Character Card v2/v3 PNG support — IN scope for this WT.** Bundles
+  with v0.2-bot rather than landing as a follow-up WT. See §8.3–§8.6.
+
+Still open (Court answers in one pass):
 
 1. **Shared `littlelove-crypto` crate? (§3.1)** — recommendation: yes.
    Refusing means the bot duplicates ~600 LoC of crypto and ships with a
    property-test parity harness instead of structural sharing.
 2. **Default system-prompt voice (§8.2).** — recommendation: the sober,
-   plainspoken default above. Court approves or replaces.
+   plainspoken default above. Court approves or replaces. Note: with
+   character cards in scope, the default only fires when no card and no
+   `--system-prompt-file` and no env var are set — so this default is
+   mostly the "developer with no card handy" path.
 3. **Bot username (§9.1).** — recommendation: leave it as a `--username`
    flag, no default, so Court chooses something he'll recognize in the
    sidebar (e.g. `familiar`, `assistant`, his own preference). Server
@@ -593,3 +713,4 @@ Everything else is fixed by the brief + the v0.2 spec.
 - `server/tests/data/invite_vectors.json` — ground-truth fixture for BIP39 invite encoding.
 - `app/lib/crypto/cipher.dart` — the wire-body envelope format the bot must match.
 - RFC 8032 (Ed25519), RFC 7748 (X25519), RFC 5869 (HKDF), RFC 7539 (ChaCha20-Poly1305), BIP39.
+- Character Card V2 spec: https://github.com/malfoyslastname/character-card-spec-v2 — defines the `chara`/`ccv3` tEXt chunk format and field semantics this bot implements a subset of.
