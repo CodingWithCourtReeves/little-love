@@ -11,7 +11,7 @@ fn loopback_ipv4_allowed() {
 fn rfc1918_ranges_allowed() {
     for ip in ["10.0.0.1", "172.16.0.1", "172.31.255.254", "192.168.1.1"] {
         let p: IpAddr = ip.parse().unwrap();
-        assert!(is_private_ip(&p), "{}", ip);
+        assert!(is_private_ip(&p), "{ip}");
     }
 }
 
@@ -36,6 +36,6 @@ fn unique_local_v6_allowed() {
 fn public_ips_rejected() {
     for ip in ["1.1.1.1", "8.8.8.8", "2606:4700::1111"] {
         let p: IpAddr = ip.parse().unwrap();
-        assert!(!is_private_ip(&p), "{}", ip);
+        assert!(!is_private_ip(&p), "{ip}");
     }
 }

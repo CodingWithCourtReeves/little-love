@@ -26,13 +26,13 @@ fn invite_vectors_match_shared_fixture() {
         let n44 = u64::from_str_radix(v.n44_hex.trim_start_matches("0x"), 16).expect("n44 hex");
         let want_token = hex::decode(&v.canonical_token_hex).expect("token hex");
         let got_token = canonical_token_from_n44(n44);
-        assert_eq!(&got_token[..], &want_token[..], "n44={:#x}", n44);
+        assert_eq!(&got_token[..], &want_token[..], "n44={n44:#x}");
 
         let got_code = encode_code(&got_token);
-        assert_eq!(got_code, v.code, "encode n44={:#x}", n44);
+        assert_eq!(got_code, v.code, "encode n44={n44:#x}");
 
         let back = decode_code(&v.code).expect("decode");
-        assert_eq!(back, got_token, "round-trip n44={:#x}", n44);
+        assert_eq!(back, got_token, "round-trip n44={n44:#x}");
 
         // sha256(canonical) is the DB primary key, so exercise it too.
         let _ = sha256(&got_token);
