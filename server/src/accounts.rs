@@ -148,31 +148,55 @@ pub async fn lookup_ed25519_pub(
 }
 
 /// Full account record needed by post-handshake handlers (CreateInvite,
-/// ConsumeInvite, Subscribe, Send).
+/// ConsumeInvite, Subscribe, Send, CreateRoom, RenameRoom, LeaveRoom).
 #[derive(Debug, Clone)]
 pub struct AccountRecord {
     pub id: i64,
     pub username: String,
     pub ed25519_pub: Vec<u8>,
     pub x25519_pub: Vec<u8>,
+    pub is_bot: bool,
+    pub owner_account_id: Option<i64>,
+    pub partner_account_id: Option<i64>,
 }
+
+type FullAccountRow = (
+    i64,
+    String,
+    Vec<u8>,
+    Vec<u8>,
+    bool,
+    Option<i64>,
+    Option<i64>,
+);
+
+fn full_account_record(row: FullAccountRow) -> AccountRecord {
+    let (id, username, ed25519_pub, x25519_pub, is_bot, owner_account_id, partner_account_id) = row;
+    AccountRecord {
+        id,
+        username,
+        ed25519_pub,
+        x25519_pub,
+        is_bot,
+        owner_account_id,
+        partner_account_id,
+    }
+}
+
+const FULL_ACCOUNT_COLS: &str =
+    "id, username, ed25519_pub, x25519_pub, is_bot, owner_account_id, partner_account_id";
 
 /// Fetch the full account record by username. None if no such account.
 pub async fn lookup_full_account(
     store: &crate::store::Store,
     username: &str,
 ) -> sqlx::Result<Option<AccountRecord>> {
-    let row: Option<(i64, Vec<u8>, Vec<u8>)> =
-        sqlx::query_as("SELECT id, ed25519_pub, x25519_pub FROM accounts WHERE username = $1")
-            .bind(username)
-            .fetch_optional(store.pool())
-            .await?;
-    Ok(row.map(|(id, ed, x)| AccountRecord {
-        id,
-        username: username.to_string(),
-        ed25519_pub: ed,
-        x25519_pub: x,
-    }))
+    let sql = format!("SELECT {FULL_ACCOUNT_COLS} FROM accounts WHERE username = $1");
+    let row: Option<FullAccountRow> = sqlx::query_as(&sql)
+        .bind(username)
+        .fetch_optional(store.pool())
+        .await?;
+    Ok(row.map(full_account_record))
 }
 
 /// Fetch the full account record by integer id. Used by ConsumeInvite to
@@ -181,17 +205,12 @@ pub async fn lookup_full_account_by_id(
     store: &crate::store::Store,
     account_id: i64,
 ) -> sqlx::Result<Option<AccountRecord>> {
-    let row: Option<(String, Vec<u8>, Vec<u8>)> =
-        sqlx::query_as("SELECT username, ed25519_pub, x25519_pub FROM accounts WHERE id = $1")
-            .bind(account_id)
-            .fetch_optional(store.pool())
-            .await?;
-    Ok(row.map(|(username, ed, x)| AccountRecord {
-        id: account_id,
-        username,
-        ed25519_pub: ed,
-        x25519_pub: x,
-    }))
+    let sql = format!("SELECT {FULL_ACCOUNT_COLS} FROM accounts WHERE id = $1");
+    let row: Option<FullAccountRow> = sqlx::query_as(&sql)
+        .bind(account_id)
+        .fetch_optional(store.pool())
+        .await?;
+    Ok(row.map(full_account_record))
 }
 
 #[cfg(test)]
@@ -228,5 +247,21 @@ mod tests {
     #[test]
     fn decode_pubkey_rejects_wrong_length() {
         assert!(decode_pubkey("AAAA").is_none());
+    }
+
+    #[test]
+    fn account_record_carries_v0_3_fields() {
+        let r = AccountRecord {
+            id: 1,
+            username: "court".into(),
+            ed25519_pub: vec![0u8; 32],
+            x25519_pub: vec![1u8; 32],
+            is_bot: false,
+            owner_account_id: None,
+            partner_account_id: Some(2),
+        };
+        assert!(!r.is_bot);
+        assert_eq!(r.owner_account_id, None);
+        assert_eq!(r.partner_account_id, Some(2));
     }
 }
