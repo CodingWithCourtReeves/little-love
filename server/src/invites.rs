@@ -53,25 +53,49 @@ impl InviteRow {
 /// Insert a fresh invite. Any outstanding (unconsumed) invites for the same
 /// `inviter_id` are deleted first per spec §4.2 ("Creating a new one revokes
 /// the prior").
+///
+/// `room_id` is `Some(_)` when the invite is created by `CreateRoom { invite_human_partner: true }`
+/// (the consumer joins the existing room) and `None` for the legacy `CreateInvite` WSS frame
+/// (the consume handler then creates a couple-only room on the fly).
 pub async fn create_invite_record(
     pool: &PgPool,
     inviter_id: i64,
     token_hash: &[u8],
     expires_at: DateTime<Utc>,
+    room_id: Option<&str>,
 ) -> sqlx::Result<()> {
     let mut tx = pool.begin().await?;
     sqlx::query("DELETE FROM invites WHERE inviter_id = $1 AND consumed_at IS NULL")
         .bind(inviter_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO invites (token_hash, inviter_id, expires_at) VALUES ($1, $2, $3)")
-        .bind(token_hash)
-        .bind(inviter_id)
-        .bind(expires_at)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "INSERT INTO invites (token_hash, inviter_id, expires_at, room_id)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(token_hash)
+    .bind(inviter_id)
+    .bind(expires_at)
+    .bind(room_id)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(())
+}
+
+/// The `room_id` the invite is tied to, if any. `None` means the invite was
+/// created via the legacy v0.2 `CreateInvite` WSS path — the consume handler
+/// should create a couple-only room on the fly.
+pub async fn room_for_invite(
+    pool: &PgPool,
+    token_hash: &[u8],
+) -> sqlx::Result<Option<String>> {
+    let row: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT room_id FROM invites WHERE token_hash = $1")
+            .bind(token_hash)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.and_then(|(r,)| r))
 }
 
 type InviteDbRow = (Vec<u8>, i64, DateTime<Utc>, Option<DateTime<Utc>>);

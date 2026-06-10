@@ -49,8 +49,10 @@ async fn since_message_id_skips_replay_at_or_before() {
     let (court, kait, _garden, room) = common::seed_couple_plus_bot(&store).await;
 
     let ts = chrono::Utc::now();
-    let id1 = ulid::Ulid::new().to_string();
-    let id2 = ulid::Ulid::new().to_string();
+    // Hand-rolled, strictly-ordered ULID strings — two calls to Ulid::new() in
+    // the same millisecond aren't guaranteed lexicographically monotonic.
+    let id1 = "01J000000000000000000000AA".to_string();
+    let id2 = "01J000000000000000000000BB".to_string();
     for (id, body) in [(&id1, "first"), (&id2, "second")] {
         store
             .insert(MessageRow {
