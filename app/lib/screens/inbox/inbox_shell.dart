@@ -1,13 +1,11 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../conversation/conversation_page.dart';
 import '../../conversation/message_store.dart';
 import '../../identity/account_local.dart';
+import '../../identity/current_identity.dart';
 import '../../identity/keypair.dart';
-import '../../identity/providers.dart';
 import '../../inbox/drawer.dart';
 import '../../inbox/inbox_state.dart';
 import '../../inbox/layout_scaffold.dart';
@@ -176,9 +174,10 @@ class _PairCard extends ConsumerWidget {
   }
 
   Future<void> _openEnterCode(BuildContext context, WidgetRef ref) async {
-    final keystore = ref.read(keystoreProvider);
-    final seedB64 = await keystore.read('llove.master.${account.username}');
-    if (seedB64 == null) {
+    final DerivedIdentity identity;
+    try {
+      identity = await ref.read(currentIdentityProvider.future);
+    } on StateError {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -187,10 +186,6 @@ class _PairCard extends ConsumerWidget {
       );
       return;
     }
-    // The keystore stores the BIP39-derived 16-byte seed in WT-C
-    // (`_SignupFlow._commit` writes `base64.encode(seed)`).
-    final seed = base64.decode(seedB64);
-    final identity = await deriveIdentity(seed);
     if (!context.mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
