@@ -19,6 +19,14 @@ pub enum Command {
     Run(RunArgs),
     /// Print this bot's username and public-key fingerprints.
     ShowIdentity,
+    /// Inspect the bot's identity + per-room memory state without writing.
+    Doctor(DoctorArgs),
+}
+
+#[derive(clap::Args, Debug)]
+pub struct DoctorArgs {
+    #[arg(long, env = "LITTLELOVE_BOT_MEMORY_DIR")]
+    pub memory_dir: Option<std::path::PathBuf>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -61,8 +69,18 @@ pub struct RunArgs {
     #[arg(long, env = "LITTLELOVE_BOT_MAX_TOKENS", default_value_t = 512)]
     pub max_tokens: u32,
 
+    /// Max recent raw turns to inject into the prompt (oldest dropped first).
     #[arg(long, env = "LITTLELOVE_BOT_HISTORY", default_value_t = 20)]
     pub history: usize,
+
+    #[arg(long, env = "LITTLELOVE_BOT_MEMORY_DIR")]
+    pub memory_dir: Option<std::path::PathBuf>,
+
+    #[arg(long, env = "LITTLELOVE_BOT_SUMMARY_EVERY", default_value_t = 20)]
+    pub summary_every: usize,
+
+    #[arg(long, env = "LITTLELOVE_BOT_MAX_CONTEXT_CHARS", default_value_t = 28_000)]
+    pub max_context_chars: usize,
 
     /// Character Card v2/v3 PNG. Mutually exclusive with --system-prompt-file and the env var.
     #[arg(long, conflicts_with_all = ["system_prompt_file"])]
@@ -70,4 +88,12 @@ pub struct RunArgs {
 
     #[arg(long)]
     pub system_prompt_file: Option<std::path::PathBuf>,
+}
+
+impl RunArgs {
+    /// Best-effort character name for summary prompts. Falls back to None;
+    /// callers can default to "bot".
+    pub fn character_name(&self) -> Option<&str> {
+        None
+    }
 }

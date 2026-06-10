@@ -16,5 +16,6 @@ async fn main() -> anyhow::Result<()> {
         cli::Command::Pair(args) => littlelove_bot::pair::run(args).await,
         cli::Command::Run(args) => littlelove_bot::run::run(args).await,
         cli::Command::ShowIdentity => littlelove_bot::show_identity::run(),
+        cli::Command::Doctor(args) => littlelove_bot::doctor::run(args),
     }
 }

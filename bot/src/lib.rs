@@ -2,6 +2,7 @@
 pub mod addr_guard;
 pub mod character_card;
 pub mod cli;
+pub mod doctor;
 pub mod history;
 pub mod identity_store;
 pub mod llm;
