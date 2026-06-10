@@ -9,4 +9,5 @@ pub mod pair;
 pub mod persona;
 pub mod rest;
 pub mod run;
+pub mod show_identity;
 pub mod ws_client;

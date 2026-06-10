@@ -15,8 +15,6 @@ async fn main() -> anyhow::Result<()> {
     match args.command {
         cli::Command::Pair(args) => littlelove_bot::pair::run(args).await,
         cli::Command::Run(args) => littlelove_bot::run::run(args).await,
-        cli::Command::ShowIdentity => {
-            anyhow::bail!("show-identity: not yet implemented");
-        }
+        cli::Command::ShowIdentity => littlelove_bot::show_identity::run(),
     }
 }
