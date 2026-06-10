@@ -21,16 +21,19 @@ class _StubTransport implements PairingTransport {
   Future<InviteConsumedFrame> consumeInvite({
     required String code,
     required Uint8List signature,
-  }) async => InviteConsumedFrame(const RoomFramePeer(
-        roomId: '01JNEWROOM',
-        peerUsername: 'court',
-        peerEd25519PubBase64: 'AAAA',
-        peerX25519PubBase64: 'BBBB',
-      ));
+  }) async => InviteConsumedFrame(
+    const RoomFramePeer(
+      roomId: '01JNEWROOM',
+      peerUsername: 'court',
+      peerEd25519PubBase64: 'AAAA',
+      peerX25519PubBase64: 'BBBB',
+    ),
+  );
 }
 
-Future<DerivedIdentity> _identity() =>
-    derivedIdentityFromSigningSeedForTest(Uint8List(32)..fillRange(0, 32, 0x01));
+Future<DerivedIdentity> _identity() => derivedIdentityFromSigningSeedForTest(
+  Uint8List(32)..fillRange(0, 32, 0x01),
+);
 
 void main() {
   testWidgets('preview → confirm → consume puts a Room in inbox state', (

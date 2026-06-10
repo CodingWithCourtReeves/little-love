@@ -22,12 +22,14 @@ class _RecordingTransport implements PairingTransport {
   }) async {
     capturedCode = code;
     capturedSig = signature;
-    return InviteConsumedFrame(const RoomFramePeer(
-      roomId: '01J',
-      peerUsername: 'court',
-      peerEd25519PubBase64: 'AAAA',
-      peerX25519PubBase64: 'BBBB',
-    ));
+    return InviteConsumedFrame(
+      const RoomFramePeer(
+        roomId: '01J',
+        peerUsername: 'court',
+        peerEd25519PubBase64: 'AAAA',
+        peerX25519PubBase64: 'BBBB',
+      ),
+    );
   }
 }
 
@@ -66,11 +68,7 @@ void main() {
     );
     final t = _RecordingTransport();
     expect(
-      () => consumeInvite(
-        transport: t,
-        identity: id,
-        code: 'this-is-not-real',
-      ),
+      () => consumeInvite(transport: t, identity: id, code: 'this-is-not-real'),
       throwsA(isA<InviteCodeException>()),
     );
     expect(

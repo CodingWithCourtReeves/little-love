@@ -12,7 +12,8 @@ void main() {
           {"room_id":"01J","peer_username":"kaitlyn","peer_ed25519_pub":"AAAA",
            "peer_x25519_pub":"BBBB","created_at":"2026-06-09T17:00:00Z"}
         ]}
-      ''') as Map<String, Object?>,
+      ''')
+            as Map<String, Object?>,
       );
       expect(frame, isA<RoomsFrame>());
       final r = (frame as RoomsFrame).rooms.single;

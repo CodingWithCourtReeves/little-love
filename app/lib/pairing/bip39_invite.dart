@@ -58,10 +58,7 @@ Uint8List decodeInviteCode(String code) {
     indices.add(i);
   }
   final n44 =
-      (indices[0] << 33) |
-      (indices[1] << 22) |
-      (indices[2] << 11) |
-      indices[3];
+      (indices[0] << 33) | (indices[1] << 22) | (indices[2] << 11) | indices[3];
   return canonicalTokenFromN44(n44);
 }
 
@@ -89,7 +86,7 @@ Map<String, int> _indexLookup() {
   if (cached != null) return cached;
   final m = <String, int>{};
   for (var i = 0; i < WORDLIST.length; i++) {
-    m[WORDLIST[i] as String] = i;
+    m[WORDLIST[i]] = i;
   }
   _lookupCache = m;
   return m;

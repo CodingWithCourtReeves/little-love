@@ -68,9 +68,8 @@ class _ShowInviteScreenState extends ConsumerState<ShowInviteScreen> {
                   ),
                   const SizedBox(height: 12),
                   TextButton.icon(
-                    onPressed: () => Clipboard.setData(
-                      ClipboardData(text: invite.code),
-                    ),
+                    onPressed: () =>
+                        Clipboard.setData(ClipboardData(text: invite.code)),
                     icon: const Icon(Icons.copy_outlined, size: 18),
                     label: const Text('Copy code'),
                   ),

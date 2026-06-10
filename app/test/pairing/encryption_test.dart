@@ -25,16 +25,18 @@ void main() {
       expect(out, cannotDecryptSentinel);
     });
 
-    test('two encrypts of the same plaintext produce different ciphertexts',
-        () async {
-      final key = _key(0xAB);
-      final a = await encryptOutgoing(key, 'hi');
-      final b = await encryptOutgoing(key, 'hi');
-      expect(
-        a,
-        isNot(equals(b)),
-        reason: 'XChaCha20-Poly1305 nonce must be fresh per call',
-      );
-    });
+    test(
+      'two encrypts of the same plaintext produce different ciphertexts',
+      () async {
+        final key = _key(0xAB);
+        final a = await encryptOutgoing(key, 'hi');
+        final b = await encryptOutgoing(key, 'hi');
+        expect(
+          a,
+          isNot(equals(b)),
+          reason: 'XChaCha20-Poly1305 nonce must be fresh per call',
+        );
+      },
+    );
   });
 }

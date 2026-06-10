@@ -11,10 +11,10 @@ import 'package:littlelove/wire/frames.dart';
 class _StubTransport implements PairingTransport {
   @override
   Future<InviteCreatedFrame> createInvite() async => InviteCreatedFrame(
-        code: 'amber-fern-locket-tide',
-        qrPngBase64: 'AAAA',
-        expiresAt: DateTime.utc(2026, 6, 9, 18),
-      );
+    code: 'amber-fern-locket-tide',
+    qrPngBase64: 'AAAA',
+    expiresAt: DateTime.utc(2026, 6, 9, 18),
+  );
 
   @override
   Future<InviteConsumedFrame> consumeInvite({

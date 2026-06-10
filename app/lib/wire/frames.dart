@@ -184,10 +184,7 @@ class CreateInviteFrame {
 }
 
 class ConsumeInviteFrame {
-  const ConsumeInviteFrame({
-    required this.code,
-    required this.signatureBase64,
-  });
+  const ConsumeInviteFrame({required this.code, required this.signatureBase64});
   final String code;
   final String signatureBase64;
 

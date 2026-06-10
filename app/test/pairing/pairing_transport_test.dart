@@ -8,21 +8,23 @@ import 'package:littlelove/wire/frames.dart';
 class _FakeTransport implements PairingTransport {
   @override
   Future<InviteCreatedFrame> createInvite() async => InviteCreatedFrame(
-        code: 'a-b-c-d',
-        qrPngBase64: 'AAAA',
-        expiresAt: DateTime.utc(2026, 6, 9, 18),
-      );
+    code: 'a-b-c-d',
+    qrPngBase64: 'AAAA',
+    expiresAt: DateTime.utc(2026, 6, 9, 18),
+  );
 
   @override
   Future<InviteConsumedFrame> consumeInvite({
     required String code,
     required Uint8List signature,
-  }) async => InviteConsumedFrame(const RoomFramePeer(
-        roomId: '01J',
-        peerUsername: 'court',
-        peerEd25519PubBase64: 'AAAA',
-        peerX25519PubBase64: 'BBBB',
-      ));
+  }) async => InviteConsumedFrame(
+    const RoomFramePeer(
+      roomId: '01J',
+      peerUsername: 'court',
+      peerEd25519PubBase64: 'AAAA',
+      peerX25519PubBase64: 'BBBB',
+    ),
+  );
 }
 
 void main() {

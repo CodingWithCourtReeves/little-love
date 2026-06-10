@@ -24,10 +24,7 @@ Future<Uint8List> deriveRoomKey({
   }
   final shared = await X25519().sharedSecretKey(
     keyPair: me.encryptionKeyPair,
-    remotePublicKey: SimplePublicKey(
-      peerX25519Pub,
-      type: KeyPairType.x25519,
-    ),
+    remotePublicKey: SimplePublicKey(peerX25519Pub, type: KeyPairType.x25519),
   );
   final sharedBytes = await shared.extractBytes();
   final out = await Hkdf(hmac: Hmac.sha256(), outputLength: 32).deriveKey(

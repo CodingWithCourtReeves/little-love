@@ -7,12 +7,12 @@ import 'package:littlelove/identity/keypair.dart';
 import 'package:littlelove/inbox/room.dart';
 
 Room _peerRoom(String id, Uint8List peerX25519Pub) => Room(
-      roomId: id,
-      peerUsername: 'kaitlyn',
-      peerEd25519PubBase64: base64.encode(Uint8List(32)),
-      peerX25519PubBase64: base64.encode(peerX25519Pub),
-      createdAt: DateTime.utc(2026, 6, 9),
-    );
+  roomId: id,
+  peerUsername: 'kaitlyn',
+  peerEd25519PubBase64: base64.encode(Uint8List(32)),
+  peerX25519PubBase64: base64.encode(peerX25519Pub),
+  createdAt: DateTime.utc(2026, 6, 9),
+);
 
 void main() {
   group('RoomKeyCache', () {

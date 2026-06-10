@@ -154,9 +154,7 @@ class _PairCard extends ConsumerWidget {
             title: 'Invite them with a code',
             detail: 'Generates a one-time code they enter on their device.',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const ShowInviteScreen(),
-              ),
+              MaterialPageRoute<void>(builder: (_) => const ShowInviteScreen()),
             ),
           ),
           const Divider(
@@ -184,9 +182,7 @@ class _PairCard extends ConsumerWidget {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Could not unlock identity — please sign in again.',
-          ),
+          content: Text('Could not unlock identity — please sign in again.'),
         ),
       );
       return;
