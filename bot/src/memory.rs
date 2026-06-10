@@ -57,6 +57,45 @@ impl std::fmt::Debug for Memory {
     }
 }
 
+/// Split a summary LLM response into (events, character).
+///
+/// Expects line-anchored `EVENTS:` and `CHARACTER:` headers in that order.
+pub fn parse_summary_response(raw: &str) -> Result<(String, String)> {
+    use anyhow::anyhow;
+    use regex::Regex;
+
+    let re = Regex::new(r"(?m)^\s*(EVENTS|CHARACTER):").expect("static regex");
+    let mut events: Option<String> = None;
+    let mut character: Option<String> = None;
+
+    let mut spans: Vec<(usize, usize, &str)> = Vec::new();
+    for m in re.find_iter(raw) {
+        let caps = re.captures(&raw[m.start()..m.end()]).unwrap();
+        let kind = caps.get(1).unwrap().as_str();
+        let kind_static: &str = match kind {
+            "EVENTS" => "EVENTS",
+            "CHARACTER" => "CHARACTER",
+            _ => continue,
+        };
+        spans.push((m.end(), m.start(), kind_static));
+    }
+    if spans.is_empty() {
+        return Err(anyhow!("summary response missing EVENTS:/CHARACTER: headers"));
+    }
+    for (i, (header_end, _start, kind)) in spans.iter().enumerate() {
+        let end = spans.get(i + 1).map(|(_, s, _)| *s).unwrap_or(raw.len());
+        let body = raw[*header_end..end].to_string();
+        match *kind {
+            "EVENTS" => events = Some(body),
+            "CHARACTER" => character = Some(body),
+            _ => {}
+        }
+    }
+    let events = events.ok_or_else(|| anyhow!("summary missing EVENTS section"))?;
+    let character = character.ok_or_else(|| anyhow!("summary missing CHARACTER section"))?;
+    Ok((events, character))
+}
+
 impl Memory {
     pub fn open(memory_dir: &Path, room_id: &str) -> Result<Self> {
         use anyhow::Context;
@@ -279,6 +318,34 @@ mod tests {
         let dir = tempdir().unwrap();
         let m = Memory::open(dir.path(), "01TESTROOM").unwrap();
         assert_eq!(m.latest_turn_id().unwrap(), 0);
+    }
+
+    #[test]
+    fn parse_summary_basic() {
+        let raw = "EVENTS:\nWe talked about cats.\nShe likes calicos.\n\nCHARACTER:\nI feel warm about her preferences.\n";
+        let (events, character) = parse_summary_response(raw).unwrap();
+        assert_eq!(events.trim(), "We talked about cats.\nShe likes calicos.");
+        assert_eq!(character.trim(), "I feel warm about her preferences.");
+    }
+
+    #[test]
+    fn parse_summary_tolerates_leading_whitespace_and_extra_text() {
+        let raw = "  \nEVENTS:\n  alpha\nCHARACTER:\n  beta";
+        let (e, c) = parse_summary_response(raw).unwrap();
+        assert_eq!(e.trim(), "alpha");
+        assert_eq!(c.trim(), "beta");
+    }
+
+    #[test]
+    fn parse_summary_rejects_missing_character_section() {
+        let raw = "EVENTS:\nstuff happened\n";
+        assert!(parse_summary_response(raw).is_err());
+    }
+
+    #[test]
+    fn parse_summary_rejects_missing_events_section() {
+        let raw = "CHARACTER:\nI feel things\n";
+        assert!(parse_summary_response(raw).is_err());
     }
 
     #[test]
