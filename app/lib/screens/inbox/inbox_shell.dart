@@ -1,9 +1,13 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../conversation/conversation_page.dart';
 import '../../conversation/message_store.dart';
 import '../../identity/account_local.dart';
+import '../../identity/keypair.dart';
+import '../../identity/providers.dart';
 import '../../inbox/drawer.dart';
 import '../../inbox/inbox_state.dart';
 import '../../inbox/layout_scaffold.dart';
@@ -12,6 +16,8 @@ import '../../inbox/room.dart';
 import '../../inbox/sidebar.dart';
 import '../../theme/twilight.dart';
 import '../../wire/message.dart';
+import '../pair/enter_code.dart';
+import '../pair/show_invite.dart';
 
 /// Top-level inbox screen for a signed-in user. Wraps `LayoutScaffold` and
 /// supplies sidebar / rail / drawer chrome around a `ConversationPage` keyed
@@ -47,14 +53,14 @@ class InboxShell extends ConsumerWidget {
           child: SingleChildScrollView(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 440),
-              child: const Padding(
-                padding: EdgeInsets.all(32),
+              child: Padding(
+                padding: const EdgeInsets.all(32),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     // 'No conversations yet' kept verbatim for widget tests.
-                    Text(
+                    const Text(
                       'No conversations yet',
                       style: TextStyle(
                         fontFamily: 'Inter',
@@ -64,8 +70,8 @@ class InboxShell extends ConsumerWidget {
                         color: TwilightColors.accentFamiliar,
                       ),
                     ),
-                    SizedBox(height: 14),
-                    Text(
+                    const SizedBox(height: 14),
+                    const Text(
                       'Pair with your partner to begin.',
                       style: TextStyle(
                         fontFamily: 'Inter',
@@ -76,15 +82,15 @@ class InboxShell extends ConsumerWidget {
                         color: TwilightColors.textPrimary,
                       ),
                     ),
-                    SizedBox(height: 12),
-                    Text(
+                    const SizedBox(height: 12),
+                    const Text(
                       'A pairing handshake exchanges public keys directly '
                       'between your two devices. Until that happens, there is '
                       'nothing for the server to deliver.',
                       style: TwilightType.lede,
                     ),
-                    SizedBox(height: 28),
-                    _PairCard(),
+                    const SizedBox(height: 28),
+                    _PairCard(account: account),
                   ],
                 ),
               ),
@@ -128,10 +134,12 @@ class InboxShell extends ConsumerWidget {
   }
 }
 
-class _PairCard extends StatelessWidget {
-  const _PairCard();
+class _PairCard extends ConsumerWidget {
+  const _PairCard({required this.account});
+  final LocalAccount account;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Material(
       color: TwilightColors.bubblePartnerBg,
       shape: const RoundedRectangleBorder(
@@ -145,7 +153,11 @@ class _PairCard extends StatelessWidget {
             glyph: '+',
             title: 'Invite them with a code',
             detail: 'Generates a one-time code they enter on their device.',
-            onTap: () {}, // pairing-WT wires this.
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const ShowInviteScreen(),
+              ),
+            ),
           ),
           const Divider(
             height: 1,
@@ -158,9 +170,35 @@ class _PairCard extends StatelessWidget {
             glyph: '⌗',
             title: 'I have an invite code',
             detail: 'Enter a code your partner sent you.',
-            onTap: () {},
+            onTap: () => _openEnterCode(context, ref),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openEnterCode(BuildContext context, WidgetRef ref) async {
+    final keystore = ref.read(keystoreProvider);
+    final seedB64 = await keystore.read('llove.master.${account.username}');
+    if (seedB64 == null) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not unlock identity — please sign in again.',
+          ),
+        ),
+      );
+      return;
+    }
+    // The keystore stores the BIP39-derived 16-byte seed in WT-C
+    // (`_SignupFlow._commit` writes `base64.encode(seed)`).
+    final seed = base64.decode(seedB64);
+    final identity = await deriveIdentity(seed);
+    if (!context.mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => EnterCodeScreen(identity: identity),
       ),
     );
   }
