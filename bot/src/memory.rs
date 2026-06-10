@@ -25,6 +25,14 @@ impl Role {
 }
 
 #[derive(Debug, Clone)]
+pub struct TurnRecord {
+    pub id: i64,
+    pub ts: i64,
+    pub role: Role,
+    pub content: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct Summary {
     pub events: String,
     pub character: String,
@@ -80,6 +88,48 @@ impl Memory {
 
     pub fn schema_version(&self) -> u32 {
         self.schema_version
+    }
+
+    pub fn record_turn(&mut self, role: Role, content: &str) -> Result<i64> {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        self.db.execute(
+            "INSERT INTO turn (ts, role, content) VALUES (?1, ?2, ?3)",
+            rusqlite::params![ts, role.as_str(), content],
+        )?;
+        Ok(self.db.last_insert_rowid())
+    }
+
+    pub fn latest_turn_id(&self) -> Result<i64> {
+        let id: Option<i64> = self
+            .db
+            .query_row("SELECT MAX(id) FROM turn", [], |r| r.get(0))?;
+        Ok(id.unwrap_or(0))
+    }
+
+    pub fn recent_turns(&self, limit: usize) -> Result<Vec<TurnRecord>> {
+        let mut stmt = self.db.prepare(
+            "SELECT id, ts, role, content FROM turn ORDER BY id DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![limit as i64], |r| {
+            let role_s: String = r.get(2)?;
+            let role = match role_s.as_str() {
+                "user" => Role::User,
+                "assistant" => Role::Assistant,
+                _ => Role::User,
+            };
+            Ok(TurnRecord {
+                id: r.get(0)?,
+                ts: r.get(1)?,
+                role,
+                content: r.get(3)?,
+            })
+        })?;
+        let mut out: Vec<TurnRecord> = rows.collect::<rusqlite::Result<_>>()?;
+        out.reverse();
+        Ok(out)
     }
 }
 
@@ -206,6 +256,29 @@ mod tests {
         let bak = room_dir.join("memory.sqlite.bak-v0");
         assert!(bak.exists(), "first open should create bak-v0");
         assert!(!room_dir.join("memory.sqlite.bak-v1").exists());
+    }
+
+    #[test]
+    fn record_turn_appends_with_monotonic_ts_and_returns_id() {
+        let dir = tempdir().unwrap();
+        let mut m = Memory::open(dir.path(), "01TESTROOM").unwrap();
+        let id1 = m.record_turn(Role::User, "hello").unwrap();
+        let id2 = m.record_turn(Role::Assistant, "hi back").unwrap();
+        assert!(id2 > id1);
+        let turns = m.recent_turns(10).unwrap();
+        assert_eq!(turns.len(), 2);
+        assert_eq!(turns[0].role, Role::User);
+        assert_eq!(turns[0].content, "hello");
+        assert_eq!(turns[1].role, Role::Assistant);
+        assert_eq!(turns[1].content, "hi back");
+        assert!(turns[1].ts >= turns[0].ts);
+    }
+
+    #[test]
+    fn latest_turn_id_is_zero_when_empty() {
+        let dir = tempdir().unwrap();
+        let m = Memory::open(dir.path(), "01TESTROOM").unwrap();
+        assert_eq!(m.latest_turn_id().unwrap(), 0);
     }
 
     #[test]
