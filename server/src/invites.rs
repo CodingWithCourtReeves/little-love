@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use thiserror::Error;
 
-use crate::wordlist_bip39_en::BIP39_EN;
+use littlelove_crypto::wordlist::BIP39_EN;
 
 /// Invites expire 1 hour after creation per spec §4.2.
 pub const INVITE_TTL_SECONDS: i64 = 60 * 60;

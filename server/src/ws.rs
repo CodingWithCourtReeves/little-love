@@ -15,9 +15,6 @@ use ulid::Ulid;
 use crate::accounts::{
     lookup_ed25519_pub, lookup_full_account, lookup_full_account_by_id, AccountRecord,
 };
-use crate::auth::{
-    decode_b64, encode_b64, random_nonce, verify_invite_consume_signature, verify_signature,
-};
 use crate::invites::{
     create_invite_record, decode_code, default_expiry, generate_invite, lookup_invite,
     mark_consumed, qr_png_base64, sha256, InviteState,
@@ -31,6 +28,9 @@ use crate::store::{MessageRow, Store};
 use crate::wire::{
     error_codes, AuthClientFrame, AuthServerFrame, IdentifyPayload, RoomClientFrame,
     RoomDescriptor, RoomServerFrame,
+};
+use littlelove_crypto::sig::{
+    decode_b64, encode_b64, random_nonce, verify_invite_consume_signature, verify_signature,
 };
 
 #[derive(Clone)]
