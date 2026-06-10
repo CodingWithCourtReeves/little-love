@@ -38,6 +38,13 @@ class AccountLocalStore {
   final Directory _home;
 
   static Directory _defaultHome() {
+    if (Platform.isIOS || Platform.isAndroid) {
+      // Sandboxed mobile apps don't reliably receive HOME in their process
+      // environment. The sandbox container (parent of the per-app tmp dir)
+      // is writable and persists across launches, so anchor ~/.littlelove
+      // there. Equivalent to NSHomeDirectory() on iOS.
+      return Directory.systemTemp.parent;
+    }
     final home = Platform.isWindows
         ? Platform.environment['USERPROFILE'] ?? ''
         : Platform.environment['HOME'] ?? '';
