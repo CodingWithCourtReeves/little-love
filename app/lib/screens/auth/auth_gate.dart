@@ -177,6 +177,11 @@ class _SignupFlowState extends ConsumerState<_SignupFlow> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('That username is already taken.')),
       );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not finish signup: $e')),
+      );
     }
   }
 }
