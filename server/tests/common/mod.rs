@@ -108,6 +108,45 @@ pub async fn insert_account(store: &Store, username: &str, vk: &VerifyingKey) {
         .unwrap();
 }
 
+/// Seed two humans with no partner link set. Returns `(a_id, b_id)`.
+pub async fn seed_two_humans(store: &Store) -> (i64, i64) {
+    let pool = store.pool();
+    let (a,): (i64,) = sqlx::query_as(
+        "INSERT INTO accounts (username, ed25519_pub, x25519_pub)
+         VALUES ('court', $1, $2) RETURNING id",
+    )
+    .bind(vec![10u8; 32])
+    .bind(vec![11u8; 32])
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let (b,): (i64,) = sqlx::query_as(
+        "INSERT INTO accounts (username, ed25519_pub, x25519_pub)
+         VALUES ('kaitlyn', $1, $2) RETURNING id",
+    )
+    .bind(vec![20u8; 32])
+    .bind(vec![21u8; 32])
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    (a, b)
+}
+
+/// Seed three humans with no partner link set. Returns `(a_id, b_id, c_id)`.
+pub async fn seed_three_humans(store: &Store) -> (i64, i64, i64) {
+    let (a, b) = seed_two_humans(store).await;
+    let (c,): (i64,) = sqlx::query_as(
+        "INSERT INTO accounts (username, ed25519_pub, x25519_pub)
+         VALUES ('riley', $1, $2) RETURNING id",
+    )
+    .bind(vec![40u8; 32])
+    .bind(vec![41u8; 32])
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    (a, b, c)
+}
+
 /// Seed a v0.3-shaped couple-plus-bot scenario:
 /// - `court` (human), `kaitlyn` (human, monogamy partner)
 /// - `court-garden` (bot owned by court)

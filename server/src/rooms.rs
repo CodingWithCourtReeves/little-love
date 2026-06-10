@@ -177,6 +177,86 @@ pub async fn list_rooms_for_account(
     Ok(out)
 }
 
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum MonogamyError {
+    #[error("the other account is not your partner")]
+    WrongPartner,
+}
+
+/// Validate that `me` can pair with `peer` under the v0.3 monogamy rule
+/// (spec §3.2): either both human accounts have no partner yet, or they
+/// already point at each other.
+pub async fn monogamy_check(
+    pool: &PgPool,
+    me: i64,
+    peer: i64,
+) -> sqlx::Result<Result<(), MonogamyError>> {
+    let row: (Option<i64>, Option<i64>) = sqlx::query_as(
+        "SELECT (SELECT partner_account_id FROM accounts WHERE id = $1),
+                (SELECT partner_account_id FROM accounts WHERE id = $2)",
+    )
+    .bind(me)
+    .bind(peer)
+    .fetch_one(pool)
+    .await?;
+    let (mine, theirs) = row;
+    let ok = match (mine, theirs) {
+        (None, None) => true,
+        (Some(p), Some(q)) => p == peer && q == me,
+        _ => false,
+    };
+    Ok(if ok {
+        Ok(())
+    } else {
+        Err(MonogamyError::WrongPartner)
+    })
+}
+
+/// Set `partner_account_id` on both accounts in a single transaction.
+/// Idempotent: a no-op if both already point at each other.
+pub async fn set_partner_link(pool: &PgPool, a: i64, b: i64) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "UPDATE accounts SET partner_account_id = $2
+         WHERE id = $1
+           AND (partner_account_id IS NULL OR partner_account_id = $2)",
+    )
+    .bind(a)
+    .bind(b)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "UPDATE accounts SET partner_account_id = $2
+         WHERE id = $1
+           AND (partner_account_id IS NULL OR partner_account_id = $2)",
+    )
+    .bind(b)
+    .bind(a)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// True iff `bot_id` is a familiar owned by `human_id` directly, or by the
+/// partner of `human_id`. Spec §5.1 step 3: either of the room's humans may
+/// bring a bot they own (or that their partner owns).
+pub async fn bot_owned_by(pool: &PgPool, bot_id: i64, human_id: i64) -> sqlx::Result<bool> {
+    let row: (Option<i64>, Option<i64>) = sqlx::query_as(
+        "SELECT (SELECT owner_account_id FROM accounts WHERE id = $1 AND is_bot = TRUE),
+                (SELECT partner_account_id FROM accounts WHERE id = $2)",
+    )
+    .bind(bot_id)
+    .bind(human_id)
+    .fetch_one(pool)
+    .await?;
+    let (owner, partner) = row;
+    let Some(owner) = owner else {
+        return Ok(false);
+    };
+    Ok(owner == human_id || matches!(partner, Some(p) if p == owner))
+}
+
 /// Possible outcomes of `create_room_with_members`.
 #[derive(Debug, thiserror::Error)]
 pub enum CreateRoomError {
