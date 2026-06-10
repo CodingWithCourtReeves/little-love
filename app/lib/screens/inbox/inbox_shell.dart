@@ -1,21 +1,23 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../conversation/conversation_page.dart';
-import '../../conversation/message_store.dart';
+import '../../conversation/room_key_cache.dart';
+import '../../conversation/room_message_router.dart';
 import '../../identity/account_local.dart';
+import '../../identity/current_identity.dart';
 import '../../identity/keypair.dart';
-import '../../identity/providers.dart';
 import '../../inbox/drawer.dart';
 import '../../inbox/inbox_state.dart';
 import '../../inbox/layout_scaffold.dart';
 import '../../inbox/navigation_rail.dart';
 import '../../inbox/room.dart';
 import '../../inbox/sidebar.dart';
+import '../../pairing/encryption.dart';
 import '../../theme/twilight.dart';
-import '../../wire/message.dart';
+import '../../wire/frames.dart';
+import '../../wire/live_connection.dart';
 import '../pair/enter_code.dart';
 import '../pair/show_invite.dart';
 
@@ -29,6 +31,12 @@ class InboxShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Activate the router for this signed-in session. Reading the provider
+    // is enough — it stays alive while InboxShell is mounted.
+    ref
+        .watch(liveConnectionProvider)
+        .whenData((_) => ref.watch(roomMessageRouterProvider));
+
     final inbox = ref.watch(inboxStateProvider);
     final detail = _detail(context, ref, inbox.selectedRoomId, inbox.rooms);
 
@@ -115,22 +123,22 @@ class InboxShell extends ConsumerWidget {
       key: ValueKey(selectedId),
       roomId: selectedId,
       contactDisplayName: room.peerUsername,
-      onSend: (text) => _localSend(ref, selectedId, text),
+      onSend: (text) => _sendEncrypted(ref, room, text),
     );
   }
 
-  /// v0.2 placeholder: append a local Msg with `from = account.username` so
-  /// the demo round-trips locally. The integration session replaces this
-  /// with the real WSS `Send` frame path.
-  void _localSend(WidgetRef ref, String roomId, String text) {
-    final msg = Msg(
-      id: 'local-${DateTime.now().microsecondsSinceEpoch}',
-      from: account.username,
-      to: roomId,
-      body: text,
-      ts: DateTime.now().toUtc(),
+  Future<void> _sendEncrypted(WidgetRef ref, Room room, String text) async {
+    final me = await ref.read(currentIdentityProvider.future);
+    final key = await ref.read(roomKeyCacheProvider).getOrDerive(room, me);
+    final body = await encryptOutgoing(key, text);
+    final conn = ref.read(liveConnectionProvider).requireValue;
+    conn.send(
+      SendFrame(
+        roomId: room.roomId,
+        body: body,
+        clientMsgId: const Uuid().v4(),
+      ).toJson(),
     );
-    ref.read(messageStoreProvider(roomId).notifier).add(msg);
   }
 }
 
@@ -176,9 +184,10 @@ class _PairCard extends ConsumerWidget {
   }
 
   Future<void> _openEnterCode(BuildContext context, WidgetRef ref) async {
-    final keystore = ref.read(keystoreProvider);
-    final seedB64 = await keystore.read('llove.master.${account.username}');
-    if (seedB64 == null) {
+    final DerivedIdentity identity;
+    try {
+      identity = await ref.read(currentIdentityProvider.future);
+    } on StateError {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -187,10 +196,6 @@ class _PairCard extends ConsumerWidget {
       );
       return;
     }
-    // The keystore stores the BIP39-derived 16-byte seed in WT-C
-    // (`_SignupFlow._commit` writes `base64.encode(seed)`).
-    final seed = base64.decode(seedB64);
-    final identity = await deriveIdentity(seed);
     if (!context.mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
