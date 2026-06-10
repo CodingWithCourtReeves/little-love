@@ -42,6 +42,8 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   flutter_riverpod: ^2.5.1
   http: ^1.2.0
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^5.0.0
 
 dev_dependencies:
   flutter_test:
