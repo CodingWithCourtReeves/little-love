@@ -4,24 +4,25 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Image tag to deploy (e.g., v0.1.0-day1a)'
+        description: 'Image tag just pushed by release.yml (e.g., v0.2.0). The service is pinned to :latest, so this is informational — confirms the tag was published before redeploying.'
         required: true
 
 jobs:
   railway:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - run: npm install -g @railway/cli@latest
-      - name: Deploy to Railway
+      - name: Redeploy littlelove-api
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          TAG: ${{ inputs.tag }}
         run: |
+          echo "→ redeploying littlelove-api (pinned to :latest, just-pushed tag: $TAG)"
           railway link --project "$RAILWAY_PROJECT_ID" \
                        --service littlelove-api \
                        --environment production
-          railway up --service littlelove-api --detach
+          railway redeploy --service littlelove-api --yes

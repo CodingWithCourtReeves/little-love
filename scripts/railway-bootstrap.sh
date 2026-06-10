@@ -69,11 +69,17 @@ fi
 
 # ---------- 4. littlelove-api service ----------
 
+API_IMAGE="ghcr.io/codingwithcourtreeves/littlelove-api:latest"
 if railway service "$API_SERVICE_NAME" >/dev/null 2>&1; then
   echo "→ $API_SERVICE_NAME already exists, skipping create"
 else
-  echo "→ creating $API_SERVICE_NAME service"
-  railway add --service "$API_SERVICE_NAME"
+  echo "→ creating $API_SERVICE_NAME service from $API_IMAGE"
+  if ! railway add --service "$API_SERVICE_NAME" --image "$API_IMAGE" 2>/dev/null; then
+    railway add --service "$API_SERVICE_NAME"
+    echo "  ⚠ --image flag not supported by this CLI version."
+    echo "    Open railway.com → littlelove → $API_SERVICE_NAME → Settings → Source"
+    echo "    and set source image to: $API_IMAGE"
+  fi
 fi
 
 # ---------- 5. Env vars on littlelove-api ----------
