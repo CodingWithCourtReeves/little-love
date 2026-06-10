@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove — Your recovery phrase</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-canvas:#F4EBEC;--bg-surface:#EBDFE2;--bg-surface-alt:#E2D3D8;
+    --text-primary:#2A1F2A;--text-muted:#7C6C78;
+    --accent-user:#A04A6A;--accent-familiar:#4F7A5E;
+    --border-soft:#D9C7CD;--rule-strong:#4F7A5E;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg-canvas);color:var(--text-primary);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:48px 24px}
+  .topnav{position:fixed;top:24px;left:32px;right:32px;display:flex;align-items:center}
+  .back{font-size:13px;color:var(--text-muted);text-decoration:none;display:inline-flex;align-items:center;gap:8px}
+  .crumb{margin-left:auto;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-muted)}
+  .crumb b{color:var(--accent-user);font-weight:500}
+  .stage{width:100%;max-width:680px}
+  .stepmark{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent-familiar);margin-bottom:24px;display:flex;align-items:center;gap:10px}
+  .stepmark .bar{width:24px;height:1px;background:var(--rule-strong)}
+  h1{font-family:'Inter Tight',serif;font-weight:500;font-size:32px;line-height:1.15;letter-spacing:-.025em;margin:0 0 14px;max-width:22ch}
+  h1 em{font-style:italic;color:var(--accent-user)}
+  .sub{font-size:14px;line-height:1.65;color:var(--text-muted);max-width:54ch;margin:0 0 32px}
+  .card{
+    background:#FFFAFB;
+    border:1px solid var(--border-soft);
+    border-radius:2px;
+    padding:32px 28px 28px;
+    position:relative;
+    box-shadow:0 1px 0 rgba(42,31,42,.04), 0 24px 48px -32px rgba(42,31,42,.18);
+  }
+  .card::before{
+    content:"FOR @COURT";
+    position:absolute;top:-10px;left:24px;
+    background:var(--bg-canvas);padding:0 10px;
+    font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.18em;color:var(--text-muted);
+  }
+  .card::after{
+    content:"12 WORDS";
+    position:absolute;top:-10px;right:24px;
+    background:var(--bg-canvas);padding:0 10px;
+    font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.18em;color:var(--accent-familiar);
+  }
+  .grid{
+    display:grid;grid-template-columns:repeat(3,1fr);
+    column-gap:24px;row-gap:6px;
+  }
+  .word{
+    display:flex;align-items:baseline;gap:10px;
+    padding:14px 0;border-bottom:1px dotted var(--border-soft);
+  }
+  .word .n{
+    font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted);
+    width:18px;text-align:right;
+  }
+  .word .w{
+    font-family:'Inter Tight',serif;font-size:19px;font-weight:500;
+    color:var(--text-primary);letter-spacing:-.012em;
+  }
+  .word.mark .n{color:var(--accent-familiar);font-weight:500}
+  .footer{
+    margin-top:36px;display:flex;align-items:flex-start;gap:24px;
+  }
+  .meta{font-size:12px;color:var(--text-muted);line-height:1.6;max-width:36ch}
+  .meta b{color:var(--text-primary);font-weight:500;display:block;font-family:'Inter Tight';font-size:13px;letter-spacing:-.005em;margin-bottom:4px}
+  .btn-primary{
+    margin-left:auto;
+    background:var(--text-primary);color:#F4EBEC;font:inherit;
+    padding:16px 22px;border:0;border-radius:2px;font-size:14px;font-weight:500;
+    cursor:pointer;min-height:52px;letter-spacing:-.005em;display:inline-flex;align-items:center;gap:12px;white-space:nowrap;
+  }
+  .btn-primary:hover{background:#3A2D3A}
+  .btn-ghost{
+    background:transparent;color:var(--text-muted);
+    border:0;padding:14px 12px;font:inherit;font-size:13px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:8px;
+  }
+  .btn-ghost:hover{color:var(--text-primary)}
+</style>
+</head>
+<body>
+  <nav class="topnav">
+    <a href="signup-username.html" class="back">← Back</a>
+    <span class="crumb">Step 01 · <b>02</b> · 03</span>
+  </nav>
+  <div class="stage">
+    <div class="stepmark"><span class="bar"></span>Save these words somewhere only you two can reach</div>
+    <h1>The only twelve words that can <em>bring you back</em>.</h1>
+    <p class="sub">If you lose this device, these words restore @court. We do not have a copy. There is no reset email. Write them on paper, or store them in a password manager — but write them down before you tap continue.</p>
+
+    <div class="card">
+      <div class="grid">
+        <div class="word"><span class="n">01</span><span class="w">slate</span></div>
+        <div class="word"><span class="n">02</span><span class="w">apricot</span></div>
+        <div class="word mark"><span class="n">03</span><span class="w">river</span></div>
+        <div class="word"><span class="n">04</span><span class="w">candle</span></div>
+        <div class="word"><span class="n">05</span><span class="w">echo</span></div>
+        <div class="word"><span class="n">06</span><span class="w">marble</span></div>
+        <div class="word mark"><span class="n">07</span><span class="w">orchard</span></div>
+        <div class="word"><span class="n">08</span><span class="w">linen</span></div>
+        <div class="word"><span class="n">09</span><span class="w">copper</span></div>
+        <div class="word"><span class="n">10</span><span class="w">harbor</span></div>
+        <div class="word mark"><span class="n">11</span><span class="w">violet</span></div>
+        <div class="word"><span class="n">12</span><span class="w">drift</span></div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div class="meta">
+        <b>Why we only show this once</b>
+        These words are the master key. If they are saved nowhere, the account cannot be restored — by anyone, including us.
+      </div>
+      <button class="btn-ghost">Copy to clipboard</button>
+      <button class="btn-primary">I've saved these words <span style="font-family:'Inter Tight';font-size:18px">→</span></button>
+    </div>
+  </div>
+</body>
+</html>

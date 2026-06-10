@@ -43,13 +43,51 @@ class InboxShell extends ConsumerWidget {
     if (rooms.isEmpty) {
       return Scaffold(
         backgroundColor: TwilightColors.bgCanvas,
-        body: const Center(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Text(
-              'No conversations yet.\nPair with your partner to start a chat.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: TwilightColors.textMuted),
+        body: Center(
+          child: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: const Padding(
+                padding: EdgeInsets.all(32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 'No conversations yet' kept verbatim for widget tests.
+                    Text(
+                      'No conversations yet',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        letterSpacing: 2.4,
+                        fontWeight: FontWeight.w500,
+                        color: TwilightColors.accentFamiliar,
+                      ),
+                    ),
+                    SizedBox(height: 14),
+                    Text(
+                      'Pair with your partner to begin.',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 28,
+                        fontWeight: FontWeight.w500,
+                        height: 1.14,
+                        letterSpacing: -0.6,
+                        color: TwilightColors.textPrimary,
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'A pairing handshake exchanges public keys directly '
+                      'between your two devices. Until that happens, there is '
+                      'nothing for the server to deliver.',
+                      style: TwilightType.lede,
+                    ),
+                    SizedBox(height: 28),
+                    _PairCard(),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -87,5 +125,124 @@ class InboxShell extends ConsumerWidget {
       ts: DateTime.now().toUtc(),
     );
     ref.read(messageStoreProvider(roomId).notifier).add(msg);
+  }
+}
+
+class _PairCard extends StatelessWidget {
+  const _PairCard();
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: TwilightColors.bubblePartnerBg,
+        border: Border.all(color: TwilightColors.borderSoft),
+        borderRadius: const BorderRadius.all(Radius.circular(2)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1A2A1F2A),
+            blurRadius: 48,
+            offset: Offset(0, 24),
+            spreadRadius: -32,
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          _PairOption(
+            glyph: '+',
+            title: 'Invite them with a code',
+            detail: 'Generates a one-time code they enter on their device.',
+            onTap: () {}, // pairing-WT wires this.
+          ),
+          const Divider(
+            height: 1,
+            thickness: 1,
+            color: TwilightColors.borderSoft,
+            indent: 18,
+            endIndent: 18,
+          ),
+          _PairOption(
+            glyph: '⌗',
+            title: 'I have an invite code',
+            detail: 'Enter a code your partner sent you.',
+            onTap: () {},
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PairOption extends StatelessWidget {
+  const _PairOption({
+    required this.glyph,
+    required this.title,
+    required this.detail,
+    required this.onTap,
+  });
+  final String glyph;
+  final String title;
+  final String detail;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 16, 14, 16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                border: Border.all(color: TwilightColors.accentFamiliar),
+                borderRadius: BorderRadius.circular(2),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                glyph,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: TwilightColors.accentFamiliar,
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: TwilightColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(detail, style: TwilightType.lede),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              '→',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 18,
+                color: TwilightColors.textMuted,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

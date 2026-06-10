@@ -7,6 +7,7 @@ import '../../identity/account_local.dart';
 import '../../identity/bip39.dart';
 import '../../identity/keypair.dart';
 import '../../identity/providers.dart';
+import '../../theme/twilight.dart';
 import '../../wire/rest_client.dart';
 import '../inbox/inbox_shell.dart';
 import 'recovery_confirm.dart';
@@ -42,26 +43,76 @@ class _ChoiceScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Welcome to LittleLove')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            FilledButton(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const _SignupFlow()),
+      backgroundColor: TwilightColors.bgCanvas,
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 48),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'A messenger for two.',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 40,
+                      fontWeight: FontWeight.w500,
+                      height: 1.06,
+                      letterSpacing: -1.0,
+                      color: TwilightColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Conversations live only on devices you own. '
+                    'The server holds ciphertext it cannot read.',
+                    style: TwilightType.lede,
+                  ),
+                  const SizedBox(height: 48),
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: TwilightColors.textPrimary,
+                      foregroundColor: TwilightColors.bgCanvas,
+                      minimumSize: const Size.fromHeight(52),
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(2)),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const _SignupFlow(),
+                      ),
+                    ),
+                    child: const Text('Create an account'),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: TwilightColors.textPrimary,
+                      side: const BorderSide(color: TwilightColors.borderSoft),
+                      minimumSize: const Size.fromHeight(52),
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(2)),
+                      ),
+                    ),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const _SigninFlow(),
+                      ),
+                    ),
+                    child: const Text('Sign in with a recovery phrase'),
+                  ),
+                ],
               ),
-              child: const Text('Create account'),
             ),
-            const SizedBox(height: 16),
-            OutlinedButton(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const _SigninFlow()),
-              ),
-              child: const Text('Sign in with recovery phrase'),
-            ),
-          ],
+          ),
         ),
       ),
     );

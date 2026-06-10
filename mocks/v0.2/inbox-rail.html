@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove — Inbox (rail · 700px)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-canvas:#F4EBEC;--bg-surface:#EBDFE2;--bg-surface-alt:#E2D3D8;
+    --text-primary:#2A1F2A;--text-muted:#7C6C78;
+    --accent-user:#A04A6A;--accent-partner:#9C7E94;--accent-familiar:#4F7A5E;
+    --border-soft:#D9C7CD;--rule-strong:#4F7A5E;
+    --bubble-user-bg:#E8C8D2;--bubble-user-text:#3A1424;--bubble-partner-bg:#FFFAFB;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#dcd0d2;color:var(--text-primary);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh}
+  .frame{
+    width:700px;margin:24px auto;background:var(--bg-canvas);
+    height:calc(100vh - 48px);min-height:680px;
+    border:1px solid var(--border-soft);box-shadow:0 24px 60px -28px rgba(42,31,42,.35);
+    display:grid;grid-template-columns:64px 1fr;overflow:hidden;
+  }
+  .label{
+    position:fixed;top:18px;left:24px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.22em;color:#000a;
+  }
+  .label b{color:var(--accent-user);font-weight:500}
+
+  /* RAIL */
+  .rail{
+    background:var(--bg-surface);position:relative;
+    display:flex;flex-direction:column;align-items:center;padding:18px 0 14px;
+    border-right:1px solid var(--border-soft);
+  }
+  .rail::after{
+    content:"";position:absolute;top:24px;bottom:24px;right:-1px;width:1px;
+    background:linear-gradient(to bottom, transparent, var(--rule-strong) 20%, var(--rule-strong) 80%, transparent);
+    opacity:.35;
+  }
+  .rail .dot{width:7px;height:7px;background:var(--accent-user);border-radius:50%;margin-bottom:22px}
+  .rail .tile{
+    position:relative;width:56px;min-height:56px;display:flex;align-items:center;justify-content:center;
+    cursor:pointer;
+  }
+  .rail .tile + .tile{margin-top:4px}
+  .rail .tile .av{
+    width:36px;height:36px;border-radius:50%;
+    background:var(--accent-partner);color:#FFFAFB;
+    display:inline-flex;align-items:center;justify-content:center;
+    font-family:'Inter Tight';font-weight:500;font-size:14px;
+    transition:transform 150ms ease;
+  }
+  .rail .tile:hover .av{transform:scale(1.05)}
+  .rail .tile.selected{background:var(--bg-surface-alt)}
+  .rail .tile.selected::before{
+    content:"";position:absolute;left:0;top:8px;bottom:8px;width:2px;background:var(--rule-strong);border-radius:2px;
+  }
+  .rail .tile.unread::after{
+    content:"";position:absolute;top:10px;right:10px;width:7px;height:7px;border-radius:50%;background:var(--accent-user);border:2px solid var(--bg-surface);
+  }
+  .rail .divider{width:24px;height:1px;background:var(--border-soft);margin:14px 0}
+  .rail .label-vert{
+    writing-mode:vertical-rl;transform:rotate(180deg);
+    font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.22em;color:var(--text-muted);
+    margin:8px 0;
+  }
+  .rail .footer-gear{
+    margin-top:auto;width:36px;height:36px;border-radius:2px;
+    background:transparent;border:0;cursor:pointer;color:var(--text-muted);
+    display:inline-flex;align-items:center;justify-content:center;
+  }
+  .rail .footer-gear:hover{background:var(--bg-surface-alt);color:var(--text-primary)}
+  .rail .avatar-me{
+    width:30px;height:30px;border-radius:50%;background:var(--text-primary);color:var(--bg-canvas);
+    display:inline-flex;align-items:center;justify-content:center;
+    font-family:'Inter Tight';font-weight:500;font-size:12px;margin-top:8px;
+  }
+
+  /* DETAIL (compact) */
+  .detail{display:flex;flex-direction:column;overflow:hidden;background:var(--bg-canvas)}
+  .topbar{background:var(--bg-surface);border-bottom:1px solid var(--border-soft);padding:12px 20px;display:flex;align-items:center;gap:12px;min-height:60px}
+  .topbar .av{width:32px;height:32px;border-radius:50%;background:var(--accent-partner);color:#FFFAFB;display:inline-flex;align-items:center;justify-content:center;font-family:'Inter Tight';font-weight:500;font-size:13px}
+  .topbar .who .n{font-family:'Inter Tight';font-weight:500;font-size:14px;letter-spacing:-.005em}
+  .topbar .who .s{font-size:10.5px;color:var(--accent-familiar);font-family:'JetBrains Mono',monospace;letter-spacing:.05em;margin-top:1px;display:flex;align-items:center;gap:5px}
+  .topbar .who .s::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent-familiar)}
+  .topbar .seal{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--text-muted);letter-spacing:.16em;display:flex;align-items:center;gap:6px}
+  .topbar .seal .lock{width:12px;height:12px;color:var(--accent-familiar)}
+
+  .messages{flex:1;overflow:auto;padding:24px 22px 8px;display:flex;flex-direction:column;gap:8px}
+  .day{display:flex;align-items:center;gap:12px;margin:12px 0 8px}
+  .day .line{flex:1;height:1px;background:var(--border-soft)}
+  .day .label2{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--text-muted);letter-spacing:.18em}
+  .bubble{max-width:420px;padding:10px 14px;border-radius:14px;font-size:14.5px;line-height:1.45;letter-spacing:-.005em}
+  .b-mine{align-self:flex-end;background:var(--bubble-user-bg);color:var(--bubble-user-text);border:1px solid #DCB5C2;border-bottom-right-radius:4px}
+  .b-theirs{align-self:flex-start;background:var(--bubble-partner-bg);color:var(--text-primary);border:1px solid var(--border-soft);border-bottom-left-radius:4px}
+
+  .composer{background:var(--bg-surface);padding:12px 20px 16px;border-top:1px solid var(--border-soft)}
+  .composer .well{display:grid;grid-template-columns:auto 1fr auto;align-items:end;gap:10px;background:var(--bg-surface-alt);border:1px solid transparent;border-radius:14px;padding:6px 6px 6px 12px}
+  .composer .well:focus-within{border-color:var(--accent-familiar)}
+  .composer textarea{font:inherit;font-family:'Inter Tight';font-size:14.5px;background:transparent;border:0;outline:0;resize:none;width:100%;padding:10px 0;color:var(--text-primary);font-weight:500;letter-spacing:-.005em}
+  .composer textarea::placeholder{color:var(--text-muted)}
+  .composer .ico,.composer .send{width:40px;height:40px;border-radius:8px;border:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+  .composer .ico{background:transparent;color:var(--text-muted)}
+  .composer .send{background:var(--accent-user);color:#FFFAFB}
+</style>
+</head>
+<body>
+  <div class="label">Viewport · <b>700px</b> · NavigationRail variant</div>
+  <div class="frame">
+    <aside class="rail">
+      <span class="dot" title="LittleLove"></span>
+      <span class="label-vert">COUPLES</span>
+      <div class="tile selected" title="Kaitlyn">
+        <div class="av">K</div>
+      </div>
+      <div class="divider"></div>
+      <span class="label-vert">FAMILIARS</span>
+      <button class="footer-gear" title="Settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+      <div class="avatar-me" title="@court">c</div>
+    </aside>
+
+    <main class="detail">
+      <div class="topbar">
+        <div class="av">K</div>
+        <div class="who">
+          <div class="n">Kaitlyn</div>
+          <div class="s">paired</div>
+        </div>
+        <div class="seal">
+          <svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></svg>
+          <span>E2E</span>
+        </div>
+      </div>
+      <div class="messages">
+        <div class="day"><span class="line"></span><span class="label2">TODAY</span><span class="line"></span></div>
+        <div class="bubble b-theirs">just landed. trains are a mess.</div>
+        <div class="bubble b-mine">how mess-y are we talking</div>
+        <div class="bubble b-theirs">like an hour-and-a-half mess-y</div>
+        <div class="bubble b-mine">ok I'll feed the cats. take your time ♥</div>
+        <div class="bubble b-theirs">I'll be home by seven, leftover stir-fry sounds amazing actually</div>
+      </div>
+      <div class="composer">
+        <div class="well">
+          <button class="ico" title="Emoji">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+          </button>
+          <textarea placeholder="Message Kaitlyn" rows="1">drive safe</textarea>
+          <button class="send" title="Send">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+          </button>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

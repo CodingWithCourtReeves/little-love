@@ -32,8 +32,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Create account'), findsOneWidget);
-    expect(find.text('Sign in with recovery phrase'), findsOneWidget);
+    expect(find.text('Create an account'), findsOneWidget);
+    expect(find.text('Sign in with a recovery phrase'), findsOneWidget);
   });
 
   testWidgets('populated account renders the inbox shell', (tester) async {
