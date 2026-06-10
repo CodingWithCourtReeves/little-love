@@ -6,5 +6,6 @@ pub mod history;
 pub mod identity_store;
 pub mod llm;
 pub mod pair;
+pub mod persona;
 pub mod rest;
 pub mod ws_client;
