@@ -28,8 +28,9 @@ pub const INVITE_CONSUME_DOMAIN_TAG: &[u8] = b"littlelove.v0.2.invite-consume";
 pub const BOT_REGISTER_DOMAIN_TAG: &[u8] = b"littlelove.v0.3.bot-register";
 
 /// Domain-separation tag for `DELETE /accounts/bot/{label}` (spec v0.3 §4.x).
-/// Signed input: `BOT_DELETE_DOMAIN_TAG || 0x00 || label_utf8`
-/// (26 ASCII bytes + 1 NUL delimiter + label length).
+/// Signed input: `BOT_DELETE_DOMAIN_TAG || 0x00 || label_utf8 || 0x00 || nonce`.
+/// Binding the server-issued challenge nonce makes captured signatures
+/// single-use (replay resistance).
 pub const BOT_DELETE_DOMAIN_TAG: &[u8] = b"littlelove.v0.3.bot-delete";
 
 fn signing_input(tag: &[u8], payload: &[u8]) -> Vec<u8> {
@@ -135,8 +136,15 @@ pub fn bot_register_signing_input(bot_ed25519_pub: &[u8], bot_x25519_pub: &[u8])
 }
 
 /// Build the domain-separated signing input for `DELETE /accounts/bot/{label}`.
-pub fn bot_delete_signing_input(label: &[u8]) -> Vec<u8> {
-    signing_input(BOT_DELETE_DOMAIN_TAG, label)
+/// The signed payload is `label || 0x00 || nonce`; the outer `signing_input`
+/// helper then prepends `BOT_DELETE_DOMAIN_TAG || 0x00`. The nonce is the
+/// server-issued challenge value from `POST /accounts/bot/{label}/delete-challenge`.
+pub fn bot_delete_signing_input(label: &[u8], nonce: &[u8]) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(label.len() + 1 + nonce.len());
+    payload.extend_from_slice(label);
+    payload.push(0u8);
+    payload.extend_from_slice(nonce);
+    signing_input(BOT_DELETE_DOMAIN_TAG, &payload)
 }
 
 /// Verify an owner's signature authorising a bot registration.
@@ -153,13 +161,19 @@ pub fn verify_bot_register_signature(
     )
 }
 
-/// Verify an owner's signature authorising a bot deletion.
+/// Verify an owner's signature authorising a bot deletion. The signature
+/// must cover both `label` AND the server-issued challenge `nonce`.
 pub fn verify_bot_delete_signature(
     owner_pub: &[u8],
     label: &[u8],
+    nonce: &[u8],
     signature: &[u8],
 ) -> Result<(), AuthError> {
-    verify_domain_separated(owner_pub, &bot_delete_signing_input(label), signature)
+    verify_domain_separated(
+        owner_pub,
+        &bot_delete_signing_input(label, nonce),
+        signature,
+    )
 }
 
 #[cfg(test)]
@@ -335,12 +349,15 @@ mod tests {
     #[test]
     fn bot_delete_signing_input_has_expected_layout() {
         let label = b"garden";
-        let input = bot_delete_signing_input(label);
-        // 26 ASCII bytes (tag) + 1 NUL + 6 label bytes = 33.
-        assert_eq!(input.len(), 26 + 1 + label.len());
+        let nonce = [0xAAu8; 32];
+        let input = bot_delete_signing_input(label, &nonce);
+        // 26 (tag) + 1 NUL + 6 (label) + 1 NUL + 32 (nonce) = 66.
+        assert_eq!(input.len(), 26 + 1 + label.len() + 1 + nonce.len());
         assert_eq!(&input[..26], BOT_DELETE_DOMAIN_TAG);
         assert_eq!(input[26], 0u8);
-        assert_eq!(&input[27..], &label[..]);
+        assert_eq!(&input[27..33], &label[..]);
+        assert_eq!(input[33], 0u8);
+        assert_eq!(&input[34..], &nonce[..]);
     }
 
     #[test]
@@ -392,18 +409,42 @@ mod tests {
     fn verify_bot_delete_accepts_valid_sig() {
         let owner = SigningKey::generate(&mut OsRng);
         let label = b"journal";
-        let sig = owner.sign(&bot_delete_signing_input(label)).to_bytes();
+        let nonce = random_nonce();
+        let sig = owner
+            .sign(&bot_delete_signing_input(label, &nonce))
+            .to_bytes();
         let owner_pk = owner.verifying_key().to_bytes();
-        assert!(verify_bot_delete_signature(&owner_pk, label, &sig).is_ok());
+        assert!(verify_bot_delete_signature(&owner_pk, label, &nonce, &sig).is_ok());
     }
 
     #[test]
     fn verify_bot_delete_rejects_wrong_label() {
         let owner = SigningKey::generate(&mut OsRng);
-        let sig = owner.sign(&bot_delete_signing_input(b"garden")).to_bytes();
+        let nonce = random_nonce();
+        let sig = owner
+            .sign(&bot_delete_signing_input(b"garden", &nonce))
+            .to_bytes();
         let owner_pk = owner.verifying_key().to_bytes();
         assert_eq!(
-            verify_bot_delete_signature(&owner_pk, b"journal", &sig),
+            verify_bot_delete_signature(&owner_pk, b"journal", &nonce, &sig),
+            Err(AuthError::Mismatch)
+        );
+    }
+
+    #[test]
+    fn verify_bot_delete_rejects_nonce_substitution() {
+        // The defining property of the new scheme: a signature valid for
+        // one nonce must fail under any other nonce.
+        let owner = SigningKey::generate(&mut OsRng);
+        let label = b"journal";
+        let nonce_a = random_nonce();
+        let nonce_b = random_nonce();
+        let sig = owner
+            .sign(&bot_delete_signing_input(label, &nonce_a))
+            .to_bytes();
+        let owner_pk = owner.verifying_key().to_bytes();
+        assert_eq!(
+            verify_bot_delete_signature(&owner_pk, label, &nonce_b, &sig),
             Err(AuthError::Mismatch)
         );
     }

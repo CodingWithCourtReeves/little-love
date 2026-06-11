@@ -369,10 +369,77 @@ pub async fn create_bot_account(
     }
 }
 
+/// How long a delete-challenge nonce is valid for. Long enough for a normal
+/// round-trip but short enough that a captured signature can only replay
+/// inside this window — and only if no later challenge has overwritten the row.
+const DELETE_CHALLENGE_TTL_SECONDS: i64 = 60;
+
+#[derive(Debug, Serialize)]
+pub struct DeleteChallengeResponse {
+    pub nonce: String,
+    pub expires_at: DateTime<Utc>,
+}
+
+/// POST /accounts/bot/{label}/delete-challenge — issue a one-time nonce that
+/// the owner must sign and present alongside the DELETE. Anyone with the
+/// owner_username can request a challenge (no auth gate here) — the security
+/// comes from the DELETE requiring a valid signature over (label, nonce). The
+/// composite-PK upsert means each new request invalidates the prior nonce.
+pub async fn create_delete_challenge(
+    State(state): State<crate::ws::AppState>,
+    Path(label): Path<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return (StatusCode::INTERNAL_SERVER_ERROR, "store unavailable").into_response(),
+    };
+    let Some(owner_u) = headers
+        .get("X-Owner-Username")
+        .and_then(|v| v.to_str().ok())
+    else {
+        return (StatusCode::UNAUTHORIZED, "missing owner").into_response();
+    };
+    if !bot_label_ok(&label) {
+        return (StatusCode::BAD_REQUEST, "invalid label").into_response();
+    }
+    let owner = match lookup_full_account(store, owner_u).await {
+        Ok(Some(a)) => a,
+        _ => return (StatusCode::UNAUTHORIZED, "no such owner").into_response(),
+    };
+    let nonce = littlelove_crypto::sig::random_nonce();
+    let expires_at = Utc::now() + chrono::Duration::seconds(DELETE_CHALLENGE_TTL_SECONDS);
+    let result = sqlx::query(
+        "INSERT INTO bot_delete_challenges (owner_account_id, bot_label, nonce, expires_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (owner_account_id, bot_label)
+         DO UPDATE SET nonce = EXCLUDED.nonce, expires_at = EXCLUDED.expires_at",
+    )
+    .bind(owner.id)
+    .bind(&label)
+    .bind(nonce.to_vec())
+    .bind(expires_at)
+    .execute(store.pool())
+    .await;
+    if let Err(e) = result {
+        tracing::warn!("create_delete_challenge: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+    }
+    (
+        StatusCode::OK,
+        Json(DeleteChallengeResponse {
+            nonce: B64.encode(nonce),
+            expires_at,
+        }),
+    )
+        .into_response()
+}
+
 /// DELETE /accounts/bot/{label} — owner-signed familiar deletion (spec §8.5.1
-/// `littlelove.v0.3.bot-delete`). Signature lives in headers because DELETE
-/// requests don't conventionally carry a body. The bot account row's
-/// ON DELETE CASCADE membership rows clean themselves up.
+/// `littlelove.v0.3.bot-delete`). Signature covers `(label, nonce)` where
+/// `nonce` was just issued by `POST /accounts/bot/{label}/delete-challenge`.
+/// The challenge row is consumed atomically with the verify, so captured
+/// signatures cannot replay.
 pub async fn delete_bot_account(
     State(state): State<crate::ws::AppState>,
     Path(label): Path<String>,
@@ -390,7 +457,12 @@ pub async fn delete_bot_account(
         .get("X-Owner-Signature")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
-    let (Some(owner_u), Some(sig_b64)) = (owner_username, sig_b64) else {
+    let nonce_b64 = headers
+        .get("X-Delete-Nonce")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let (Some(owner_u), Some(sig_b64), Some(nonce_b64)) = (owner_username, sig_b64, nonce_b64)
+    else {
         return (StatusCode::UNAUTHORIZED, "missing auth").into_response();
     };
     if !bot_label_ok(&label) {
@@ -404,14 +476,49 @@ pub async fn delete_bot_account(
         Ok(s) => s,
         Err(_) => return (StatusCode::UNAUTHORIZED, "bad sig").into_response(),
     };
+    let nonce = match B64.decode(&nonce_b64) {
+        Ok(n) => n,
+        Err(_) => return (StatusCode::UNAUTHORIZED, "bad nonce").into_response(),
+    };
     if littlelove_crypto::sig::verify_bot_delete_signature(
         &owner.ed25519_pub,
         label.as_bytes(),
+        &nonce,
         &sig,
     )
     .is_err()
     {
         return (StatusCode::UNAUTHORIZED, "signature did not verify").into_response();
+    }
+    let mut tx = match store.pool().begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::warn!("delete_bot tx begin: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+    // Consume the challenge: row must exist for this owner+label, with a
+    // matching nonce, and not be expired. DELETE … RETURNING gives us
+    // atomic check-and-consume, so a captured signature cannot replay.
+    let consumed = sqlx::query(
+        "DELETE FROM bot_delete_challenges
+         WHERE owner_account_id = $1 AND bot_label = $2 AND nonce = $3 AND expires_at > NOW()
+         RETURNING owner_account_id",
+    )
+    .bind(owner.id)
+    .bind(&label)
+    .bind(&nonce)
+    .fetch_optional(&mut *tx)
+    .await;
+    let consumed = match consumed {
+        Ok(row) => row,
+        Err(e) => {
+            tracing::warn!("delete_bot consume challenge: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+    if consumed.is_none() {
+        return (StatusCode::UNAUTHORIZED, "challenge expired or unknown").into_response();
     }
     let bot_username = format!("{owner_u}-{label}");
     let result = sqlx::query(
@@ -419,15 +526,23 @@ pub async fn delete_bot_account(
     )
     .bind(&bot_username)
     .bind(owner.id)
-    .execute(store.pool())
+    .execute(&mut *tx)
     .await;
-    match result {
-        Ok(r) if r.rows_affected() == 0 => (StatusCode::NOT_FOUND, "no such bot").into_response(),
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+    let rows_affected = match result {
+        Ok(r) => r.rows_affected(),
         Err(e) => {
             tracing::warn!("delete_bot: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
         }
+    };
+    if let Err(e) = tx.commit().await {
+        tracing::warn!("delete_bot tx commit: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+    }
+    if rows_affected == 0 {
+        (StatusCode::NOT_FOUND, "no such bot").into_response()
+    } else {
+        StatusCode::NO_CONTENT.into_response()
     }
 }
 

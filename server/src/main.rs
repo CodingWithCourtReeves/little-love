@@ -50,6 +50,10 @@ async fn main() -> Result<()> {
             axum::routing::delete(littlelove_api::accounts::delete_bot_account),
         )
         .route(
+            "/accounts/bot/:label/delete-challenge",
+            axum::routing::post(littlelove_api::accounts::create_delete_challenge),
+        )
+        .route(
             "/invites/:code/preview",
             axum::routing::post(littlelove_api::invites::preview_invite),
         )
