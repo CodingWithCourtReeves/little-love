@@ -17,7 +17,10 @@ jobs:
       - run: npm install -g @railway/cli@latest
       - name: Redeploy littlelove-api
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          # Account token (from Railway → Account Settings → Tokens),
+          # NOT a project token. `railway link` is a cross-project command
+          # and only authenticates with an account-scoped token.
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           TAG: ${{ inputs.tag }}
         run: |
