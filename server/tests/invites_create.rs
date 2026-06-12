@@ -116,6 +116,29 @@ async fn create_invite_rejects_already_paired_caller() {
     .await
     .unwrap();
 
+    // v0.3 already-paired is enforced via accounts.partner_account_id, not
+    // membership in any room. Set both partner links.
+    sqlx::query(
+        "UPDATE accounts a
+         SET partner_account_id = (SELECT id FROM accounts WHERE username = $2)
+         WHERE a.username = $1",
+    )
+    .bind("court")
+    .bind("kaitlyn")
+    .execute(store.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE accounts a
+         SET partner_account_id = (SELECT id FROM accounts WHERE username = $2)
+         WHERE a.username = $1",
+    )
+    .bind("kaitlyn")
+    .bind("court")
+    .execute(store.pool())
+    .await
+    .unwrap();
+
     let addr = spawn_server(Some(store)).await;
     let mut sock = handshake_as(addr, "court", &court_sk).await;
     drain_rooms(&mut sock).await;

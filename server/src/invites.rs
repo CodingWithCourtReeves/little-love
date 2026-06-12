@@ -53,25 +53,46 @@ impl InviteRow {
 /// Insert a fresh invite. Any outstanding (unconsumed) invites for the same
 /// `inviter_id` are deleted first per spec §4.2 ("Creating a new one revokes
 /// the prior").
+///
+/// `room_id` is `Some(_)` when the invite is created by `CreateRoom { invite_human_partner: true }`
+/// (the consumer joins the existing room) and `None` for the legacy `CreateInvite` WSS frame
+/// (the consume handler then creates a couple-only room on the fly).
 pub async fn create_invite_record(
     pool: &PgPool,
     inviter_id: i64,
     token_hash: &[u8],
     expires_at: DateTime<Utc>,
+    room_id: Option<&str>,
 ) -> sqlx::Result<()> {
     let mut tx = pool.begin().await?;
     sqlx::query("DELETE FROM invites WHERE inviter_id = $1 AND consumed_at IS NULL")
         .bind(inviter_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO invites (token_hash, inviter_id, expires_at) VALUES ($1, $2, $3)")
-        .bind(token_hash)
-        .bind(inviter_id)
-        .bind(expires_at)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "INSERT INTO invites (token_hash, inviter_id, expires_at, room_id)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(token_hash)
+    .bind(inviter_id)
+    .bind(expires_at)
+    .bind(room_id)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(())
+}
+
+/// The `room_id` the invite is tied to, if any. `None` means the invite was
+/// created via the legacy v0.2 `CreateInvite` WSS path — the consume handler
+/// should create a couple-only room on the fly.
+pub async fn room_for_invite(pool: &PgPool, token_hash: &[u8]) -> sqlx::Result<Option<String>> {
+    let row: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT room_id FROM invites WHERE token_hash = $1")
+            .bind(token_hash)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.and_then(|(r,)| r))
 }
 
 type InviteDbRow = (Vec<u8>, i64, DateTime<Utc>, Option<DateTime<Utc>>);
@@ -157,23 +178,22 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use serde::Serialize;
 
-use crate::accounts::lookup_full_account_by_id;
 use crate::ws::AppState;
 
+/// v0.3 invite preview (spec §8.1) — full room roster so the joining client
+/// can render the inviting household (humans + familiars) and choose whether
+/// to proceed. Legacy v0.2 invites (no `invites.room_id`) return 404; the
+/// v0.3 client always issues CreateRoom + invite_human_partner together.
 #[derive(Debug, Serialize)]
 pub struct InvitePreviewResponse {
-    pub inviter_username: String,
-    pub inviter_ed25519_pub: String,
-    pub inviter_x25519_pub: String,
+    pub room_id: String,
+    pub name: String,
+    pub members: Vec<crate::wire::Member>,
     pub expires_at: DateTime<Utc>,
 }
 
-/// Unauthenticated REST per spec §8.1. Kaitlyn may not have an account yet
-/// when she pastes the code into her signup flow; possession of the code
-/// is the only authorization.
 pub async fn preview_invite(
     State(state): State<AppState>,
     Path(code): Path<String>,
@@ -204,15 +224,27 @@ pub async fn preview_invite(
         InviteState::Pending => {}
     }
 
-    let inviter = match lookup_full_account_by_id(store, invite.inviter_id).await {
-        Ok(Some(a)) => a,
-        _ => return (StatusCode::NOT_FOUND, "no such code").into_response(),
+    let room_id = match room_for_invite(store.pool(), &token_hash).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return (StatusCode::NOT_FOUND, "invite not bound to a room").into_response(),
+        Err(e) => {
+            tracing::warn!("room_for_invite: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+    let detail = match crate::rooms::room_detail(store.pool(), &room_id).await {
+        Ok(Some(d)) => d,
+        _ => return (StatusCode::NOT_FOUND, "room gone").into_response(),
     };
 
     Json(InvitePreviewResponse {
-        inviter_username: inviter.username,
-        inviter_ed25519_pub: B64.encode(&inviter.ed25519_pub),
-        inviter_x25519_pub: B64.encode(&inviter.x25519_pub),
+        room_id: detail.room_id,
+        name: detail.name,
+        members: detail
+            .members
+            .into_iter()
+            .map(crate::rooms::Member::into_wire)
+            .collect(),
         expires_at: invite.expires_at,
     })
     .into_response()

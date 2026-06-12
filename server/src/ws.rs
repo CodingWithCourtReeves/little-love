@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use axum::{
     extract::{
         ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade},
@@ -16,22 +18,34 @@ use crate::accounts::{
     lookup_ed25519_pub, lookup_full_account, lookup_full_account_by_id, AccountRecord,
 };
 use crate::invites::{
-    create_invite_record, default_expiry, lookup_invite, mark_consumed, qr_png_base64, InviteState,
+    create_invite_record, default_expiry, lookup_invite, mark_consumed, qr_png_base64,
+    room_for_invite, InviteState,
 };
 use crate::rooms::{
-    account_id_by_username, create_room_with_members, is_member, is_paired, list_rooms_for_account,
-    member_usernames, CreateRoomError,
+    account_id_by_username, bot_owned_by, create_room_with_members, is_member, leave_room,
+    list_rooms_for_account, members_for_room, partner_account_id_for, rename_room, room_detail,
+    set_partner_link, CreateRoomError, Member, MonogamyError, PairError,
 };
 use crate::routing::Routing;
 use crate::store::{MessageRow, Store};
 use crate::wire::{
-    error_codes, AuthClientFrame, AuthServerFrame, IdentifyPayload, RoomClientFrame,
-    RoomDescriptor, RoomServerFrame,
+    error_codes, AuthClientFrame, AuthServerFrame, IdentifyPayload, Member as WireMember,
+    PendingInvite, RoomClientFrame, RoomServerFrame,
 };
 use littlelove_crypto::invite::{decode_code, generate_invite, sha256};
 use littlelove_crypto::sig::{
     decode_b64, encode_b64, random_nonce, verify_invite_consume_signature, verify_signature,
 };
+
+const MAX_ROOM_NAME_CHARS: usize = 64;
+/// Hard cap on recipients per Send. Rooms with this many addressed peers are
+/// well past the v0.3 product target (couple + a handful of familiars); the
+/// cap is a DoS bound, not a product limit.
+const MAX_SEND_RECIPIENTS: usize = 16;
+/// Hard cap on per-recipient ciphertext (base64). 64 KiB comfortably fits a
+/// long text message plus its envelope; binary attachments aren't in scope
+/// for v0.3.
+const MAX_BODY_BYTES: usize = 65_536;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -46,8 +60,6 @@ pub async fn ws_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> 
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
-/// Run the Challenge → Identify → Authenticated handshake. Returns the
-/// authenticated account record on success.
 async fn handshake(socket: &mut WebSocket, state: &AppState) -> Option<AccountRecord> {
     let nonce = random_nonce();
     let challenge = AuthServerFrame::Challenge {
@@ -107,7 +119,6 @@ async fn handshake(socket: &mut WebSocket, state: &AppState) -> Option<AccountRe
         return None;
     }
 
-    // Re-fetch the full record so handlers have the account id + both pubkeys.
     let account = match lookup_full_account(store, &username).await {
         Ok(Some(a)) => a,
         _ => {
@@ -146,7 +157,6 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         .register(me.username.clone(), tx.clone())
         .await;
 
-    // Spec §8.2: push the user's room list immediately after Authenticated.
     if let Some(store) = state.store.as_ref() {
         match list_rooms_for_account(store.pool(), me.id).await {
             Ok(rows) => {
@@ -197,10 +207,31 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 }
                 Ok(RoomClientFrame::Send {
                     room_id,
-                    body,
+                    bodies,
                     client_msg_id: _,
                 }) => {
-                    handle_send(&state, &me, &room_id, &body, &tx).await;
+                    handle_send(&state, &me, &room_id, bodies, &tx).await;
+                }
+                Ok(RoomClientFrame::CreateRoom {
+                    name,
+                    bot_account_ids,
+                    invite_human_partner,
+                }) => {
+                    handle_create_room(
+                        &state,
+                        &me,
+                        name,
+                        bot_account_ids,
+                        invite_human_partner,
+                        &tx,
+                    )
+                    .await;
+                }
+                Ok(RoomClientFrame::RenameRoom { room_id, name }) => {
+                    handle_rename_room(&state, &me, &room_id, &name, &tx).await;
+                }
+                Ok(RoomClientFrame::LeaveRoom { room_id }) => {
+                    handle_leave_room(&state, &me, &room_id, &tx).await;
                 }
                 Err(e) => warn!("invalid frame from {}: {e}", me.username),
             }
@@ -224,6 +255,10 @@ async fn handle_create_invite(
     me: &AccountRecord,
     tx: &mpsc::UnboundedSender<RoomServerFrame>,
 ) {
+    if me.is_bot {
+        send_error(tx, "NotPermitted", "familiars cannot create invites");
+        return;
+    }
     let store = match state.store.as_ref() {
         Some(s) => s,
         None => {
@@ -231,40 +266,38 @@ async fn handle_create_invite(
             return;
         }
     };
-
-    match is_paired(store.pool(), me.id).await {
-        Ok(true) => {
+    // Re-read partner status live — the handshake-time snapshot can be stale
+    // if another device of the same human paired in parallel.
+    match partner_account_id_for(store.pool(), me.id).await {
+        Ok(Some(_)) => {
             send_error(tx, error_codes::ALREADY_PAIRED, "");
             return;
         }
-        Ok(false) => {}
+        Ok(None) => {}
         Err(e) => {
-            warn!("is_paired failed: {e}");
+            warn!("partner_account_id_for: {e}");
             send_error(tx, "Internal", "");
             return;
         }
     }
-
     let (canonical, code, hash) = generate_invite();
     let expires_at = default_expiry(Utc::now());
-    if let Err(e) = create_invite_record(store.pool(), me.id, &hash, expires_at).await {
+    if let Err(e) = create_invite_record(store.pool(), me.id, &hash, expires_at, None).await {
         warn!("create_invite_record failed: {e}");
         send_error(tx, "Internal", "");
         return;
     }
-    let qr_png_base64 = match qr_png_base64(&code) {
+    let qr = match qr_png_base64(&code) {
         Ok(s) => s,
         Err(e) => {
             warn!("qr render failed: {e}");
             String::new()
         }
     };
-    // The canonical bytes don't escape into the reply (they're recoverable
-    // from the code via decode_code); silence the unused-var lint.
     let _ = canonical;
     let _ = tx.send(RoomServerFrame::InviteCreated {
         code,
-        qr_png_base64,
+        qr_png_base64: qr,
         expires_at,
     });
 }
@@ -318,8 +351,6 @@ async fn handle_consume_invite(
         InviteState::Pending => {}
     }
 
-    // The signature is over the canonical 32-byte token using me's Ed25519
-    // private key; verify against me's stored public key.
     let sig_bytes = match decode_b64(signature_over_token_b64) {
         Ok(b) => b,
         Err(_) => {
@@ -339,58 +370,114 @@ async fn handle_consume_invite(
             return;
         }
     };
-
-    // Refuse self-pairing — the same account cannot consume its own invite.
     if inviter.id == me.id {
         send_error(tx, error_codes::ALREADY_PAIRED, "self-invite");
         return;
     }
 
-    let room_id = match create_room_with_members(store.pool(), inviter.id, me.id).await {
-        Ok(id) => id,
-        Err(CreateRoomError::AlreadyPaired(_)) => {
-            send_error(tx, error_codes::ALREADY_PAIRED, "");
+    // Atomic monogamy check + partner-link write. If this fails (race lost,
+    // peer already paired with someone else, or DB-level UNIQUE constraint
+    // backstop fires), the invite is NOT consumed — the user can retry or
+    // the inviter can issue a new invite. Must run before any side effects.
+    match set_partner_link(store.pool(), me.id, inviter.id).await {
+        Ok(()) => {}
+        Err(PairError::Monogamy(MonogamyError::WrongPartner)) => {
+            send_error(
+                tx,
+                error_codes::MONOGAMY_VIOLATION,
+                "you already have a partner",
+            );
             return;
         }
-        Err(CreateRoomError::Db(e)) => {
-            warn!("create_room_with_members failed: {e}");
+        Err(PairError::Db(e)) => {
+            // 23505 = unique_violation — the partial UNIQUE index on
+            // partner_account_id caught a race the app check missed.
+            if let sqlx::Error::Database(db) = &e {
+                if db.code().as_deref() == Some("23505") {
+                    send_error(
+                        tx,
+                        error_codes::MONOGAMY_VIOLATION,
+                        "you already have a partner",
+                    );
+                    return;
+                }
+            }
+            warn!("set_partner_link: {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+    }
+
+    // Locate the room the inviter staked: either a CreateRoom-staked room
+    // (room_id set on the invite), or — for the legacy CreateInvite path —
+    // create a couple-only room on the fly.
+    let room_id = match room_for_invite(store.pool(), &token_hash).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            match create_room_with_members(store.pool(), inviter.id, &[], String::new()).await {
+                Ok(r) => r,
+                Err(CreateRoomError::Db(e)) => {
+                    warn!("create_room_with_members (legacy invite): {e}");
+                    send_error(tx, "Internal", "");
+                    return;
+                }
+            }
+        }
+        Err(e) => {
+            warn!("room_for_invite: {e}");
             send_error(tx, "Internal", "");
             return;
         }
     };
 
+    if let Err(e) = sqlx::query(
+        "INSERT INTO room_members (room_id, account_id) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(&room_id)
+    .bind(me.id)
+    .execute(store.pool())
+    .await
+    {
+        warn!("insert consumer into room_members: {e}");
+        send_error(tx, "Internal", "");
+        return;
+    }
     if let Err(e) = mark_consumed(store.pool(), &token_hash, Utc::now()).await {
         warn!("mark_consumed failed: {e}");
-        // Already-committed room creation is the source of truth; don't roll back.
     }
 
-    let consumer_desc = RoomDescriptor {
-        room_id: room_id.clone(),
-        peer_username: inviter.username.clone(),
-        peer_ed25519_pub: B64.encode(&inviter.ed25519_pub),
-        peer_x25519_pub: B64.encode(&inviter.x25519_pub),
+    let detail = match room_detail(store.pool(), &room_id).await {
+        Ok(Some(d)) => d,
+        _ => {
+            send_error(tx, "Internal", "");
+            return;
+        }
     };
-    let _ = tx.send(RoomServerFrame::InviteConsumed(consumer_desc));
+    let members_wire: Vec<WireMember> = detail
+        .members
+        .iter()
+        .cloned()
+        .map(Member::into_wire)
+        .collect();
 
-    // Push RoomCreated to all of the inviter's open sessions (spec §4.1 step 11).
-    let inviter_desc = RoomDescriptor {
-        room_id,
-        peer_username: me.username.clone(),
-        peer_ed25519_pub: B64.encode(&me.ed25519_pub),
-        peer_x25519_pub: B64.encode(&me.x25519_pub),
+    let _ = tx.send(RoomServerFrame::InviteConsumed {
+        room_id: detail.room_id.clone(),
+        name: detail.name.clone(),
+        members: members_wire.clone(),
+    });
+
+    let frame = RoomServerFrame::RoomCreated {
+        room_id: detail.room_id.clone(),
+        name: detail.name.clone(),
+        members: members_wire,
+        pending_invite: None,
     };
-    let delivered = state
-        .routing
-        .deliver(
-            &inviter.username,
-            RoomServerFrame::RoomCreated(inviter_desc),
-        )
-        .await;
-    if delivered == 0 {
-        info!(
-            "RoomCreated for {} queued only — no sessions online (will surface on next connect via Rooms)",
-            inviter.username
-        );
+    for m in &detail.members {
+        if m.account_id == me.id {
+            continue;
+        }
+        state.routing.deliver(&m.username, frame.clone()).await;
     }
 }
 
@@ -420,16 +507,18 @@ async fn handle_subscribe(
             return;
         }
     }
-    let rows = match store.messages_for_room(room_id, since_message_id).await {
+    let rows = match store
+        .messages_for_recipient(room_id, me.id, since_message_id)
+        .await
+    {
         Ok(rs) => rs,
         Err(e) => {
-            warn!("messages_for_room failed: {e}");
+            warn!("messages_for_recipient failed: {e}");
             send_error(tx, "Internal", "");
             return;
         }
     };
     for row in rows {
-        // Resolve from_account_id → username for the wire `from` field.
         let from_username = match lookup_full_account_by_id(store, row.from_account_id).await {
             Ok(Some(a)) => a.username,
             _ => continue,
@@ -449,7 +538,7 @@ async fn handle_send(
     state: &AppState,
     me: &AccountRecord,
     room_id: &str,
-    body: &str,
+    bodies: HashMap<String, String>,
     tx: &mpsc::UnboundedSender<RoomServerFrame>,
 ) {
     let store = match state.store.as_ref() {
@@ -459,6 +548,14 @@ async fn handle_send(
             return;
         }
     };
+    if bodies.len() > MAX_SEND_RECIPIENTS {
+        send_error(tx, error_codes::BODY_TOO_LARGE, "too many recipients");
+        return;
+    }
+    if bodies.values().any(|b| b.len() > MAX_BODY_BYTES) {
+        send_error(tx, error_codes::BODY_TOO_LARGE, "ciphertext too large");
+        return;
+    }
     match is_member(store.pool(), room_id, me.id).await {
         Ok(true) => {}
         Ok(false) => {
@@ -471,47 +568,276 @@ async fn handle_send(
             return;
         }
     }
-
-    let id = Ulid::new().to_string();
-    let ts = Utc::now();
-    let row = MessageRow {
-        id: id.clone(),
-        room_id: room_id.to_string(),
-        from_account_id: me.id,
-        body: body.to_string(),
-        ts,
-    };
-    if let Err(e) = store.insert(row).await {
-        warn!("store.insert failed: {e}");
-        send_error(tx, "Internal", "");
-        return;
-    }
-
-    // Fan-out to every member's open sessions (including the sender — clients
-    // get a server-confirmed copy of their own message rather than relying on
-    // optimistic local echo).
-    let members = match member_usernames(store.pool(), room_id).await {
+    let members = match members_for_room(store.pool(), room_id).await {
         Ok(m) => m,
         Err(e) => {
-            warn!("member_usernames failed: {e}");
+            warn!("members_for_room: {e}");
+            send_error(tx, "Internal", "");
             return;
         }
     };
-    let frame = RoomServerFrame::Message {
-        id,
-        room_id: room_id.to_string(),
-        from: me.username.clone(),
-        ts,
-        body: body.to_string(),
-        replayed: false,
-    };
-    for username in members {
-        state.routing.deliver(&username, frame.clone()).await;
+    let expected: HashSet<String> = members
+        .iter()
+        .filter(|m| m.account_id != me.id)
+        .map(|m| B64.encode(&m.x25519_pub))
+        .collect();
+    let provided: HashSet<String> = bodies.keys().cloned().collect();
+    if expected != provided {
+        send_error(tx, error_codes::FAN_OUT_MISMATCH, "");
+        return;
+    }
+
+    let id = Ulid::new().to_string();
+    let ts = Utc::now();
+    let mut rows = Vec::with_capacity(members.len());
+    for m in &members {
+        if m.account_id == me.id {
+            continue;
+        }
+        let key = B64.encode(&m.x25519_pub);
+        let Some(body) = bodies.get(&key) else {
+            continue;
+        };
+        rows.push(MessageRow {
+            id: id.clone(),
+            room_id: room_id.to_string(),
+            from_account_id: me.id,
+            recipient_account_id: m.account_id,
+            body: body.clone(),
+            ts,
+        });
+    }
+    if let Err(e) = store.insert_many(&rows).await {
+        warn!("store.insert_many failed: {e}");
+        send_error(tx, "Internal", "");
+        return;
+    }
+    for m in &members {
+        if m.account_id == me.id {
+            continue;
+        }
+        let key = B64.encode(&m.x25519_pub);
+        let Some(body) = bodies.get(&key) else {
+            continue;
+        };
+        let frame = RoomServerFrame::Message {
+            id: id.clone(),
+            room_id: room_id.to_string(),
+            from: me.username.clone(),
+            ts,
+            body: body.clone(),
+            replayed: false,
+        };
+        state.routing.deliver(&m.username, frame).await;
     }
 }
 
-// `account_id_by_username` is used by integration tests + the REST preview
-// handler; keep a `use` here so the symbol is reachable across the crate.
+async fn handle_create_room(
+    state: &AppState,
+    me: &AccountRecord,
+    name: Option<String>,
+    bot_ids: Vec<i64>,
+    invite_partner: bool,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    if me.is_bot {
+        send_error(tx, "NotPermitted", "familiars cannot create rooms");
+        return;
+    }
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => {
+            send_error(tx, "Internal", "store unavailable");
+            return;
+        }
+    };
+    for bot_id in &bot_ids {
+        match bot_owned_by(store.pool(), *bot_id, me.id).await {
+            Ok(true) => {}
+            Ok(false) => {
+                send_error(tx, error_codes::NOT_OWNED_BOT, "");
+                return;
+            }
+            Err(e) => {
+                warn!("bot_owned_by: {e}");
+                send_error(tx, "Internal", "");
+                return;
+            }
+        }
+    }
+    let name = name.unwrap_or_default();
+    if name.chars().count() > MAX_ROOM_NAME_CHARS {
+        send_error(tx, "BadName", "name too long");
+        return;
+    }
+
+    let room_id = match create_room_with_members(store.pool(), me.id, &bot_ids, name.clone()).await
+    {
+        Ok(id) => id,
+        Err(CreateRoomError::Db(e)) => {
+            warn!("create_room_with_members: {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+    };
+
+    let pending = if invite_partner {
+        match partner_account_id_for(store.pool(), me.id).await {
+            Ok(Some(_)) => {
+                send_error(tx, error_codes::ALREADY_PAIRED, "");
+                return;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                warn!("partner_account_id_for: {e}");
+                send_error(tx, "Internal", "");
+                return;
+            }
+        }
+        let (canonical, code, hash) = generate_invite();
+        let expires_at = default_expiry(Utc::now());
+        if let Err(e) =
+            create_invite_record(store.pool(), me.id, &hash, expires_at, Some(&room_id)).await
+        {
+            warn!("create_invite_record: {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+        let qr = qr_png_base64(&code).unwrap_or_default();
+        let _ = canonical;
+        Some(PendingInvite {
+            code,
+            qr_png_base64: qr,
+            expires_at,
+        })
+    } else {
+        None
+    };
+
+    let detail = match room_detail(store.pool(), &room_id).await {
+        Ok(Some(d)) => d,
+        _ => {
+            send_error(tx, "Internal", "");
+            return;
+        }
+    };
+    let members_wire: Vec<WireMember> = detail
+        .members
+        .iter()
+        .cloned()
+        .map(Member::into_wire)
+        .collect();
+    // pending_invite carries the human-only pairing affordance; bots have no
+    // use for it and shouldn't see invite codes in their inbox stream.
+    let human_frame = RoomServerFrame::RoomCreated {
+        room_id: detail.room_id.clone(),
+        name: detail.name.clone(),
+        members: members_wire.clone(),
+        pending_invite: pending,
+    };
+    let bot_frame = RoomServerFrame::RoomCreated {
+        room_id: detail.room_id.clone(),
+        name: detail.name.clone(),
+        members: members_wire,
+        pending_invite: None,
+    };
+    for m in &detail.members {
+        let frame = if m.is_bot {
+            bot_frame.clone()
+        } else {
+            human_frame.clone()
+        };
+        state.routing.deliver(&m.username, frame).await;
+    }
+}
+
+async fn handle_rename_room(
+    state: &AppState,
+    me: &AccountRecord,
+    room_id: &str,
+    name: &str,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    if me.is_bot {
+        send_error(tx, "NotPermitted", "familiars cannot rename");
+        return;
+    }
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => {
+            send_error(tx, "Internal", "store unavailable");
+            return;
+        }
+    };
+    if !is_member(store.pool(), room_id, me.id)
+        .await
+        .unwrap_or(false)
+    {
+        send_error(tx, error_codes::UNKNOWN_ROOM, "");
+        return;
+    }
+    if name.chars().count() > MAX_ROOM_NAME_CHARS {
+        send_error(tx, "BadName", "name too long");
+        return;
+    }
+    if let Err(e) = rename_room(store.pool(), room_id, name).await {
+        warn!("rename_room: {e}");
+        send_error(tx, "Internal", "");
+        return;
+    }
+    let members = members_for_room(store.pool(), room_id)
+        .await
+        .unwrap_or_default();
+    let frame = RoomServerFrame::RoomRenamed {
+        room_id: room_id.to_string(),
+        name: name.to_string(),
+    };
+    for m in &members {
+        state.routing.deliver(&m.username, frame.clone()).await;
+    }
+}
+
+async fn handle_leave_room(
+    state: &AppState,
+    me: &AccountRecord,
+    room_id: &str,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => {
+            send_error(tx, "Internal", "store unavailable");
+            return;
+        }
+    };
+    if !is_member(store.pool(), room_id, me.id)
+        .await
+        .unwrap_or(false)
+    {
+        send_error(tx, error_codes::UNKNOWN_ROOM, "");
+        return;
+    }
+    let before = members_for_room(store.pool(), room_id)
+        .await
+        .unwrap_or_default();
+    if let Err(e) = leave_room(store.pool(), room_id, me.id).await {
+        warn!("leave_room: {e}");
+        send_error(tx, "Internal", "");
+        return;
+    }
+    let frame = RoomServerFrame::MemberLeft {
+        room_id: room_id.to_string(),
+        username: me.username.clone(),
+    };
+    for m in &before {
+        if m.account_id == me.id {
+            continue;
+        }
+        state.routing.deliver(&m.username, frame.clone()).await;
+    }
+}
+
+// Tests + the REST preview handler use this; keep it reachable.
 #[allow(dead_code)]
 fn _ensure_account_id_lookup_is_used() {
     let _ = account_id_by_username;
