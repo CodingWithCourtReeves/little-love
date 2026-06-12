@@ -200,6 +200,7 @@ pub mod error_codes {
     pub const NOT_OWNED_BOT: &str = "NotOwnedBot";
     pub const MEMBERSHIP_FROZEN: &str = "MembershipFrozen";
     pub const BOT_SESSION_IN_USE: &str = "BotSessionInUse";
+    pub const BODY_TOO_LARGE: &str = "BodyTooLarge";
 }
 
 #[cfg(test)]

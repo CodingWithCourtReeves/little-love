@@ -85,6 +85,47 @@ async fn post_accounts_bot_rejects_wrong_owner_signature() {
     assert_eq!(resp.status(), 401);
 }
 
+/// Integration test for the HIGH-severity x25519 substitution finding: the
+/// owner signs `(bot_ed, bot_x)`, so swapping `bot_x25519_pub` for an
+/// attacker-controlled key after the signature is captured must fail
+/// verification. End-to-end proof that the binding is in effect on the wire,
+/// not just inside `verify_bot_register_signature` unit tests.
+#[tokio::test]
+#[serial_test::serial]
+async fn post_accounts_bot_rejects_x25519_substitution() {
+    let store = common::fresh_store().await;
+    let owner_sk = create_owner(&store, "court").await;
+    let addr = common::spawn_server(Some(store)).await;
+
+    let (bot_ed, honest_bot_x) = bot_keys(0xBB);
+    // Signature binds the honest bot_x25519_pub.
+    let sig = owner_sk
+        .sign(&bot_register_signing_input(&bot_ed, &honest_bot_x))
+        .to_bytes();
+
+    // Attacker swaps bot_x25519_pub for one they hold the private key to.
+    let (_, attacker_bot_x) = bot_keys(0xFF);
+    let body = json!({
+        "owner_username":  "court",
+        "bot_label":       "garden",
+        "bot_username":    "court-garden",
+        "bot_ed25519_pub": B64.encode(bot_ed),
+        "bot_x25519_pub":  B64.encode(attacker_bot_x),
+        "owner_signature": B64.encode(sig),
+    });
+    let resp = reqwest::Client::new()
+        .post(format!("http://{addr}/accounts/bot"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        401,
+        "swapping bot_x25519_pub after the signature must fail verification"
+    );
+}
+
 #[tokio::test]
 #[serial_test::serial]
 async fn post_accounts_bot_idempotent_on_same_label() {

@@ -24,6 +24,13 @@ ALTER TABLE accounts
 CREATE INDEX accounts_owner_idx   ON accounts(owner_account_id);
 CREATE INDEX accounts_partner_idx ON accounts(partner_account_id);
 
+-- Backstops the app-layer monogamy check (rooms::set_partner_link). Two
+-- concurrent ConsumeInvites racing on the same user can both pass the app
+-- check, but only one can land the row update; the other 409s on this index.
+CREATE UNIQUE INDEX accounts_partner_unique
+  ON accounts(partner_account_id)
+  WHERE partner_account_id IS NOT NULL;
+
 -- rooms: optional display name. Empty string means the client derives the
 -- name from member roles (spec §7.1).
 ALTER TABLE rooms
@@ -59,6 +66,19 @@ SET recipient_account_id = (
   LIMIT 1
 )
 WHERE recipient_account_id IS NULL;
+
+-- Preflight: refuse to flip NOT NULL if any orphan rows would block it. The
+-- backfill above misses rows whose room has been deleted or whose only other
+-- member has left. Without this, the migration would wedge mid-transaction
+-- after the schema add already committed, leaving the column nullable forever.
+DO $$
+DECLARE orphan_count BIGINT;
+BEGIN
+  SELECT COUNT(*) INTO orphan_count FROM messages WHERE recipient_account_id IS NULL;
+  IF orphan_count > 0 THEN
+    RAISE EXCEPTION 'migration 0006: % messages row(s) have NULL recipient_account_id after backfill; clean these up before re-running', orphan_count;
+  END IF;
+END $$;
 
 ALTER TABLE messages
   ALTER COLUMN recipient_account_id SET NOT NULL;

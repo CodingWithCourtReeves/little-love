@@ -23,8 +23,8 @@ use crate::invites::{
 };
 use crate::rooms::{
     account_id_by_username, bot_owned_by, create_room_with_members, is_member, leave_room,
-    list_rooms_for_account, members_for_room, monogamy_check, rename_room, room_detail,
-    set_partner_link, CreateRoomError, Member,
+    list_rooms_for_account, members_for_room, partner_account_id_for, rename_room, room_detail,
+    set_partner_link, CreateRoomError, Member, MonogamyError, PairError,
 };
 use crate::routing::Routing;
 use crate::store::{MessageRow, Store};
@@ -38,6 +38,14 @@ use littlelove_crypto::sig::{
 };
 
 const MAX_ROOM_NAME_CHARS: usize = 64;
+/// Hard cap on recipients per Send. Rooms with this many addressed peers are
+/// well past the v0.3 product target (couple + a handful of familiars); the
+/// cap is a DoS bound, not a product limit.
+const MAX_SEND_RECIPIENTS: usize = 16;
+/// Hard cap on per-recipient ciphertext (base64). 64 KiB comfortably fits a
+/// long text message plus its envelope; binary attachments aren't in scope
+/// for v0.3.
+const MAX_BODY_BYTES: usize = 65_536;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -258,9 +266,19 @@ async fn handle_create_invite(
             return;
         }
     };
-    if me.partner_account_id.is_some() {
-        send_error(tx, error_codes::ALREADY_PAIRED, "");
-        return;
+    // Re-read partner status live — the handshake-time snapshot can be stale
+    // if another device of the same human paired in parallel.
+    match partner_account_id_for(store.pool(), me.id).await {
+        Ok(Some(_)) => {
+            send_error(tx, error_codes::ALREADY_PAIRED, "");
+            return;
+        }
+        Ok(None) => {}
+        Err(e) => {
+            warn!("partner_account_id_for: {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
     }
     let (canonical, code, hash) = generate_invite();
     let expires_at = default_expiry(Utc::now());
@@ -357,9 +375,13 @@ async fn handle_consume_invite(
         return;
     }
 
-    match monogamy_check(store.pool(), me.id, inviter.id).await {
-        Ok(Ok(())) => {}
-        Ok(Err(_)) => {
+    // Atomic monogamy check + partner-link write. If this fails (race lost,
+    // peer already paired with someone else, or DB-level UNIQUE constraint
+    // backstop fires), the invite is NOT consumed — the user can retry or
+    // the inviter can issue a new invite. Must run before any side effects.
+    match set_partner_link(store.pool(), me.id, inviter.id).await {
+        Ok(()) => {}
+        Err(PairError::Monogamy(MonogamyError::WrongPartner)) => {
             send_error(
                 tx,
                 error_codes::MONOGAMY_VIOLATION,
@@ -367,8 +389,20 @@ async fn handle_consume_invite(
             );
             return;
         }
-        Err(e) => {
-            warn!("monogamy_check: {e}");
+        Err(PairError::Db(e)) => {
+            // 23505 = unique_violation — the partial UNIQUE index on
+            // partner_account_id caught a race the app check missed.
+            if let sqlx::Error::Database(db) = &e {
+                if db.code().as_deref() == Some("23505") {
+                    send_error(
+                        tx,
+                        error_codes::MONOGAMY_VIOLATION,
+                        "you already have a partner",
+                    );
+                    return;
+                }
+            }
+            warn!("set_partner_link: {e}");
             send_error(tx, "Internal", "");
             return;
         }
@@ -408,9 +442,6 @@ async fn handle_consume_invite(
         warn!("insert consumer into room_members: {e}");
         send_error(tx, "Internal", "");
         return;
-    }
-    if let Err(e) = set_partner_link(store.pool(), me.id, inviter.id).await {
-        warn!("set_partner_link: {e}");
     }
     if let Err(e) = mark_consumed(store.pool(), &token_hash, Utc::now()).await {
         warn!("mark_consumed failed: {e}");
@@ -517,6 +548,14 @@ async fn handle_send(
             return;
         }
     };
+    if bodies.len() > MAX_SEND_RECIPIENTS {
+        send_error(tx, error_codes::BODY_TOO_LARGE, "too many recipients");
+        return;
+    }
+    if bodies.values().any(|b| b.len() > MAX_BODY_BYTES) {
+        send_error(tx, error_codes::BODY_TOO_LARGE, "ciphertext too large");
+        return;
+    }
     match is_member(store.pool(), room_id, me.id).await {
         Ok(true) => {}
         Ok(false) => {
@@ -550,6 +589,7 @@ async fn handle_send(
 
     let id = Ulid::new().to_string();
     let ts = Utc::now();
+    let mut rows = Vec::with_capacity(members.len());
     for m in &members {
         if m.account_id == me.id {
             continue;
@@ -558,21 +598,19 @@ async fn handle_send(
         let Some(body) = bodies.get(&key) else {
             continue;
         };
-        if let Err(e) = store
-            .insert(MessageRow {
-                id: id.clone(),
-                room_id: room_id.to_string(),
-                from_account_id: me.id,
-                recipient_account_id: m.account_id,
-                body: body.clone(),
-                ts,
-            })
-            .await
-        {
-            warn!("store.insert failed: {e}");
-            send_error(tx, "Internal", "");
-            return;
-        }
+        rows.push(MessageRow {
+            id: id.clone(),
+            room_id: room_id.to_string(),
+            from_account_id: me.id,
+            recipient_account_id: m.account_id,
+            body: body.clone(),
+            ts,
+        });
+    }
+    if let Err(e) = store.insert_many(&rows).await {
+        warn!("store.insert_many failed: {e}");
+        send_error(tx, "Internal", "");
+        return;
     }
     for m in &members {
         if m.account_id == me.id {
@@ -644,9 +682,17 @@ async fn handle_create_room(
     };
 
     let pending = if invite_partner {
-        if me.partner_account_id.is_some() {
-            send_error(tx, error_codes::ALREADY_PAIRED, "");
-            return;
+        match partner_account_id_for(store.pool(), me.id).await {
+            Ok(Some(_)) => {
+                send_error(tx, error_codes::ALREADY_PAIRED, "");
+                return;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                warn!("partner_account_id_for: {e}");
+                send_error(tx, "Internal", "");
+                return;
+            }
         }
         let (canonical, code, hash) = generate_invite();
         let expires_at = default_expiry(Utc::now());
@@ -681,14 +727,27 @@ async fn handle_create_room(
         .cloned()
         .map(Member::into_wire)
         .collect();
-    let frame = RoomServerFrame::RoomCreated {
+    // pending_invite carries the human-only pairing affordance; bots have no
+    // use for it and shouldn't see invite codes in their inbox stream.
+    let human_frame = RoomServerFrame::RoomCreated {
+        room_id: detail.room_id.clone(),
+        name: detail.name.clone(),
+        members: members_wire.clone(),
+        pending_invite: pending,
+    };
+    let bot_frame = RoomServerFrame::RoomCreated {
         room_id: detail.room_id.clone(),
         name: detail.name.clone(),
         members: members_wire,
-        pending_invite: pending,
+        pending_invite: None,
     };
     for m in &detail.members {
-        state.routing.deliver(&m.username, frame.clone()).await;
+        let frame = if m.is_bot {
+            bot_frame.clone()
+        } else {
+            human_frame.clone()
+        };
+        state.routing.deliver(&m.username, frame).await;
     }
 }
 

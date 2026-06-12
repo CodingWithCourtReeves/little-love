@@ -438,8 +438,13 @@ pub async fn create_delete_challenge(
 /// DELETE /accounts/bot/{label} — owner-signed familiar deletion (spec §8.5.1
 /// `littlelove.v0.3.bot-delete`). Signature covers `(label, nonce)` where
 /// `nonce` was just issued by `POST /accounts/bot/{label}/delete-challenge`.
-/// The challenge row is consumed atomically with the verify, so captured
-/// signatures cannot replay.
+///
+/// The signature verify is a pre-filter outside the transaction; the
+/// replay-protection guarantee comes from the `DELETE … RETURNING` on
+/// `bot_delete_challenges`, which atomically consumes the row that the
+/// signature was issued against. Two concurrent requests with the same
+/// captured (sig, nonce) pair both clear the verify, but only one wins the
+/// DELETE race — the other returns 401.
 pub async fn delete_bot_account(
     State(state): State<crate::ws::AppState>,
     Path(label): Path<String>,

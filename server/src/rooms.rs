@@ -100,6 +100,19 @@ pub async fn room_detail(pool: &PgPool, room_id: &str) -> sqlx::Result<Option<Ro
     }))
 }
 
+/// Live-read of `accounts.partner_account_id` for `account_id`. The
+/// handshake-time `AccountRecord` snapshot can be stale if another device of
+/// the same human paired in parallel; CreateInvite / CreateRoom must re-read
+/// before gating on "already paired".
+pub async fn partner_account_id_for(pool: &PgPool, account_id: i64) -> sqlx::Result<Option<i64>> {
+    let row: Option<(Option<i64>,)> =
+        sqlx::query_as("SELECT partner_account_id FROM accounts WHERE id = $1")
+            .bind(account_id)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.and_then(|(p,)| p))
+}
+
 /// Fetch the integer `accounts.id` for a username. Returns `None` if no such
 /// account exists.
 pub async fn account_id_by_username(pool: &PgPool, username: &str) -> sqlx::Result<Option<i64>> {
@@ -183,9 +196,23 @@ pub enum MonogamyError {
     WrongPartner,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum PairError {
+    #[error(transparent)]
+    Db(#[from] sqlx::Error),
+    #[error(transparent)]
+    Monogamy(#[from] MonogamyError),
+}
+
 /// Validate that `me` can pair with `peer` under the v0.3 monogamy rule
 /// (spec §3.2): either both human accounts have no partner yet, or they
 /// already point at each other.
+///
+/// **Read-only.** Racy on its own — concurrent writers can move the rows
+/// between this read and any subsequent UPDATE. Use [`set_partner_link`] in
+/// the ConsumeInvite path; that path does the same check inside a single
+/// transaction with `FOR UPDATE` row locks. This helper is here for tests
+/// and for early validation where a transient race is acceptable.
 pub async fn monogamy_check(
     pool: &PgPool,
     me: i64,
@@ -212,14 +239,50 @@ pub async fn monogamy_check(
     })
 }
 
-/// Set `partner_account_id` on both accounts in a single transaction.
+/// Atomically validate the monogamy invariant and set `partner_account_id`
+/// on both accounts. Single transaction; both rows locked `FOR UPDATE` in
+/// canonical id-ascending order so concurrent ConsumeInvites racing on the
+/// same user serialize instead of both passing the check. The partial
+/// `UNIQUE (partner_account_id)` index on `accounts` (migration 0006) is a
+/// defence-in-depth backstop if the app check is ever bypassed.
+///
 /// Idempotent: a no-op if both already point at each other.
-pub async fn set_partner_link(pool: &PgPool, a: i64, b: i64) -> sqlx::Result<()> {
+pub async fn set_partner_link(pool: &PgPool, a: i64, b: i64) -> Result<(), PairError> {
     let mut tx = pool.begin().await?;
+    let rows: Vec<(i64, Option<i64>)> = sqlx::query_as(
+        "SELECT id, partner_account_id FROM accounts
+         WHERE id IN ($1, $2)
+         ORDER BY id
+         FOR UPDATE",
+    )
+    .bind(a)
+    .bind(b)
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut mine: Option<Option<i64>> = None;
+    let mut theirs: Option<Option<i64>> = None;
+    for (id, p) in rows {
+        if id == a {
+            mine = Some(p);
+        }
+        if id == b {
+            theirs = Some(p);
+        }
+    }
+    let (Some(mine), Some(theirs)) = (mine, theirs) else {
+        return Err(MonogamyError::WrongPartner.into());
+    };
+    let ok = match (mine, theirs) {
+        (None, None) => true,
+        (Some(p), Some(q)) => p == b && q == a,
+        _ => false,
+    };
+    if !ok {
+        return Err(MonogamyError::WrongPartner.into());
+    }
     sqlx::query(
         "UPDATE accounts SET partner_account_id = $2
-         WHERE id = $1
-           AND (partner_account_id IS NULL OR partner_account_id = $2)",
+         WHERE id = $1 AND partner_account_id IS NULL",
     )
     .bind(a)
     .bind(b)
@@ -227,8 +290,7 @@ pub async fn set_partner_link(pool: &PgPool, a: i64, b: i64) -> sqlx::Result<()>
     .await?;
     sqlx::query(
         "UPDATE accounts SET partner_account_id = $2
-         WHERE id = $1
-           AND (partner_account_id IS NULL OR partner_account_id = $2)",
+         WHERE id = $1 AND partner_account_id IS NULL",
     )
     .bind(b)
     .bind(a)
