@@ -8,7 +8,7 @@
 PRODUCT_NAME = littlelove
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = dev.littlelove.littlelove
+PRODUCT_BUNDLE_IDENTIFIER = dev.littlelove.littlelove.mac
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 dev.littlelove. All rights reserved.

@@ -1,3 +1,11 @@
 #include "AppInfo.xcconfig"
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
+
+// Release-only --dart-define values, base64-encoded per Flutter's
+// xcode_backend.sh contract. Comma-separated for multiple.
+//   TExPVkVfU0VSVkVSPWh0dHBzOi8vYXBpLmxpdHRsZWxvdmUuZGV2
+//     = base64("LLOVE_SERVER=https://api.littlelove.dev")
+// Debug.xcconfig intentionally omits this so local runs keep the
+// 127.0.0.1:7707 default from lib/identity/providers.dart.
+DART_DEFINES=TExPVkVfU0VSVkVSPWh0dHBzOi8vYXBpLmxpdHRsZWxvdmUuZGV2
