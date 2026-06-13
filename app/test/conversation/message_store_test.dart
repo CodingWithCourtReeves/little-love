@@ -53,4 +53,72 @@ void main() {
     container.read(messageStoreProvider('roomA').notifier).add(_msg('1', 'hi'));
     expect(container.read(messageStoreProvider('roomA')).length, 1);
   });
+
+  test('promote replaces a row by old id and preserves clientMsgId', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(Msg(
+      id: 'cli-1',
+      from: 'me',
+      to: 'r1',
+      body: 'hi',
+      ts: DateTime.utc(2026, 6, 13),
+      clientMsgId: 'cli-1',
+      sendStatus: SendStatus.sending,
+    ));
+    store.promote(
+      fromId: 'cli-1',
+      toMsg: Msg(
+        id: 'srv-1',
+        from: 'me',
+        to: 'r1',
+        body: 'hi',
+        ts: DateTime.utc(2026, 6, 13),
+        clientMsgId: 'cli-1',
+        sendStatus: SendStatus.sent,
+      ),
+    );
+    final after = container.read(messageStoreProvider('r1'));
+    expect(after.single.id, 'srv-1');
+    expect(after.single.sendStatus, SendStatus.sent);
+    expect(after.single.clientMsgId, 'cli-1');
+  });
+
+  test('promote with unknown fromId falls back to add', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.promote(
+      fromId: 'missing',
+      toMsg: Msg(
+        id: 'srv-1',
+        from: 'peer',
+        to: 'r1',
+        body: 'hi',
+        ts: DateTime.utc(2026, 6, 13),
+      ),
+    );
+    expect(container.read(messageStoreProvider('r1')).single.id, 'srv-1');
+  });
+
+  test('updateStatus changes sendStatus on the matching id', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(Msg(
+      id: 'cli-1',
+      from: 'me',
+      to: 'r1',
+      body: 'hi',
+      ts: DateTime.utc(2026, 6, 13),
+      clientMsgId: 'cli-1',
+      sendStatus: SendStatus.sending,
+    ));
+    store.updateStatus('cli-1', SendStatus.failed);
+    expect(
+      container.read(messageStoreProvider('r1')).single.sendStatus,
+      SendStatus.failed,
+    );
+  });
 }

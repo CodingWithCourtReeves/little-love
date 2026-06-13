@@ -17,6 +17,29 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   void setAll(List<Msg> messages) {
     state = List.unmodifiable(messages);
   }
+
+  /// Replace a message identified by [fromId] with [toMsg] in place. If no row
+  /// matches (replay race, peer message), fall back to [add] so we never lose
+  /// data.
+  void promote({required String fromId, required Msg toMsg}) {
+    final idx = state.indexWhere((m) => m.id == fromId);
+    if (idx < 0) {
+      add(toMsg);
+      return;
+    }
+    final next = [...state];
+    next[idx] = toMsg;
+    state = next;
+  }
+
+  /// Flip the [SendStatus] on a row identified by [id]. No-op if not found.
+  void updateStatus(String id, SendStatus status) {
+    final idx = state.indexWhere((m) => m.id == id);
+    if (idx < 0) return;
+    final next = [...state];
+    next[idx] = state[idx].copyWith(sendStatus: status);
+    state = next;
+  }
 }
 
 final messageStoreProvider =
