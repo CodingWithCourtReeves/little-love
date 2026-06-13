@@ -44,6 +44,8 @@ dependencies:
   http: ^1.2.0
   qr_flutter: ^4.1.0
   mobile_scanner: ^5.0.0
+  sqflite: ^2.3.3
+  sqflite_common_ffi: ^2.3.3
 
 dev_dependencies:
   flutter_test:
