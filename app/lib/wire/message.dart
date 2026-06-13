@@ -1,3 +1,5 @@
+enum SendStatus { sent, sending, failed }
+
 class Msg {
   Msg({
     required this.id,
@@ -6,6 +8,8 @@ class Msg {
     required this.body,
     required this.ts,
     this.replayed = false,
+    this.clientMsgId,
+    this.sendStatus = SendStatus.sent,
   });
 
   final String id;
@@ -17,6 +21,12 @@ class Msg {
   final String body;
   final DateTime ts;
   final bool replayed;
+
+  /// Set on optimistic local inserts. Null for messages constructed straight
+  /// from a server frame for a peer.
+  final String? clientMsgId;
+
+  final SendStatus sendStatus;
 
   factory Msg.fromJson(Map<String, Object?> json) {
     return Msg(
@@ -40,6 +50,22 @@ class Msg {
     };
     if (replayed) m['replayed'] = true;
     return m;
+  }
+
+  Msg copyWith({
+    String? id,
+    SendStatus? sendStatus,
+  }) {
+    return Msg(
+      id: id ?? this.id,
+      from: from,
+      to: to,
+      body: body,
+      ts: ts,
+      replayed: replayed,
+      clientMsgId: clientMsgId,
+      sendStatus: sendStatus ?? this.sendStatus,
+    );
   }
 }
 
