@@ -107,6 +107,8 @@ pub enum RoomServerFrame {
         body: String,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         replayed: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_msg_id: Option<Uuid>,
     },
     Error {
         code: String,
@@ -367,10 +369,31 @@ mod tests {
             ts: "2026-06-09T17:00:00Z".parse().unwrap(),
             body: "hi".into(),
             replayed: false,
+            client_msg_id: None,
         };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"Message""#));
         assert!(!s.contains("replayed"), "false replayed should be omitted");
+        assert!(
+            !s.contains("client_msg_id"),
+            "None client_msg_id should be omitted"
+        );
+    }
+
+    #[test]
+    fn serializes_room_message_frame_with_client_msg_id() {
+        let id: Uuid = "7c4e1c8a-7e7e-4b7a-9f23-1a0a17070707".parse().unwrap();
+        let f = RoomServerFrame::Message {
+            id: "01J".into(),
+            room_id: "01J".into(),
+            from: "court".into(),
+            ts: "2026-06-09T17:00:00Z".parse().unwrap(),
+            body: "hi".into(),
+            replayed: false,
+            client_msg_id: Some(id),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""client_msg_id":"7c4e1c8a-7e7e-4b7a-9f23-1a0a17070707""#));
     }
 
     #[test]

@@ -95,6 +95,46 @@ async fn send_routes_to_room_members() {
 
 #[file_serial(db)]
 #[tokio::test]
+async fn send_echoes_client_msg_id_to_sender_only() {
+    let store = fresh_store().await;
+    let court_sk = SigningKey::from_bytes(&[1u8; 32]);
+    let kaitlyn_sk = SigningKey::from_bytes(&[2u8; 32]);
+    insert_account(&store, "court", &court_sk.verifying_key()).await;
+    insert_account(&store, "kaitlyn", &kaitlyn_sk.verifying_key()).await;
+    let addr = spawn_server(Some(store)).await;
+
+    let (mut court, mut kaitlyn, room_id) = paired_pair(addr, &court_sk, &kaitlyn_sk).await;
+
+    let client_msg_id = "7c4e1c8a-7e7e-4b7a-9f23-1a0a17070707";
+    court
+        .send(WsMessage::Text(
+            serde_json::json!({
+                "kind": "Send",
+                "room_id": room_id,
+                "body": "hi",
+                "client_msg_id": client_msg_id,
+            })
+            .to_string(),
+        ))
+        .await
+        .unwrap();
+
+    let court_msg = next_frame(&mut court).await;
+    let kaitlyn_msg = next_frame(&mut kaitlyn).await;
+
+    assert_eq!(
+        court_msg["client_msg_id"].as_str(),
+        Some(client_msg_id),
+        "sender's echo must include the original client_msg_id"
+    );
+    assert!(
+        kaitlyn_msg.get("client_msg_id").is_none(),
+        "peer must not receive the sender's client_msg_id (got {kaitlyn_msg})"
+    );
+}
+
+#[file_serial(db)]
+#[tokio::test]
 async fn send_to_unknown_room_returns_unknown_room_error() {
     let store = fresh_store().await;
     let court_sk = SigningKey::from_bytes(&[1u8; 32]);

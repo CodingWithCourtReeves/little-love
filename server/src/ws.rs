@@ -198,9 +198,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 Ok(RoomClientFrame::Send {
                     room_id,
                     body,
-                    client_msg_id: _,
+                    client_msg_id,
                 }) => {
-                    handle_send(&state, &me, &room_id, &body, &tx).await;
+                    handle_send(&state, &me, &room_id, &body, client_msg_id, &tx).await;
                 }
                 Err(e) => warn!("invalid frame from {}: {e}", me.username),
             }
@@ -441,6 +441,7 @@ async fn handle_subscribe(
             ts: row.ts,
             body: row.body,
             replayed: true,
+            client_msg_id: None,
         });
     }
 }
@@ -450,6 +451,7 @@ async fn handle_send(
     me: &AccountRecord,
     room_id: &str,
     body: &str,
+    client_msg_id: uuid::Uuid,
     tx: &mpsc::UnboundedSender<RoomServerFrame>,
 ) {
     let store = match state.store.as_ref() {
@@ -497,16 +499,22 @@ async fn handle_send(
             return;
         }
     };
-    let frame = RoomServerFrame::Message {
-        id,
-        room_id: room_id.to_string(),
-        from: me.username.clone(),
-        ts,
-        body: body.to_string(),
-        replayed: false,
-    };
     for username in members {
-        state.routing.deliver(&username, frame.clone()).await;
+        let echo_id = if username == me.username {
+            Some(client_msg_id)
+        } else {
+            None
+        };
+        let frame = RoomServerFrame::Message {
+            id: id.clone(),
+            room_id: room_id.to_string(),
+            from: me.username.clone(),
+            ts,
+            body: body.to_string(),
+            replayed: false,
+            client_msg_id: echo_id,
+        };
+        state.routing.deliver(&username, frame).await;
     }
 }
 
