@@ -81,6 +81,7 @@ sealed class RoomServerFrame {
           ts: DateTime.parse(json['ts']! as String).toUtc(),
           body: json['body']! as String,
           replayed: (json['replayed'] as bool?) ?? false,
+          clientMsgId: json['client_msg_id'] as String?,
         );
       case 'Error':
         return RoomErrorFrame(
@@ -158,6 +159,7 @@ class MessageFrame extends RoomServerFrame {
     required this.ts,
     required this.body,
     required this.replayed,
+    this.clientMsgId,
   });
   final String id;
   final String roomId;
@@ -165,6 +167,10 @@ class MessageFrame extends RoomServerFrame {
   final DateTime ts;
   final String body;
   final bool replayed;
+
+  /// Present only on the sender's own echo (server sets it from the
+  /// `client_msg_id` on the original `Send` frame). Peers always see `null`.
+  final String? clientMsgId;
 }
 
 /// Room-phase Error frame (same shape as the auth-phase [ErrorFrame] but

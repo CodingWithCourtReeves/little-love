@@ -74,6 +74,18 @@ void main() {
       expect(m.id, 'm1');
       expect(m.body, 'ciphertext');
       expect(m.replayed, isFalse);
+      expect(m.clientMsgId, isNull);
+    });
+
+    test('parses Message with client_msg_id when present', () {
+      final f = RoomServerFrame.fromJson(
+        jsonDecode(
+              '{"kind":"Message","id":"m1","room_id":"01J","from":"court",'
+              '"ts":"2026-06-09T17:00:00Z","body":"ct","client_msg_id":"cli-abc"}',
+            )
+            as Map<String, Object?>,
+      );
+      expect((f as MessageFrame).clientMsgId, 'cli-abc');
     });
   });
 
