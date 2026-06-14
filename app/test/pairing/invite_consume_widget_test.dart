@@ -21,13 +21,23 @@ class _StubTransport implements PairingTransport {
   Future<InviteConsumedFrame> consumeInvite({
     required String code,
     required Uint8List signature,
-  }) async => InviteConsumedFrame(
-    const RoomFramePeer(
-      roomId: '01JNEWROOM',
-      peerUsername: 'court',
-      peerEd25519PubBase64: 'AAAA',
-      peerX25519PubBase64: 'BBBB',
-    ),
+  }) async => const InviteConsumedFrame(
+    roomId: '01JNEWROOM',
+    name: '',
+    members: [
+      Member(
+        username: 'court',
+        ed25519PubBase64: 'AAAA',
+        x25519PubBase64: 'BBBB',
+        isBot: false,
+      ),
+      Member(
+        username: 'kaitlyn',
+        ed25519PubBase64: 'CCCC',
+        x25519PubBase64: 'DDDD',
+        isBot: false,
+      ),
+    ],
   );
 }
 
@@ -83,7 +93,10 @@ void main() {
     final inbox = container.read(inboxStateProvider);
     expect(inbox.rooms.length, 1);
     expect(inbox.rooms.single.roomId, '01JNEWROOM');
-    expect(inbox.rooms.single.peerUsername, 'court');
+    expect(
+      inbox.rooms.single.members.map((m) => m.username).toList(),
+      containsAll(<String>['court', 'kaitlyn']),
+    );
   });
 
   testWidgets('malformed code is rejected before any REST call', (
