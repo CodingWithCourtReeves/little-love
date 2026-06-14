@@ -55,6 +55,6 @@ void main() {
     // InboxShell renders the empty-rooms placeholder when no rooms are
     // registered (the default state until WT-D or the demo fixtures wire
     // rooms in).
-    expect(find.textContaining('No conversations yet'), findsOneWidget);
+    expect(find.textContaining('Invite your partner'), findsOneWidget);
   });
 }

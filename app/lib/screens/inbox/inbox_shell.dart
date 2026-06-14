@@ -73,9 +73,8 @@ class InboxShell extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // 'No conversations yet' kept verbatim for widget tests.
                     const Text(
-                      'No conversations yet',
+                      'STEP 4 OF 4 · PAIR',
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 11,
@@ -86,7 +85,7 @@ class InboxShell extends ConsumerWidget {
                     ),
                     const SizedBox(height: 14),
                     const Text(
-                      'Pair with your partner to begin.',
+                      'Invite your partner',
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 28,
