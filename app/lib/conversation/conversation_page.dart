@@ -313,6 +313,47 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
   Widget _bubble(Msg m, String me) {
     final mine = m.from == me;
+    final content = _bubbleContent(m, mine);
+    if (!mine || m.sendStatus == SendStatus.sent) return content;
+
+    final isFailed = m.sendStatus == SendStatus.failed;
+    final caption = isFailed
+        ? const Text(
+            'failed · tap to retry',
+            style: TextStyle(
+              color: TwilightColors.warningTone,
+              fontSize: 11,
+            ),
+          )
+        : const Text(
+            'sending…',
+            style: TextStyle(
+              color: TwilightColors.textMuted,
+              fontSize: 11,
+            ),
+          );
+
+    final tappable = isFailed && widget.onRetry != null
+        ? GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => widget.onRetry!(m.clientMsgId ?? m.id),
+            child: content,
+          )
+        : content;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        tappable,
+        Padding(
+          padding: const EdgeInsets.only(right: 16, top: 2, bottom: 2),
+          child: caption,
+        ),
+      ],
+    );
+  }
+
+  Widget _bubbleContent(Msg m, bool mine) {
     final tip = _formatFullDateTime(m.ts.toLocal());
     if (_isEmojiOnly(m.body)) {
       return Align(
