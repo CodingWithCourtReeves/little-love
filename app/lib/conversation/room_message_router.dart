@@ -124,18 +124,22 @@ class RoomMessageRouter {
           me: me,
         );
     final plaintext = await decryptIncoming(key, f.body);
-    ref
-        .read(messageStoreProvider(f.roomId).notifier)
-        .add(
-          Msg(
-            id: f.id,
-            from: f.from,
-            to: f.roomId,
-            body: plaintext,
-            ts: f.ts,
-            replayed: f.replayed,
-          ),
-        );
+    final msg = Msg(
+      id: f.id,
+      from: f.from,
+      to: f.roomId,
+      body: plaintext,
+      ts: f.ts,
+      replayed: f.replayed,
+    );
+    final store = ref.read(messageStoreProvider(f.roomId).notifier);
+    // Live self-copy of our own message: swap the optimistic echo (keyed by
+    // clientMsgId) for this authoritative row instead of appending a duplicate.
+    if (f.clientMsgId != null) {
+      store.reconcile(f.clientMsgId!, msg);
+    } else {
+      store.add(msg);
+    }
   }
 
   Future<void> dispose() async {

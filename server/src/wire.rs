@@ -154,6 +154,12 @@ pub enum RoomServerFrame {
         body: String,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         replayed: bool,
+        /// Echoed back to the sender on their own self-copy so the client can
+        /// reconcile the optimistic local echo (keyed by this id) with the
+        /// authoritative server row. Absent for messages addressed to other
+        /// recipients and for replayed history (not persisted).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_msg_id: Option<Uuid>,
     },
 
     Error {
@@ -554,10 +560,15 @@ mod tests {
             ts: "2026-06-09T17:00:00Z".parse().unwrap(),
             body: "hi".into(),
             replayed: false,
+            client_msg_id: None,
         };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"Message""#));
         assert!(!s.contains("replayed"), "false replayed should be omitted");
+        assert!(
+            !s.contains("client_msg_id"),
+            "absent client_msg_id should be omitted"
+        );
     }
 
     #[test]

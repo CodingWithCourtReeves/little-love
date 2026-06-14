@@ -17,6 +17,24 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   void setAll(List<Msg> messages) {
     state = List.unmodifiable(messages);
   }
+
+  /// Swap an optimistic local echo (keyed by `clientMsgId`) for the
+  /// authoritative server row, preserving its position in the buffer. Used
+  /// when the server echoes back the sender's own self-copy. Idempotent:
+  /// if `server.id` is already present, do nothing (a duplicate echo); if no
+  /// echo with `clientMsgId` exists (e.g. it was never rendered), fall back to
+  /// a plain idempotent append.
+  void reconcile(String clientMsgId, Msg server) {
+    if (state.any((m) => m.id == server.id)) return;
+    final idx = state.indexWhere((m) => m.id == clientMsgId);
+    if (idx == -1) {
+      add(server);
+      return;
+    }
+    final next = [...state];
+    next[idx] = server;
+    state = List.unmodifiable(next);
+  }
 }
 
 final messageStoreProvider =

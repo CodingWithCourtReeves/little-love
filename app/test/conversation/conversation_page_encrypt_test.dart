@@ -101,20 +101,21 @@ void main() {
       final sendFrames = conn.sent.where((m) => m['kind'] == 'Send').toList();
       expect(sendFrames, hasLength(1));
       final bodies = sendFrames.single['bodies'] as Map<String, Object?>;
-      // One addressed ciphertext per other room member (just kaitlyn here).
-      expect(bodies.length, 1);
-      final body = bodies.values.single as String;
-      expect(
-        body,
-        isNot(contains('hello')),
-        reason: 'plaintext must NOT appear on the wire — spec §13 AC #3',
-      );
-      expect(body.length, greaterThan(0));
-      expect(
-        bodies.keys.single,
+      // One addressed ciphertext per other room member (kaitlyn) plus a
+      // copy addressed to ourselves so the server persists it for us too.
+      expect(bodies.length, 2);
+      expect(bodies.keys.toSet(), {
         base64.encode(peer.x25519PublicKey),
-        reason: 'body keyed by recipient x25519 pubkey (spec §6.2)',
-      );
+        base64.encode(me.x25519PublicKey),
+      });
+      for (final body in bodies.values.cast<String>()) {
+        expect(
+          body,
+          isNot(contains('hello')),
+          reason: 'plaintext must NOT appear on the wire — spec §13 AC #3',
+        );
+        expect(body.length, greaterThan(0));
+      }
       expect(sendFrames.single['room_id'], 'room1');
       // Server types client_msg_id as Uuid; non-UUID strings cause
       // serde_json to silently drop the entire Send frame.

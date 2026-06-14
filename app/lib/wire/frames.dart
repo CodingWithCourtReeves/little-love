@@ -191,6 +191,7 @@ sealed class RoomServerFrame {
           ts: DateTime.parse(json['ts']! as String).toUtc(),
           body: json['body']! as String,
           replayed: (json['replayed'] as bool?) ?? false,
+          clientMsgId: json['client_msg_id'] as String?,
         );
       case 'Error':
         return RoomErrorFrame(
@@ -264,6 +265,7 @@ class MessageFrame extends RoomServerFrame {
     required this.ts,
     required this.body,
     required this.replayed,
+    this.clientMsgId,
   });
   final String id;
   final String roomId;
@@ -275,6 +277,12 @@ class MessageFrame extends RoomServerFrame {
   /// own addressed body).
   final String body;
   final bool replayed;
+
+  /// Present only on the sender's own live self-copy: the `clientMsgId` of the
+  /// originating `SendFrame`. Lets the sending session reconcile its optimistic
+  /// local echo (keyed by this id) with the authoritative server row. Null for
+  /// messages from others and for replayed history.
+  final String? clientMsgId;
 }
 
 class RoomErrorFrame extends RoomServerFrame {

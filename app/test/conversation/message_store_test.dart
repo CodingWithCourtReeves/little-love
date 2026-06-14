@@ -53,4 +53,39 @@ void main() {
     container.read(messageStoreProvider('roomA').notifier).add(_msg('1', 'hi'));
     expect(container.read(messageStoreProvider('roomA')).length, 1);
   });
+
+  test('reconcile swaps the optimistic echo id in place', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('roomA').notifier);
+    store.add(_msg('uuid-echo', 'first'));
+    store.add(_msg('2', 'second'));
+
+    store.reconcile('uuid-echo', _msg('ULID-real', 'first'));
+
+    final out = container.read(messageStoreProvider('roomA'));
+    // Position preserved, id swapped to the authoritative server id.
+    expect(out.map((m) => m.id).toList(), ['ULID-real', '2']);
+    expect(out.length, 2);
+  });
+
+  test('reconcile is idempotent once the server id is present', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('roomA').notifier);
+    store.add(_msg('uuid-echo', 'first'));
+    store.reconcile('uuid-echo', _msg('ULID-real', 'first'));
+    // A duplicate echo (e.g. a reconnect replay) must not double-up.
+    store.reconcile('uuid-echo', _msg('ULID-real', 'first'));
+    expect(container.read(messageStoreProvider('roomA')).length, 1);
+  });
+
+  test('reconcile falls back to append when no echo exists', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('roomA').notifier);
+    store.reconcile('missing-echo', _msg('ULID-real', 'orphan'));
+    final out = container.read(messageStoreProvider('roomA'));
+    expect(out.single.id, 'ULID-real');
+  });
 }

@@ -190,6 +190,71 @@ async fn subscribe_replays_message_history() {
 
 #[file_serial(db)]
 #[tokio::test]
+async fn self_copy_is_echoed_with_client_msg_id_and_replays() {
+    // The sender may include a body addressed to their own key. The server
+    // stores it as a self-row, echoes it back live carrying `client_msg_id`
+    // (so the client can reconcile its optimistic echo), and replays it on a
+    // fresh subscribe (without `client_msg_id`, since it isn't persisted).
+    let store = fresh_store().await;
+    let court_sk = SigningKey::from_bytes(&[1u8; 32]);
+    let kait_sk = SigningKey::from_bytes(&[2u8; 32]);
+    insert_account(&store, "court", &court_sk.verifying_key()).await;
+    insert_account(&store, "kaitlyn", &kait_sk.verifying_key()).await;
+    let addr = spawn_server(Some(store.clone())).await;
+
+    let (mut court, mut kaitlyn, room_id) = paired_pair(&store, addr, &court_sk, &kait_sk).await;
+
+    let cmid = "7c4e1c8a-7e7e-4b7a-9f23-1a0a17070707";
+    let mut bodies = HashMap::new();
+    bodies.insert(x25519_b64("kaitlyn"), "ct_for_kait".to_string());
+    bodies.insert(x25519_b64("court"), "ct_for_self".to_string());
+    court
+        .send(WsMessage::Text(
+            serde_json::json!({
+                "kind": "Send",
+                "room_id": room_id,
+                "bodies": bodies,
+                "client_msg_id": cmid,
+            })
+            .to_string(),
+        ))
+        .await
+        .unwrap();
+
+    // Recipient gets their addressed body, no client_msg_id.
+    let to_kait = next_frame(&mut kaitlyn).await;
+    assert_eq!(to_kait["body"], "ct_for_kait");
+    assert!(to_kait.get("client_msg_id").is_none(), "{to_kait}");
+
+    // Sender gets the live self-copy echoed back with client_msg_id.
+    let to_self = next_frame(&mut court).await;
+    assert_eq!(to_self["from"], "court");
+    assert_eq!(to_self["body"], "ct_for_self");
+    assert_eq!(to_self["client_msg_id"], cmid);
+
+    // Fresh session replays the self-copy without client_msg_id.
+    drop(court);
+    let mut court2 = handshake_as(addr, "court", &court_sk).await;
+    drain_rooms(&mut court2).await;
+    court2
+        .send(WsMessage::Text(
+            serde_json::json!({
+                "kind": "Subscribe",
+                "room_id": room_id,
+                "since_message_id": null,
+            })
+            .to_string(),
+        ))
+        .await
+        .unwrap();
+    let replayed = next_frame(&mut court2).await;
+    assert_eq!(replayed["body"], "ct_for_self");
+    assert_eq!(replayed["replayed"], true);
+    assert!(replayed.get("client_msg_id").is_none(), "{replayed}");
+}
+
+#[file_serial(db)]
+#[tokio::test]
 async fn multi_session_fanout_reaches_every_open_socket() {
     // Spec AC #4: two WSS sessions per username both receive routed messages.
     let store = fresh_store().await;

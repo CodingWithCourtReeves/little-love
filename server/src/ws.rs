@@ -13,6 +13,7 @@ use futures::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 use ulid::Ulid;
+use uuid::Uuid;
 
 use crate::accounts::{
     lookup_ed25519_pub, lookup_full_account, lookup_full_account_by_id, AccountRecord,
@@ -219,9 +220,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 Ok(RoomClientFrame::Send {
                     room_id,
                     bodies,
-                    client_msg_id: _,
+                    client_msg_id,
                 }) => {
-                    handle_send(&state, &me, &room_id, bodies, &tx).await;
+                    handle_send(&state, &me, &room_id, bodies, client_msg_id, &tx).await;
                 }
                 Ok(RoomClientFrame::CreateRoom {
                     name,
@@ -541,6 +542,7 @@ async fn handle_subscribe(
             ts: row.ts,
             body: row.body,
             replayed: true,
+            client_msg_id: None,
         });
     }
 }
@@ -550,6 +552,7 @@ async fn handle_send(
     me: &AccountRecord,
     room_id: &str,
     bodies: HashMap<String, String>,
+    client_msg_id: Uuid,
     tx: &mpsc::UnboundedSender<RoomServerFrame>,
 ) {
     let store = match state.store.as_ref() {
@@ -587,21 +590,33 @@ async fn handle_send(
             return;
         }
     };
+    let self_key = B64.encode(&me.x25519_pub);
     let expected: HashSet<String> = members
         .iter()
         .filter(|m| m.account_id != me.id)
         .map(|m| B64.encode(&m.x25519_pub))
         .collect();
     let provided: HashSet<String> = bodies.keys().cloned().collect();
-    if expected != provided {
+    // The sender MAY include a copy addressed to themselves (encrypted to their
+    // own key) so their message history survives a restart — the server is the
+    // source of truth for it, same as for every other recipient. The self-copy
+    // is optional: a client that omits it still validates against `expected`.
+    let has_self_copy = provided.contains(&self_key);
+    let mut required = expected.clone();
+    if has_self_copy {
+        required.insert(self_key.clone());
+    }
+    if required != provided {
         send_error(tx, error_codes::FAN_OUT_MISMATCH, "");
         return;
     }
 
     let id = Ulid::new().to_string();
     let ts = Utc::now();
-    let mut rows = Vec::with_capacity(members.len());
+    let mut rows = Vec::with_capacity(members.len() + 1);
     for m in &members {
+        // Skip self here; the self-copy (if any) is stored separately below so
+        // it is keyed by the sender's own account id and own ciphertext.
         if m.account_id == me.id {
             continue;
         }
@@ -617,6 +632,18 @@ async fn handle_send(
             body: body.clone(),
             ts,
         });
+    }
+    if has_self_copy {
+        if let Some(body) = bodies.get(&self_key) {
+            rows.push(MessageRow {
+                id: id.clone(),
+                room_id: room_id.to_string(),
+                from_account_id: me.id,
+                recipient_account_id: me.id,
+                body: body.clone(),
+                ts,
+            });
+        }
     }
     if let Err(e) = store.insert_many(&rows).await {
         warn!("store.insert_many failed: {e}");
@@ -638,8 +665,27 @@ async fn handle_send(
             ts,
             body: body.clone(),
             replayed: false,
+            client_msg_id: None,
         };
         state.routing.deliver(&m.username, frame).await;
+    }
+    // Echo the self-copy live to every open session for the sender, carrying
+    // `client_msg_id` so the originating session can swap its optimistic echo
+    // for the authoritative row. Replayed history omits `client_msg_id` (it is
+    // not persisted), so a fresh-restart session just adds it by `id`.
+    if has_self_copy {
+        if let Some(body) = bodies.get(&self_key) {
+            let frame = RoomServerFrame::Message {
+                id: id.clone(),
+                room_id: room_id.to_string(),
+                from: me.username.clone(),
+                ts,
+                body: body.clone(),
+                replayed: false,
+                client_msg_id: Some(client_msg_id),
+            };
+            state.routing.deliver(&me.username, frame).await;
+        }
     }
 }
 

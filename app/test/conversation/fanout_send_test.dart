@@ -23,7 +23,7 @@ Member memberOf(DerivedIdentity id, String username, {bool bot = false}) =>
 
 void main() {
   test(
-    'encrypts one ciphertext per other member, keyed by their pubkey',
+    'encrypts one ciphertext per other member plus a self-copy',
     () async {
       final me = await _identityFromByte(11);
       final partner = await _identityFromByte(12);
@@ -50,23 +50,20 @@ void main() {
       );
 
       expect(frame.roomId, 'r1');
-      expect(frame.bodies.length, 2);
+      // Two other members + a copy addressed to ourselves.
+      expect(frame.bodies.length, 3);
       expect(frame.bodies.keys.toSet(), {
         base64.encode(partner.x25519PublicKey),
         base64.encode(bot.x25519PublicKey),
+        base64.encode(me.x25519PublicKey),
       });
-      // Self is never in the bodies map.
-      expect(
-        frame.bodies.containsKey(base64.encode(me.x25519PublicKey)),
-        isFalse,
-      );
-      // Ciphertexts differ per recipient (distinct keys).
+      // Ciphertexts differ per recipient (distinct keys, including self).
       final cts = frame.bodies.values.toSet();
-      expect(cts.length, 2);
+      expect(cts.length, 3);
     },
   );
 
-  test('solo room (self only) produces empty bodies map', () async {
+  test('solo room (self only) still produces a self-copy', () async {
     final me = await _identityFromByte(20);
     final room = Room(
       roomId: 'r2',
@@ -81,6 +78,6 @@ void main() {
       plaintext: 'whispered to no one',
       cache: RoomKeyCache(),
     );
-    expect(frame.bodies, isEmpty);
+    expect(frame.bodies.keys.toSet(), {base64.encode(me.x25519PublicKey)});
   });
 }
