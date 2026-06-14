@@ -438,6 +438,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         ),
       );
     }
+    // Resolve whether this message's sender is a familiar (bot) in this room.
+    final senderIsBot = widget.room.memberByUsername(m.from)?.isBot ?? false;
+    final bubbleColor = mine
+        ? TwilightColors.bubbleUserBg
+        : (senderIsBot
+            ? TwilightColors.bubbleFamiliarBg
+            : TwilightColors.bubblePartnerBg);
+    final bubbleBorder =
+        senderIsBot && !mine
+            ? TwilightColors.bubbleFamiliarBorder
+            : TwilightColors.borderSoft;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Tooltip(
@@ -470,11 +481,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               constraints: const BoxConstraints(maxWidth: 480),
               decoration: BoxDecoration(
-                color: mine
-                    ? TwilightColors.bubbleUserBg
-                    : TwilightColors.bubblePartnerBg,
+                color: bubbleColor,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: TwilightColors.borderSoft),
+                border: Border.all(color: bubbleBorder),
               ),
               child: Text(
                 m.body,

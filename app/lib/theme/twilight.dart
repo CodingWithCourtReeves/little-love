@@ -19,6 +19,12 @@ class TwilightColors {
   static const bubbleUserBg = Color(0xFFE8C8D2);
   static const bubbleUserText = Color(0xFF3A1424);
   static const bubblePartnerBg = Color(0xFFFFFAFB);
+
+  /// Sage tint for familiar (bot) message bubbles — distinguishes AI
+  /// participants from the partner's white bubbles. Values mirror the v0.4
+  /// mock (mocks/v0.4/channel-with-familiar.html).
+  static const Color bubbleFamiliarBg = Color(0xFFEFEDDF);
+  static const Color bubbleFamiliarBorder = Color(0xFFDFDCC4);
 }
 
 /// Builds a Material ThemeData using Twilight colors. Phase 1.5
