@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../identity/current_identity.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/room.dart';
+import '../outbox/outbox_store.dart';
 import '../pairing/encryption.dart';
 import '../wire/frames.dart';
 import '../wire/live_connection.dart';
@@ -91,18 +92,41 @@ class RoomMessageRouter {
     final me = await ref.read(currentIdentityProvider.future);
     final key = await ref.read(roomKeyCacheProvider).getOrDerive(room, me);
     final plaintext = await decryptIncoming(key, f.body);
-    ref
-        .read(messageStoreProvider(f.roomId).notifier)
-        .add(
-          Msg(
+    final notifier = ref.read(messageStoreProvider(f.roomId).notifier);
+
+    // Sender's own echo carries a client_msg_id; reconcile with the optimistic
+    // bubble we inserted on send and drop the outbox row.
+    if (f.clientMsgId != null) {
+      final outbox = await ref.read(outboxStoreProvider.future);
+      final removed = await outbox.remove(f.clientMsgId!);
+      if (removed) {
+        notifier.promote(
+          fromId: f.clientMsgId!,
+          toMsg: Msg(
             id: f.id,
             from: f.from,
             to: f.roomId,
             body: plaintext,
             ts: f.ts,
             replayed: f.replayed,
+            clientMsgId: f.clientMsgId,
+            sendStatus: SendStatus.sent,
           ),
         );
+        return;
+      }
+    }
+
+    notifier.add(
+      Msg(
+        id: f.id,
+        from: f.from,
+        to: f.roomId,
+        body: plaintext,
+        ts: f.ts,
+        replayed: f.replayed,
+      ),
+    );
   }
 
   Future<void> dispose() async {

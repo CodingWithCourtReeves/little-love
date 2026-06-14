@@ -16,6 +16,8 @@ import 'package:littlelove/screens/inbox/inbox_shell.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/live_connection.dart';
 
+import '../outbox/memory_outbox_store.dart';
+
 class _CapturingConn implements LiveConnection {
   final _ctl = StreamController<RoomServerFrame>.broadcast();
   final List<Map<String, Object?>> sent = [];
@@ -25,65 +27,6 @@ class _CapturingConn implements LiveConnection {
   void send(Object payload) => sent.add(payload as Map<String, Object?>);
   @override
   Future<void> close() async => _ctl.close();
-}
-
-/// Pure in-memory OutboxStore. Used in widget tests to avoid sqflite_ffi's
-/// background-isolate setup, which keeps Riverpod's FutureProvider overrides
-/// from settling under the AutomatedTestWidgetsFlutterBinding.
-class _MemoryOutboxStore implements OutboxStore {
-  final Map<String, OutboxRow> _rows = {};
-
-  @override
-  Future<void> enqueue({
-    required String clientMsgId,
-    required String roomId,
-    required String bodyCipher,
-    DateTime? createdAt,
-  }) async {
-    _rows.putIfAbsent(
-      clientMsgId,
-      () => OutboxRow(
-        clientMsgId: clientMsgId,
-        roomId: roomId,
-        bodyCipher: bodyCipher,
-        createdAt: createdAt ?? DateTime.now().toUtc(),
-        attempts: 0,
-        lastError: null,
-      ),
-    );
-  }
-
-  @override
-  Future<List<OutboxRow>> pending() async {
-    final list = _rows.values.toList()
-      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-    return list;
-  }
-
-  @override
-  Future<OutboxRow?> lookup(String clientMsgId) async => _rows[clientMsgId];
-
-  @override
-  Future<bool> remove(String clientMsgId) async =>
-      _rows.remove(clientMsgId) != null;
-
-  @override
-  Future<void> markAttempt(
-    String clientMsgId, {
-    String? error,
-    bool reset = false,
-  }) async {
-    final r = _rows[clientMsgId];
-    if (r == null) return;
-    _rows[clientMsgId] = OutboxRow(
-      clientMsgId: r.clientMsgId,
-      roomId: r.roomId,
-      bodyCipher: r.bodyCipher,
-      createdAt: r.createdAt,
-      attempts: reset ? 0 : r.attempts + 1,
-      lastError: reset ? null : error,
-    );
-  }
 }
 
 void main() {
@@ -96,7 +39,7 @@ void main() {
       final peer = await deriveIdentity(seedB);
       final conn = _CapturingConn();
       addTearDown(conn.close);
-      final store = _MemoryOutboxStore();
+      final store = MemoryOutboxStore();
 
       final acc = LocalAccount(
         username: 'court',

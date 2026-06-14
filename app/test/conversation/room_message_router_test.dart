@@ -11,9 +11,13 @@ import 'package:littlelove/identity/current_identity.dart';
 import 'package:littlelove/identity/keypair.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
+import 'package:littlelove/outbox/outbox_store.dart';
 import 'package:littlelove/pairing/encryption.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/live_connection.dart';
+import 'package:littlelove/wire/message.dart';
+
+import '../outbox/memory_outbox_store.dart';
 
 class _FakeConn implements LiveConnection {
   final _ctl = StreamController<RoomServerFrame>.broadcast();
@@ -32,17 +36,23 @@ class _FakeConn implements LiveConnection {
 Future<ProviderContainer> _container({
   required LiveConnection conn,
   required DerivedIdentity me,
+  OutboxStore? outboxStore,
 }) async {
   final container = ProviderContainer(
     overrides: [
       liveConnectionProvider.overrideWith((_) async => conn),
       currentIdentityProvider.overrideWith((_) async => me),
+      if (outboxStore != null)
+        outboxStoreProvider.overrideWith((_) async => outboxStore),
     ],
   );
   addTearDown(container.dispose);
   // Resolve the async overrides so requireValue works.
   await container.read(liveConnectionProvider.future);
   await container.read(currentIdentityProvider.future);
+  if (outboxStore != null) {
+    await container.read(outboxStoreProvider.future);
+  }
   return container;
 }
 
@@ -160,6 +170,121 @@ void main() {
     final msgs = container.read(messageStoreProvider('room1'));
     expect(msgs, hasLength(1));
     expect(msgs.single.body, cannotDecryptSentinel);
+  });
+
+  test('echoed Message with clientMsgId promotes the optimistic Msg and '
+      'drops the outbox row', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final store = MemoryOutboxStore();
+    final container =
+        await _container(conn: conn, me: me, outboxStore: store);
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        peerUsername: 'kaitlyn',
+        peerEd25519PubBase64: base64.encode(peer.ed25519PublicKey),
+        peerX25519PubBase64: base64.encode(peer.x25519PublicKey),
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
+
+    // Pre-seed an optimistic Msg + outbox row.
+    final key = await deriveRoomKey(
+      me: me,
+      peerX25519Pub: peer.x25519PublicKey,
+      roomId: 'room1',
+    );
+    final body = await encryptOutgoing(key, 'on my way');
+    await store.enqueue(
+      clientMsgId: 'cli-1',
+      roomId: 'room1',
+      bodyCipher: body,
+    );
+    container.read(messageStoreProvider('room1').notifier).add(Msg(
+          id: 'cli-1',
+          from: 'court',
+          to: 'room1',
+          body: 'on my way',
+          ts: DateTime.utc(2026, 6, 10, 12),
+          clientMsgId: 'cli-1',
+          sendStatus: SendStatus.sending,
+        ));
+
+    container.read(roomMessageRouterProvider);
+    conn.emit(
+      MessageFrame(
+        id: 'srv-1',
+        roomId: 'room1',
+        from: 'court',
+        ts: DateTime.utc(2026, 6, 10, 12),
+        body: body,
+        replayed: false,
+        clientMsgId: 'cli-1',
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final msgs = container.read(messageStoreProvider('room1'));
+    expect(msgs, hasLength(1));
+    expect(msgs.single.id, 'srv-1');
+    expect(msgs.single.sendStatus, SendStatus.sent);
+    expect(msgs.single.body, 'on my way');
+    expect(await store.lookup('cli-1'), isNull,
+        reason: 'outbox row should be removed once the echo lands');
+  });
+
+  test('peer Message without clientMsgId is added fresh and outbox '
+      'is untouched', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final store = MemoryOutboxStore();
+    final container =
+        await _container(conn: conn, me: me, outboxStore: store);
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        peerUsername: 'kaitlyn',
+        peerEd25519PubBase64: base64.encode(peer.ed25519PublicKey),
+        peerX25519PubBase64: base64.encode(peer.x25519PublicKey),
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
+
+    await store.enqueue(
+      clientMsgId: 'cli-1',
+      roomId: 'room1',
+      bodyCipher: 'unrelated',
+    );
+
+    container.read(roomMessageRouterProvider);
+
+    final peerKey = await deriveRoomKey(
+      me: peer,
+      peerX25519Pub: me.x25519PublicKey,
+      roomId: 'room1',
+    );
+    final body = await encryptOutgoing(peerKey, 'hi back');
+    conn.emit(
+      MessageFrame(
+        id: 'srv-2',
+        roomId: 'room1',
+        from: 'kaitlyn',
+        ts: DateTime.utc(2026, 6, 10, 12),
+        body: body,
+        replayed: false,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final msgs = container.read(messageStoreProvider('room1'));
+    expect(msgs.single.body, 'hi back');
+    expect(await store.lookup('cli-1'), isNotNull,
+        reason: 'peer messages must not touch the outbox');
   });
 
   test('RoomCreated appends and subscribes', () async {
