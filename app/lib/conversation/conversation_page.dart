@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../identity/providers.dart';
+import '../inbox/channel_switcher.dart';
 import '../inbox/room.dart';
 import '../theme/twilight.dart';
 import '../wire/message.dart';
@@ -50,6 +51,7 @@ class ConversationPage extends ConsumerStatefulWidget {
     required this.onSend,
     this.onRename,
     this.onLeave,
+    this.onNewChannel,
   });
 
   final Room room;
@@ -57,6 +59,7 @@ class ConversationPage extends ConsumerStatefulWidget {
   final SendCallback onSend;
   final RenameCallback? onRename;
   final LeaveCallback? onLeave;
+  final VoidCallback? onNewChannel;
 
   String get roomId => room.roomId;
   String get contactDisplayName => room.displayName(selfUsername);
@@ -234,47 +237,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
         titleSpacing: 8,
-        title: Row(
-          children: [
-            _PeerAvatar(label: widget.contactDisplayName),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    widget.contactDisplayName,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: -0.1,
-                      color: TwilightColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      _Dot(color: TwilightColors.accentFamiliar),
-                      SizedBox(width: 6),
-                      Text(
-                        'paired',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 11,
-                          letterSpacing: 0.6,
-                          color: TwilightColors.accentFamiliar,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
+        title: ChannelSwitcher(
+          selfUsername: widget.selfUsername,
+          onNewChannel: widget.onNewChannel,
         ),
         actions: [
           const Padding(
@@ -736,44 +701,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
       ),
     );
   }
-}
-
-class _PeerAvatar extends StatelessWidget {
-  const _PeerAvatar({required this.label});
-  final String label;
-  @override
-  Widget build(BuildContext context) {
-    final initial = label.isEmpty ? '?' : label[0].toUpperCase();
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: const BoxDecoration(
-        color: TwilightColors.accentPartner,
-        shape: BoxShape.circle,
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        initial,
-        style: const TextStyle(
-          color: Color(0xFFFFFAFB),
-          fontFamily: 'Inter',
-          fontSize: 15,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    );
-  }
-}
-
-class _Dot extends StatelessWidget {
-  const _Dot({required this.color});
-  final Color color;
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 6,
-    height: 6,
-    decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-  );
 }
 
 class _E2ESeal extends StatelessWidget {

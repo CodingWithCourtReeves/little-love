@@ -6,6 +6,7 @@ import 'package:littlelove/conversation/conversation_page.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
+import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/theme/twilight.dart';
 import 'package:littlelove/wire/frames.dart';
@@ -49,6 +50,8 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
+    container.read(inboxStateProvider.notifier).setRooms([_roomA()]);
+    container.read(inboxStateProvider.notifier).select('roomA');
     container.read(messageStoreProvider('roomA').notifier).setAll([
       Msg(
         id: '1',

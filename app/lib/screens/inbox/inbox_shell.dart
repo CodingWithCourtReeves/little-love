@@ -21,6 +21,7 @@ import '../../inbox/sidebar.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
+import '../create_chat/create_channel_sheet.dart';
 import '../create_chat/create_chat_invite_screen.dart';
 import '../create_chat/create_chat_pick_screen.dart';
 import '../pair/enter_code.dart';
@@ -156,6 +157,7 @@ class InboxShell extends ConsumerWidget {
         final conn = ref.read(liveConnectionProvider).asData?.value;
         conn?.send(LeaveRoomFrame(roomId: room.roomId).toJson());
       },
+      onNewChannel: () => showCreateChannelSheet(context, ref, account.username),
     );
   }
 
