@@ -146,6 +146,7 @@ class InboxShell extends ConsumerWidget {
     String text,
     String clientMsgId,
   ) async {
+    var inserted = false;
     try {
       final me = await ref.read(currentIdentityProvider.future);
       final key = await ref.read(roomKeyCacheProvider).getOrDerive(room, me);
@@ -167,9 +168,19 @@ class InboxShell extends ConsumerWidget {
               sendStatus: SendStatus.sending,
             ),
           );
+      inserted = true;
       await ref.read(outboxDrainProvider).kick();
     } catch (e) {
-      debugPrint('outbox enqueue failed: $e');
+      // If we never inserted the optimistic bubble, the user has no UI to
+      // act on — log and move on. If we did insert it, flip it to failed so
+      // the caption appears with a retry affordance.
+      if (inserted) {
+        ref
+            .read(messageStoreProvider(room.roomId).notifier)
+            .updateStatus(clientMsgId, SendStatus.failed);
+      } else {
+        debugPrint('outbox enqueue failed before insert: $e');
+      }
     }
   }
 
@@ -181,7 +192,11 @@ class InboxShell extends ConsumerWidget {
     ref
         .read(messageStoreProvider(row.roomId).notifier)
         .updateStatus(clientMsgId, SendStatus.sending);
-    await ref.read(outboxDrainProvider).kick();
+    final drain = ref.read(outboxDrainProvider);
+    // The drain's per-cycle dedup set still remembers the prior send;
+    // clear just this id so retry actually re-sends.
+    drain.resetCycle(clientMsgId: clientMsgId);
+    await drain.kick();
   }
 }
 

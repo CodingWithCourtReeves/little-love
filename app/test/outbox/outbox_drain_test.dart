@@ -76,6 +76,30 @@ void main() {
     expect(row.lastError, contains('socket closed'));
   });
 
+  test('resetCycle(clientMsgId) lets a retry re-send the same row',
+      () async {
+    final s = await freshStore();
+    final sender = _FakeSender();
+    await s.enqueue(
+      clientMsgId: 'a',
+      roomId: 'r1',
+      bodyCipher: 'ct',
+      createdAt: DateTime.utc(2026, 6, 13),
+    );
+    final drain = OutboxDrain(store: s, send: sender.send);
+    await drain.runOnce();
+    expect(sender.sent.length, 1);
+
+    // Without resetCycle, the dedup set blocks a second send of the same row.
+    await drain.runOnce();
+    expect(sender.sent.length, 1);
+
+    // Clearing just this id (mirrors what _retry does) re-sends it.
+    drain.resetCycle(clientMsgId: 'a');
+    await drain.runOnce();
+    expect(sender.sent.length, 2);
+  });
+
   test('kick is idempotent — concurrent kicks coalesce', () async {
     final s = await freshStore();
     final sender = _FakeSender();
