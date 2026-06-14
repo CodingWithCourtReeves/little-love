@@ -13,7 +13,9 @@ import '../../wire/frames.dart';
 import '../../wire/rest_client.dart';
 
 /// Receiver-side pairing screen: code → preview (full v0.3 roster) → confirm
-/// → consume → add Room. The roster card mirrors mocks/v0.3/invite-preview-multi.html.
+/// → consume → add Room.
+///
+/// The roster card mirrors the v0.3 invite-preview-multi mock.
 class EnterCodeScreen extends ConsumerStatefulWidget {
   const EnterCodeScreen({
     super.key,
@@ -24,7 +26,7 @@ class EnterCodeScreen extends ConsumerStatefulWidget {
   /// The signed-in user's derived identity (used to sign the §8.5.1 input).
   final DerivedIdentity identity;
 
-  /// The signed-in user's username — used to render the "You · <name>" row.
+  /// The signed-in user's username — used to render the `You · …` row.
   final String selfUsername;
 
   @override
@@ -153,9 +155,7 @@ class _EnterCodeScreenState extends ConsumerState<EnterCodeScreen> {
                 child: const Text('Look up'),
               ),
             if (preview != null) ...[
-              _PreviewHeader(
-                inviterUsername: _inviterUsername(preview),
-              ),
+              _PreviewHeader(inviterUsername: _inviterUsername(preview)),
               const SizedBox(height: 16),
               _RosterCard(
                 members: preview.members,

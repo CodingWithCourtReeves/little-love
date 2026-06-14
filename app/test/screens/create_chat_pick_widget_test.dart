@@ -13,8 +13,7 @@ import 'package:littlelove/wire/live_connection.dart';
 class _FakeConn implements LiveConnection {
   final List<Object> sent = [];
   @override
-  Stream<RoomServerFrame> get incoming =>
-      const Stream<RoomServerFrame>.empty();
+  Stream<RoomServerFrame> get incoming => const Stream<RoomServerFrame>.empty();
   @override
   void send(Object payload) => sent.add(payload);
   @override

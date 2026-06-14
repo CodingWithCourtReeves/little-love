@@ -15,10 +15,7 @@ import 'create_chat_invite_screen.dart';
 /// client cannot send familiar IDs without a separate amendment. The picker
 /// still renders owned bots so the UI is functional once the amendment lands.
 class CreateChatPickScreen extends ConsumerStatefulWidget {
-  const CreateChatPickScreen({
-    super.key,
-    required this.selfUsername,
-  });
+  const CreateChatPickScreen({super.key, required this.selfUsername});
 
   final String selfUsername;
 
@@ -64,9 +61,7 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
     if (_includePartner) {
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(
-          builder: (_) => const CreateChatInviteScreen(),
-        ),
+        MaterialPageRoute<void>(builder: (_) => const CreateChatInviteScreen()),
       );
     } else {
       if (!mounted) return;
@@ -228,7 +223,9 @@ class _FamiliarRow extends StatelessWidget {
       avBg: TwilightColors.accentFamiliar,
       initial: bot.username.isEmpty ? '?' : bot.username[0].toUpperCase(),
       title: bot.username,
-      subtitle: owner == null ? 'FAMILIAR' : "FAMILIAR · ${owner.toUpperCase()}",
+      subtitle: owner == null
+          ? 'FAMILIAR'
+          : "FAMILIAR · ${owner.toUpperCase()}",
       checked: checked,
       onTap: onTap,
     );

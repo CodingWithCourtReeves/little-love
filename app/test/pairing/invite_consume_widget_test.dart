@@ -50,7 +50,10 @@ void main() {
     'preview → confirm → consume puts a Room in inbox state, shows v0.3 roster',
     (tester) async {
       final mockHttp = MockClient((req) async {
-        expect(req.url.path, '/invites/abandon-abandon-abandon-ability/preview');
+        expect(
+          req.url.path,
+          '/invites/abandon-abandon-abandon-ability/preview',
+        );
         return http.Response(
           jsonEncode({
             'room_id': '01JNEWROOM',

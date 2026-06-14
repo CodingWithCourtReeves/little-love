@@ -5,11 +5,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../identity/providers.dart';
+import '../inbox/room.dart';
 import '../theme/twilight.dart';
 import '../wire/message.dart';
 import 'message_store.dart';
 
 typedef SendCallback = void Function(String text);
+typedef RenameCallback = void Function(String newName);
+typedef LeaveCallback = void Function();
 
 class _SendIntent extends Intent {
   const _SendIntent();
@@ -42,14 +45,21 @@ class _GapItem extends _Item {
 class ConversationPage extends ConsumerStatefulWidget {
   const ConversationPage({
     super.key,
-    required this.roomId,
-    required this.contactDisplayName,
+    required this.room,
+    required this.selfUsername,
     required this.onSend,
+    this.onRename,
+    this.onLeave,
   });
 
-  final String roomId;
-  final String contactDisplayName;
+  final Room room;
+  final String selfUsername;
   final SendCallback onSend;
+  final RenameCallback? onRename;
+  final LeaveCallback? onLeave;
+
+  String get roomId => room.roomId;
+  String get contactDisplayName => room.displayName(selfUsername);
 
   @override
   ConsumerState<ConversationPage> createState() => _ConversationPageState();
@@ -122,6 +132,75 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
   void _submitFromIntent() {
     _handleSubmit(_controller.text);
+  }
+
+  Future<void> _showRenameDialog() async {
+    final controller = TextEditingController(text: widget.room.name);
+    final newName = await showDialog<String?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename chat'),
+        content: TextField(
+          key: const Key('rename-dialog-field'),
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Chat name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('rename-dialog-save'),
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (newName == null) return;
+    widget.onRename?.call(newName);
+  }
+
+  Future<void> _showLeaveDialog() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Leave chat?'),
+        content: const Text(
+          'Messages already sent stay encrypted on other devices.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('leave-dialog-confirm'),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Leave'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    widget.onLeave?.call();
+  }
+
+  Color _senderColor(String username) {
+    if (username == widget.selfUsername) return TwilightColors.accentUser;
+    // Stable hash → one of three accents per spec §7.5 (sage / mauve / wine).
+    const palette = <Color>[
+      Color(0xFF4F7A5E), // sage
+      Color(0xFF9C7E94), // mauve
+      Color(0xFF8A3E5A), // wine
+    ];
+    var h = 0;
+    for (final c in username.codeUnits) {
+      h = (h * 31 + c) & 0x7fffffff;
+    }
+    return palette[h % palette.length];
   }
 
   @override
@@ -197,11 +276,40 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
             ),
           ],
         ),
-        actions: const [
-          Padding(
+        actions: [
+          const Padding(
             padding: EdgeInsets.symmetric(horizontal: 16),
             child: _E2ESeal(),
           ),
+          if (widget.onRename != null || widget.onLeave != null)
+            PopupMenuButton<String>(
+              key: const Key('room-menu-button'),
+              icon: const Icon(
+                Icons.more_vert,
+                color: TwilightColors.textMuted,
+              ),
+              onSelected: (value) {
+                if (value == 'rename' && widget.onRename != null) {
+                  _showRenameDialog();
+                } else if (value == 'leave' && widget.onLeave != null) {
+                  _showLeaveDialog();
+                }
+              },
+              itemBuilder: (_) => [
+                if (widget.onRename != null)
+                  const PopupMenuItem<String>(
+                    key: Key('room-menu-rename'),
+                    value: 'rename',
+                    child: Text('Rename chat'),
+                  ),
+                if (widget.onLeave != null)
+                  const PopupMenuItem<String>(
+                    key: Key('room-menu-leave'),
+                    value: 'leave',
+                    child: Text('Leave chat'),
+                  ),
+              ],
+            ),
         ],
       ),
       body: Column(
@@ -311,6 +419,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
   Widget _bubble(Msg m, String me) {
     final mine = m.from == me;
     final tip = _formatFullDateTime(m.ts.toLocal());
+    final showSenderLabel = !mine && widget.room.members.length >= 3;
     if (_isEmojiOnly(m.body)) {
       return Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
@@ -336,26 +445,48 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         waitDuration: const Duration(milliseconds: 400),
         preferBelow: false,
         verticalOffset: 14,
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          constraints: const BoxConstraints(maxWidth: 480),
-          decoration: BoxDecoration(
-            color: mine
-                ? TwilightColors.bubbleUserBg
-                : TwilightColors.bubblePartnerBg,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: TwilightColors.borderSoft),
-          ),
-          child: Text(
-            m.body,
-            style: TextStyle(
-              color: mine
-                  ? TwilightColors.bubbleUserText
-                  : TwilightColors.textPrimary,
-              fontSize: 16,
+        child: Column(
+          crossAxisAlignment: mine
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+          children: [
+            if (showSenderLabel)
+              Padding(
+                padding: const EdgeInsets.only(left: 14, top: 4),
+                child: Text(
+                  m.from,
+                  key: Key('sender-label-${m.id}'),
+                  style: TextStyle(
+                    fontFamily: 'JetBrainsMono',
+                    fontSize: 10,
+                    letterSpacing: 1.0,
+                    color: _senderColor(m.from),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              constraints: const BoxConstraints(maxWidth: 480),
+              decoration: BoxDecoration(
+                color: mine
+                    ? TwilightColors.bubbleUserBg
+                    : TwilightColors.bubblePartnerBg,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: TwilightColors.borderSoft),
+              ),
+              child: Text(
+                m.body,
+                style: TextStyle(
+                  color: mine
+                      ? TwilightColors.bubbleUserText
+                      : TwilightColors.textPrimary,
+                  fontSize: 16,
+                ),
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );

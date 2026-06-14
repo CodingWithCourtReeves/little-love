@@ -15,7 +15,9 @@ import '../../inbox/navigation_rail.dart';
 import '../../inbox/room.dart';
 import '../../inbox/sidebar.dart';
 import '../../theme/twilight.dart';
+import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
+import '../create_chat/create_chat_pick_screen.dart';
 import '../pair/enter_code.dart';
 import '../pair/show_invite.dart';
 
@@ -119,9 +121,19 @@ class InboxShell extends ConsumerWidget {
     final room = rooms.firstWhere((r) => r.roomId == selectedId);
     return ConversationPage(
       key: ValueKey(selectedId),
-      roomId: selectedId,
-      contactDisplayName: room.displayName(account.username),
+      room: room,
+      selfUsername: account.username,
       onSend: (text) => _sendEncrypted(ref, room, text),
+      onRename: (newName) {
+        final conn = ref.read(liveConnectionProvider).asData?.value;
+        conn?.send(
+          RenameRoomFrame(roomId: room.roomId, name: newName).toJson(),
+        );
+      },
+      onLeave: () {
+        final conn = ref.read(liveConnectionProvider).asData?.value;
+        conn?.send(LeaveRoomFrame(roomId: room.roomId).toJson());
+      },
     );
   }
 
@@ -176,6 +188,24 @@ class _PairCard extends ConsumerWidget {
             detail: 'Enter a code your partner sent you.',
             onTap: () => _openEnterCode(context, ref),
           ),
+          const Divider(
+            height: 1,
+            thickness: 1,
+            color: TwilightColors.borderSoft,
+            indent: 18,
+            endIndent: 18,
+          ),
+          _PairOption(
+            glyph: '✦',
+            title: 'Create a chat',
+            detail: 'Pick partner + familiars, then send the invite.',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    CreateChatPickScreen(selfUsername: account.username),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -197,10 +227,8 @@ class _PairCard extends ConsumerWidget {
     if (!context.mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => EnterCodeScreen(
-          identity: identity,
-          selfUsername: account.username,
-        ),
+        builder: (_) =>
+            EnterCodeScreen(identity: identity, selfUsername: account.username),
       ),
     );
   }

@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -95,9 +94,8 @@ class CreateChatInviteScreen extends ConsumerWidget {
             const SizedBox(height: 24),
             FilledButton(
               key: const Key('copy-code-button'),
-              onPressed: () => Clipboard.setData(
-                ClipboardData(text: invite.code),
-              ),
+              onPressed: () =>
+                  Clipboard.setData(ClipboardData(text: invite.code)),
               child: const Text('Copy code'),
             ),
             const SizedBox(height: 8),

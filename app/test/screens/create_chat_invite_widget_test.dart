@@ -30,53 +30,52 @@ Room _soloRoom() => Room(
 );
 
 void main() {
-  testWidgets(
-    'renders 4-word code + roster + Copy code copies to clipboard',
-    (tester) async {
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
-      container.read(inboxStateProvider.notifier).setRooms([_soloRoom()]);
-      container.read(pendingInvitesProvider.notifier).set(
-        'rNEW',
-        PendingInvite(
-          code: 'amber-fern-locket-tide',
-          qrPngBase64: '',
-          expiresAt: DateTime.utc(2026, 6, 10, 19),
-        ),
-      );
-
-      final copied = <String>[];
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-            if (call.method == 'Clipboard.setData') {
-              final text = (call.arguments as Map)['text'] as String;
-              copied.add(text);
-            }
-            return null;
-          });
-
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: const MaterialApp(
-            home: CreateChatInviteScreen(roomId: 'rNEW'),
+  testWidgets('renders 4-word code + roster + Copy code copies to clipboard', (
+    tester,
+  ) async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(inboxStateProvider.notifier).setRooms([_soloRoom()]);
+    container
+        .read(pendingInvitesProvider.notifier)
+        .set(
+          'rNEW',
+          PendingInvite(
+            code: 'amber-fern-locket-tide',
+            qrPngBase64: '',
+            expiresAt: DateTime.utc(2026, 6, 10, 19),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
 
-      expect(find.text('amber-fern-locket-tide'), findsOneWidget);
-      // Roster: court IN, court-garden IN, Partner PENDING
-      expect(find.text('court'), findsOneWidget);
-      expect(find.text('court-garden'), findsOneWidget);
-      expect(find.text('PENDING'), findsOneWidget);
+    final copied = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.setData') {
+            final text = (call.arguments as Map)['text'] as String;
+            copied.add(text);
+          }
+          return null;
+        });
 
-      await tester.ensureVisible(find.byKey(const Key('copy-code-button')));
-      await tester.tap(find.byKey(const Key('copy-code-button')));
-      await tester.pumpAndSettle();
-      expect(copied, ['amber-fern-locket-tide']);
-    },
-  );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: CreateChatInviteScreen(roomId: 'rNEW')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('amber-fern-locket-tide'), findsOneWidget);
+    // Roster: court IN, court-garden IN, Partner PENDING
+    expect(find.text('court'), findsOneWidget);
+    expect(find.text('court-garden'), findsOneWidget);
+    expect(find.text('PENDING'), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('copy-code-button')));
+    await tester.tap(find.byKey(const Key('copy-code-button')));
+    await tester.pumpAndSettle();
+    expect(copied, ['amber-fern-locket-tide']);
+  });
 
   testWidgets('shows waiting placeholder when no pending invite is known', (
     tester,
