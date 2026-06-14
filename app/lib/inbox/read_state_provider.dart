@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../conversation/message_store.dart';
 import '../identity/providers.dart';
+import 'inbox_state.dart';
 
 /// In-memory + persisted map of roomId → last-read message timestamp.
 /// Hydrated from [ReadStateStore] on first build; every [markRead] writes
@@ -53,11 +54,15 @@ final roomUnreadProvider = Provider.family<bool, String>((ref, roomId) {
   return newest.isAfter(lastRead);
 });
 
-/// True iff any room the user is in is unread. Used for the header pill's
-/// "unread elsewhere" dot.
-final anyUnreadProvider = Provider.family<bool, List<String>>((ref, roomIds) {
-  for (final id in roomIds) {
-    if (ref.watch(roomUnreadProvider(id))) return true;
+/// True iff any room the user is in — other than [excludeRoomId] — is unread.
+/// Used for the header pill's "unread elsewhere" dot. Takes a single
+/// [String] key (not a list) so the family caches/reuses scopes correctly;
+/// the room set is derived internally from [inboxStateProvider].
+final anyUnreadProvider = Provider.family<bool, String>((ref, excludeRoomId) {
+  final rooms = ref.watch(inboxStateProvider).rooms;
+  for (final r in rooms) {
+    if (r.roomId == excludeRoomId) continue;
+    if (ref.watch(roomUnreadProvider(r.roomId))) return true;
   }
   return false;
 });

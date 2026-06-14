@@ -34,11 +34,8 @@ class ChannelSwitcher extends ConsumerWidget {
     final isPartner =
         selected != null && selected.shape(selfUsername) == RoomShape.partner;
     final label = selected?.displayName(selfUsername) ?? 'LittleLove';
-    final otherRoomIds = inbox.rooms
-        .where((r) => r.roomId != inbox.selectedRoomId)
-        .map((r) => r.roomId)
-        .toList();
-    final unreadElsewhere = ref.watch(anyUnreadProvider(otherRoomIds));
+    final unreadElsewhere =
+        ref.watch(anyUnreadProvider(inbox.selectedRoomId ?? ''));
 
     return InkWell(
       key: const Key('channel-switcher-pill'),

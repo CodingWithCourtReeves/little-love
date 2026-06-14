@@ -37,10 +37,15 @@ class ReadStateStore {
   Future<Map<String, DateTime>> load() async {
     final f = _file;
     if (!await f.exists()) return <String, DateTime>{};
-    final raw = jsonDecode(await f.readAsString()) as Map<String, Object?>;
-    return raw.map(
-      (k, v) => MapEntry(k, DateTime.parse(v! as String).toUtc()),
-    );
+    try {
+      final raw = jsonDecode(await f.readAsString()) as Map<String, Object?>;
+      return raw.map(
+        (k, v) => MapEntry(k, DateTime.parse(v! as String).toUtc()),
+      );
+    } catch (_) {
+      // Corrupt or partially-written file — treat as no saved state.
+      return <String, DateTime>{};
+    }
   }
 
   Future<void> save(Map<String, DateTime> state) async {
