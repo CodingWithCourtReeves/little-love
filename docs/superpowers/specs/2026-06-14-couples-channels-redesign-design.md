@@ -173,6 +173,28 @@ messages (server does not echo Send).
   (The existing `displayName` guard returning "New chat" remains as a
   defensive fallback for the onboarding pending-invite partner room only.)
 
+## Unread State
+
+In-app unread indication is **in scope** for this redesign (it's part of the
+switcher IA). Device push notifications are **not** — see Non-Goals.
+
+- **Source of truth (v0.4): local, per-device.** Each device persists a
+  last-read marker per room (last-read message id or timestamp). A room is
+  unread when its newest message is newer than that marker. No server schema
+  change, no migration.
+- **Marking read:** opening/viewing a room advances its last-read marker to the
+  newest message in that room.
+- **Switcher dropdown:** unread channels render with a **bold name + accent
+  dot** (already shown in `channel-switcher-open.html`). The partner thread uses
+  the same treatment.
+- **Header pill:** when the user is in a thread that is *not* the unread one,
+  the switcher pill carries a small total-unread dot so unread elsewhere is
+  glanceable without opening the dropdown.
+- **Known limitation:** local read state does not sync across a user's own
+  devices. Acceptable for v0.4. The upgrade path is a server-tracked
+  `last_read` per (account, room), which would be a schema-only migration plus
+  a sync path — out of scope here.
+
 ## Responsive Behavior
 
 - **Mobile (primary):** single-pane. Header switcher is the only nav surface;
@@ -189,8 +211,13 @@ messages (server does not echo Send).
 - Not building solo-familiar (bot-only) channels.
 - Not adding roles, permissions, or 3+ human group channels — every channel is
   exactly two humans + optional familiars.
-- Not adding push notifications, search, threads/replies, or reactions in this
-  redesign.
+- Not adding search, threads/replies, or reactions in this redesign.
+- **Device push notifications are deferred to their own spec.** They collide
+  with E2E (the server holds only ciphertext, so a push cannot contain message
+  text) and require their own design: a device-token table on the server, a
+  push-send path, APNs/FCM credentials, and an iOS Notification Service
+  Extension that decrypts a content-less/data push to post a local notification.
+  In-app unread (above) is the only notification surface in v0.4.
 - Not changing the server room/account schema beyond what already exists
   (rooms, members, names, bot account ids). No data migrations.
 - Not redesigning the wide/desktop two-pane layout beyond label/grouping
