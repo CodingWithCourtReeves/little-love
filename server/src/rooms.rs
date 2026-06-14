@@ -56,6 +56,35 @@ impl RoomDetail {
 
 type MemberDbRow = (i64, String, Vec<u8>, Vec<u8>, bool, Option<String>);
 
+/// Familiars owned by `owner_id`, regardless of room membership.
+/// Spec §8.2 amendment — populates the `owned_bots` field on the
+/// post-Authenticated `Rooms` frame so the Create-Chat picker can list
+/// familiars that aren't yet in any room.
+pub async fn owned_bots_for_account(pool: &PgPool, owner_id: i64) -> sqlx::Result<Vec<Member>> {
+    let rows: Vec<MemberDbRow> = sqlx::query_as(
+        "SELECT a.id, a.username, a.ed25519_pub, a.x25519_pub, a.is_bot,
+                owner.username AS owner_username
+         FROM accounts a
+         JOIN accounts owner ON owner.id = a.owner_account_id
+         WHERE a.is_bot = TRUE AND a.owner_account_id = $1
+         ORDER BY a.username ASC",
+    )
+    .bind(owner_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, u, ed, x, b, ow)| Member {
+            account_id: id,
+            username: u,
+            ed25519_pub: ed,
+            x25519_pub: x,
+            is_bot: b,
+            owner_username: ow,
+        })
+        .collect())
+}
+
 pub async fn members_for_room(pool: &PgPool, room_id: &str) -> sqlx::Result<Vec<Member>> {
     let rows: Vec<MemberDbRow> = sqlx::query_as(
         "SELECT a.id, a.username, a.ed25519_pub, a.x25519_pub, a.is_bot,

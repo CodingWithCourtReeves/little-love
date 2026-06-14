@@ -108,6 +108,12 @@ pub enum RoomClientFrame {
 pub enum RoomServerFrame {
     Rooms {
         rooms: Vec<RoomDetail>,
+        /// Spec §8.2 amendment (2026-06-10). Every familiar the
+        /// authenticated user owns. Lets the Create-Chat picker list
+        /// familiars not yet in any room. Empty array when the user owns
+        /// none.
+        #[serde(default)]
+        owned_bots: Vec<Member>,
     },
 
     InviteCreated {
@@ -448,6 +454,7 @@ mod tests {
                 ],
                 created_at: "2026-06-09T17:00:00Z".parse().unwrap(),
             }],
+            owned_bots: vec![],
         };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"Rooms""#));

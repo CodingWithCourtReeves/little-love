@@ -23,8 +23,8 @@ use crate::invites::{
 };
 use crate::rooms::{
     account_id_by_username, bot_owned_by, create_room_with_members, is_member, leave_room,
-    list_rooms_for_account, members_for_room, partner_account_id_for, rename_room, room_detail,
-    set_partner_link, CreateRoomError, Member, MonogamyError, PairError,
+    list_rooms_for_account, members_for_room, owned_bots_for_account, partner_account_id_for,
+    rename_room, room_detail, set_partner_link, CreateRoomError, Member, MonogamyError, PairError,
 };
 use crate::routing::Routing;
 use crate::store::{MessageRow, Store};
@@ -158,18 +158,29 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         .await;
 
     if let Some(store) = state.store.as_ref() {
-        match list_rooms_for_account(store.pool(), me.id).await {
-            Ok(rows) => {
-                let rooms = rows.into_iter().map(|r| r.into_wire()).collect::<Vec<_>>();
-                let _ = tx.send(RoomServerFrame::Rooms { rooms });
-            }
+        let rooms = match list_rooms_for_account(store.pool(), me.id).await {
+            Ok(rows) => rows.into_iter().map(|r| r.into_wire()).collect::<Vec<_>>(),
             Err(e) => {
                 warn!("list_rooms_for_account failed: {e}");
-                let _ = tx.send(RoomServerFrame::Rooms { rooms: Vec::new() });
+                Vec::new()
             }
-        }
+        };
+        let owned_bots = match owned_bots_for_account(store.pool(), me.id).await {
+            Ok(bots) => bots
+                .into_iter()
+                .map(crate::rooms::Member::into_wire)
+                .collect::<Vec<_>>(),
+            Err(e) => {
+                warn!("owned_bots_for_account failed: {e}");
+                Vec::new()
+            }
+        };
+        let _ = tx.send(RoomServerFrame::Rooms { rooms, owned_bots });
     } else {
-        let _ = tx.send(RoomServerFrame::Rooms { rooms: Vec::new() });
+        let _ = tx.send(RoomServerFrame::Rooms {
+            rooms: Vec::new(),
+            owned_bots: Vec::new(),
+        });
     }
 
     let outbound = tokio::spawn(async move {
