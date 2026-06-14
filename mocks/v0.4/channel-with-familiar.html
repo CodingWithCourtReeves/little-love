@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove v0.4 — Channel with a familiar</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-canvas:#F4EBEC;--bg-surface:#EBDFE2;--bg-surface-alt:#E2D3D8;
+    --text-primary:#2A1F2A;--text-muted:#7C6C78;
+    --accent-user:#A04A6A;--accent-partner:#9C7E94;--accent-familiar:#4F7A5E;
+    --border-soft:#D9C7CD;
+    --bubble-user:#E8C8D2;--bubble-user-text:#3A1424;--bubble-partner:#FFFAFB;
+    --bubble-familiar:#EFEDDF;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#cfc0c6;color:var(--text-primary);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .stage{display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 16px 64px}
+  .caption{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;color:#5d4f59;text-transform:uppercase}
+  .caption b{color:var(--accent-user)}
+  .phone{width:390px;height:780px;background:var(--bg-canvas);border-radius:44px;border:10px solid #2A1F2A;box-shadow:0 24px 60px rgba(42,31,42,.34);overflow:hidden;position:relative;display:flex;flex-direction:column}
+  .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:150px;height:26px;background:#2A1F2A;border-bottom-left-radius:16px;border-bottom-right-radius:16px;z-index:30}
+  .hdr{flex-shrink:0;background:var(--bg-surface);padding:34px 14px 12px;border-bottom:1px solid var(--border-soft);display:flex;align-items:center;gap:10px}
+  .switcher{display:flex;align-items:center;gap:10px;background:var(--bg-surface-alt);border:1px solid var(--border-soft);border-radius:999px;padding:7px 12px 7px 12px}
+  .switcher .hash{font-family:'Inter Tight';font-weight:600;font-size:18px;color:var(--text-muted)}
+  .switcher .who{display:flex;flex-direction:column;line-height:1.15}
+  .switcher .who .nm{font-family:'Inter Tight';font-weight:600;font-size:15px;letter-spacing:-.01em}
+  .switcher .who .st{font-size:10.5px;color:var(--text-muted);letter-spacing:.02em}
+  .switcher .chev{margin-left:2px;color:var(--text-muted);font-size:13px}
+  .hdr .members{margin-left:auto;display:flex;align-items:center}
+  .hdr .members .av{width:26px;height:26px;border-radius:50%;border:2px solid var(--bg-surface);display:flex;align-items:center;justify-content:center;color:#FFFAFB;font-weight:600;font-size:11px;font-family:'Inter Tight';margin-left:-8px}
+  .hdr .members .av.me{background:var(--accent-user)}
+  .hdr .members .av.partner{background:var(--accent-partner)}
+  .hdr .members .av.bot{background:var(--accent-familiar)}
+  .thread{flex:1;overflow:hidden;padding:16px 14px;display:flex;flex-direction:column;gap:2px;background:var(--bg-canvas)}
+  .daysep{display:flex;align-items:center;gap:10px;margin:4px 0 12px}
+  .daysep .bar{flex:1;height:1px;background:var(--border-soft)}
+  .daysep span{font-size:11px;color:var(--text-muted);font-weight:500}
+  .row{display:flex;flex-direction:column;margin-bottom:4px}
+  .row.me{align-items:flex-end}
+  .row.them,.row.bot{align-items:flex-start}
+  .lbl{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.08em;font-weight:500;margin:6px 4px 3px}
+  .lbl.partner{color:var(--accent-partner)}
+  .lbl.bot{color:var(--accent-familiar)}
+  .bub{max-width:76%;padding:9px 13px;border-radius:16px;font-size:15px;line-height:1.42;border:1px solid var(--border-soft)}
+  .row.me .bub{background:var(--bubble-user);color:var(--bubble-user-text);border-color:transparent;border-bottom-right-radius:5px}
+  .row.them .bub{background:var(--bubble-partner);border-bottom-left-radius:5px}
+  .row.bot .bub{background:var(--bubble-familiar);border-bottom-left-radius:5px;border-color:#dfdcc4}
+  .composer{flex-shrink:0;background:var(--bg-surface);border-top:1px solid var(--border-soft);padding:10px 12px 16px;display:flex;align-items:center;gap:10px}
+  .composer .ic{color:var(--text-muted);font-size:20px;width:24px;text-align:center}
+  .composer .field{flex:1;background:var(--bg-surface-alt);border-radius:18px;padding:10px 14px;color:var(--text-muted);font-size:14px}
+  .composer .send{width:38px;height:38px;border-radius:50%;background:var(--accent-user);display:flex;align-items:center;justify-content:center;color:#FFFAFB;font-size:17px}
+  .note{max-width:390px;font-size:12.5px;color:#4a3f47;line-height:1.55;background:rgba(255,255,255,.5);border:1px solid var(--border-soft);border-radius:10px;padding:12px 14px}
+  .note b{color:var(--accent-user)}
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="caption">LittleLove v0.4 · <b>03</b> #date-ideas + Garden (familiar)</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <header class="hdr">
+        <div class="switcher">
+          <span class="hash">#</span>
+          <div class="who"><span class="nm">date-ideas</span><span class="st">you · Kaitlyn · Garden</span></div>
+          <span class="chev">▾</span>
+        </div>
+        <div class="members">
+          <div class="av me">Y</div>
+          <div class="av partner">K</div>
+          <div class="av bot">G</div>
+        </div>
+      </header>
+      <div class="thread">
+        <div class="daysep"><span class="bar"></span><span>Today</span><span class="bar"></span></div>
+        <div class="row them"><div class="lbl partner">KAITLYN</div><div class="bub">venue's booked for the 18th 🎉 now what do we actually DO</div></div>
+        <div class="row me"><div class="bub">garden, ideas for a low-key anniversary night in seattle?</div></div>
+        <div class="row bot">
+          <div class="lbl bot">GARDEN · FAMILIAR</div>
+          <div class="bub">A few low-key options near you: a sunset picnic at Gas Works Park, the Chihuly glass garden after dark, or a quiet tasting menu at Archipelago. Want me to check which take reservations on the 18th?</div>
+        </div>
+        <div class="row them"><div class="lbl partner">KAITLYN</div><div class="bub">archipelago 😍</div></div>
+        <div class="row me"><div class="bub">yes please check the 18th</div></div>
+      </div>
+      <div class="composer">
+        <span class="ic">☺</span>
+        <div class="field">Message #date-ideas…</div>
+        <div class="send">➤</div>
+      </div>
+    </div>
+    <div class="note">
+      <b>A channel with a familiar in it.</b> Same bubbles — but now multi-party, so each non-self bubble gets a small sender label. The familiar (<b>Garden</b>) takes the sage tint already defined in <code style="font-family:'JetBrains Mono',monospace">twilight.dart</code> (<b>bubbleFamiliarBg</b>); partner stays on white. The header switcher shows <b>#</b> + channel name + the member sub-line, and a stacked avatar cluster on the right makes "who's here" glanceable. Familiars never need invite codes — they're added at channel creation.
+    </div>
+  </div>
+</body>
+</html>

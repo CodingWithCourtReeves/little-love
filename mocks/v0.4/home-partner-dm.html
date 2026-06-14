@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove v0.4 — Partner DM (home)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-canvas:#F4EBEC;--bg-surface:#EBDFE2;--bg-surface-alt:#E2D3D8;
+    --text-primary:#2A1F2A;--text-muted:#7C6C78;
+    --accent-user:#A04A6A;--accent-partner:#9C7E94;--accent-familiar:#4F7A5E;
+    --border-soft:#D9C7CD;
+    --bubble-user:#E8C8D2;--bubble-user-text:#3A1424;--bubble-partner:#FFFAFB;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#cfc0c6;color:var(--text-primary);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .stage{display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 16px 64px}
+  .caption{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;color:#5d4f59;text-transform:uppercase}
+  .caption b{color:var(--accent-user)}
+  /* phone frame */
+  .phone{width:390px;height:780px;background:var(--bg-canvas);border-radius:44px;border:10px solid #2A1F2A;box-shadow:0 24px 60px rgba(42,31,42,.34);overflow:hidden;position:relative;display:flex;flex-direction:column}
+  .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:150px;height:26px;background:#2A1F2A;border-bottom-left-radius:16px;border-bottom-right-radius:16px;z-index:30}
+  /* header with channel switcher */
+  .hdr{flex-shrink:0;background:var(--bg-surface);padding:34px 14px 12px;border-bottom:1px solid var(--border-soft);display:flex;align-items:center;gap:10px}
+  .switcher{display:flex;align-items:center;gap:10px;background:var(--bg-surface-alt);border:1px solid var(--border-soft);border-radius:999px;padding:7px 12px 7px 8px;cursor:pointer}
+  .av{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#FFFAFB;font-weight:600;font-size:13px;font-family:'Inter Tight';flex-shrink:0}
+  .av.partner{background:var(--accent-partner)}
+  .switcher .who{display:flex;flex-direction:column;line-height:1.15}
+  .switcher .who .nm{font-family:'Inter Tight';font-weight:600;font-size:15px;letter-spacing:-.01em}
+  .switcher .who .st{font-size:10.5px;color:var(--accent-familiar);letter-spacing:.04em;display:flex;align-items:center;gap:5px}
+  .switcher .who .st .d{width:5px;height:5px;border-radius:50%;background:var(--accent-familiar)}
+  .switcher .chev{margin-left:2px;color:var(--text-muted);font-size:13px}
+  .hdr .seal{margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--text-muted);font-size:9px;letter-spacing:.18em;font-family:'Inter Tight'}
+  .hdr .seal svg{width:13px;height:13px;stroke:var(--accent-familiar)}
+  /* thread */
+  .thread{flex:1;overflow:hidden;padding:16px 14px;display:flex;flex-direction:column;gap:3px;background:var(--bg-canvas)}
+  .daysep{display:flex;align-items:center;gap:10px;margin:8px 0 12px}
+  .daysep .bar{flex:1;height:1px;background:var(--border-soft)}
+  .daysep span{font-size:11px;color:var(--text-muted);font-weight:500}
+  .row{display:flex;margin-bottom:2px}
+  .row.me{justify-content:flex-end}
+  .bub{max-width:74%;padding:9px 13px;border-radius:16px;font-size:15px;line-height:1.42;border:1px solid var(--border-soft)}
+  .row.me .bub{background:var(--bubble-user);color:var(--bubble-user-text);border-color:transparent;border-bottom-right-radius:5px}
+  .row.them .bub{background:var(--bubble-partner);border-bottom-left-radius:5px}
+  .row.cont.me .bub{border-top-right-radius:6px}
+  .row.cont.them .bub{border-top-left-radius:6px}
+  .emoji-only{font-size:44px;line-height:1.1;padding:2px 6px}
+  /* composer */
+  .composer{flex-shrink:0;background:var(--bg-surface);border-top:1px solid var(--border-soft);padding:10px 12px 16px;display:flex;align-items:center;gap:10px}
+  .composer .ic{color:var(--text-muted);font-size:20px;width:24px;text-align:center}
+  .composer .field{flex:1;background:var(--bg-surface-alt);border-radius:18px;padding:10px 14px;color:var(--text-muted);font-size:14px}
+  .composer .send{width:38px;height:38px;border-radius:50%;background:var(--accent-user);display:flex;align-items:center;justify-content:center;color:#FFFAFB;font-size:17px}
+  .note{max-width:390px;font-size:12.5px;color:#4a3f47;line-height:1.55;background:rgba(255,255,255,.5);border:1px solid var(--border-soft);border-radius:10px;padding:12px 14px}
+  .note b{color:var(--accent-user)}
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="caption">LittleLove v0.4 · <b>01</b> Partner DM = home</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <header class="hdr">
+        <div class="switcher">
+          <div class="av partner">K</div>
+          <div class="who">
+            <span class="nm">Kaitlyn</span>
+            <span class="st"><span class="d"></span>partner</span>
+          </div>
+          <span class="chev">▾</span>
+        </div>
+        <div class="seal">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+          E2E
+        </div>
+      </header>
+      <div class="thread">
+        <div class="daysep"><span class="bar"></span><span>Today</span><span class="bar"></span></div>
+        <div class="row them"><div class="bub">did you ever hear back from the venue?</div></div>
+        <div class="row them cont"><div class="bub">about the october date</div></div>
+        <div class="row me"><div class="bub">yeah! they have the 18th open</div></div>
+        <div class="row me cont"><div class="bub">putting it in #date-ideas so we don't lose it</div></div>
+        <div class="row them"><div class="bub">perfect 🙌</div></div>
+        <div class="row me"><div class="bub emoji-only">❤️</div></div>
+        <div class="row them"><div class="bub">love you. home by 7?</div></div>
+        <div class="row me"><div class="bub">home by 7 ❤️</div></div>
+      </div>
+      <div class="composer">
+        <span class="ic">☺</span>
+        <div class="field">Message Kaitlyn…</div>
+        <div class="send">➤</div>
+      </div>
+    </div>
+    <div class="note">
+      <b>Home screen.</b> Opening the app drops you straight into the partner thread — no inbox list to cross first. Bubbles kept exactly as today. The <b>pill in the top-left is the channel switcher</b>: it shows where you are now (Kaitlyn · partner) and the ▾ opens the channel list (mock 02). The E2E seal shrinks to a small lock so the header stays calm.
+    </div>
+  </div>
+</body>
+</html>

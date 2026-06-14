@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove v0.4 — First run / signup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-canvas:#F4EBEC;--bg-surface:#EBDFE2;--bg-surface-alt:#E2D3D8;
+    --text-primary:#2A1F2A;--text-muted:#7C6C78;
+    --accent-user:#A04A6A;--accent-partner:#9C7E94;--accent-familiar:#4F7A5E;
+    --border-soft:#D9C7CD;--bubble-user:#E8C8D2;--bubble-user-text:#3A1424;--bubble-partner:#FFFAFB;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#cfc0c6;color:var(--text-primary);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .stage{padding:36px 24px 64px}
+  .caption{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;color:#5d4f59;text-transform:uppercase;margin-bottom:6px}
+  .caption b{color:var(--accent-user)}
+  .lede{font-size:13px;color:#4a3f47;max-width:70ch;line-height:1.55;margin-bottom:26px}
+  .film{display:flex;gap:20px;overflow-x:auto;padding-bottom:18px;align-items:flex-start}
+  .col{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:10px}
+  .step{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;color:var(--text-muted)}
+  .step b{color:var(--accent-user)}
+  .phone{width:248px;height:520px;background:var(--bg-canvas);border-radius:34px;border:8px solid #2A1F2A;box-shadow:0 16px 40px rgba(42,31,42,.3);overflow:hidden;position:relative;display:flex;flex-direction:column;padding:30px 18px 20px}
+  .arrow{align-self:center;color:#7c6c78;font-size:22px;margin-top:230px}
+  h2{font-family:'Inter Tight';font-weight:600;font-size:26px;line-height:1.1;letter-spacing:-.02em;margin:0 0 10px}
+  h2 em{font-style:normal;color:var(--accent-user)}
+  .sub{font-size:12.5px;color:var(--text-muted);line-height:1.5;margin-bottom:auto}
+  .btn{background:#2A1F2A;color:var(--bg-canvas);text-align:center;padding:13px;border-radius:3px;font-size:13px;font-weight:500;margin-top:10px}
+  .btn.alt{background:transparent;color:var(--text-primary);border:1px solid var(--border-soft);margin-top:8px}
+  .btn.accent{background:var(--accent-user);color:#FFFAFB;border-radius:999px}
+  .label{font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.18em;color:var(--text-muted);margin:0 0 7px}
+  .field{background:var(--bg-surface-alt);border:1px solid var(--border-soft);border-radius:8px;padding:11px 12px;font-size:14px;color:var(--text-primary)}
+  .field .ph{color:var(--text-muted)}
+  .hint{font-size:10.5px;color:var(--text-muted);margin-top:7px;line-height:1.4}
+  .words{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin:4px 0}
+  .w{font-size:11.5px;background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:6px;padding:6px 8px}
+  .w b{color:var(--text-muted);font-family:'JetBrains Mono',monospace;font-size:9px;margin-right:5px}
+  .qr{width:118px;height:118px;border-radius:10px;align-self:center;margin:6px 0;background:
+      repeating-linear-gradient(0deg,#2A1F2A 0 6px,transparent 6px 12px),
+      repeating-linear-gradient(90deg,#2A1F2A 0 6px,#FFFAFB 6px 12px);
+      background-blend-mode:multiply;border:6px solid #FFFAFB;box-shadow:0 0 0 1px var(--border-soft)}
+  .code{font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.04em;text-align:center;color:var(--accent-user);background:var(--bg-surface);border:1px dashed var(--accent-user);border-radius:8px;padding:9px;margin-bottom:8px}
+  .seg{display:flex;background:var(--bg-surface-alt);border-radius:8px;padding:3px;margin-bottom:12px;font-size:11.5px}
+  .seg div{flex:1;text-align:center;padding:7px;border-radius:6px;color:var(--text-muted)}
+  .seg div.on{background:var(--bg-canvas);color:var(--text-primary);font-weight:600}
+  /* mini partner DM (final) */
+  .mhdr{display:flex;align-items:center;gap:8px;background:var(--bg-surface);margin:-30px -18px 10px;padding:30px 14px 10px;border-bottom:1px solid var(--border-soft)}
+  .pill{display:flex;align-items:center;gap:8px;background:var(--bg-surface-alt);border:1px solid var(--border-soft);border-radius:999px;padding:5px 10px 5px 6px}
+  .pill .av{width:24px;height:24px;border-radius:50%;background:var(--accent-partner);color:#FFFAFB;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600}
+  .pill .nm{font-family:'Inter Tight';font-weight:600;font-size:13px}
+  .pill .cv{color:var(--text-muted);font-size:11px}
+  .mrow{display:flex;margin-bottom:5px}.mrow.me{justify-content:flex-end}
+  .mbub{max-width:78%;font-size:12.5px;padding:7px 10px;border-radius:12px;border:1px solid var(--border-soft);background:var(--bubble-partner)}
+  .mrow.me .mbub{background:var(--bubble-user);color:var(--bubble-user-text);border-color:transparent}
+  .sys{text-align:center;font-size:10.5px;color:var(--accent-familiar);margin:6px 0 12px}
+  .note{margin-top:26px;font-size:12.5px;color:#4a3f47;line-height:1.55;background:rgba(255,255,255,.55);border:1px solid var(--border-soft);border-radius:10px;padding:14px 16px;max-width:80ch}
+  .note b{color:var(--accent-user)}
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="caption">LittleLove v0.4 · <b>04</b> First run — signup → pair → home</div>
+    <p class="lede">The whole point is "a messenger for two," so onboarding ends by connecting you to your partner. You can't land on a partner-DM home until a partner exists — so pairing is part of first run, not a thing you hunt for later.</p>
+    <div class="film">
+
+      <div class="col">
+        <div class="step"><b>1</b> · WELCOME</div>
+        <div class="phone">
+          <h2>A messenger for <em>two</em>.</h2>
+          <p class="sub">Conversations live only on devices you own. The server holds ciphertext it cannot read.</p>
+          <div class="btn">Create an account</div>
+          <div class="btn alt">Sign in with a recovery phrase</div>
+        </div>
+      </div>
+      <div class="arrow">→</div>
+
+      <div class="col">
+        <div class="step"><b>2</b> · USERNAME</div>
+        <div class="phone">
+          <h2>Pick a username</h2>
+          <p class="sub" style="margin-bottom:18px">This is how your partner finds you. Lowercase, 3–20 characters.</p>
+          <p class="label">USERNAME</p>
+          <div class="field">court</div>
+          <p class="hint">a–z, 0–9, underscore.</p>
+          <div style="margin-top:auto"></div>
+          <div class="btn">Create account</div>
+        </div>
+      </div>
+      <div class="arrow">→</div>
+
+      <div class="col">
+        <div class="step"><b>3</b> · RECOVERY PHRASE</div>
+        <div class="phone">
+          <h2>Save these 12 words</h2>
+          <p class="sub" style="margin-bottom:12px">The only way to restore @court. There's no password reset.</p>
+          <div class="words">
+            <span class="w"><b>1</b>velvet</span><span class="w"><b>2</b>harbor</span>
+            <span class="w"><b>3</b>ginger</span><span class="w"><b>4</b>cradle</span>
+            <span class="w"><b>5</b>moss</span><span class="w"><b>6</b>lantern</span>
+            <span class="w"><b>7</b>fable</span><span class="w"><b>8</b>quartz</span>
+            <span class="w"><b>9</b>willow</span><span class="w"><b>10</b>dusk</span>
+            <span class="w"><b>11</b>orchid</span><span class="w"><b>12</b>ember</span>
+          </div>
+          <div class="btn">I've saved these words</div>
+        </div>
+      </div>
+      <div class="arrow">→</div>
+
+      <div class="col">
+        <div class="step"><b>4</b> · PAIR WITH PARTNER</div>
+        <div class="phone">
+          <h2>Invite your <em>partner</em></h2>
+          <p class="sub" style="margin-bottom:12px">LittleLove is for the two of you. Send this to your partner, or enter theirs.</p>
+          <div class="seg"><div class="on">Show my code</div><div>Enter their code</div></div>
+          <div class="qr"></div>
+          <div class="code">velvet · harbor · moss · dusk</div>
+          <p class="hint" style="text-align:center">Expires in 10 minutes. They scan or type it.</p>
+        </div>
+      </div>
+      <div class="arrow">→</div>
+
+      <div class="col">
+        <div class="step"><b>5</b> · PAIRED — HOME</div>
+        <div class="phone">
+          <div class="mhdr">
+            <div class="pill"><span class="av">K</span><span class="nm">Kaitlyn</span><span class="cv">▾</span></div>
+          </div>
+          <div class="sys">🔒 You and Kaitlyn are paired</div>
+          <div class="mrow them"><div class="mbub">hi love 🥹</div></div>
+          <div class="mrow me"><div class="mbub">we're in!! ❤️</div></div>
+          <div class="mrow them"><div class="mbub">should we make a channel for the trip?</div></div>
+          <div style="margin-top:auto"></div>
+          <div class="field" style="display:flex;justify-content:space-between;align-items:center"><span class="ph">Message Kaitlyn…</span><span>➤</span></div>
+        </div>
+      </div>
+
+    </div>
+    <div class="note">
+      <b>Open question for you:</b> step 4 (pairing) — should it be <b>required</b> before reaching home (you can't use the app solo), or <b>skippable</b> so a person can poke around / set up familiars alone and invite their partner later? The mock shows it as the natural next step but not a hard wall. Also: once paired, do we <b>seed a couple of starter channels</b> (#logistics, #date-ideas) so the switcher isn't empty, or leave it clean with just the partner thread?
+    </div>
+  </div>
+</body>
+</html>
