@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../conversation/conversation_page.dart';
+import '../../conversation/message_store.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../conversation/room_message_router.dart';
 import '../../conversation/send_fanout.dart';
+import '../../wire/message.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
 import '../../identity/keypair.dart';
@@ -100,7 +102,7 @@ class InboxShell extends ConsumerWidget {
                       style: TwilightType.lede,
                     ),
                     const SizedBox(height: 28),
-                    _PairCard(account: account),
+                    PairCard(account: account),
                   ],
                 ),
               ),
@@ -128,7 +130,7 @@ class InboxShell extends ConsumerWidget {
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 28),
-                    _PairCard(account: account),
+                    PairCard(account: account),
                   ],
                 ),
               ),
@@ -167,22 +169,49 @@ class InboxShell extends ConsumerWidget {
   }
 
   Future<void> _sendEncrypted(WidgetRef ref, Room room, String text) async {
-    final me = await ref.read(currentIdentityProvider.future);
-    final cache = ref.read(roomKeyCacheProvider);
-    final frame = await buildSendFrame(
-      room: room,
-      me: me,
-      selfUsername: account.username,
-      plaintext: text,
-      cache: cache,
-    );
-    final conn = ref.read(liveConnectionProvider).requireValue;
-    conn.send(frame.toJson());
+    try {
+      final me = await ref.read(currentIdentityProvider.future);
+      final cache = ref.read(roomKeyCacheProvider);
+      final frame = await buildSendFrame(
+        room: room,
+        me: me,
+        selfUsername: account.username,
+        plaintext: text,
+        cache: cache,
+      );
+      final conn = ref.read(liveConnectionProvider).requireValue;
+      conn.send(frame.toJson());
+      // v0.3 servers do NOT echo Send back to the sender (the only other
+      // copies live on the recipients' clients). Render the bubble locally
+      // so the user sees their own message immediately. Keyed by the
+      // SendFrame's UUID, which is also what the server will use to dedupe
+      // — so even if a future server emits a SendAck with the same id, the
+      // MessageStore.add() idempotency check de-dupes it.
+      ref
+          .read(messageStoreProvider(room.roomId).notifier)
+          .add(
+            Msg(
+              id: frame.clientMsgId,
+              from: account.username,
+              to: room.members
+                  .firstWhere(
+                    (m) => m.username != account.username,
+                    orElse: () => room.members.first,
+                  )
+                  .username,
+              body: text,
+              ts: DateTime.now().toUtc(),
+            ),
+          );
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('send failed: $e\n$st');
+    }
   }
 }
 
-class _PairCard extends ConsumerWidget {
-  const _PairCard({required this.account});
+class PairCard extends ConsumerWidget {
+  const PairCard({super.key, required this.account});
   final LocalAccount account;
 
   @override

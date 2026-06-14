@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../identity/providers.dart';
+import '../screens/inbox/new_chat_screen.dart';
 import '../theme/twilight.dart';
 import 'conversation_list_item.dart';
 import 'inbox_state.dart';
@@ -84,8 +86,16 @@ class Sidebar extends ConsumerWidget {
             IconButton(
               key: const Key('sidebar-new-chat'),
               icon: const Icon(Icons.add, color: TwilightColors.textMuted),
-              onPressed: () =>
-                  ref.read(inboxStateProvider.notifier).deselect(),
+              onPressed: () {
+                final account = ref.read(accountProvider).asData?.value;
+                if (account == null) return;
+                ref.read(inboxStateProvider.notifier).deselect();
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => NewChatScreen(account: account),
+                  ),
+                );
+              },
               tooltip: 'New chat',
             ),
             IconButton(

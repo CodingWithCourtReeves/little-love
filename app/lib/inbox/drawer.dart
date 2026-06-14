@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../identity/providers.dart';
+import '../screens/inbox/new_chat_screen.dart';
 import '../theme/twilight.dart';
 import 'conversation_list_item.dart';
 import 'inbox_state.dart';
@@ -73,8 +75,15 @@ class DrawerContent extends ConsumerWidget {
                 ),
                 title: const Text('New chat'),
                 onTap: () {
+                  final account = ref.read(accountProvider).asData?.value;
                   ref.read(inboxStateProvider.notifier).deselect();
                   Navigator.of(context).pop();
+                  if (account == null) return;
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => NewChatScreen(account: account),
+                    ),
+                  );
                 },
               ),
             ),
