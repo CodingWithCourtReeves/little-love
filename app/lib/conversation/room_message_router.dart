@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../identity/current_identity.dart';
 import '../inbox/inbox_state.dart';
+import '../inbox/owned_bots_provider.dart';
+import '../inbox/pending_invites_provider.dart';
 import '../inbox/room.dart';
 import '../pairing/encryption.dart';
 import '../wire/frames.dart';
@@ -12,9 +14,9 @@ import '../wire/message.dart';
 import 'message_store.dart';
 import 'room_key_cache.dart';
 
-/// Listens to the live WSS connection and dispatches room-phase frames into
-/// the inbox + per-room message stores. Auto-subscribes to each room as it
-/// appears so the server starts replay + live delivery.
+/// Listens to the live WSS connection and dispatches v0.3 room-phase frames
+/// into the inbox + per-room message stores. Auto-subscribes to each room as
+/// it appears so the server starts replay + live delivery.
 class RoomMessageRouter {
   RoomMessageRouter({required this.ref, required this.conn}) {
     _sub = conn.incoming.listen(_onFrame);
@@ -27,50 +29,70 @@ class RoomMessageRouter {
 
   Future<void> _onFrame(RoomServerFrame f) async {
     switch (f) {
-      case RoomsFrame(:final rooms):
+      case RoomsFrame(:final rooms, :final ownedBots):
         final mapped = rooms
             .map(
-              (p) => Room(
-                roomId: p.roomId,
-                peerUsername: p.peerUsername,
-                peerEd25519PubBase64: p.peerEd25519PubBase64,
-                peerX25519PubBase64: p.peerX25519PubBase64,
-                createdAt: p.createdAt ?? DateTime.now().toUtc(),
+              (r) => Room(
+                roomId: r.roomId,
+                name: r.name,
+                members: r.members,
+                createdAt: r.createdAt,
               ),
             )
             .toList(growable: false);
         ref.read(inboxStateProvider.notifier).setRooms(mapped);
+        ref.read(ownedBotsProvider.notifier).set(ownedBots);
         for (final r in mapped) {
           _subscribe(r.roomId);
         }
-      case RoomCreatedFrame(:final peer):
-        final current = ref.read(inboxStateProvider).rooms.toList();
-        if (current.any((r) => r.roomId == peer.roomId)) {
-          _subscribe(peer.roomId);
-          return;
+
+      case RoomCreatedFrame(
+        :final roomId,
+        :final name,
+        :final members,
+        :final pendingInvite,
+      ):
+        _upsertRoom(roomId, name, members);
+        _subscribe(roomId);
+        if (pendingInvite != null) {
+          ref
+              .read(pendingInvitesProvider.notifier)
+              .set(roomId, pendingInvite);
         }
-        current.add(
-          Room(
-            roomId: peer.roomId,
-            peerUsername: peer.peerUsername,
-            peerEd25519PubBase64: peer.peerEd25519PubBase64,
-            peerX25519PubBase64: peer.peerX25519PubBase64,
-            createdAt: peer.createdAt ?? DateTime.now().toUtc(),
-          ),
-        );
-        ref.read(inboxStateProvider.notifier).setRooms(current);
-        _subscribe(peer.roomId);
-      case InviteConsumedFrame(:final peer):
-        // Consumer side already calls setRooms in EnterCodeScreen; we just
-        // make sure we subscribe so subsequent messages flow.
-        _subscribe(peer.roomId);
+
+      case InviteConsumedFrame(:final roomId, :final name, :final members):
+        _upsertRoom(roomId, name, members);
+        _subscribe(roomId);
+
+      case RoomRenamedFrame(:final roomId, :final name):
+        ref.read(inboxStateProvider.notifier).renameRoom(roomId, name);
+
+      case MemberLeftFrame(:final roomId, :final username):
+        ref.read(inboxStateProvider.notifier).removeMember(roomId, username);
+        ref.read(roomKeyCacheProvider).invalidate(roomId);
+
       case MessageFrame():
         await _ingestMessage(f);
+
       case InviteCreatedFrame():
       case RoomErrorFrame():
-        // InviteCreated + RoomError belong to LivePairingTransport.
+        // Owned by LivePairingTransport / CreateChat screens.
         break;
     }
+  }
+
+  void _upsertRoom(String roomId, String name, List<Member> members) {
+    final current = ref.read(inboxStateProvider).rooms.toList();
+    current.removeWhere((r) => r.roomId == roomId);
+    current.add(
+      Room(
+        roomId: roomId,
+        name: name,
+        members: members,
+        createdAt: DateTime.now().toUtc(),
+      ),
+    );
+    ref.read(inboxStateProvider.notifier).setRooms(current);
   }
 
   void _subscribe(String roomId) {
@@ -88,8 +110,14 @@ class RoomMessageRouter {
       }
     }
     if (room == null) return;
+    final sender = room.memberByUsername(f.from);
+    if (sender == null) return;
     final me = await ref.read(currentIdentityProvider.future);
-    final key = await ref.read(roomKeyCacheProvider).getOrDerive(room, me);
+    final key = await ref.read(roomKeyCacheProvider).getOrDeriveFor(
+      roomId: room.roomId,
+      peerX25519PubBase64: sender.x25519PubBase64,
+      me: me,
+    );
     final plaintext = await decryptIncoming(key, f.body);
     ref
         .read(messageStoreProvider(f.roomId).notifier)

@@ -46,6 +46,65 @@ class InboxNotifier extends Notifier<InboxState> {
     }
     state = state.copyWith(selectedRoomId: roomId);
   }
+
+  /// Rename a room in place, preserving members + createdAt. No-op if the
+  /// room isn't in the inbox yet (e.g., RoomRenamed arriving before Rooms
+  /// would be a server bug, but the notifier shouldn't crash on it).
+  void renameRoom(String roomId, String name) {
+    var changed = false;
+    final next = <Room>[];
+    for (final r in state.rooms) {
+      if (r.roomId == roomId) {
+        changed = true;
+        next.add(
+          Room(
+            roomId: r.roomId,
+            name: name,
+            members: r.members,
+            createdAt: r.createdAt,
+          ),
+        );
+      } else {
+        next.add(r);
+      }
+    }
+    if (!changed) return;
+    state = state.copyWith(rooms: List.unmodifiable(next));
+  }
+
+  /// Drop `username` from `roomId`. If no humans remain in the room, the
+  /// room itself is removed (server cascades; client mirrors so the
+  /// inbox doesn't render an empty-bot-only ghost room).
+  void removeMember(String roomId, String username) {
+    final updated = <Room>[];
+    for (final r in state.rooms) {
+      if (r.roomId != roomId) {
+        updated.add(r);
+        continue;
+      }
+      final newMembers = r.members
+          .where((m) => m.username != username)
+          .toList(growable: false);
+      final humansLeft = newMembers.any((m) => !m.isBot);
+      if (humansLeft) {
+        updated.add(
+          Room(
+            roomId: r.roomId,
+            name: r.name,
+            members: newMembers,
+            createdAt: r.createdAt,
+          ),
+        );
+      }
+    }
+    final selectionStillValid =
+        state.selectedRoomId == null ||
+        updated.any((r) => r.roomId == state.selectedRoomId);
+    state = state.copyWith(
+      rooms: List.unmodifiable(updated),
+      clearSelection: !selectionStillValid,
+    );
+  }
 }
 
 final inboxStateProvider = NotifierProvider<InboxNotifier, InboxState>(
