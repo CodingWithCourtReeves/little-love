@@ -113,32 +113,17 @@ class InboxShell extends ConsumerWidget {
       );
     }
     if (selectedId == null) {
-      return Scaffold(
-        backgroundColor: TwilightColors.bgCanvas,
-        body: Center(
-          child: SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'Select a conversation',
-                      style: TextStyle(color: TwilightColors.textMuted),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 28),
-                    PairCard(account: account),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
+      final home = defaultHomeRoomId(rooms, account.username);
+      if (home != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(inboxStateProvider.notifier).select(home);
+          ref.read(readStateProvider.notifier).markRead(home);
+        });
+        // One frame of empty canvas before selection lands.
+        return const Scaffold(backgroundColor: TwilightColors.bgCanvas);
+      }
+      // No rooms case is handled above; this is a defensive fallback.
+      return const Scaffold(backgroundColor: TwilightColors.bgCanvas);
     }
     final room = rooms.firstWhere((r) => r.roomId == selectedId);
     // A "solo" room is one where Court is the only member AND a pending invite

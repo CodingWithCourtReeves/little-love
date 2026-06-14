@@ -117,3 +117,14 @@ class InboxNotifier extends Notifier<InboxState> {
 final inboxStateProvider = NotifierProvider<InboxNotifier, InboxState>(
   InboxNotifier.new,
 );
+
+/// The room to open by default ("home"): the partner DM if one exists,
+/// otherwise the most recently created room. Returns null for an empty inbox.
+String? defaultHomeRoomId(List<Room> rooms, String selfUsername) {
+  if (rooms.isEmpty) return null;
+  for (final r in rooms) {
+    if (r.shape(selfUsername) == RoomShape.partner) return r.roomId;
+  }
+  final sorted = [...rooms]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  return sorted.first.roomId;
+}
