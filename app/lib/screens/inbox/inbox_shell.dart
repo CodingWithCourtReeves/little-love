@@ -15,6 +15,7 @@ import '../../inbox/inbox_state.dart';
 import '../../inbox/layout_scaffold.dart';
 import '../../inbox/navigation_rail.dart';
 import '../../inbox/pending_invites_provider.dart';
+import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
 import '../../inbox/sidebar.dart';
 import '../../theme/twilight.dart';
@@ -150,6 +151,11 @@ class InboxShell extends ConsumerWidget {
     if (isSolo && pending.containsKey(room.roomId)) {
       return CreateChatInviteScreen(roomId: room.roomId);
     }
+    // Viewing a room marks it read. Done post-frame to avoid mutating a
+    // provider during build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(readStateProvider.notifier).markRead(room.roomId);
+    });
     return ConversationPage(
       key: ValueKey(selectedId),
       room: room,

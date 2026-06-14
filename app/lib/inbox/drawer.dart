@@ -6,7 +6,9 @@ import '../screens/inbox/new_chat_screen.dart';
 import '../theme/twilight.dart';
 import 'conversation_list_item.dart';
 import 'inbox_state.dart';
+import 'pending_invites_provider.dart';
 import 'room.dart';
+import 'select_room.dart';
 
 /// Drawer contents at <600px widths (spec §6.1). Tap an entry to select +
 /// dismiss the drawer.
@@ -18,18 +20,15 @@ class DrawerContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final inbox = ref.watch(inboxStateProvider);
+    final pending = ref.watch(pendingInvitesProvider);
     final theme = Theme.of(context);
 
-    final couples =
-        inbox.rooms
-            .where((r) => r.shape(username) == RoomShape.couplesOnly)
-            .toList()
+    List<Room> bucket(RoomShape shape) =>
+        inbox.rooms.where((r) => r.shape(username) == shape).toList()
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final familiars =
-        inbox.rooms
-            .where((r) => r.shape(username) == RoomShape.familiars)
-            .toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final partners = bucket(RoomShape.partner);
+    final chats = bucket(RoomShape.chat);
+    final familiars = bucket(RoomShape.familiar);
 
     Widget header(String label) => Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -44,10 +43,12 @@ class DrawerContent extends ConsumerWidget {
 
     Widget item(Room r) => ConversationListItem(
       key: Key('drawer-room-${r.roomId}'),
-      label: r.displayName(username),
+      label: pending.containsKey(r.roomId)
+          ? 'Inviting partner…'
+          : r.displayName(username),
       selected: inbox.selectedRoomId == r.roomId,
       onTap: () {
-        ref.read(inboxStateProvider.notifier).select(r.roomId);
+        selectAndMarkRead(ref, r.roomId);
         Navigator.of(context).pop();
       },
     );
@@ -59,7 +60,10 @@ class DrawerContent extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             header('PARTNER'),
-            ...couples.map(item),
+            ...partners.map(item),
+            const SizedBox(height: 16),
+            header('CHATS'),
+            ...chats.map(item),
             const SizedBox(height: 16),
             header('FAMILIARS'),
             ...familiars.map(item),

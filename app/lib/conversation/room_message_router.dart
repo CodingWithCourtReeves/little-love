@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../identity/current_identity.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/owned_bots_provider.dart';
+import '../inbox/select_room.dart';
 import '../inbox/pending_invites_provider.dart';
 import '../inbox/room.dart';
 import '../pairing/encryption.dart';
@@ -57,6 +58,10 @@ class RoomMessageRouter {
         if (pendingInvite != null) {
           ref.read(pendingInvitesProvider.notifier).set(roomId, pendingInvite);
         }
+        // The creator just made this room — drop them into it and mark read.
+        // For a pending-invite room this routes to the invite-code screen via
+        // inbox_shell; otherwise straight into the conversation.
+        selectAndMarkRead(ref, roomId);
 
       case InviteConsumedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
