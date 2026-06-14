@@ -197,7 +197,10 @@ class _PairCard extends ConsumerWidget {
     if (!context.mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => EnterCodeScreen(identity: identity),
+        builder: (_) => EnterCodeScreen(
+          identity: identity,
+          selfUsername: account.username,
+        ),
       ),
     );
   }
