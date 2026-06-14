@@ -16,10 +16,15 @@ import '../../wire/frames.dart';
 /// pending invite from `pendingInvitesProvider`; if none exists yet (no
 /// `RoomCreated` round-trip), it shows a "waiting" placeholder.
 class CreateChatInviteScreen extends ConsumerWidget {
-  const CreateChatInviteScreen({super.key, this.roomId});
+  const CreateChatInviteScreen({super.key, this.roomId, this.onDone});
 
   /// When null, picks the room with the most recent pending invite.
   final String? roomId;
+
+  /// Invoked when the user taps "Done". This screen is rendered inline as the
+  /// inbox detail pane (not a pushed route), so it must NOT pop the navigator —
+  /// the caller dismisses it by changing inbox routing instead.
+  final VoidCallback? onDone;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -101,7 +106,7 @@ class CreateChatInviteScreen extends ConsumerWidget {
             const SizedBox(height: 8),
             TextButton(
               key: const Key('done-button'),
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: onDone,
               child: const Text('Done'),
             ),
           ],

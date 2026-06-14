@@ -131,10 +131,17 @@ class InboxShell extends ConsumerWidget {
     // creating the room, then leaving the show-invite screen. Route them back
     // to the invite code instead of an empty conversation.
     final pending = ref.watch(pendingInvitesProvider);
+    final dismissed = ref.watch(dismissedInvitesProvider);
     final isSolo = room.members.length == 1 &&
         room.members.first.username == account.username;
-    if (isSolo && pending.containsKey(room.roomId)) {
-      return CreateChatInviteScreen(roomId: room.roomId);
+    if (isSolo &&
+        pending.containsKey(room.roomId) &&
+        !dismissed.contains(room.roomId)) {
+      return CreateChatInviteScreen(
+        roomId: room.roomId,
+        onDone: () =>
+            ref.read(dismissedInvitesProvider.notifier).dismiss(room.roomId),
+      );
     }
     // Viewing a room marks it read. Done post-frame to avoid mutating a
     // provider during build.

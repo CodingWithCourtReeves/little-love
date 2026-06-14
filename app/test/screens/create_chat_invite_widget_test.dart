@@ -77,6 +77,42 @@ void main() {
     expect(copied, ['amber-fern-locket-tide']);
   });
 
+  testWidgets('Done invokes onDone instead of popping the navigator', (
+    tester,
+  ) async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(inboxStateProvider.notifier).setRooms([_soloRoom()]);
+    container.read(pendingInvitesProvider.notifier).set(
+          'rNEW',
+          PendingInvite(
+            code: 'amber-fern-locket-tide',
+            qrPngBase64: '',
+            expiresAt: DateTime.utc(2026, 6, 10, 19),
+          ),
+        );
+
+    var doneCalls = 0;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: CreateChatInviteScreen(
+            roomId: 'rNEW',
+            onDone: () => doneCalls++,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('done-button')));
+    await tester.tap(find.byKey(const Key('done-button')));
+    await tester.pumpAndSettle();
+
+    expect(doneCalls, 1);
+  });
+
   testWidgets('shows waiting placeholder when no pending invite is known', (
     tester,
   ) async {
