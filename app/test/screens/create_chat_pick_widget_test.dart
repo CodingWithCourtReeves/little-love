@@ -74,6 +74,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Submit.
+    await tester.ensureVisible(find.byKey(const Key('create-chat-button')));
     await tester.tap(find.byKey(const Key('create-chat-button')));
     await tester.pumpAndSettle();
 

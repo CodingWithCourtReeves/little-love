@@ -27,6 +27,13 @@ class CreateChatPickScreen extends ConsumerStatefulWidget {
 class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
   bool _includePartner = false;
   final _selectedBotUsernames = <String>{};
+  final _nameController = TextEditingController();
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
 
   String? _knownPartnerUsername() {
     final rooms = ref.read(inboxStateProvider).rooms;
@@ -52,8 +59,10 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
     final connAsync = ref.read(liveConnectionProvider);
     final conn = connAsync.asData?.value;
     if (conn == null) return;
+    final rawName = _nameController.text.trim();
     conn.send(
       CreateRoomFrame(
+        name: rawName.isEmpty ? null : rawName,
         botAccountIds: const [],
         inviteHumanPartner: _includePartner,
       ).toJson(),
@@ -106,6 +115,24 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
               ),
             ),
             const SizedBox(height: 24),
+            const _GroupHeader(label: '00 · NAME (OPTIONAL)'),
+            const SizedBox(height: 8),
+            TextField(
+              key: const Key('chat-name-field'),
+              controller: _nameController,
+              decoration: const InputDecoration(
+                hintText: 'e.g. travel planning, weekly check-in',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              maxLength: 64,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 15,
+                color: TwilightColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 16),
             const _GroupHeader(label: '01 · PARTNER'),
             const SizedBox(height: 8),
             _PartnerRow(
@@ -113,6 +140,23 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
               checked: _includePartner,
               onTap: () => setState(() => _includePartner = !_includePartner),
             ),
+            if (_includePartner && partnerUsername != null) ...[
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  "Generates a fresh code for @$partnerUsername to enter "
+                  "on their device. Every new chat needs its own — room "
+                  "membership is fixed at creation.",
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    color: TwilightColors.textMuted,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
             const _GroupHeader(label: '02 · FAMILIARS'),
             const SizedBox(height: 8),

@@ -693,18 +693,16 @@ async fn handle_create_room(
     };
 
     let pending = if invite_partner {
-        match partner_account_id_for(store.pool(), me.id).await {
-            Ok(Some(_)) => {
-                send_error(tx, error_codes::ALREADY_PAIRED, "");
-                return;
-            }
-            Ok(None) => {}
-            Err(e) => {
-                warn!("partner_account_id_for: {e}");
-                send_error(tx, "Internal", "");
-                return;
-            }
-        }
+        // v0.3 spec §5.1: rooms have fixed membership at creation. To bring a
+        // human into a new room — even your existing partner — you must
+        // generate an invite and have them consume it. The eager
+        // partner_account_id_for check used to reject this case as
+        // ALREADY_PAIRED, but consume-side monogamy (set_partner_link, which
+        // is idempotent when both sides already point at each other) is the
+        // correct enforcement point. Stranger consuming a re-invite of an
+        // already-paired user still fails — WrongPartner is returned from
+        // set_partner_link — so removing the eager check doesn't widen the
+        // attack surface.
         let (canonical, code, hash) = generate_invite();
         let expires_at = default_expiry(Utc::now());
         if let Err(e) =
