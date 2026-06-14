@@ -40,7 +40,7 @@ class InboxShell extends ConsumerWidget {
 
     return LayoutScaffold(
       sidebar: Sidebar(username: account.username),
-      rail: const NavigationRailChrome(),
+      rail: NavigationRailChrome(username: account.username),
       drawer: DrawerContent(username: account.username),
       detail: detail,
     );

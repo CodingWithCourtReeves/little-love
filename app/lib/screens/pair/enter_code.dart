@@ -92,10 +92,9 @@ class _EnterCodeScreenState extends ConsumerState<EnterCodeScreen> {
         code: code,
       );
       final room = Room(
-        roomId: consumed.peer.roomId,
-        peerUsername: consumed.peer.peerUsername,
-        peerEd25519PubBase64: consumed.peer.peerEd25519PubBase64,
-        peerX25519PubBase64: consumed.peer.peerX25519PubBase64,
+        roomId: consumed.roomId,
+        name: consumed.name,
+        members: consumed.members,
         createdAt: DateTime.now().toUtc(),
       );
       ref.read(inboxStateProvider.notifier).setRooms([room]);

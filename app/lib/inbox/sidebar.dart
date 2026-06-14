@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/twilight.dart';
 import 'conversation_list_item.dart';
 import 'inbox_state.dart';
+import 'room.dart';
 
 /// Persistent sidebar at ≥800px widths (spec §6.1). 240px wide.
 class Sidebar extends ConsumerWidget {
@@ -15,16 +16,26 @@ class Sidebar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final inbox = ref.watch(inboxStateProvider);
     final theme = Theme.of(context);
+
+    final couples = inbox.rooms
+        .where((r) => r.shape(username) == RoomShape.couplesOnly)
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final familiars = inbox.rooms
+        .where((r) => r.shape(username) == RoomShape.familiars)
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
     return Container(
       color: TwilightColors.bgSurface,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _sectionHeader('COUPLES', theme),
-          ...inbox.rooms.map(
+          ...couples.map(
             (r) => ConversationListItem(
               key: Key('room-${r.roomId}'),
-              label: r.peerUsername,
+              label: r.displayName(username),
               selected: inbox.selectedRoomId == r.roomId,
               onTap: () =>
                   ref.read(inboxStateProvider.notifier).select(r.roomId),
@@ -32,7 +43,15 @@ class Sidebar extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
           _sectionHeader('FAMILIARS', theme),
-          const SizedBox(height: 16),
+          ...familiars.map(
+            (r) => ConversationListItem(
+              key: Key('room-${r.roomId}'),
+              label: r.displayName(username),
+              selected: inbox.selectedRoomId == r.roomId,
+              onTap: () =>
+                  ref.read(inboxStateProvider.notifier).select(r.roomId),
+            ),
+          ),
           const Spacer(),
           Container(height: 1, color: TwilightColors.borderSoft),
           _footer(theme),
