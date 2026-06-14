@@ -117,16 +117,9 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
             const _GroupHeader(label: '02 · FAMILIARS'),
             const SizedBox(height: 8),
             if (bots.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text(
-                  'No familiars yet. Bots you own will appear here.',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    color: TwilightColors.textMuted,
-                  ),
-                ),
+              const _EmptyHint(
+                key: Key('familiars-empty-hint'),
+                text: 'No familiars yet. Create one first.',
               ),
             for (final b in bots)
               _FamiliarRow(
@@ -135,9 +128,24 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
                 onTap: () => _toggleBot(b.username),
               ),
             const SizedBox(height: 32),
+            if (partnerUsername == null && bots.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text(
+                  "Nothing to put in a chat yet. Pair with your partner "
+                  "or create a familiar first, then come back.",
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    color: TwilightColors.textMuted,
+                  ),
+                ),
+              ),
             FilledButton(
               key: const Key('create-chat-button'),
-              onPressed: _create,
+              onPressed: (partnerUsername == null && bots.isEmpty)
+                  ? null
+                  : _create,
               child: const Text('Create chat'),
             ),
           ],
@@ -165,6 +173,26 @@ class _GroupHeader extends StatelessWidget {
   }
 }
 
+class _EmptyHint extends StatelessWidget {
+  const _EmptyHint({super.key, required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 13,
+          color: TwilightColors.textMuted,
+        ),
+      ),
+    );
+  }
+}
+
 class _PartnerRow extends StatelessWidget {
   const _PartnerRow({
     required this.partnerUsername,
@@ -180,16 +208,9 @@ class _PartnerRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final username = partnerUsername;
     if (username == null) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
-        child: Text(
-          'No partner paired yet — use "Invite them with a code" first.',
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 13,
-            color: TwilightColors.textMuted,
-          ),
-        ),
+      return const _EmptyHint(
+        key: Key('partner-empty-hint'),
+        text: 'No partner yet. Send an invite first.',
       );
     }
     return _PickRow(

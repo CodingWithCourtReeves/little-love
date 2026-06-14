@@ -136,6 +136,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('partner-row')), findsNothing);
-    expect(find.textContaining('No partner paired yet'), findsOneWidget);
+    expect(find.byKey(const Key('partner-empty-hint')), findsOneWidget);
+    expect(find.byKey(const Key('familiars-empty-hint')), findsOneWidget);
+    // Both empty → Create chat is disabled.
+    final btn = tester.widget<FilledButton>(
+      find.byKey(const Key('create-chat-button')),
+    );
+    expect(btn.onPressed, isNull);
   });
 }
