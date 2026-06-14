@@ -10,6 +10,7 @@ import '../wire/message.dart';
 import 'message_store.dart';
 
 typedef SendCallback = void Function(String text);
+typedef RetryCallback = void Function(String clientMsgId);
 
 class _SendIntent extends Intent {
   const _SendIntent();
@@ -45,11 +46,13 @@ class ConversationPage extends ConsumerStatefulWidget {
     required this.roomId,
     required this.contactDisplayName,
     required this.onSend,
+    this.onRetry,
   });
 
   final String roomId;
   final String contactDisplayName;
   final SendCallback onSend;
+  final RetryCallback? onRetry;
 
   @override
   ConsumerState<ConversationPage> createState() => _ConversationPageState();

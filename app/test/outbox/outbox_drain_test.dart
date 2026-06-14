@@ -29,7 +29,7 @@ void main() {
     final db = await databaseFactory.openDatabase(
       inMemoryDatabasePath,
       options:
-          OpenDatabaseOptions(version: 1, onCreate: OutboxStore.onCreate),
+          OpenDatabaseOptions(version: 1, onCreate: SqliteOutboxStore.onCreate),
     );
     addTearDown(db.close);
     return OutboxStore.test(db);

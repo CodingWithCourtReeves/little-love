@@ -11,6 +11,7 @@ import 'package:littlelove/identity/keypair.dart';
 import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
+import 'package:littlelove/outbox/outbox_store.dart';
 import 'package:littlelove/screens/inbox/inbox_shell.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/live_connection.dart';
@@ -26,6 +27,65 @@ class _CapturingConn implements LiveConnection {
   Future<void> close() async => _ctl.close();
 }
 
+/// Pure in-memory OutboxStore. Used in widget tests to avoid sqflite_ffi's
+/// background-isolate setup, which keeps Riverpod's FutureProvider overrides
+/// from settling under the AutomatedTestWidgetsFlutterBinding.
+class _MemoryOutboxStore implements OutboxStore {
+  final Map<String, OutboxRow> _rows = {};
+
+  @override
+  Future<void> enqueue({
+    required String clientMsgId,
+    required String roomId,
+    required String bodyCipher,
+    DateTime? createdAt,
+  }) async {
+    _rows.putIfAbsent(
+      clientMsgId,
+      () => OutboxRow(
+        clientMsgId: clientMsgId,
+        roomId: roomId,
+        bodyCipher: bodyCipher,
+        createdAt: createdAt ?? DateTime.now().toUtc(),
+        attempts: 0,
+        lastError: null,
+      ),
+    );
+  }
+
+  @override
+  Future<List<OutboxRow>> pending() async {
+    final list = _rows.values.toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return list;
+  }
+
+  @override
+  Future<OutboxRow?> lookup(String clientMsgId) async => _rows[clientMsgId];
+
+  @override
+  Future<bool> remove(String clientMsgId) async =>
+      _rows.remove(clientMsgId) != null;
+
+  @override
+  Future<void> markAttempt(
+    String clientMsgId, {
+    String? error,
+    bool reset = false,
+  }) async {
+    final r = _rows[clientMsgId];
+    if (r == null) return;
+    _rows[clientMsgId] = OutboxRow(
+      clientMsgId: r.clientMsgId,
+      roomId: r.roomId,
+      bodyCipher: r.bodyCipher,
+      createdAt: r.createdAt,
+      attempts: reset ? 0 : r.attempts + 1,
+      lastError: reset ? null : error,
+    );
+  }
+}
+
 void main() {
   testWidgets(
     'typing a message sends opaque ciphertext on the wire — plaintext never appears',
@@ -36,6 +96,7 @@ void main() {
       final peer = await deriveIdentity(seedB);
       final conn = _CapturingConn();
       addTearDown(conn.close);
+      final store = _MemoryOutboxStore();
 
       final acc = LocalAccount(
         username: 'court',
@@ -49,6 +110,7 @@ void main() {
           accountProvider.overrideWith((_) async => acc),
           currentIdentityProvider.overrideWith((_) async => me),
           liveConnectionProvider.overrideWith((_) async => conn),
+          outboxStoreProvider.overrideWith((_) async => store),
         ],
       );
       addTearDown(container.dispose);
@@ -57,6 +119,7 @@ void main() {
       await container.read(accountProvider.future);
       await container.read(currentIdentityProvider.future);
       await container.read(liveConnectionProvider.future);
+      await container.read(outboxStoreProvider.future);
 
       container.read(inboxStateProvider.notifier).setRooms([
         Room(
@@ -82,10 +145,21 @@ void main() {
 
       await tester.enterText(find.byKey(const Key('composer')), 'hello');
       await tester.tap(find.byIcon(Icons.send));
-      // Encrypt path is async — give it time to finish before asserting.
+      // Encrypt + enqueue + drain are async — give them time to finish.
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pumpAndSettle();
 
+      // Plaintext never lands on disk: the row in the outbox is ciphertext.
+      final pending = await store.pending();
+      expect(pending, hasLength(1));
+      expect(
+        pending.single.bodyCipher,
+        isNot(contains('hello')),
+        reason: 'plaintext must NOT appear in the persisted outbox',
+      );
+      expect(pending.single.roomId, 'room1');
+
+      // The drain wrote the row to the wire as a Send frame.
       final sendFrames = conn.sent.where((m) => m['kind'] == 'Send').toList();
       expect(sendFrames, hasLength(1));
       final body = sendFrames.single['body'] as String;
@@ -94,7 +168,7 @@ void main() {
         isNot(contains('hello')),
         reason: 'plaintext must NOT appear on the wire — spec §13 AC #3',
       );
-      expect(body.length, greaterThan(0));
+      expect(body, pending.single.bodyCipher);
       expect(sendFrames.single['room_id'], 'room1');
       // Server types client_msg_id as Uuid; non-UUID strings cause
       // serde_json to silently drop the entire Send frame.
@@ -105,6 +179,11 @@ void main() {
             r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
           ),
         ),
+      );
+      expect(
+        pending.single.clientMsgId,
+        sendFrames.single['client_msg_id'],
+        reason: 'outbox row id must equal the wire client_msg_id',
       );
     },
   );

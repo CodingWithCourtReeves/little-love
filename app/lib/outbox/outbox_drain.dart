@@ -17,6 +17,11 @@ typedef OutboxSend = void Function(
 /// only when their echoed [MessageFrame] arrives (handled by
 /// [RoomMessageRouter]), not after a successful `send` — the WS write is
 /// fire-and-forget at the transport layer.
+///
+/// Each drain instance also remembers which `client_msg_id`s it has already
+/// pushed during its lifetime. A drain instance lives as long as a single
+/// WS-data cycle (the provider rebuilds on every `liveConnectionProvider`
+/// transition), so on reconnect everything is eligible again.
 class OutboxDrain {
   OutboxDrain({required this.store, required this.send});
 
@@ -24,6 +29,7 @@ class OutboxDrain {
   final OutboxSend send;
 
   Future<void>? _inflight;
+  final Set<String> _sentThisCycle = <String>{};
 
   /// Idempotent: if a drain is already running, returns the in-flight future.
   Future<void> kick() {
@@ -39,8 +45,10 @@ class OutboxDrain {
   Future<void> runOnce() async {
     final rows = await store.pending();
     for (final row in rows) {
+      if (_sentThisCycle.contains(row.clientMsgId)) continue;
       try {
         send(row.roomId, row.bodyCipher, row.clientMsgId);
+        _sentThisCycle.add(row.clientMsgId);
         await store.markAttempt(row.clientMsgId);
       } catch (e) {
         await store.markAttempt(row.clientMsgId, error: e.toString());
@@ -48,6 +56,12 @@ class OutboxDrain {
       }
     }
   }
+
+  /// Test seam — drop the per-cycle de-dup memory so a retry can resend.
+  /// Production callers don't need this; the `outboxDrainProvider` rebuilds
+  /// the whole drain on every WS-data transition, which resets the set
+  /// implicitly.
+  void resetCycle() => _sentThisCycle.clear();
 }
 
 /// Wires the live connection in as the [OutboxSend] callable. Throws when

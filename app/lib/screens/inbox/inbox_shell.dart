@@ -1,8 +1,11 @@
+import 'dart:async' show unawaited;
+
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../conversation/conversation_page.dart';
+import '../../conversation/message_store.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../conversation/room_message_router.dart';
 import '../../identity/account_local.dart';
@@ -14,10 +17,12 @@ import '../../inbox/layout_scaffold.dart';
 import '../../inbox/navigation_rail.dart';
 import '../../inbox/room.dart';
 import '../../inbox/sidebar.dart';
+import '../../outbox/outbox_drain.dart';
+import '../../outbox/outbox_store.dart';
 import '../../pairing/encryption.dart';
 import '../../theme/twilight.dart';
-import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
+import '../../wire/message.dart';
 import '../pair/enter_code.dart';
 import '../pair/show_invite.dart';
 
@@ -124,21 +129,60 @@ class InboxShell extends ConsumerWidget {
       roomId: selectedId,
       contactDisplayName: room.peerUsername,
       onSend: (text) => _sendEncrypted(ref, room, text),
+      onRetry: (clientMsgId) => _retry(ref, clientMsgId),
     );
   }
 
-  Future<void> _sendEncrypted(WidgetRef ref, Room room, String text) async {
-    final me = await ref.read(currentIdentityProvider.future);
-    final key = await ref.read(roomKeyCacheProvider).getOrDerive(room, me);
-    final body = await encryptOutgoing(key, text);
-    final conn = ref.read(liveConnectionProvider).requireValue;
-    conn.send(
-      SendFrame(
+  /// Synchronous from the composer's POV — kicks an async enqueue + drain
+  /// and returns immediately. Every failure path updates UI state so the
+  /// fire-and-forget future never silently drops a message.
+  void _sendEncrypted(WidgetRef ref, Room room, String text) {
+    final clientMsgId = ref.read(outboxIdGenProvider)();
+    unawaited(_enqueueAndKick(ref, room, text, clientMsgId));
+  }
+
+  Future<void> _enqueueAndKick(
+    WidgetRef ref,
+    Room room,
+    String text,
+    String clientMsgId,
+  ) async {
+    try {
+      final me = await ref.read(currentIdentityProvider.future);
+      final key = await ref.read(roomKeyCacheProvider).getOrDerive(room, me);
+      final cipher = await encryptOutgoing(key, text);
+      final store = await ref.read(outboxStoreProvider.future);
+      await store.enqueue(
+        clientMsgId: clientMsgId,
         roomId: room.roomId,
-        body: body,
-        clientMsgId: const Uuid().v4(),
-      ).toJson(),
-    );
+        bodyCipher: cipher,
+      );
+      ref.read(messageStoreProvider(room.roomId).notifier).add(
+            Msg(
+              id: clientMsgId,
+              from: account.username,
+              to: room.roomId,
+              body: text,
+              ts: DateTime.now().toUtc(),
+              clientMsgId: clientMsgId,
+              sendStatus: SendStatus.sending,
+            ),
+          );
+      await ref.read(outboxDrainProvider).kick();
+    } catch (e) {
+      debugPrint('outbox enqueue failed: $e');
+    }
+  }
+
+  Future<void> _retry(WidgetRef ref, String clientMsgId) async {
+    final store = await ref.read(outboxStoreProvider.future);
+    final row = await store.lookup(clientMsgId);
+    if (row == null) return;
+    await store.markAttempt(clientMsgId, reset: true);
+    ref
+        .read(messageStoreProvider(row.roomId).notifier)
+        .updateStatus(clientMsgId, SendStatus.sending);
+    await ref.read(outboxDrainProvider).kick();
   }
 }
 

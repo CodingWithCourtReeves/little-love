@@ -23,15 +23,45 @@ class OutboxRow {
   final String? lastError;
 }
 
-/// SQLite-backed outbox. Lives at `<app-support>/outbox.db` in production;
-/// tests open an in-memory database via [OutboxStore.test].
-class OutboxStore {
-  OutboxStore._(this._db);
+/// Abstract outbound queue. The production impl is SQLite-backed; tests are
+/// free to wire a pure in-memory implementation to sidestep sqflite_ffi's
+/// background-isolate setup, which can interact poorly with the testWidgets
+/// binding.
+abstract class OutboxStore {
+  /// SQLite-backed impl living at `<app-support>/outbox.db`.
+  static Future<OutboxStore> open() => SqliteOutboxStore.open();
 
-  /// Test constructor: pass an already-open DB (e.g. ffi in-memory).
-  factory OutboxStore.test(Database db) => OutboxStore._(db);
+  /// Test factory: wrap an already-open sqflite [Database] (typically the
+  /// ffi in-memory one).
+  factory OutboxStore.test(Database db) => SqliteOutboxStore.test(db);
 
-  static Future<OutboxStore> open() async {
+  Future<void> enqueue({
+    required String clientMsgId,
+    required String roomId,
+    required String bodyCipher,
+    DateTime? createdAt,
+  });
+
+  Future<List<OutboxRow>> pending();
+
+  Future<OutboxRow?> lookup(String clientMsgId);
+
+  /// Returns `true` iff a row was deleted.
+  Future<bool> remove(String clientMsgId);
+
+  Future<void> markAttempt(
+    String clientMsgId, {
+    String? error,
+    bool reset = false,
+  });
+}
+
+class SqliteOutboxStore implements OutboxStore {
+  SqliteOutboxStore._(this._db);
+
+  factory SqliteOutboxStore.test(Database db) => SqliteOutboxStore._(db);
+
+  static Future<SqliteOutboxStore> open() async {
     final dir = await getApplicationSupportDirectory();
     await dir.create(recursive: true);
     final path = p.join(dir.path, 'outbox.db');
@@ -40,7 +70,7 @@ class OutboxStore {
       version: 1,
       onCreate: onCreate,
     );
-    return OutboxStore._(db);
+    return SqliteOutboxStore._(db);
   }
 
   static Future<void> onCreate(Database db, int version) async {
@@ -61,6 +91,7 @@ class OutboxStore {
 
   final Database _db;
 
+  @override
   Future<void> enqueue({
     required String clientMsgId,
     required String roomId,
@@ -82,11 +113,13 @@ class OutboxStore {
     );
   }
 
+  @override
   Future<List<OutboxRow>> pending() async {
     final rows = await _db.query('outbox', orderBy: 'created_at ASC');
     return rows.map(_rowFromMap).toList(growable: false);
   }
 
+  @override
   Future<OutboxRow?> lookup(String clientMsgId) async {
     final rows = await _db.query(
       'outbox',
@@ -98,7 +131,7 @@ class OutboxStore {
     return _rowFromMap(rows.first);
   }
 
-  /// Returns `true` iff a row was deleted.
+  @override
   Future<bool> remove(String clientMsgId) async {
     final n = await _db.delete(
       'outbox',
@@ -108,6 +141,7 @@ class OutboxStore {
     return n > 0;
   }
 
+  @override
   Future<void> markAttempt(
     String clientMsgId, {
     String? error,
@@ -142,8 +176,9 @@ class OutboxStore {
       );
 }
 
-/// Opened lazily on first read. Riverpod overrides in tests use
-/// [OutboxStore.test] with their own in-memory database.
+/// Opened lazily on first read. Riverpod overrides in tests can swap in
+/// either [SqliteOutboxStore.test] (with an ffi DB) or a pure in-memory
+/// fake that implements [OutboxStore].
 final outboxStoreProvider = FutureProvider<OutboxStore>((ref) {
   return OutboxStore.open();
 });
