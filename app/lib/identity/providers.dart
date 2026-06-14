@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
+import '../inbox/read_state_store.dart';
 import '../wire/rest_client.dart';
 import 'account_local.dart';
 import 'keystore.dart';
@@ -39,6 +40,10 @@ final keystoreProvider = Provider<Keystore>((_) => SecureKeystore());
 
 final accountLocalStoreProvider = Provider<AccountLocalStore>(
   (_) => AccountLocalStore(),
+);
+
+final readStateStoreProvider = Provider<ReadStateStore>(
+  (ref) => ReadStateStore(),
 );
 
 final accountProvider = FutureProvider<LocalAccount?>((ref) async {
