@@ -16,7 +16,7 @@ void main() {
   final seedA = Uint8List.fromList(List<int>.generate(16, (i) => i + 1));
   final seedB = Uint8List.fromList(List<int>.generate(16, (i) => i + 101));
 
-  Room _mkRoom(String id, DerivedIdentity peer) => Room(
+  Room mkRoom(String id, DerivedIdentity peer) => Room(
         roomId: id,
         peerUsername: 'kaitlyn',
         peerEd25519PubBase64: base64.encode(peer.ed25519PublicKey),
@@ -55,7 +55,7 @@ void main() {
       me: 'court',
       identity: me,
       keyCache: container.read(roomKeyCacheProvider),
-      rooms: [_mkRoom('room1', peer), _mkRoom('room2', peer)],
+      rooms: [mkRoom('room1', peer), mkRoom('room2', peer)],
       getMessageStore: (rid) =>
           container.read(messageStoreProvider(rid).notifier),
       decrypt: (room, cipher) async => 'plain($cipher)',
@@ -94,7 +94,7 @@ void main() {
       me: 'court',
       identity: me,
       keyCache: container.read(roomKeyCacheProvider),
-      rooms: [_mkRoom('room1', peer)],
+      rooms: [mkRoom('room1', peer)],
       getMessageStore: (rid) =>
           container.read(messageStoreProvider(rid).notifier),
       decrypt: (room, cipher) async => throw StateError('bad key'),
