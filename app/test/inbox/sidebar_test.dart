@@ -48,7 +48,7 @@ void main() {
       _r('2', 'sage'),
     ]);
     await tester.pumpWidget(_harness(container: container));
-    expect(find.text('COUPLES'), findsOneWidget);
+    expect(find.text('PARTNER'), findsOneWidget);
     expect(find.text('FAMILIARS'), findsOneWidget);
     expect(find.text('Kaitlyn'), findsOneWidget);
     expect(find.text('Sage'), findsOneWidget);

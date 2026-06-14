@@ -33,7 +33,7 @@ class Sidebar extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _sectionHeader('COUPLES', theme),
+          _sectionHeader('PARTNER', theme),
           ...couples.map(
             (r) => ConversationListItem(
               key: Key('room-${r.roomId}'),

@@ -56,7 +56,7 @@ class DrawerContent extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            header('COUPLES'),
+            header('PARTNER'),
             ...couples.map(item),
             const SizedBox(height: 16),
             header('FAMILIARS'),
