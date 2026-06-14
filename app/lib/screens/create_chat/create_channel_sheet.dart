@@ -28,9 +28,9 @@ Future<void> showCreateChannelSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (_) => Padding(
+    builder: (sheetCtx) => Padding(
       padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom),
+          bottom: MediaQuery.of(sheetCtx).viewInsets.bottom),
       child: const _CreateChannelSheet(),
     ),
   );
