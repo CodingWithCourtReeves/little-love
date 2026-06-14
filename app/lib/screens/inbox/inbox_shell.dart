@@ -12,11 +12,13 @@ import '../../inbox/drawer.dart';
 import '../../inbox/inbox_state.dart';
 import '../../inbox/layout_scaffold.dart';
 import '../../inbox/navigation_rail.dart';
+import '../../inbox/pending_invites_provider.dart';
 import '../../inbox/room.dart';
 import '../../inbox/sidebar.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
+import '../create_chat/create_chat_invite_screen.dart';
 import '../create_chat/create_chat_pick_screen.dart';
 import '../pair/enter_code.dart';
 import '../pair/show_invite.dart';
@@ -110,15 +112,42 @@ class InboxShell extends ConsumerWidget {
     if (selectedId == null) {
       return Scaffold(
         backgroundColor: TwilightColors.bgCanvas,
-        body: const Center(
-          child: Text(
-            'Select a conversation',
-            style: TextStyle(color: TwilightColors.textMuted),
+        body: Center(
+          child: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Select a conversation',
+                      style: TextStyle(color: TwilightColors.textMuted),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 28),
+                    _PairCard(account: account),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       );
     }
     final room = rooms.firstWhere((r) => r.roomId == selectedId);
+    // A "solo" room is one where Court is the only member AND a pending invite
+    // exists for it — the user got here by tapping "Invite them with a code",
+    // creating the room, then leaving the show-invite screen. Route them back
+    // to the invite code instead of an empty conversation.
+    final pending = ref.watch(pendingInvitesProvider);
+    final isSolo = room.members.length == 1 &&
+        room.members.first.username == account.username;
+    if (isSolo && pending.containsKey(room.roomId)) {
+      return CreateChatInviteScreen(roomId: room.roomId);
+    }
     return ConversationPage(
       key: ValueKey(selectedId),
       room: room,

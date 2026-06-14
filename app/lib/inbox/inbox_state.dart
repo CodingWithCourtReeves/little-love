@@ -47,6 +47,13 @@ class InboxNotifier extends Notifier<InboxState> {
     state = state.copyWith(selectedRoomId: roomId);
   }
 
+  /// Drop the current selection so the detail pane returns to the
+  /// "Select a conversation" surface (which carries the pair / new-chat
+  /// affordances). Used by the sidebar's "+ new chat" button.
+  void deselect() {
+    state = state.copyWith(clearSelection: true);
+  }
+
   /// Rename a room in place, preserving members + createdAt. No-op if the
   /// room isn't in the inbox yet (e.g., RoomRenamed arriving before Rooms
   /// would be a server bug, but the notifier shouldn't crash on it).

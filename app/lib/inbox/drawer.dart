@@ -63,6 +63,21 @@ class DrawerContent extends ConsumerWidget {
             ...familiars.map(item),
             const Spacer(),
             Container(height: 1, color: TwilightColors.borderSoft),
+            Material(
+              color: Colors.transparent,
+              child: ListTile(
+                key: const Key('drawer-new-chat'),
+                leading: const Icon(
+                  Icons.add,
+                  color: TwilightColors.textMuted,
+                ),
+                title: const Text('New chat'),
+                onTap: () {
+                  ref.read(inboxStateProvider.notifier).deselect();
+                  Navigator.of(context).pop();
+                },
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.all(16),
               child: Text(

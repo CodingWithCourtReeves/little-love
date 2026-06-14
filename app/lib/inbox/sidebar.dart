@@ -76,24 +76,39 @@ class Sidebar extends ConsumerWidget {
   }
 
   Widget _footer(ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          IconButton(
-            key: const Key('sidebar-settings'),
-            icon: const Icon(Icons.settings, color: TwilightColors.textMuted),
-            onPressed: () {},
-            tooltip: 'Settings',
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '@$username',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: TwilightColors.textPrimary,
+    return Consumer(
+      builder: (context, ref, _) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            IconButton(
+              key: const Key('sidebar-new-chat'),
+              icon: const Icon(Icons.add, color: TwilightColors.textMuted),
+              onPressed: () =>
+                  ref.read(inboxStateProvider.notifier).deselect(),
+              tooltip: 'New chat',
             ),
-          ),
-        ],
+            IconButton(
+              key: const Key('sidebar-settings'),
+              icon: const Icon(
+                Icons.settings,
+                color: TwilightColors.textMuted,
+              ),
+              onPressed: () {},
+              tooltip: 'Settings',
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '@$username',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: TwilightColors.textPrimary,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
