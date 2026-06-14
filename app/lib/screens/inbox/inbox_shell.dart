@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../conversation/conversation_page.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../conversation/room_message_router.dart';
+import '../../conversation/send_fanout.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
 import '../../identity/keypair.dart';
@@ -14,9 +14,7 @@ import '../../inbox/layout_scaffold.dart';
 import '../../inbox/navigation_rail.dart';
 import '../../inbox/room.dart';
 import '../../inbox/sidebar.dart';
-import '../../pairing/encryption.dart';
 import '../../theme/twilight.dart';
-import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
 import '../pair/enter_code.dart';
 import '../pair/show_invite.dart';
@@ -122,23 +120,23 @@ class InboxShell extends ConsumerWidget {
     return ConversationPage(
       key: ValueKey(selectedId),
       roomId: selectedId,
-      contactDisplayName: room.peerUsername,
+      contactDisplayName: room.displayName(account.username),
       onSend: (text) => _sendEncrypted(ref, room, text),
     );
   }
 
   Future<void> _sendEncrypted(WidgetRef ref, Room room, String text) async {
     final me = await ref.read(currentIdentityProvider.future);
-    final key = await ref.read(roomKeyCacheProvider).getOrDerive(room, me);
-    final body = await encryptOutgoing(key, text);
-    final conn = ref.read(liveConnectionProvider).requireValue;
-    conn.send(
-      SendFrame(
-        roomId: room.roomId,
-        body: body,
-        clientMsgId: const Uuid().v4(),
-      ).toJson(),
+    final cache = ref.read(roomKeyCacheProvider);
+    final frame = await buildSendFrame(
+      room: room,
+      me: me,
+      selfUsername: account.username,
+      plaintext: text,
+      cache: cache,
     );
+    final conn = ref.read(liveConnectionProvider).requireValue;
+    conn.send(frame.toJson());
   }
 }
 
