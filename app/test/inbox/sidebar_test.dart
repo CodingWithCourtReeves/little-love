@@ -5,12 +5,25 @@ import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/inbox/sidebar.dart';
 import 'package:littlelove/theme/twilight.dart';
+import 'package:littlelove/wire/frames.dart';
 
 Room _r(String id, String peer) => Room(
   roomId: id,
-  peerUsername: peer,
-  peerEd25519PubBase64: 'AAA',
-  peerX25519PubBase64: 'BBB',
+  name: '',
+  members: [
+    const Member(
+      username: 'court',
+      ed25519PubBase64: '',
+      x25519PubBase64: '',
+      isBot: false,
+    ),
+    Member(
+      username: peer,
+      ed25519PubBase64: 'AAA',
+      x25519PubBase64: 'BBB',
+      isBot: false,
+    ),
+  ],
   createdAt: DateTime.utc(2026, 6, 9),
 );
 
@@ -37,8 +50,8 @@ void main() {
     await tester.pumpWidget(_harness(container: container));
     expect(find.text('COUPLES'), findsOneWidget);
     expect(find.text('FAMILIARS'), findsOneWidget);
-    expect(find.text('kaitlyn'), findsOneWidget);
-    expect(find.text('sage'), findsOneWidget);
+    expect(find.text('Kaitlyn'), findsOneWidget);
+    expect(find.text('Sage'), findsOneWidget);
     expect(find.text('@court'), findsOneWidget);
   });
 
@@ -47,7 +60,7 @@ void main() {
     addTearDown(container.dispose);
     container.read(inboxStateProvider.notifier).setRooms([_r('1', 'kaitlyn')]);
     await tester.pumpWidget(_harness(container: container));
-    await tester.tap(find.text('kaitlyn'));
+    await tester.tap(find.text('Kaitlyn'));
     await tester.pump();
     expect(container.read(inboxStateProvider).selectedRoomId, '1');
   });

@@ -25,7 +25,10 @@ void main() {
 
     test('solo + 1 bot → bot label', () {
       expect(
-        r([m('court'), m('court-garden', bot: true, owner: 'court')]).displayName('court'),
+        r([
+          m('court'),
+          m('court-garden', bot: true, owner: 'court'),
+        ]).displayName('court'),
         'Garden',
       );
     });

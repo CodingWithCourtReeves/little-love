@@ -63,20 +63,24 @@ class Room {
           other.roomId == roomId &&
           other.name == name &&
           other.createdAt == createdAt &&
-          listEquals(other.members.map((m) => m.username).toList(),
-              members.map((m) => m.username).toList()));
+          listEquals(
+            other.members.map((m) => m.username).toList(),
+            members.map((m) => m.username).toList(),
+          ));
 
   @override
   int get hashCode => Object.hash(roomId, name, createdAt, members.length);
 
   @override
-  String toString() => 'Room(roomId: $roomId, name: $name, members: ${members.length})';
+  String toString() =>
+      'Room(roomId: $roomId, name: $name, members: ${members.length})';
 }
 
 enum RoomShape { couplesOnly, familiars }
 
-String _capitalize(Member m) =>
-    m.username.isEmpty ? '' : m.username[0].toUpperCase() + m.username.substring(1);
+String _capitalize(Member m) => m.username.isEmpty
+    ? ''
+    : m.username[0].toUpperCase() + m.username.substring(1);
 
 /// Strip the `<owner>-` prefix from a familiar username and Title-Case the
 /// remaining label. Bot username convention is `<owner>-<label>`.

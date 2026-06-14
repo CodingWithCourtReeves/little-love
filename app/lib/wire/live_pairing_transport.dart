@@ -64,13 +64,15 @@ class LivePairingTransport implements PairingTransport {
       case RoomCreatedFrame(:final pendingInvite):
         if (pendingInvite == null) break;
         if (_pendingCreate.isNotEmpty) {
-          _pendingCreate.removeAt(0).complete(
-            InviteCreatedFrame(
-              code: pendingInvite.code,
-              qrPngBase64: pendingInvite.qrPngBase64,
-              expiresAt: pendingInvite.expiresAt,
-            ),
-          );
+          _pendingCreate
+              .removeAt(0)
+              .complete(
+                InviteCreatedFrame(
+                  code: pendingInvite.code,
+                  qrPngBase64: pendingInvite.qrPngBase64,
+                  expiresAt: pendingInvite.expiresAt,
+                ),
+              );
         }
       case InviteCreatedFrame():
         // Server no longer emits standalone InviteCreated — the inline

@@ -12,5 +12,6 @@ class OwnedBotsNotifier extends Notifier<List<Member>> {
   void set(List<Member> bots) => state = List.unmodifiable(bots);
 }
 
-final ownedBotsProvider =
-    NotifierProvider<OwnedBotsNotifier, List<Member>>(OwnedBotsNotifier.new);
+final ownedBotsProvider = NotifierProvider<OwnedBotsNotifier, List<Member>>(
+  OwnedBotsNotifier.new,
+);

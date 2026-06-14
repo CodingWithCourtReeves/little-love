@@ -55,9 +55,7 @@ class RoomMessageRouter {
         _upsertRoom(roomId, name, members);
         _subscribe(roomId);
         if (pendingInvite != null) {
-          ref
-              .read(pendingInvitesProvider.notifier)
-              .set(roomId, pendingInvite);
+          ref.read(pendingInvitesProvider.notifier).set(roomId, pendingInvite);
         }
 
       case InviteConsumedFrame(:final roomId, :final name, :final members):
@@ -113,11 +111,13 @@ class RoomMessageRouter {
     final sender = room.memberByUsername(f.from);
     if (sender == null) return;
     final me = await ref.read(currentIdentityProvider.future);
-    final key = await ref.read(roomKeyCacheProvider).getOrDeriveFor(
-      roomId: room.roomId,
-      peerX25519PubBase64: sender.x25519PubBase64,
-      me: me,
-    );
+    final key = await ref
+        .read(roomKeyCacheProvider)
+        .getOrDeriveFor(
+          roomId: room.roomId,
+          peerX25519PubBase64: sender.x25519PubBase64,
+          me: me,
+        );
     final plaintext = await decryptIncoming(key, f.body);
     ref
         .read(messageStoreProvider(f.roomId).notifier)

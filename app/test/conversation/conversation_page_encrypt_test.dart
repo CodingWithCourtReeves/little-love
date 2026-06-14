@@ -61,9 +61,21 @@ void main() {
       container.read(inboxStateProvider.notifier).setRooms([
         Room(
           roomId: 'room1',
-          peerUsername: 'kaitlyn',
-          peerEd25519PubBase64: base64.encode(peer.ed25519PublicKey),
-          peerX25519PubBase64: base64.encode(peer.x25519PublicKey),
+          name: '',
+          members: [
+            Member(
+              username: 'court',
+              ed25519PubBase64: base64.encode(me.ed25519PublicKey),
+              x25519PubBase64: base64.encode(me.x25519PublicKey),
+              isBot: false,
+            ),
+            Member(
+              username: 'kaitlyn',
+              ed25519PubBase64: base64.encode(peer.ed25519PublicKey),
+              x25519PubBase64: base64.encode(peer.x25519PublicKey),
+              isBot: false,
+            ),
+          ],
           createdAt: DateTime.utc(2026, 6, 10),
         ),
       ]);
@@ -88,13 +100,21 @@ void main() {
 
       final sendFrames = conn.sent.where((m) => m['kind'] == 'Send').toList();
       expect(sendFrames, hasLength(1));
-      final body = sendFrames.single['body'] as String;
+      final bodies = sendFrames.single['bodies'] as Map<String, Object?>;
+      // One addressed ciphertext per other room member (just kaitlyn here).
+      expect(bodies.length, 1);
+      final body = bodies.values.single as String;
       expect(
         body,
         isNot(contains('hello')),
         reason: 'plaintext must NOT appear on the wire — spec §13 AC #3',
       );
       expect(body.length, greaterThan(0));
+      expect(
+        bodies.keys.single,
+        base64.encode(peer.x25519PublicKey),
+        reason: 'body keyed by recipient x25519 pubkey (spec §6.2)',
+      );
       expect(sendFrames.single['room_id'], 'room1');
       // Server types client_msg_id as Uuid; non-UUID strings cause
       // serde_json to silently drop the entire Send frame.

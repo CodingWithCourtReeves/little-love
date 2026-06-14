@@ -6,7 +6,9 @@ import 'package:littlelove/conversation/room_key_cache.dart';
 import 'package:littlelove/identity/keypair.dart';
 
 Future<DerivedIdentity> _identityFromByte(int b) =>
-    derivedIdentityFromSigningSeedForTest(Uint8List.fromList(List.filled(32, b)));
+    derivedIdentityFromSigningSeedForTest(
+      Uint8List.fromList(List.filled(32, b)),
+    );
 
 void main() {
   test('distinct keys per peer pubkey in same room', () async {
@@ -51,8 +53,16 @@ void main() {
     final peer = await _identityFromByte(7);
     final cache = RoomKeyCache();
     final pubB64 = base64.encode(peer.x25519PublicKey);
-    await cache.getOrDeriveFor(roomId: 'a', peerX25519PubBase64: pubB64, me: me);
-    await cache.getOrDeriveFor(roomId: 'b', peerX25519PubBase64: pubB64, me: me);
+    await cache.getOrDeriveFor(
+      roomId: 'a',
+      peerX25519PubBase64: pubB64,
+      me: me,
+    );
+    await cache.getOrDeriveFor(
+      roomId: 'b',
+      peerX25519PubBase64: pubB64,
+      me: me,
+    );
     cache.invalidate('a');
     // Re-deriving for room a returns equal bytes (deterministic), but
     // bypasses the cache. We assert behavior indirectly: getOrDeriveFor

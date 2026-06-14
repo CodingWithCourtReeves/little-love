@@ -18,14 +18,16 @@ class DrawerContent extends ConsumerWidget {
     final inbox = ref.watch(inboxStateProvider);
     final theme = Theme.of(context);
 
-    final couples = inbox.rooms
-        .where((r) => r.shape(username) == RoomShape.couplesOnly)
-        .toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final familiars = inbox.rooms
-        .where((r) => r.shape(username) == RoomShape.familiars)
-        .toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final couples =
+        inbox.rooms
+            .where((r) => r.shape(username) == RoomShape.couplesOnly)
+            .toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final familiars =
+        inbox.rooms
+            .where((r) => r.shape(username) == RoomShape.familiars)
+            .toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     Widget header(String label) => Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
