@@ -157,7 +157,7 @@ class InboxShell extends ConsumerWidget {
         final conn = ref.read(liveConnectionProvider).asData?.value;
         conn?.send(LeaveRoomFrame(roomId: room.roomId).toJson());
       },
-      onNewChannel: () => showCreateChannelSheet(context, ref, account.username),
+      onNewChannel: () => showCreateChannelSheet(context, ref),
     );
   }
 

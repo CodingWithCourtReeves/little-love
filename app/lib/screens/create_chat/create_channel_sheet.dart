@@ -19,8 +19,7 @@ String formatChannelName(String input) {
 /// Open the create-channel bottom sheet. Partner membership is implied
 /// (`inviteHumanPartner: true`); the server adds the already-paired partner
 /// directly with no pending invite.
-Future<void> showCreateChannelSheet(
-    BuildContext context, WidgetRef ref, String selfUsername) {
+Future<void> showCreateChannelSheet(BuildContext context, WidgetRef ref) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,

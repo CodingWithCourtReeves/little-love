@@ -84,7 +84,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('hey love'), findsOneWidget);
     expect(find.text('long. miss you.'), findsOneWidget);
-    expect(find.text('Kaitlyn'), findsWidgets);
+    expect(find.byKey(const Key('channel-switcher-pill')), findsOneWidget);
   });
 
   testWidgets('tapping send button fires onSend', (tester) async {

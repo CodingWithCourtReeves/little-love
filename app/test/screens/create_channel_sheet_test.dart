@@ -25,7 +25,7 @@ void main() {
         home: Scaffold(
           body: Consumer(builder: (context, ref, _) {
             return TextButton(
-              onPressed: () => showCreateChannelSheet(context, ref, 'court'),
+              onPressed: () => showCreateChannelSheet(context, ref),
               child: const Text('open'),
             );
           }),
