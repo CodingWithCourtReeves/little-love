@@ -434,25 +434,17 @@ async fn handle_consume_invite(
         return;
     }
 
-    // Atomic monogamy check + partner-link write. If this fails (race lost,
-    // peer already paired with someone else, or DB-level UNIQUE constraint
-    // backstop fires), the invite is NOT consumed — the user can retry or
-    // the inviter can issue a new invite. Must run before any side effects.
-    match set_partner_link(store.pool(), me.id, inviter.id).await {
-        Ok(()) => {}
-        Err(PairError::Monogamy(MonogamyError::WrongPartner)) => {
-            send_error(
-                tx,
-                error_codes::MONOGAMY_VIOLATION,
-                "you already have a partner",
-            );
-            return;
-        }
-        Err(PairError::Db(e)) => {
-            // 23505 = unique_violation — the partial UNIQUE index on
-            // partner_account_id caught a race the app check missed.
-            if let sqlx::Error::Database(db) = &e {
-                if db.code().as_deref() == Some("23505") {
+    // Branch on the invite kind. Partner invites keep the v0.3 monogamy
+    // behavior; familiar invites instead confer bot ownership on the consumer.
+    match invite.kind {
+        InviteKind::Partner => {
+            // Atomic monogamy check + partner-link write. If this fails (race lost,
+            // peer already paired with someone else, or DB-level UNIQUE constraint
+            // backstop fires), the invite is NOT consumed — the user can retry or
+            // the inviter can issue a new invite. Must run before any side effects.
+            match set_partner_link(store.pool(), me.id, inviter.id).await {
+                Ok(()) => {}
+                Err(PairError::Monogamy(MonogamyError::WrongPartner)) => {
                     send_error(
                         tx,
                         error_codes::MONOGAMY_VIOLATION,
@@ -460,10 +452,52 @@ async fn handle_consume_invite(
                     );
                     return;
                 }
+                Err(PairError::Db(e)) => {
+                    // 23505 = unique_violation — the partial UNIQUE index on
+                    // partner_account_id caught a race the app check missed.
+                    if let sqlx::Error::Database(db) = &e {
+                        if db.code().as_deref() == Some("23505") {
+                            send_error(
+                                tx,
+                                error_codes::MONOGAMY_VIOLATION,
+                                "you already have a partner",
+                            );
+                            return;
+                        }
+                    }
+                    warn!("set_partner_link: {e}");
+                    send_error(tx, "Internal", "");
+                    return;
+                }
             }
-            warn!("set_partner_link: {e}");
-            send_error(tx, "Internal", "");
-            return;
+        }
+        InviteKind::Familiar => {
+            // Flip the consumer to a familiar owned by the inviter. The
+            // `is_bot = FALSE` guard makes this a no-op on re-attempt (and the
+            // invite is single-use anyway via mark_consumed). The consumer is a
+            // fresh signup with partner_account_id = NULL, so the
+            // accounts_bots_no_partner CHECK holds; we deliberately skip
+            // set_partner_link here.
+            let flipped = sqlx::query(
+                "UPDATE accounts SET is_bot = TRUE, owner_account_id = $2
+                 WHERE id = $1 AND is_bot = FALSE",
+            )
+            .bind(me.id)
+            .bind(inviter.id)
+            .execute(store.pool())
+            .await;
+            match flipped {
+                Ok(r) if r.rows_affected() == 1 => {}
+                Ok(_) => {
+                    send_error(tx, "NotPermitted", "account is already a familiar");
+                    return;
+                }
+                Err(e) => {
+                    warn!("familiar ownership flip failed: {e}");
+                    send_error(tx, "Internal", "");
+                    return;
+                }
+            }
         }
     }
 

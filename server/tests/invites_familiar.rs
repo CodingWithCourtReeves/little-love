@@ -8,7 +8,10 @@ use serial_test::file_serial;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 mod common;
-use common::{drain_rooms, fresh_store, handshake_as, insert_account, next_frame, spawn_server};
+use common::{
+    drain_rooms, fresh_store, handshake_as, insert_account, next_frame, sign_invite_consume_b64,
+    spawn_server,
+};
 
 #[file_serial(db)]
 #[tokio::test]
@@ -79,5 +82,76 @@ async fn create_familiar_invite_does_not_block_when_already_paired() {
     assert_eq!(frame["kind"], "InviteCreated", "got {frame}");
 }
 
-// NOTE: the full consume-side test is appended in a later task, which also adds
-// the `sign_invite_consume_b64` import.
+#[file_serial(db)]
+#[tokio::test]
+async fn consume_familiar_invite_makes_consumer_a_bot_in_a_one_to_one_room() {
+    let store = fresh_store().await;
+    let court_sk = SigningKey::from_bytes(&[1u8; 32]);
+    let helper_sk = SigningKey::from_bytes(&[7u8; 32]);
+    insert_account(&store, "court", &court_sk.verifying_key()).await;
+    // The familiar starts life as an ordinary (is_bot=FALSE) account — exactly
+    // what the bot CLI's `pair` subcommand signs up before consuming.
+    insert_account(&store, "helper", &helper_sk.verifying_key()).await;
+    let addr = spawn_server(Some(store.clone())).await;
+
+    // 1. Court mints a familiar invite.
+    let mut court_sock = handshake_as(addr, "court", &court_sk).await;
+    drain_rooms(&mut court_sock).await;
+    court_sock
+        .send(WsMessage::Text(
+            serde_json::json!({"kind": "CreateFamiliarInvite"}).to_string(),
+        ))
+        .await
+        .unwrap();
+    let invite_created = next_frame(&mut court_sock).await;
+    let code = invite_created["code"].as_str().unwrap().to_string();
+
+    // 2. The familiar consumes it.
+    let mut helper_sock = handshake_as(addr, "helper", &helper_sk).await;
+    drain_rooms(&mut helper_sock).await;
+    let canonical = littlelove_api::invites::decode_code(&code).unwrap();
+    let sig = sign_invite_consume_b64(&helper_sk, &canonical);
+    helper_sock
+        .send(WsMessage::Text(
+            serde_json::json!({
+                "kind": "ConsumeInvite",
+                "code": code,
+                "signature_over_token": sig,
+            })
+            .to_string(),
+        ))
+        .await
+        .unwrap();
+
+    // 3. The familiar receives InviteConsumed with a 1:1 roster where it is now
+    //    a bot owned by court.
+    let consumed = next_frame(&mut helper_sock).await;
+    assert_eq!(consumed["kind"], "InviteConsumed", "got {consumed}");
+    let room_id = consumed["room_id"].as_str().unwrap().to_string();
+    assert!(!room_id.is_empty());
+    let members = consumed["members"].as_array().unwrap();
+    assert_eq!(members.len(), 2, "expected a 1:1 room, got {members:?}");
+    let helper_member = members
+        .iter()
+        .find(|m| m["username"] == "helper")
+        .expect("helper in roster");
+    assert_eq!(helper_member["is_bot"], true, "consumer should be a bot");
+    assert_eq!(helper_member["owner_username"], "court");
+
+    // 4. Court receives RoomCreated for the same room.
+    let room_created = next_frame(&mut court_sock).await;
+    assert_eq!(room_created["kind"], "RoomCreated", "got {room_created}");
+    assert_eq!(room_created["room_id"], room_id);
+
+    // 5. DB is authoritative: the consumer row is is_bot=TRUE owned by court.
+    let (is_bot, owner_id, court_id): (bool, Option<i64>, i64) = sqlx::query_as(
+        "SELECT h.is_bot, h.owner_account_id,
+                (SELECT id FROM accounts WHERE username='court')
+         FROM accounts h WHERE h.username='helper'",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert!(is_bot, "helper.is_bot should be TRUE");
+    assert_eq!(owner_id, Some(court_id), "helper owned by court");
+}
