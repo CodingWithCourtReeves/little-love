@@ -20,7 +20,7 @@ use crate::accounts::{
 };
 use crate::invites::{
     create_invite_record, default_expiry, lookup_invite, mark_consumed, qr_png_base64,
-    room_for_invite, InviteState,
+    room_for_invite, InviteKind, InviteState,
 };
 use crate::rooms::{
     account_id_by_username, bot_owned_by, create_room_with_members, is_member, leave_room,
@@ -294,7 +294,7 @@ async fn handle_create_invite(
     }
     let (canonical, code, hash) = generate_invite();
     let expires_at = default_expiry(Utc::now());
-    if let Err(e) = create_invite_record(store.pool(), me.id, &hash, expires_at, None).await {
+    if let Err(e) = create_invite_record(store.pool(), me.id, &hash, expires_at, None, InviteKind::Partner).await {
         warn!("create_invite_record failed: {e}");
         send_error(tx, "Internal", "");
         return;
@@ -771,7 +771,7 @@ async fn handle_create_room(
         let (canonical, code, hash) = generate_invite();
         let expires_at = default_expiry(Utc::now());
         if let Err(e) =
-            create_invite_record(store.pool(), me.id, &hash, expires_at, Some(&room_id)).await
+            create_invite_record(store.pool(), me.id, &hash, expires_at, Some(&room_id), InviteKind::Partner).await
         {
             warn!("create_invite_record: {e}");
             send_error(tx, "Internal", "");
