@@ -245,6 +245,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 Ok(RoomClientFrame::LeaveRoom { room_id }) => {
                     handle_leave_room(&state, &me, &room_id, &tx).await;
                 }
+                Ok(RoomClientFrame::CreateFamiliarInvite) => {
+                    warn!("CreateFamiliarInvite not yet implemented");
+                }
                 Err(e) => warn!("invalid frame from {}: {e}", me.username),
             }
         }

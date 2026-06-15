@@ -71,6 +71,7 @@ pub enum AuthServerFrame {
 #[serde(tag = "kind")]
 pub enum RoomClientFrame {
     CreateInvite,
+    CreateFamiliarInvite,
     ConsumeInvite {
         code: String,
         signature_over_token: String,
@@ -326,6 +327,13 @@ mod tests {
         let raw = r#"{"kind":"CreateInvite"}"#;
         let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
         assert!(matches!(frame, RoomClientFrame::CreateInvite));
+    }
+
+    #[test]
+    fn parses_create_familiar_invite_frame() {
+        let raw = r#"{"kind":"CreateFamiliarInvite"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        assert!(matches!(frame, RoomClientFrame::CreateFamiliarInvite));
     }
 
     #[test]
