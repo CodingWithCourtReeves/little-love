@@ -97,6 +97,12 @@ class LivePairingTransport implements PairingTransport {
           _pendingConsume.removeAt(0).complete(frame);
         }
       case RoomErrorFrame():
+        // Errors carry no request correlation id, so we dispatch by fixed queue
+        // priority. This only routes correctly when at most one mint/consume
+        // call is in flight at a time — which the pairing UI guarantees (each
+        // screen drives a single request). Overlapping calls of different kinds
+        // could mis-route an error; revisit with a correlation id if that flow
+        // ever becomes concurrent.
         final err = PairingTransportException(
           code: frame.code,
           message: frame.message,
