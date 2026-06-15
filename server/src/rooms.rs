@@ -392,6 +392,66 @@ pub async fn create_room_with_members(
     Ok(room_id)
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum FamiliarConsumeError {
+    #[error("account is already a familiar")]
+    AlreadyFamiliar,
+    #[error(transparent)]
+    Db(#[from] sqlx::Error),
+}
+
+/// Atomically: flip `consumer` to a familiar owned by `inviter`, create a
+/// fresh 1:1 room with both as members, and mark the invite consumed — all in
+/// one transaction so a mid-sequence crash can never strand the familiar in a
+/// half-applied state. Returns the new room id. Errors `AlreadyFamiliar` if the
+/// consumer is no longer flippable (guarded by `is_bot = FALSE`).
+pub async fn consume_familiar_invite(
+    pool: &PgPool,
+    consumer: i64,
+    inviter: i64,
+    token_hash: &[u8],
+    when: DateTime<Utc>,
+) -> Result<String, FamiliarConsumeError> {
+    let mut tx = pool.begin().await?;
+    let flipped = sqlx::query(
+        "UPDATE accounts SET is_bot = TRUE, owner_account_id = $2
+         WHERE id = $1 AND is_bot = FALSE",
+    )
+    .bind(consumer)
+    .bind(inviter)
+    .execute(&mut *tx)
+    .await?;
+    if flipped.rows_affected() != 1 {
+        // rolls back on drop
+        return Err(FamiliarConsumeError::AlreadyFamiliar);
+    }
+    let room_id = Ulid::new().to_string();
+    sqlx::query("INSERT INTO rooms (id, name) VALUES ($1, $2)")
+        .bind(&room_id)
+        .bind("")
+        .execute(&mut *tx)
+        .await?;
+    for account_id in [inviter, consumer] {
+        sqlx::query(
+            "INSERT INTO room_members (room_id, account_id) VALUES ($1, $2)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(&room_id)
+        .bind(account_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    sqlx::query(
+        "UPDATE invites SET consumed_at = $2 WHERE token_hash = $1 AND consumed_at IS NULL",
+    )
+    .bind(token_hash)
+    .bind(when)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(room_id)
+}
+
 pub async fn rename_room(pool: &PgPool, room_id: &str, name: &str) -> sqlx::Result<()> {
     sqlx::query("UPDATE rooms SET name = $2 WHERE id = $1")
         .bind(room_id)

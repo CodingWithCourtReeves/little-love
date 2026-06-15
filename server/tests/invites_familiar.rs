@@ -156,6 +156,58 @@ async fn consume_familiar_invite_makes_consumer_a_bot_in_a_one_to_one_room() {
     assert_eq!(owner_id, Some(court_id), "helper owned by court");
 }
 
+/// Atomicity: if a later step in the familiar-consume transaction fails, the
+/// is_bot flip must roll back. We force the failure by passing a NONEXISTENT
+/// inviter id so the inviter's `room_members` insert violates the FK to
+/// `accounts(id)`, which aborts the whole transaction. The consumer row must
+/// remain a flippable human (is_bot=FALSE, owner_account_id NULL).
+#[file_serial(db)]
+#[tokio::test]
+async fn consume_familiar_invite_rolls_back_flip_on_failure() {
+    use littlelove_api::rooms::consume_familiar_invite;
+
+    let store = fresh_store().await;
+    let helper_sk = SigningKey::from_bytes(&[7u8; 32]);
+    insert_account(&store, "helper", &helper_sk.verifying_key()).await;
+    let (consumer_id,): (i64,) =
+        sqlx::query_as("SELECT id FROM accounts WHERE username = 'helper'")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+
+    // A nonexistent inviter id: the inviter's room_members insert will violate
+    // the account_id FK and roll the whole transaction back.
+    let bogus_inviter = 9_999_999_i64;
+    let token_hash = [42u8; 32];
+
+    let result = consume_familiar_invite(
+        store.pool(),
+        consumer_id,
+        bogus_inviter,
+        &token_hash,
+        chrono::Utc::now(),
+    )
+    .await;
+    assert!(result.is_err(), "expected the transaction to fail, got {result:?}");
+
+    // The flip must have rolled back: helper is still a flippable human.
+    let (is_bot, owner_id): (bool, Option<i64>) =
+        sqlx::query_as("SELECT is_bot, owner_account_id FROM accounts WHERE id = $1")
+            .bind(consumer_id)
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert!(!is_bot, "is_bot flip must have rolled back");
+    assert_eq!(owner_id, None, "owner_account_id must have rolled back");
+
+    // No room row should have leaked from the aborted transaction.
+    let (rooms,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM rooms")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(rooms, 0, "no room should leak from the rolled-back tx");
+}
+
 /// Fix 1: a familiar (is_bot=TRUE) account must be rejected when it tries to
 /// consume an invite. The top-of-handler guard returns NotPermitted before any
 /// pairing/flip side-effect, so the inviter's invite stays pending.

@@ -23,9 +23,10 @@ use crate::invites::{
     room_for_invite, InviteKind, InviteState,
 };
 use crate::rooms::{
-    account_id_by_username, bot_owned_by, create_room_with_members, is_member, leave_room,
-    list_rooms_for_account, members_for_room, owned_bots_for_account, partner_account_id_for,
-    rename_room, room_detail, set_partner_link, CreateRoomError, Member, MonogamyError, PairError,
+    account_id_by_username, bot_owned_by, consume_familiar_invite, create_room_with_members,
+    is_member, leave_room, list_rooms_for_account, members_for_room, owned_bots_for_account,
+    partner_account_id_for, rename_room, room_detail, set_partner_link, CreateRoomError,
+    FamiliarConsumeError, Member, MonogamyError, PairError,
 };
 use crate::routing::Routing;
 use crate::store::{MessageRow, Store};
@@ -441,6 +442,10 @@ async fn handle_consume_invite(
 
     // Branch on the invite kind. Partner invites keep the v0.3 monogamy
     // behavior; familiar invites instead confer bot ownership on the consumer.
+    // The familiar path resolves+creates its room atomically inside the kind
+    // arm and hands the new room id back here so the shared room-resolution
+    // tail is skipped for it.
+    let mut prepared_room: Option<String> = None;
     match invite.kind {
         InviteKind::Partner => {
             // Atomic monogamy check + partner-link write. If this fails (race lost,
@@ -477,30 +482,23 @@ async fn handle_consume_invite(
             }
         }
         InviteKind::Familiar => {
-            // Flip the consumer to a familiar owned by the inviter. The
-            // `is_bot = FALSE` guard means zero rows affected when the account
-            // is already a bot — which we reject with NotPermitted below rather
-            // than silently re-applying (the top-of-handler is_bot guard already
-            // catches connected bots; this backstops a row that became a bot
-            // between the guard and here). The consumer is a fresh signup with
-            // partner_account_id = NULL, so the accounts_bots_no_partner CHECK
-            // holds; we deliberately skip set_partner_link here.
-            let flipped = sqlx::query(
-                "UPDATE accounts SET is_bot = TRUE, owner_account_id = $2
-                 WHERE id = $1 AND is_bot = FALSE",
-            )
-            .bind(me.id)
-            .bind(inviter.id)
-            .execute(store.pool())
-            .await;
-            match flipped {
-                Ok(r) if r.rows_affected() == 1 => {}
-                Ok(_) => {
+            // Atomic flip + room creation + membership + mark_consumed. Doing
+            // it all in one transaction means a crash mid-sequence can never
+            // leave the consumer flipped-but-roomless with a pending invite it
+            // can no longer consume (the top-of-handler is_bot guard would
+            // otherwise reject the retry). The consumer is a fresh signup with
+            // partner_account_id = NULL, so accounts_bots_no_partner holds; we
+            // deliberately skip set_partner_link.
+            match consume_familiar_invite(store.pool(), me.id, inviter.id, &token_hash, Utc::now())
+                .await
+            {
+                Ok(room_id) => prepared_room = Some(room_id),
+                Err(FamiliarConsumeError::AlreadyFamiliar) => {
                     send_error(tx, "NotPermitted", "account is already a familiar");
                     return;
                 }
-                Err(e) => {
-                    warn!("familiar ownership flip failed: {e}");
+                Err(FamiliarConsumeError::Db(e)) => {
+                    warn!("familiar consume failed: {e}");
                     send_error(tx, "Internal", "");
                     return;
                 }
@@ -508,45 +506,57 @@ async fn handle_consume_invite(
         }
     }
 
-    // Locate the room the inviter staked: either a CreateRoom-staked room
-    // (room_id set on the invite), or — for the legacy CreateInvite path —
-    // create a couple-only room on the fly.
-    let room_id = match room_for_invite(store.pool(), &token_hash).await {
-        Ok(Some(r)) => r,
-        Ok(None) => {
-            match create_room_with_members(store.pool(), inviter.id, None, &[], String::new()).await
-            {
-                Ok(r) => r,
-                Err(CreateRoomError::Db(e)) => {
-                    warn!("create_room_with_members (legacy invite): {e}");
+    let room_id = match prepared_room {
+        // Familiar: room + memberships + mark_consumed already done atomically.
+        Some(r) => r,
+        // Partner (and legacy CreateInvite): resolve or create the room on the
+        // fly, add the consumer, then mark the invite consumed.
+        None => {
+            let room_id = match room_for_invite(store.pool(), &token_hash).await {
+                Ok(Some(r)) => r,
+                Ok(None) => {
+                    match create_room_with_members(
+                        store.pool(),
+                        inviter.id,
+                        None,
+                        &[],
+                        String::new(),
+                    )
+                    .await
+                    {
+                        Ok(r) => r,
+                        Err(CreateRoomError::Db(e)) => {
+                            warn!("create_room_with_members (legacy invite): {e}");
+                            send_error(tx, "Internal", "");
+                            return;
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("room_for_invite: {e}");
                     send_error(tx, "Internal", "");
                     return;
                 }
+            };
+            if let Err(e) = sqlx::query(
+                "INSERT INTO room_members (room_id, account_id) VALUES ($1, $2)
+                 ON CONFLICT DO NOTHING",
+            )
+            .bind(&room_id)
+            .bind(me.id)
+            .execute(store.pool())
+            .await
+            {
+                warn!("insert consumer into room_members: {e}");
+                send_error(tx, "Internal", "");
+                return;
             }
-        }
-        Err(e) => {
-            warn!("room_for_invite: {e}");
-            send_error(tx, "Internal", "");
-            return;
+            if let Err(e) = mark_consumed(store.pool(), &token_hash, Utc::now()).await {
+                warn!("mark_consumed failed: {e}");
+            }
+            room_id
         }
     };
-
-    if let Err(e) = sqlx::query(
-        "INSERT INTO room_members (room_id, account_id) VALUES ($1, $2)
-         ON CONFLICT DO NOTHING",
-    )
-    .bind(&room_id)
-    .bind(me.id)
-    .execute(store.pool())
-    .await
-    {
-        warn!("insert consumer into room_members: {e}");
-        send_error(tx, "Internal", "");
-        return;
-    }
-    if let Err(e) = mark_consumed(store.pool(), &token_hash, Utc::now()).await {
-        warn!("mark_consumed failed: {e}");
-    }
 
     let detail = match room_detail(store.pool(), &room_id).await {
         Ok(Some(d)) => d,
