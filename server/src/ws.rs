@@ -246,7 +246,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     handle_leave_room(&state, &me, &room_id, &tx).await;
                 }
                 Ok(RoomClientFrame::CreateFamiliarInvite) => {
-                    warn!("CreateFamiliarInvite not yet implemented");
+                    handle_create_familiar_invite(&state, &me, &tx).await;
                 }
                 Err(e) => warn!("invalid frame from {}: {e}", me.username),
             }
@@ -299,6 +299,50 @@ async fn handle_create_invite(
     let expires_at = default_expiry(Utc::now());
     if let Err(e) = create_invite_record(store.pool(), me.id, &hash, expires_at, None, InviteKind::Partner).await {
         warn!("create_invite_record failed: {e}");
+        send_error(tx, "Internal", "");
+        return;
+    }
+    let qr = match qr_png_base64(&code) {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("qr render failed: {e}");
+            String::new()
+        }
+    };
+    let _ = canonical;
+    let _ = tx.send(RoomServerFrame::InviteCreated {
+        code,
+        qr_png_base64: qr,
+        expires_at,
+    });
+}
+
+async fn handle_create_familiar_invite(
+    state: &AppState,
+    me: &AccountRecord,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    if me.is_bot {
+        send_error(tx, "NotPermitted", "familiars cannot create invites");
+        return;
+    }
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => {
+            send_error(tx, "Internal", "store unavailable");
+            return;
+        }
+    };
+    // No ALREADY_PAIRED gate: an owner can own multiple familiars. room_id is
+    // None so the 1:1 room is created lazily at consume time (mirrors the
+    // legacy CreateInvite path) rather than leaving an empty solo room.
+    let (canonical, code, hash) = generate_invite();
+    let expires_at = default_expiry(Utc::now());
+    if let Err(e) =
+        create_invite_record(store.pool(), me.id, &hash, expires_at, None, InviteKind::Familiar)
+            .await
+    {
+        warn!("create_invite_record (familiar) failed: {e}");
         send_error(tx, "Internal", "");
         return;
     }
