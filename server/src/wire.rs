@@ -172,6 +172,11 @@ pub enum RoomServerFrame {
 /// One member of a room (spec §7.1).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Member {
+    /// Stable account id. Lets the client address familiars by id when
+    /// issuing `CreateRoom { bot_account_ids }`. `#[serde(default)]` keeps
+    /// older payloads (which omit it) deserializable.
+    #[serde(default)]
+    pub account_id: i64,
     pub username: String,
     pub ed25519_pub: String,
     pub x25519_pub: String,
@@ -444,6 +449,7 @@ mod tests {
                 name: "".into(),
                 members: vec![
                     Member {
+                        account_id: 1,
                         username: "court".into(),
                         ed25519_pub: "AAAA".into(),
                         x25519_pub: "BBBB".into(),
@@ -451,6 +457,7 @@ mod tests {
                         owner_username: None,
                     },
                     Member {
+                        account_id: 2,
                         username: "court-garden".into(),
                         ed25519_pub: "CCCC".into(),
                         x25519_pub: "DDDD".into(),
@@ -517,6 +524,7 @@ mod tests {
             room_id: "01J".into(),
             name: "".into(),
             members: vec![Member {
+                account_id: 1,
                 username: "court".into(),
                 ed25519_pub: "AAAA".into(),
                 x25519_pub: "BBBB".into(),

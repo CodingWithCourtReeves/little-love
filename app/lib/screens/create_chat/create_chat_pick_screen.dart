@@ -6,7 +6,6 @@ import '../../inbox/owned_bots_provider.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
-import 'create_chat_invite_screen.dart';
 
 /// Step 1 of 2 — pick partner + familiars, then issue `CreateRoom`.
 ///
@@ -26,6 +25,7 @@ class CreateChatPickScreen extends ConsumerStatefulWidget {
 
 class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
   bool _includePartner = false;
+  bool _submitting = false;
   final _selectedBotUsernames = <String>{};
   final _nameController = TextEditingController();
 
@@ -56,26 +56,36 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
   }
 
   Future<void> _create() async {
-    final connAsync = ref.read(liveConnectionProvider);
-    final conn = connAsync.asData?.value;
-    if (conn == null) return;
+    if (_submitting) return;
+    final conn = ref.read(liveConnectionProvider).asData?.value;
+    if (conn == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Not connected — try again in a moment.')),
+      );
+      return;
+    }
+    // Resolve checked familiars to account ids. The server addresses bots by
+    // id (CreateRoom.bot_account_ids), so a bot with no id can't be added.
+    final bots = ref.read(ownedBotsProvider);
+    final botAccountIds = <int>[
+      for (final b in bots)
+        if (_selectedBotUsernames.contains(b.username) && b.accountId != null)
+          b.accountId!,
+    ];
+    setState(() => _submitting = true);
     final rawName = _nameController.text.trim();
     conn.send(
       CreateRoomFrame(
         name: rawName.isEmpty ? null : rawName,
-        botAccountIds: const [],
+        botAccountIds: botAccountIds,
         inviteHumanPartner: _includePartner,
       ).toJson(),
     );
-    if (_includePartner) {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(builder: (_) => const CreateChatInviteScreen()),
-      );
-    } else {
-      if (!mounted) return;
-      Navigator.of(context).pop();
-    }
+    if (!mounted) return;
+    // Pop back to the inbox root; the router selects the new room when the
+    // RoomCreated frame lands, so the user arrives in the conversation.
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   @override
@@ -145,9 +155,8 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Text(
-                  "Generates a fresh code for @$partnerUsername to enter "
-                  "on their device. Every new chat needs its own — room "
-                  "membership is fixed at creation.",
+                  "@$partnerUsername joins the moment the chat is created — "
+                  "no code, no waiting. You're already linked.",
                   style: const TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 12,
@@ -185,12 +194,17 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
                   ),
                 ),
               ),
-            FilledButton(
-              key: const Key('create-chat-button'),
-              onPressed: (partnerUsername == null && bots.isEmpty)
-                  ? null
-                  : _create,
-              child: const Text('Create chat'),
+            Builder(
+              builder: (context) {
+                final hasSelection =
+                    (_includePartner && partnerUsername != null) ||
+                    _selectedBotUsernames.isNotEmpty;
+                return FilledButton(
+                  key: const Key('create-chat-button'),
+                  onPressed: (!hasSelection || _submitting) ? null : _create,
+                  child: const Text('Create chat'),
+                );
+              },
             ),
           ],
         ),

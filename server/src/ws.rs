@@ -426,7 +426,8 @@ async fn handle_consume_invite(
     let room_id = match room_for_invite(store.pool(), &token_hash).await {
         Ok(Some(r)) => r,
         Ok(None) => {
-            match create_room_with_members(store.pool(), inviter.id, &[], String::new()).await {
+            match create_room_with_members(store.pool(), inviter.id, None, &[], String::new()).await
+            {
                 Ok(r) => r,
                 Err(CreateRoomError::Db(e)) => {
                     warn!("create_room_with_members (legacy invite): {e}");
@@ -728,7 +729,32 @@ async fn handle_create_room(
         return;
     }
 
-    let room_id = match create_room_with_members(store.pool(), me.id, &bot_ids, name.clone()).await
+    // If the requester wants the human partner included and they're already
+    // paired, seed the room with the partner directly — no invite code, no
+    // waiting room. The partner's connected sessions get the RoomCreated
+    // push via the per-member fan-out below. We still keep the invite path
+    // for the not-yet-paired case (stranger → first-time pairing).
+    let auto_partner = if invite_partner {
+        match partner_account_id_for(store.pool(), me.id).await {
+            Ok(p) => p,
+            Err(e) => {
+                warn!("partner_account_id_for (create_room): {e}");
+                send_error(tx, "Internal", "");
+                return;
+            }
+        }
+    } else {
+        None
+    };
+
+    let room_id = match create_room_with_members(
+        store.pool(),
+        me.id,
+        auto_partner,
+        &bot_ids,
+        name.clone(),
+    )
+    .await
     {
         Ok(id) => id,
         Err(CreateRoomError::Db(e)) => {
@@ -738,17 +764,10 @@ async fn handle_create_room(
         }
     };
 
-    let pending = if invite_partner {
-        // v0.3 spec §5.1: rooms have fixed membership at creation. To bring a
-        // human into a new room — even your existing partner — you must
-        // generate an invite and have them consume it. The eager
-        // partner_account_id_for check used to reject this case as
-        // ALREADY_PAIRED, but consume-side monogamy (set_partner_link, which
-        // is idempotent when both sides already point at each other) is the
-        // correct enforcement point. Stranger consuming a re-invite of an
-        // already-paired user still fails — WrongPartner is returned from
-        // set_partner_link — so removing the eager check doesn't widen the
-        // attack surface.
+    // Only mint a pending invite when the requester asked for a human
+    // partner AND no existing partner exists. Otherwise (already paired or
+    // human-partner not requested) pending_invite is None.
+    let pending = if invite_partner && auto_partner.is_none() {
         let (canonical, code, hash) = generate_invite();
         let expires_at = default_expiry(Utc::now());
         if let Err(e) =

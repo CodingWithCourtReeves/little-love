@@ -29,17 +29,31 @@ class Room {
     final humans = others.where((m) => !m.isBot).map(_capitalize).toList()
       ..sort();
     final bots = others.where((m) => m.isBot).map(_botLabel).toList()..sort();
-    return [...humans, ...bots].join(' + ');
+    final derived = [...humans, ...bots].join(' + ');
+    // A freshly created room you're the only member of (e.g. a pending-invite
+    // room before the partner joins) has no others to derive from. Never
+    // render a blank label.
+    return derived.isEmpty ? 'New chat' : derived;
   }
 
-  /// Sidebar shape (spec §7.3): "COUPLES" rooms have exactly one other
-  /// human and no bots. Everything else is "FAMILIARS".
+  /// Sidebar shape (spec §7.3): three buckets.
+  ///
+  /// - `partner`  — 1:1 unnamed DM with the human partner (no bots).
+  /// - `familiar` — 1:1 unnamed DM with a single bot (no other humans).
+  /// - `chat`     — anything else: 3+ members, named rooms, mixed
+  ///   partner+bot, or multi-bot rooms.
+  ///
+  /// A `name` is treated as the user's signal that this is a topical
+  /// chat room rather than the default DM, so any named room is a chat
+  /// regardless of member count.
   RoomShape shape(String selfUsername) {
-    final others = members.where((m) => m.username != selfUsername);
+    final others = members.where((m) => m.username != selfUsername).toList();
     final humans = others.where((m) => !m.isBot).length;
     final bots = others.where((m) => m.isBot).length;
-    if (humans == 1 && bots == 0) return RoomShape.couplesOnly;
-    return RoomShape.familiars;
+    if (name.isNotEmpty) return RoomShape.chat;
+    if (humans == 1 && bots == 0) return RoomShape.partner;
+    if (humans == 0 && bots == 1) return RoomShape.familiar;
+    return RoomShape.chat;
   }
 
   Member? memberByPubkey(String x25519PubBase64) {
@@ -76,7 +90,7 @@ class Room {
       'Room(roomId: $roomId, name: $name, members: ${members.length})';
 }
 
-enum RoomShape { couplesOnly, familiars }
+enum RoomShape { partner, familiar, chat }
 
 String _capitalize(Member m) => m.username.isEmpty
     ? ''

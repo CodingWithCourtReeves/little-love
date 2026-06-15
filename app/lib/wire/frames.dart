@@ -58,9 +58,13 @@ class Member {
     required this.ed25519PubBase64,
     required this.x25519PubBase64,
     required this.isBot,
+    this.accountId,
     this.ownerUsername,
   });
 
+  /// Server-assigned account id. Used to address familiars in
+  /// `CreateRoomFrame.botAccountIds`. Null when the server omits it.
+  final int? accountId;
   final String username;
   final String ed25519PubBase64;
   final String x25519PubBase64;
@@ -70,6 +74,7 @@ class Member {
   final String? ownerUsername;
 
   factory Member.fromJson(Map<String, Object?> j) => Member(
+    accountId: (j['account_id'] as num?)?.toInt(),
     username: j['username']! as String,
     ed25519PubBase64: j['ed25519_pub']! as String,
     x25519PubBase64: j['x25519_pub']! as String,

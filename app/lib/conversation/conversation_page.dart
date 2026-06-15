@@ -13,7 +13,6 @@ import 'message_store.dart';
 
 typedef SendCallback = void Function(String text);
 typedef RenameCallback = void Function(String newName);
-typedef LeaveCallback = void Function();
 
 class _SendIntent extends Intent {
   const _SendIntent();
@@ -50,7 +49,6 @@ class ConversationPage extends ConsumerStatefulWidget {
     required this.selfUsername,
     required this.onSend,
     this.onRename,
-    this.onLeave,
     this.onNewChannel,
   });
 
@@ -58,7 +56,6 @@ class ConversationPage extends ConsumerStatefulWidget {
   final String selfUsername;
   final SendCallback onSend;
   final RenameCallback? onRename;
-  final LeaveCallback? onLeave;
   final VoidCallback? onNewChannel;
 
   String get roomId => room.roomId;
@@ -166,31 +163,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     widget.onRename?.call(newName);
   }
 
-  Future<void> _showLeaveDialog() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Leave chat?'),
-        content: const Text(
-          'Messages already sent stay encrypted on other devices.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            key: const Key('leave-dialog-confirm'),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Leave'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true) return;
-    widget.onLeave?.call();
-  }
-
   Color _senderColor(String username) {
     if (username == widget.selfUsername) return TwilightColors.accentUser;
     // Stable hash → one of three accents per spec §7.5 (sage / mauve / wine).
@@ -246,7 +218,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
             padding: EdgeInsets.symmetric(horizontal: 16),
             child: _E2ESeal(),
           ),
-          if (widget.onRename != null || widget.onLeave != null)
+          if (widget.onRename != null)
             PopupMenuButton<String>(
               key: const Key('room-menu-button'),
               icon: const Icon(
@@ -256,8 +228,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
               onSelected: (value) {
                 if (value == 'rename' && widget.onRename != null) {
                   _showRenameDialog();
-                } else if (value == 'leave' && widget.onLeave != null) {
-                  _showLeaveDialog();
                 }
               },
               itemBuilder: (_) => [
@@ -266,12 +236,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
                     key: Key('room-menu-rename'),
                     value: 'rename',
                     child: Text('Rename chat'),
-                  ),
-                if (widget.onLeave != null)
-                  const PopupMenuItem<String>(
-                    key: Key('room-menu-leave'),
-                    value: 'leave',
-                    child: Text('Leave chat'),
                   ),
               ],
             ),

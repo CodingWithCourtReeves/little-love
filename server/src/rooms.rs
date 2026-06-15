@@ -24,6 +24,7 @@ pub struct Member {
 impl Member {
     pub fn into_wire(self) -> WireMember {
         WireMember {
+            account_id: self.account_id,
             username: self.username,
             ed25519_pub: B64.encode(self.ed25519_pub),
             x25519_pub: B64.encode(self.x25519_pub),
@@ -354,14 +355,18 @@ pub enum CreateRoomError {
     Db(#[from] sqlx::Error),
 }
 
-/// Create a room with `host` as the initiating human and `bots` as the
-/// pre-joined familiar account_ids. The host's partner is NOT added; if
-/// they're in the room it's via a subsequent ConsumeInvite. Returns the
+/// Create a room with `host` as the initiating human, optional `partner`
+/// (the host's already-linked human partner — auto-added when CreateRoom
+/// requests `invite_human_partner` and the requester is already paired),
+/// and `bots` as the pre-joined familiar account_ids. When `partner` is
+/// `None`, no second human is seeded; the host can either invite a
+/// stranger via the returned pending_invite or never add one. Returns the
 /// ULID `room_id`. Caller validates bot ownership via `bot_owned_by`
 /// before calling — this function does not re-check.
 pub async fn create_room_with_members(
     pool: &PgPool,
     host: i64,
+    partner: Option<i64>,
     bots: &[i64],
     name: String,
 ) -> Result<String, CreateRoomError> {
@@ -372,7 +377,8 @@ pub async fn create_room_with_members(
         .bind(&name)
         .execute(&mut *tx)
         .await?;
-    for account_id in std::iter::once(host).chain(bots.iter().copied()) {
+    let extras = partner.into_iter().chain(bots.iter().copied());
+    for account_id in std::iter::once(host).chain(extras) {
         sqlx::query(
             "INSERT INTO room_members (room_id, account_id) VALUES ($1, $2)
              ON CONFLICT DO NOTHING",

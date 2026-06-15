@@ -159,10 +159,6 @@ class InboxShell extends ConsumerWidget {
           RenameRoomFrame(roomId: room.roomId, name: newName).toJson(),
         );
       },
-      onLeave: () {
-        final conn = ref.read(liveConnectionProvider).asData?.value;
-        conn?.send(LeaveRoomFrame(roomId: room.roomId).toJson());
-      },
       onNewChannel: () => showCreateChannelSheet(context, ref),
     );
   }

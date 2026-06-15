@@ -76,28 +76,49 @@ void main() {
   });
 
   group('shape classification', () {
-    test('two humans → couplesOnly', () {
+    test('two humans, unnamed → partner', () {
       expect(
         r([m('court'), m('kaitlyn')]).shape('court'),
-        RoomShape.couplesOnly,
+        RoomShape.partner,
       );
     });
 
-    test('any bot present → familiars', () {
+    test('one bot, unnamed → familiar', () {
       expect(
         r([
           m('court'),
           m('court-garden', bot: true, owner: 'court'),
         ]).shape('court'),
-        RoomShape.familiars,
+        RoomShape.familiar,
       );
+    });
+
+    test('partner plus bot → chat', () {
       expect(
         r([
           m('court'),
           m('kaitlyn'),
           m('court-garden', bot: true, owner: 'court'),
         ]).shape('court'),
-        RoomShape.familiars,
+        RoomShape.chat,
+      );
+    });
+
+    test('named room with just partner → chat', () {
+      expect(
+        r([m('court'), m('kaitlyn')], name: 'travel').shape('court'),
+        RoomShape.chat,
+      );
+    });
+
+    test('multiple bots → chat', () {
+      expect(
+        r([
+          m('court'),
+          m('court-garden', bot: true, owner: 'court'),
+          m('court-journal', bot: true, owner: 'court'),
+        ]).shape('court'),
+        RoomShape.chat,
       );
     });
   });

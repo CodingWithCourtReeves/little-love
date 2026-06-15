@@ -91,7 +91,6 @@ void main() {
             selfUsername: 'court',
             onSend: (_) {},
             onRename: (n) => renamed = n,
-            onLeave: () {},
           ),
         ),
       ),
@@ -112,39 +111,6 @@ void main() {
 
     expect(renamed, 'Daily life');
   });
-
-  testWidgets(
-    'leave menu opens confirmation and calls onLeave when confirmed',
-    (tester) async {
-      final container = _container();
-      var left = false;
-
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: MaterialApp(
-            home: ConversationPage(
-              room: _coupleRoom(),
-              selfUsername: 'court',
-              onSend: (_) {},
-              onRename: (_) {},
-              onLeave: () => left = true,
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('room-menu-button')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('room-menu-leave')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('leave-dialog-confirm')));
-      await tester.pumpAndSettle();
-
-      expect(left, isTrue);
-    },
-  );
 
   testWidgets(
     'sender labels render in 3+ member rooms and are absent in 2-member rooms',
