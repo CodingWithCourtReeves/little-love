@@ -169,4 +169,31 @@ void main() {
     expect(rb.code, 'eee-fff-ggg-hhh');
     await h.server.close();
   });
+
+  test(
+    'createFamiliarInvite writes CreateFamiliarInvite, resolves on standalone '
+    'InviteCreated',
+    () async {
+      final h = await _harness();
+      addTearDown(h.conn.close);
+      final transport = LivePairingTransport(h.conn);
+
+      final fut = transport.createFamiliarInvite();
+      await Future<void>.delayed(Duration.zero);
+      final sent = jsonDecode(h.sink.writes.last) as Map<String, Object?>;
+      expect(sent['kind'], 'CreateFamiliarInvite');
+
+      h.server.add(
+        jsonEncode({
+          'kind': 'InviteCreated',
+          'code': 'cedar-otter-prism-vault',
+          'qr_png_base64': 'AAAA',
+          'expires_at': '2026-06-15T20:32:00Z',
+        }),
+      );
+      final created = await fut.timeout(const Duration(seconds: 2));
+      expect(created.code, 'cedar-otter-prism-vault');
+      await h.server.close();
+    },
+  );
 }

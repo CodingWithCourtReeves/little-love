@@ -28,6 +28,7 @@ class LivePairingTransport implements PairingTransport {
   late final StreamSubscription<RoomServerFrame> _sub;
 
   final _pendingCreate = <Completer<InviteCreatedFrame>>[];
+  final _pendingFamiliar = <Completer<InviteCreatedFrame>>[];
   final _pendingConsume = <Completer<InviteConsumedFrame>>[];
 
   @override
@@ -40,6 +41,14 @@ class LivePairingTransport implements PairingTransport {
         inviteHumanPartner: true,
       ).toJson(),
     );
+    return c.future;
+  }
+
+  @override
+  Future<InviteCreatedFrame> createFamiliarInvite() {
+    final c = Completer<InviteCreatedFrame>();
+    _pendingFamiliar.add(c);
+    _conn.send(const CreateFamiliarInviteFrame().toJson());
     return c.future;
   }
 
@@ -75,10 +84,12 @@ class LivePairingTransport implements PairingTransport {
               );
         }
       case InviteCreatedFrame():
-        // Server no longer emits standalone InviteCreated — the inline
-        // pending_invite on RoomCreated supersedes it. If a future server
-        // build sends one, fall through and resolve any pending caller.
-        if (_pendingCreate.isNotEmpty) {
+        // The familiar path resolves on the standalone InviteCreated frame.
+        // Fall back to a pending partner createInvite() for forward-compat
+        // (a future server build re-emitting standalone InviteCreated).
+        if (_pendingFamiliar.isNotEmpty) {
+          _pendingFamiliar.removeAt(0).complete(frame);
+        } else if (_pendingCreate.isNotEmpty) {
           _pendingCreate.removeAt(0).complete(frame);
         }
       case InviteConsumedFrame():
@@ -90,7 +101,9 @@ class LivePairingTransport implements PairingTransport {
           code: frame.code,
           message: frame.message,
         );
-        if (_pendingCreate.isNotEmpty) {
+        if (_pendingFamiliar.isNotEmpty) {
+          _pendingFamiliar.removeAt(0).completeError(err);
+        } else if (_pendingCreate.isNotEmpty) {
           _pendingCreate.removeAt(0).completeError(err);
         } else if (_pendingConsume.isNotEmpty) {
           _pendingConsume.removeAt(0).completeError(err);
