@@ -155,3 +155,181 @@ async fn consume_familiar_invite_makes_consumer_a_bot_in_a_one_to_one_room() {
     assert!(is_bot, "helper.is_bot should be TRUE");
     assert_eq!(owner_id, Some(court_id), "helper owned by court");
 }
+
+/// Fix 1: a familiar (is_bot=TRUE) account must be rejected when it tries to
+/// consume an invite. The top-of-handler guard returns NotPermitted before any
+/// pairing/flip side-effect, so the inviter's invite stays pending.
+#[file_serial(db)]
+#[tokio::test]
+async fn bot_cannot_consume_invite() {
+    let store = fresh_store().await;
+    let court_sk = SigningKey::from_bytes(&[1u8; 32]);
+    let bot_sk = SigningKey::from_bytes(&[8u8; 32]);
+    insert_account(&store, "court", &court_sk.verifying_key()).await;
+    insert_account(&store, "bot", &bot_sk.verifying_key()).await;
+    // Flip "bot" into a familiar owned by court (satisfies the
+    // accounts_owner_only_for_bots CHECK).
+    sqlx::query(
+        "UPDATE accounts SET is_bot = TRUE,
+             owner_account_id = (SELECT id FROM accounts WHERE username = 'court')
+         WHERE username = 'bot'",
+    )
+    .execute(store.pool())
+    .await
+    .unwrap();
+    let addr = spawn_server(Some(store.clone())).await;
+
+    // Court mints a (partner) invite.
+    let mut court_sock = handshake_as(addr, "court", &court_sk).await;
+    drain_rooms(&mut court_sock).await;
+    court_sock
+        .send(WsMessage::Text(
+            serde_json::json!({"kind": "CreateInvite"}).to_string(),
+        ))
+        .await
+        .unwrap();
+    let code = next_frame(&mut court_sock).await["code"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // The bot tries to consume it.
+    let mut bot_sock = handshake_as(addr, "bot", &bot_sk).await;
+    drain_rooms(&mut bot_sock).await;
+    let canonical = littlelove_api::invites::decode_code(&code).unwrap();
+    let sig = sign_invite_consume_b64(&bot_sk, &canonical);
+    bot_sock
+        .send(WsMessage::Text(
+            serde_json::json!({
+                "kind": "ConsumeInvite",
+                "code": code,
+                "signature_over_token": sig,
+            })
+            .to_string(),
+        ))
+        .await
+        .unwrap();
+
+    // It gets a NotPermitted error frame.
+    let resp = next_frame(&mut bot_sock).await;
+    assert_eq!(resp["kind"], "Error", "got {resp}");
+    assert_eq!(resp["code"], "NotPermitted", "got {resp}");
+
+    // No side-effect: court and bot are not paired, and the invite is still
+    // pending (not consumed).
+    let (court_partner, bot_partner): (Option<i64>, Option<i64>) = sqlx::query_as(
+        "SELECT (SELECT partner_account_id FROM accounts WHERE username = 'court'),
+                (SELECT partner_account_id FROM accounts WHERE username = 'bot')",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(court_partner, None, "court must not be paired");
+    assert_eq!(bot_partner, None, "bot must not be paired");
+
+    let (pending,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites
+         WHERE inviter_id = (SELECT id FROM accounts WHERE username = 'court')
+           AND consumed_at IS NULL",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(pending, 1, "court's invite must still be pending");
+}
+
+/// Fix 2: invite revocation is scoped by kind. Minting a familiar invite must
+/// NOT revoke a pending partner invite (and vice versa). Same-kind minting
+/// still revokes the prior invite of that kind.
+#[file_serial(db)]
+#[tokio::test]
+async fn invite_revocation_is_scoped_by_kind() {
+    use littlelove_api::invites::{
+        create_invite_record, default_expiry, generate_invite, InviteKind,
+    };
+
+    let store = fresh_store().await;
+    let court_sk = SigningKey::from_bytes(&[1u8; 32]);
+    insert_account(&store, "court", &court_sk.verifying_key()).await;
+    let (court_id,): (i64,) =
+        sqlx::query_as("SELECT id FROM accounts WHERE username = 'court'")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    let now = chrono::Utc::now();
+
+    // 1. Mint a partner invite.
+    let (_c1, _code1, partner_hash) = generate_invite();
+    create_invite_record(
+        store.pool(),
+        court_id,
+        &partner_hash,
+        default_expiry(now),
+        None,
+        InviteKind::Partner,
+    )
+    .await
+    .unwrap();
+
+    // 2. Mint a familiar invite — must leave the partner invite intact.
+    let (_c2, _code2, familiar_hash) = generate_invite();
+    create_invite_record(
+        store.pool(),
+        court_id,
+        &familiar_hash,
+        default_expiry(now),
+        None,
+        InviteKind::Familiar,
+    )
+    .await
+    .unwrap();
+
+    let (total,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM invites WHERE inviter_id = $1 AND consumed_at IS NULL")
+            .bind(court_id)
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        total, 2,
+        "both partner and familiar invites should remain pending"
+    );
+    // The original partner invite specifically survives.
+    let (partner_alive,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM invites WHERE token_hash = $1")
+            .bind(&partner_hash[..])
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(partner_alive, 1, "partner invite must not be revoked");
+
+    // 3. Same-kind revocation still works: a second partner invite revokes the
+    //    first partner invite but leaves the familiar invite alone.
+    let (_c3, _code3, partner_hash2) = generate_invite();
+    create_invite_record(
+        store.pool(),
+        court_id,
+        &partner_hash2,
+        default_expiry(now),
+        None,
+        InviteKind::Partner,
+    )
+    .await
+    .unwrap();
+
+    let (first_partner_gone,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM invites WHERE token_hash = $1")
+            .bind(&partner_hash[..])
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(first_partner_gone, 0, "first partner invite should be revoked");
+
+    let (familiar_alive,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM invites WHERE token_hash = $1")
+            .bind(&familiar_hash[..])
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(familiar_alive, 1, "familiar invite must survive same-kind revoke");
+}

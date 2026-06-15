@@ -80,8 +80,10 @@ impl InviteRow {
 }
 
 /// Insert a fresh invite. Any outstanding (unconsumed) invites for the same
-/// `inviter_id` are deleted first per spec §4.2 ("Creating a new one revokes
-/// the prior").
+/// `inviter_id` **and the same `kind`** are deleted first per spec §4.2
+/// ("Creating a new one revokes the prior"). Revocation is scoped to the kind
+/// so the partner and familiar invite flows don't stomp each other: minting a
+/// familiar invite leaves a pending partner invite intact, and vice versa.
 ///
 /// `room_id` is `Some(_)` when the invite is created by `CreateRoom { invite_human_partner: true }`
 /// (the consumer joins the existing room) and `None` for the legacy `CreateInvite` WSS frame
@@ -95,8 +97,9 @@ pub async fn create_invite_record(
     kind: InviteKind,
 ) -> sqlx::Result<()> {
     let mut tx = pool.begin().await?;
-    sqlx::query("DELETE FROM invites WHERE inviter_id = $1 AND consumed_at IS NULL")
+    sqlx::query("DELETE FROM invites WHERE inviter_id = $1 AND consumed_at IS NULL AND kind = $2")
         .bind(inviter_id)
+        .bind(kind.as_str())
         .execute(&mut *tx)
         .await?;
     sqlx::query(

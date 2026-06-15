@@ -376,6 +376,11 @@ async fn handle_consume_invite(
         }
     };
 
+    if me.is_bot {
+        send_error(tx, "NotPermitted", "familiars cannot consume invites");
+        return;
+    }
+
     let canonical = match decode_code(code) {
         Ok(t) => t,
         Err(_) => {
@@ -473,11 +478,13 @@ async fn handle_consume_invite(
         }
         InviteKind::Familiar => {
             // Flip the consumer to a familiar owned by the inviter. The
-            // `is_bot = FALSE` guard makes this a no-op on re-attempt (and the
-            // invite is single-use anyway via mark_consumed). The consumer is a
-            // fresh signup with partner_account_id = NULL, so the
-            // accounts_bots_no_partner CHECK holds; we deliberately skip
-            // set_partner_link here.
+            // `is_bot = FALSE` guard means zero rows affected when the account
+            // is already a bot — which we reject with NotPermitted below rather
+            // than silently re-applying (the top-of-handler is_bot guard already
+            // catches connected bots; this backstops a row that became a bot
+            // between the guard and here). The consumer is a fresh signup with
+            // partner_account_id = NULL, so the accounts_bots_no_partner CHECK
+            // holds; we deliberately skip set_partner_link here.
             let flipped = sqlx::query(
                 "UPDATE accounts SET is_bot = TRUE, owner_account_id = $2
                  WHERE id = $1 AND is_bot = FALSE",
