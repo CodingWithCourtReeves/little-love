@@ -24,6 +24,7 @@ import '../../wire/live_connection.dart';
 import '../create_chat/create_channel_sheet.dart';
 import '../create_chat/create_chat_invite_screen.dart';
 import '../create_chat/create_chat_pick_screen.dart';
+import '../pair/bring_familiar.dart';
 import '../pair/enter_code.dart';
 import '../pair/show_invite.dart';
 
@@ -256,6 +257,23 @@ class PairCard extends ConsumerWidget {
               MaterialPageRoute<void>(
                 builder: (_) =>
                     CreateChatPickScreen(selfUsername: account.username),
+              ),
+            ),
+          ),
+          const Divider(
+            height: 1,
+            thickness: 1,
+            color: TwilightColors.borderSoft,
+            indent: 18,
+            endIndent: 18,
+          ),
+          _PairOption(
+            glyph: '◆',
+            title: 'Add a familiar',
+            detail: 'Generate a code your familiar CLI enters to join you.',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const BringFamiliarScreen(),
               ),
             ),
           ),
