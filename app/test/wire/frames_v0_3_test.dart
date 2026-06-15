@@ -130,4 +130,10 @@ void main() {
     expect(l['kind'], 'LeaveRoom');
     expect(l['room_id'], '01J');
   });
+
+  test('CreateFamiliarInviteFrame serializes to a bare kind tag', () {
+    final j = const CreateFamiliarInviteFrame().toJson();
+    expect(j['kind'], 'CreateFamiliarInvite');
+    expect(j.length, 1, reason: 'frame should carry no payload fields');
+  });
 }

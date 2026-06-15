@@ -310,6 +310,14 @@ class ConsumeInviteFrame {
   };
 }
 
+class CreateFamiliarInviteFrame {
+  const CreateFamiliarInviteFrame();
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'CreateFamiliarInvite',
+  };
+}
+
 class SubscribeFrame {
   const SubscribeFrame({required this.roomId, required this.sinceMessageId});
   final String roomId;
