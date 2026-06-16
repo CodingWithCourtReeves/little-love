@@ -24,6 +24,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 littlelove-crypto = { workspace = true }
 qrcode = { version = "0.14", default-features = false, features = ["image"] }
 rand = "0.8"
+rusty-s3 = "0.9.1"
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
