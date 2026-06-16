@@ -90,17 +90,26 @@ AES-CTR + HMAC. We use XChaCha20-Poly1305, a true AEAD, which is *stronger* than
 Matrix's AES-CTR construction (whose IV is not covered by the integrity hash —
 not IND-CCA2 secure). XChaCha20-Poly1305's 192-bit nonce supports up to ~256 GB
 per message with random nonces and no practical nonce-reuse limit, so a single
-one-shot encryption over a ≤100 MiB file is well within bounds.
+one-shot encryption over a ≤500 MiB file is well within cryptographic bounds
+(the constraint is memory, below — not the cipher).
 
-**One-shot vs. streaming (deliberate, with a known limit):** for the 100 MiB
+**One-shot vs. streaming (deliberate, with a known limit):** for the 500 MiB
 cap we encrypt/decrypt the whole file in one AEAD operation, matching how
 Signal/WhatsApp/Matrix clients historically handled whole attachments. The
-tradeoff is memory: one-shot holds plaintext + ciphertext (+ base64 for
-transport) in RAM, ~2–3× the file size at peak. This is acceptable on modern
-iPhones at a 100 MiB cap and is a primary reason the cap exists. If we later
-raise the cap (long video), switch to a **chunked streaming AEAD** (fixed-size
-blocks, per-chunk nonce) — XChaCha20-Poly1305's nonce space makes that safe.
-Tracked as the upgrade path alongside multipart upload (§10).
+tradeoff is memory. To keep the peak bounded, the **blob is uploaded/downloaded
+as raw ciphertext bytes** — base64 is used *only* for the small inline
+thumbnail and envelope, never for the full file. Peak RAM is therefore ~1×
+plaintext + 1× ciphertext (~2× file size, ≈1 GB at the 500 MiB cap), not 3×.
+
+This is comfortable on recent iPhones but is a real watch-point on older
+3 GB-RAM devices (iOS jetsam can kill the app near ~1.5 GB). Mitigations:
+free the plaintext buffer immediately after encrypt; stream the decrypted
+output straight to the cache file. **If on-device testing at 500 MiB shows
+memory pressure, drop the cap to 256 MiB** (documented fallback). Raising the
+cap further (long 4K video, Telegram-class sizes) requires a **chunked
+streaming AEAD** (fixed-size blocks, per-chunk nonce — XChaCha20-Poly1305's
+nonce space makes this safe) plus multipart upload; both tracked as the upgrade
+path (§10).
 
 ## 5. Server changes (Rust / Axum)
 
@@ -126,7 +135,7 @@ rule, migrations are schema-only — no data statements.
 Defined in `wire.rs`, handled in `ws.rs`:
 
 - `RequestUpload { room_id, byte_size }`
-  → validate the sender is a member of `room_id` and `byte_size ≤ 100 MiB`;
+  → validate the sender is a member of `room_id` and `byte_size ≤ 500 MiB`;
   mint a `blob_key` (ULID); insert an `attachments` row (`committed=false`);
   return `UploadGranted { blob_key, url, headers, expires_at }` — a presigned
   R2 PUT, ~10 min TTL.
@@ -168,7 +177,7 @@ headroom while keeping the DoS bound. `MAX_SEND_RECIPIENTS` unchanged.
 ### 6.1 Send
 
 1. Pick file (`image_picker` / `file_picker`).
-2. Read bytes; reject if &gt; 100 MiB with a clear message.
+2. Read bytes; reject if &gt; 500 MiB with a clear message.
 3. Generate content key + nonce; `encryptBytes` the file.
 4. Build the thumbnail (downscale image, or `video_thumbnail` poster frame);
    encrypt it.
@@ -222,10 +231,14 @@ queue. The existing "remove on echoed `MessageFrame`" drain semantics hold.
 ## 9. Testing
 
 **Server:**
-- `RequestUpload` rejects non-members and `byte_size &gt; 100 MiB`.
+- `RequestUpload` rejects non-members and `byte_size &gt; 500 MiB`.
 - `RequestDownload` denies a requester who is not a member of the blob's room
   (cross-room access denied).
 - `attachments` migration schema test (mirrors `migration_0006_schema.rs`).
+
+**On-device (manual, iOS):**
+- Send + receive a file at/near the 500 MiB cap on a real iPhone; watch peak
+  memory. If the app approaches jetsam limits, drop the cap to 256 MiB per §4.
 
 **Crypto (Dart):**
 - `encryptBytes`/`decryptBytes` round-trip on binary data.
@@ -240,7 +253,8 @@ queue. The existing "remove on echoed `MessageFrame`" drain semantics hold.
 
 - Camera capture (picker only).
 - Voice memos / voice / video calls.
-- Multipart / resumable uploads &gt; 100 MiB.
+- Multipart / resumable uploads &gt; 500 MiB (and the chunked streaming AEAD
+  that would accompany them).
 - Blob reaper / server-side cleanup job.
 - Edit/delete of a sent attachment.
 - macOS / Windows clients.
