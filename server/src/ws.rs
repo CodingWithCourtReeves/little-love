@@ -20,13 +20,12 @@ use crate::accounts::{
 };
 use crate::invites::{
     create_invite_record, default_expiry, lookup_invite, mark_consumed, qr_png_base64,
-    room_for_invite, InviteKind, InviteState,
+    room_for_invite, InviteState,
 };
 use crate::rooms::{
-    account_id_by_username, bot_owned_by, consume_familiar_invite, create_room_with_members,
-    is_member, leave_room, list_rooms_for_account, members_for_room, owned_bots_for_account,
-    partner_account_id_for, rename_room, room_detail, set_partner_link, CreateRoomError,
-    FamiliarConsumeError, Member, MonogamyError, PairError,
+    account_id_by_username, create_room_with_members, is_member, leave_room,
+    list_rooms_for_account, members_for_room, partner_account_id_for, rename_room, room_detail,
+    set_partner_link, CreateRoomError, Member, MonogamyError, PairError,
 };
 use crate::routing::Routing;
 use crate::store::{MessageRow, Store};
@@ -41,12 +40,12 @@ use littlelove_crypto::sig::{
 
 const MAX_ROOM_NAME_CHARS: usize = 64;
 /// Hard cap on recipients per Send. Rooms with this many addressed peers are
-/// well past the v0.3 product target (couple + a handful of familiars); the
-/// cap is a DoS bound, not a product limit.
+/// well past the product target (a couple in a shared room); the cap is a DoS
+/// bound, not a product limit.
 const MAX_SEND_RECIPIENTS: usize = 16;
 /// Hard cap on per-recipient ciphertext (base64). 64 KiB comfortably fits a
 /// long text message plus its envelope; binary attachments aren't in scope
-/// for v0.3.
+/// yet.
 const MAX_BODY_BYTES: usize = 65_536;
 
 #[derive(Clone)]
@@ -167,22 +166,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 Vec::new()
             }
         };
-        let owned_bots = match owned_bots_for_account(store.pool(), me.id).await {
-            Ok(bots) => bots
-                .into_iter()
-                .map(crate::rooms::Member::into_wire)
-                .collect::<Vec<_>>(),
-            Err(e) => {
-                warn!("owned_bots_for_account failed: {e}");
-                Vec::new()
-            }
-        };
-        let _ = tx.send(RoomServerFrame::Rooms { rooms, owned_bots });
+        let _ = tx.send(RoomServerFrame::Rooms { rooms });
     } else {
-        let _ = tx.send(RoomServerFrame::Rooms {
-            rooms: Vec::new(),
-            owned_bots: Vec::new(),
-        });
+        let _ = tx.send(RoomServerFrame::Rooms { rooms: Vec::new() });
     }
 
     let outbound = tokio::spawn(async move {
@@ -227,27 +213,15 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 }
                 Ok(RoomClientFrame::CreateRoom {
                     name,
-                    bot_account_ids,
                     invite_human_partner,
                 }) => {
-                    handle_create_room(
-                        &state,
-                        &me,
-                        name,
-                        bot_account_ids,
-                        invite_human_partner,
-                        &tx,
-                    )
-                    .await;
+                    handle_create_room(&state, &me, name, invite_human_partner, &tx).await;
                 }
                 Ok(RoomClientFrame::RenameRoom { room_id, name }) => {
                     handle_rename_room(&state, &me, &room_id, &name, &tx).await;
                 }
                 Ok(RoomClientFrame::LeaveRoom { room_id }) => {
                     handle_leave_room(&state, &me, &room_id, &tx).await;
-                }
-                Ok(RoomClientFrame::CreateFamiliarInvite) => {
-                    handle_create_familiar_invite(&state, &me, &tx).await;
                 }
                 Err(e) => warn!("invalid frame from {}: {e}", me.username),
             }
@@ -271,10 +245,6 @@ async fn handle_create_invite(
     me: &AccountRecord,
     tx: &mpsc::UnboundedSender<RoomServerFrame>,
 ) {
-    if me.is_bot {
-        send_error(tx, "NotPermitted", "familiars cannot create invites");
-        return;
-    }
     let store = match state.store.as_ref() {
         Some(s) => s,
         None => {
@@ -298,67 +268,8 @@ async fn handle_create_invite(
     }
     let (canonical, code, hash) = generate_invite();
     let expires_at = default_expiry(Utc::now());
-    if let Err(e) = create_invite_record(
-        store.pool(),
-        me.id,
-        &hash,
-        expires_at,
-        None,
-        InviteKind::Partner,
-    )
-    .await
-    {
+    if let Err(e) = create_invite_record(store.pool(), me.id, &hash, expires_at, None).await {
         warn!("create_invite_record failed: {e}");
-        send_error(tx, "Internal", "");
-        return;
-    }
-    let qr = match qr_png_base64(&code) {
-        Ok(s) => s,
-        Err(e) => {
-            warn!("qr render failed: {e}");
-            String::new()
-        }
-    };
-    let _ = canonical;
-    let _ = tx.send(RoomServerFrame::InviteCreated {
-        code,
-        qr_png_base64: qr,
-        expires_at,
-    });
-}
-
-async fn handle_create_familiar_invite(
-    state: &AppState,
-    me: &AccountRecord,
-    tx: &mpsc::UnboundedSender<RoomServerFrame>,
-) {
-    if me.is_bot {
-        send_error(tx, "NotPermitted", "familiars cannot create invites");
-        return;
-    }
-    let store = match state.store.as_ref() {
-        Some(s) => s,
-        None => {
-            send_error(tx, "Internal", "store unavailable");
-            return;
-        }
-    };
-    // No ALREADY_PAIRED gate: an owner can own multiple familiars. room_id is
-    // None so the 1:1 room is created lazily at consume time (mirrors the
-    // legacy CreateInvite path) rather than leaving an empty solo room.
-    let (canonical, code, hash) = generate_invite();
-    let expires_at = default_expiry(Utc::now());
-    if let Err(e) = create_invite_record(
-        store.pool(),
-        me.id,
-        &hash,
-        expires_at,
-        None,
-        InviteKind::Familiar,
-    )
-    .await
-    {
-        warn!("create_invite_record (familiar) failed: {e}");
         send_error(tx, "Internal", "");
         return;
     }
@@ -391,11 +302,6 @@ async fn handle_consume_invite(
             return;
         }
     };
-
-    if me.is_bot {
-        send_error(tx, "NotPermitted", "familiars cannot consume invites");
-        return;
-    }
 
     let canonical = match decode_code(code) {
         Ok(t) => t,
@@ -455,21 +361,25 @@ async fn handle_consume_invite(
         return;
     }
 
-    // Branch on the invite kind. Partner invites keep the v0.3 monogamy
-    // behavior; familiar invites instead confer bot ownership on the consumer.
-    // The familiar path resolves+creates its room atomically inside the kind
-    // arm and hands the new room id back here so the shared room-resolution
-    // tail is skipped for it.
-    let mut prepared_room: Option<String> = None;
-    match invite.kind {
-        InviteKind::Partner => {
-            // Atomic monogamy check + partner-link write. If this fails (race lost,
-            // peer already paired with someone else, or DB-level UNIQUE constraint
-            // backstop fires), the invite is NOT consumed — the user can retry or
-            // the inviter can issue a new invite. Must run before any side effects.
-            match set_partner_link(store.pool(), me.id, inviter.id).await {
-                Ok(()) => {}
-                Err(PairError::Monogamy(MonogamyError::WrongPartner)) => {
+    // Atomic monogamy check + partner-link write. If this fails (race lost,
+    // peer already paired with someone else, or DB-level UNIQUE constraint
+    // backstop fires), the invite is NOT consumed — the user can retry or
+    // the inviter can issue a new invite. Must run before any side effects.
+    match set_partner_link(store.pool(), me.id, inviter.id).await {
+        Ok(()) => {}
+        Err(PairError::Monogamy(MonogamyError::WrongPartner)) => {
+            send_error(
+                tx,
+                error_codes::MONOGAMY_VIOLATION,
+                "you already have a partner",
+            );
+            return;
+        }
+        Err(PairError::Db(e)) => {
+            // 23505 = unique_violation — the partial UNIQUE index on
+            // partner_account_id caught a race the app check missed.
+            if let sqlx::Error::Database(db) = &e {
+                if db.code().as_deref() == Some("23505") {
                     send_error(
                         tx,
                         error_codes::MONOGAMY_VIOLATION,
@@ -477,105 +387,49 @@ async fn handle_consume_invite(
                     );
                     return;
                 }
-                Err(PairError::Db(e)) => {
-                    // 23505 = unique_violation — the partial UNIQUE index on
-                    // partner_account_id caught a race the app check missed.
-                    if let sqlx::Error::Database(db) = &e {
-                        if db.code().as_deref() == Some("23505") {
-                            send_error(
-                                tx,
-                                error_codes::MONOGAMY_VIOLATION,
-                                "you already have a partner",
-                            );
-                            return;
-                        }
-                    }
-                    warn!("set_partner_link: {e}");
-                    send_error(tx, "Internal", "");
-                    return;
-                }
             }
-        }
-        InviteKind::Familiar => {
-            // Atomic flip + room creation + membership + mark_consumed. Doing
-            // it all in one transaction means a crash mid-sequence can never
-            // leave the consumer flipped-but-roomless with a pending invite it
-            // can no longer consume (the top-of-handler is_bot guard would
-            // otherwise reject the retry). The consumer is a fresh signup with
-            // partner_account_id = NULL, so accounts_bots_no_partner holds; we
-            // deliberately skip set_partner_link.
-            match consume_familiar_invite(store.pool(), me.id, inviter.id, &token_hash, Utc::now())
-                .await
-            {
-                Ok(room_id) => prepared_room = Some(room_id),
-                Err(FamiliarConsumeError::AlreadyFamiliar) => {
-                    send_error(tx, "NotPermitted", "account is already a familiar");
-                    return;
-                }
-                Err(FamiliarConsumeError::AlreadyConsumed) => {
-                    send_error(tx, error_codes::INVITE_CONSUMED, "");
-                    return;
-                }
-                Err(FamiliarConsumeError::Db(e)) => {
-                    warn!("familiar consume failed: {e}");
-                    send_error(tx, "Internal", "");
-                    return;
-                }
-            }
+            warn!("set_partner_link: {e}");
+            send_error(tx, "Internal", "");
+            return;
         }
     }
 
-    let room_id = match prepared_room {
-        // Familiar: room + memberships + mark_consumed already done atomically.
-        Some(r) => r,
-        // Partner (and legacy CreateInvite): resolve or create the room on the
-        // fly, add the consumer, then mark the invite consumed.
-        None => {
-            let room_id = match room_for_invite(store.pool(), &token_hash).await {
-                Ok(Some(r)) => r,
-                Ok(None) => {
-                    match create_room_with_members(
-                        store.pool(),
-                        inviter.id,
-                        None,
-                        &[],
-                        String::new(),
-                    )
-                    .await
-                    {
-                        Ok(r) => r,
-                        Err(CreateRoomError::Db(e)) => {
-                            warn!("create_room_with_members (legacy invite): {e}");
-                            send_error(tx, "Internal", "");
-                            return;
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!("room_for_invite: {e}");
+    // Resolve or create the room on the fly, add the consumer, then mark the
+    // invite consumed.
+    let room_id = match room_for_invite(store.pool(), &token_hash).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            match create_room_with_members(store.pool(), inviter.id, None, String::new()).await {
+                Ok(r) => r,
+                Err(CreateRoomError::Db(e)) => {
+                    warn!("create_room_with_members (legacy invite): {e}");
                     send_error(tx, "Internal", "");
                     return;
                 }
-            };
-            if let Err(e) = sqlx::query(
-                "INSERT INTO room_members (room_id, account_id) VALUES ($1, $2)
-                 ON CONFLICT DO NOTHING",
-            )
-            .bind(&room_id)
-            .bind(me.id)
-            .execute(store.pool())
-            .await
-            {
-                warn!("insert consumer into room_members: {e}");
-                send_error(tx, "Internal", "");
-                return;
             }
-            if let Err(e) = mark_consumed(store.pool(), &token_hash, Utc::now()).await {
-                warn!("mark_consumed failed: {e}");
-            }
-            room_id
+        }
+        Err(e) => {
+            warn!("room_for_invite: {e}");
+            send_error(tx, "Internal", "");
+            return;
         }
     };
+    if let Err(e) = sqlx::query(
+        "INSERT INTO room_members (room_id, account_id) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(&room_id)
+    .bind(me.id)
+    .execute(store.pool())
+    .await
+    {
+        warn!("insert consumer into room_members: {e}");
+        send_error(tx, "Internal", "");
+        return;
+    }
+    if let Err(e) = mark_consumed(store.pool(), &token_hash, Utc::now()).await {
+        warn!("mark_consumed failed: {e}");
+    }
 
     let detail = match room_detail(store.pool(), &room_id).await {
         Ok(Some(d)) => d,
@@ -811,14 +665,9 @@ async fn handle_create_room(
     state: &AppState,
     me: &AccountRecord,
     name: Option<String>,
-    bot_ids: Vec<i64>,
     invite_partner: bool,
     tx: &mpsc::UnboundedSender<RoomServerFrame>,
 ) {
-    if me.is_bot {
-        send_error(tx, "NotPermitted", "familiars cannot create rooms");
-        return;
-    }
     let store = match state.store.as_ref() {
         Some(s) => s,
         None => {
@@ -826,20 +675,6 @@ async fn handle_create_room(
             return;
         }
     };
-    for bot_id in &bot_ids {
-        match bot_owned_by(store.pool(), *bot_id, me.id).await {
-            Ok(true) => {}
-            Ok(false) => {
-                send_error(tx, error_codes::NOT_OWNED_BOT, "");
-                return;
-            }
-            Err(e) => {
-                warn!("bot_owned_by: {e}");
-                send_error(tx, "Internal", "");
-                return;
-            }
-        }
-    }
     let name = name.unwrap_or_default();
     if name.chars().count() > MAX_ROOM_NAME_CHARS {
         send_error(tx, "BadName", "name too long");
@@ -865,9 +700,7 @@ async fn handle_create_room(
     };
 
     let room_id =
-        match create_room_with_members(store.pool(), me.id, auto_partner, &bot_ids, name.clone())
-            .await
-        {
+        match create_room_with_members(store.pool(), me.id, auto_partner, name.clone()).await {
             Ok(id) => id,
             Err(CreateRoomError::Db(e)) => {
                 warn!("create_room_with_members: {e}");
@@ -882,15 +715,8 @@ async fn handle_create_room(
     let pending = if invite_partner && auto_partner.is_none() {
         let (canonical, code, hash) = generate_invite();
         let expires_at = default_expiry(Utc::now());
-        if let Err(e) = create_invite_record(
-            store.pool(),
-            me.id,
-            &hash,
-            expires_at,
-            Some(&room_id),
-            InviteKind::Partner,
-        )
-        .await
+        if let Err(e) =
+            create_invite_record(store.pool(), me.id, &hash, expires_at, Some(&room_id)).await
         {
             warn!("create_invite_record: {e}");
             send_error(tx, "Internal", "");
@@ -920,27 +746,14 @@ async fn handle_create_room(
         .cloned()
         .map(Member::into_wire)
         .collect();
-    // pending_invite carries the human-only pairing affordance; bots have no
-    // use for it and shouldn't see invite codes in their inbox stream.
-    let human_frame = RoomServerFrame::RoomCreated {
-        room_id: detail.room_id.clone(),
-        name: detail.name.clone(),
-        members: members_wire.clone(),
-        pending_invite: pending,
-    };
-    let bot_frame = RoomServerFrame::RoomCreated {
+    let frame = RoomServerFrame::RoomCreated {
         room_id: detail.room_id.clone(),
         name: detail.name.clone(),
         members: members_wire,
-        pending_invite: None,
+        pending_invite: pending,
     };
     for m in &detail.members {
-        let frame = if m.is_bot {
-            bot_frame.clone()
-        } else {
-            human_frame.clone()
-        };
-        state.routing.deliver(&m.username, frame).await;
+        state.routing.deliver(&m.username, frame.clone()).await;
     }
 }
 
@@ -951,10 +764,6 @@ async fn handle_rename_room(
     name: &str,
     tx: &mpsc::UnboundedSender<RoomServerFrame>,
 ) {
-    if me.is_bot {
-        send_error(tx, "NotPermitted", "familiars cannot rename");
-        return;
-    }
     let store = match state.store.as_ref() {
         Some(s) => s,
         None => {

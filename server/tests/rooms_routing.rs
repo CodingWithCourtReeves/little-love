@@ -53,7 +53,6 @@ async fn paired_pair(
         pool,
         court_id,
         Some(kait_id),
-        &[],
         String::new(),
     )
     .await

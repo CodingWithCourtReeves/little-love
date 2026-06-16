@@ -1,5 +1,5 @@
 [workspace]
-members = ["crypto", "server", "bot"]
+members = ["crypto", "server"]
 resolver = "2"
 
 [workspace.package]
@@ -32,8 +32,3 @@ hex              = "0.4"
 qrcode           = "0.14"
 image            = { version = "0.25", default-features = false, features = ["png"] }
 littlelove-crypto = { path = "crypto" }
-clap        = { version = "4", features = ["derive", "env"] }
-directories = "5"
-reqwest     = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-png         = "0.17"
-url         = "2"

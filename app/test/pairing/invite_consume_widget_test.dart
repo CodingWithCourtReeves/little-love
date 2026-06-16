@@ -18,10 +18,6 @@ class _StubTransport implements PairingTransport {
   Future<InviteCreatedFrame> createInvite() => throw UnimplementedError();
 
   @override
-  Future<InviteCreatedFrame> createFamiliarInvite() =>
-      throw UnimplementedError();
-
-  @override
   Future<InviteConsumedFrame> consumeInvite({
     required String code,
     required Uint8List signature,
@@ -33,13 +29,11 @@ class _StubTransport implements PairingTransport {
         username: 'court',
         ed25519PubBase64: 'AAAA',
         x25519PubBase64: 'BBBB',
-        isBot: false,
       ),
       Member(
         username: 'kaitlyn',
         ed25519PubBase64: 'CCCC',
         x25519PubBase64: 'DDDD',
-        isBot: false,
       ),
     ],
   );
@@ -67,14 +61,6 @@ void main() {
                 'username': 'court',
                 'ed25519_pub': 'AAAA',
                 'x25519_pub': 'BBBB',
-                'is_bot': false,
-              },
-              {
-                'username': 'court-garden',
-                'ed25519_pub': 'EEEE',
-                'x25519_pub': 'FFFF',
-                'is_bot': true,
-                'owner_username': 'court',
               },
             ],
             'expires_at': '2026-06-09T18:00:00Z',
@@ -111,7 +97,6 @@ void main() {
       expect(find.textContaining('Pair with @court'), findsOneWidget);
       expect(find.byKey(const Key('preview-roster-card')), findsOneWidget);
       expect(find.text('court'), findsOneWidget);
-      expect(find.textContaining("court's court-garden"), findsOneWidget);
       expect(find.textContaining('You · kaitlyn'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('confirm-pair-button')));

@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
-import 'package:littlelove/inbox/owned_bots_provider.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/screens/create_chat/create_chat_pick_screen.dart';
 import 'package:littlelove/wire/frames.dart';
@@ -39,13 +38,11 @@ Room _coupleRoom() => Room(
       username: 'court',
       ed25519PubBase64: 'AAAA',
       x25519PubBase64: 'BBBB',
-      isBot: false,
     ),
     Member(
       username: 'kaitlyn',
       ed25519PubBase64: 'CCCC',
       x25519PubBase64: 'DDDD',
-      isBot: false,
     ),
   ],
   createdAt: DateTime.utc(2026, 6, 10),
@@ -84,41 +81,6 @@ void main() {
     final payload = conn.sent.single as Map<String, Object?>;
     expect(payload['kind'], 'CreateRoom');
     expect(payload['invite_human_partner'], true);
-    expect(payload['bot_account_ids'], isEmpty);
-  });
-
-  testWidgets('renders one familiar row per ownedBots entry', (tester) async {
-    final conn = _FakeConn();
-    final container = await _container(conn: conn);
-    container.read(ownedBotsProvider.notifier).set(const [
-      Member(
-        username: 'court-garden',
-        ed25519PubBase64: 'GGGG',
-        x25519PubBase64: 'HHHH',
-        isBot: true,
-        ownerUsername: 'court',
-      ),
-      Member(
-        username: 'court-journal',
-        ed25519PubBase64: 'JJJJ',
-        x25519PubBase64: 'KKKK',
-        isBot: true,
-        ownerUsername: 'court',
-      ),
-    ]);
-
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: const MaterialApp(
-          home: CreateChatPickScreen(selfUsername: 'court'),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const Key('familiar-row-court-garden')), findsOneWidget);
-    expect(find.byKey(const Key('familiar-row-court-journal')), findsOneWidget);
   });
 
   testWidgets('shows partner-empty hint when no partner is paired', (
@@ -140,8 +102,7 @@ void main() {
 
     expect(find.byKey(const Key('partner-row')), findsNothing);
     expect(find.byKey(const Key('partner-empty-hint')), findsOneWidget);
-    expect(find.byKey(const Key('familiars-empty-hint')), findsOneWidget);
-    // Both empty → Create chat is disabled.
+    // No partner → Create chat is disabled.
     final btn = tester.widget<FilledButton>(
       find.byKey(const Key('create-chat-button')),
     );

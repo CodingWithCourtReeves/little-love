@@ -71,7 +71,6 @@ pub enum AuthServerFrame {
 #[serde(tag = "kind")]
 pub enum RoomClientFrame {
     CreateInvite,
-    CreateFamiliarInvite,
     ConsumeInvite {
         code: String,
         signature_over_token: String,
@@ -90,8 +89,6 @@ pub enum RoomClientFrame {
         #[serde(default)]
         name: Option<String>,
         #[serde(default)]
-        bot_account_ids: Vec<i64>,
-        #[serde(default)]
         invite_human_partner: bool,
     },
     RenameRoom {
@@ -109,12 +106,6 @@ pub enum RoomClientFrame {
 pub enum RoomServerFrame {
     Rooms {
         rooms: Vec<RoomDetail>,
-        /// Spec §8.2 amendment (2026-06-10). Every familiar the
-        /// authenticated user owns. Lets the Create-Chat picker list
-        /// familiars not yet in any room. Empty array when the user owns
-        /// none.
-        #[serde(default)]
-        owned_bots: Vec<Member>,
     },
 
     InviteCreated {
@@ -173,17 +164,13 @@ pub enum RoomServerFrame {
 /// One member of a room (spec §7.1).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Member {
-    /// Stable account id. Lets the client address familiars by id when
-    /// issuing `CreateRoom { bot_account_ids }`. `#[serde(default)]` keeps
-    /// older payloads (which omit it) deserializable.
+    /// Stable account id. `#[serde(default)]` keeps older payloads (which omit
+    /// it) deserializable.
     #[serde(default)]
     pub account_id: i64,
     pub username: String,
     pub ed25519_pub: String,
     pub x25519_pub: String,
-    pub is_bot: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub owner_username: Option<String>,
 }
 
 /// Carried inside `Rooms`, `RoomCreated`, `InviteConsumed` payloads (spec §7.1).
@@ -215,9 +202,6 @@ pub mod error_codes {
     pub const BAD_CODE: &str = "BadCode";
     pub const FAN_OUT_MISMATCH: &str = "FanOutMismatch";
     pub const MONOGAMY_VIOLATION: &str = "MonogamyViolation";
-    pub const NOT_OWNED_BOT: &str = "NotOwnedBot";
-    pub const MEMBERSHIP_FROZEN: &str = "MembershipFrozen";
-    pub const BOT_SESSION_IN_USE: &str = "BotSessionInUse";
     pub const BODY_TOO_LARGE: &str = "BodyTooLarge";
 }
 
@@ -330,13 +314,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_create_familiar_invite_frame() {
-        let raw = r#"{"kind":"CreateFamiliarInvite"}"#;
-        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
-        assert!(matches!(frame, RoomClientFrame::CreateFamiliarInvite));
-    }
-
-    #[test]
     fn parses_consume_invite_frame() {
         let raw = r#"{"kind":"ConsumeInvite","code":"a-b-c-d","signature_over_token":"AAAA"}"#;
         let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
@@ -395,11 +372,9 @@ mod tests {
         match frame {
             RoomClientFrame::CreateRoom {
                 name,
-                bot_account_ids,
                 invite_human_partner,
             } => {
                 assert!(name.is_none());
-                assert!(bot_account_ids.is_empty());
                 assert!(!invite_human_partner);
             }
             _ => panic!("expected CreateRoom"),
@@ -408,16 +383,14 @@ mod tests {
 
     #[test]
     fn parses_create_room_frame_with_fields() {
-        let raw = r#"{"kind":"CreateRoom","name":"Travel","bot_account_ids":[42,43],"invite_human_partner":true}"#;
+        let raw = r#"{"kind":"CreateRoom","name":"Travel","invite_human_partner":true}"#;
         let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
         match frame {
             RoomClientFrame::CreateRoom {
                 name,
-                bot_account_ids,
                 invite_human_partner,
             } => {
                 assert_eq!(name.as_deref(), Some("Travel"));
-                assert_eq!(bot_account_ids, vec![42, 43]);
                 assert!(invite_human_partner);
             }
             _ => panic!("expected CreateRoom"),
@@ -461,27 +434,22 @@ mod tests {
                         username: "court".into(),
                         ed25519_pub: "AAAA".into(),
                         x25519_pub: "BBBB".into(),
-                        is_bot: false,
-                        owner_username: None,
                     },
                     Member {
                         account_id: 2,
-                        username: "court-garden".into(),
+                        username: "kaitlyn".into(),
                         ed25519_pub: "CCCC".into(),
                         x25519_pub: "DDDD".into(),
-                        is_bot: true,
-                        owner_username: Some("court".into()),
                     },
                 ],
                 created_at: "2026-06-09T17:00:00Z".parse().unwrap(),
             }],
-            owned_bots: vec![],
         };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"Rooms""#));
         assert!(s.contains(r#""members":["#));
-        assert!(s.contains(r#""is_bot":true"#));
-        assert!(s.contains(r#""owner_username":"court""#));
+        assert!(s.contains(r#""username":"court""#));
+        assert!(s.contains(r#""username":"kaitlyn""#));
     }
 
     #[test]
@@ -536,8 +504,6 @@ mod tests {
                 username: "court".into(),
                 ed25519_pub: "AAAA".into(),
                 x25519_pub: "BBBB".into(),
-                is_bot: false,
-                owner_username: None,
             }],
         };
         let s = serde_json::to_string(&f).unwrap();
@@ -560,11 +526,11 @@ mod tests {
     fn serializes_member_left_frame() {
         let f = RoomServerFrame::MemberLeft {
             room_id: "01J".into(),
-            username: "court-garden".into(),
+            username: "kaitlyn".into(),
         };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"MemberLeft""#));
-        assert!(s.contains(r#""username":"court-garden""#));
+        assert!(s.contains(r#""username":"kaitlyn""#));
     }
 
     #[test]
@@ -600,11 +566,9 @@ mod tests {
     }
 
     #[test]
-    fn error_codes_module_carries_v0_3_codes() {
+    fn error_codes_module_carries_pairing_codes() {
         assert_eq!(error_codes::FAN_OUT_MISMATCH, "FanOutMismatch");
         assert_eq!(error_codes::MONOGAMY_VIOLATION, "MonogamyViolation");
-        assert_eq!(error_codes::NOT_OWNED_BOT, "NotOwnedBot");
-        assert_eq!(error_codes::MEMBERSHIP_FROZEN, "MembershipFrozen");
-        assert_eq!(error_codes::BOT_SESSION_IN_USE, "BotSessionInUse");
+        assert_eq!(error_codes::ALREADY_PAIRED, "AlreadyPaired");
     }
 }

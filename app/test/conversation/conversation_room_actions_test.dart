@@ -21,17 +21,11 @@ Room _coupleRoom() => Room(
   roomId: 'rRoom',
   name: 'Original',
   members: const [
-    Member(
-      username: 'court',
-      ed25519PubBase64: 'AAA',
-      x25519PubBase64: 'BBB',
-      isBot: false,
-    ),
+    Member(username: 'court', ed25519PubBase64: 'AAA', x25519PubBase64: 'BBB'),
     Member(
       username: 'kaitlyn',
       ed25519PubBase64: 'CCC',
       x25519PubBase64: 'DDD',
-      isBot: false,
     ),
   ],
   createdAt: DateTime.utc(2026, 6, 10),
@@ -41,25 +35,13 @@ Room _threeMemberRoom() => Room(
   roomId: 'rTri',
   name: '',
   members: const [
-    Member(
-      username: 'court',
-      ed25519PubBase64: 'AAA',
-      x25519PubBase64: 'BBB',
-      isBot: false,
-    ),
+    Member(username: 'court', ed25519PubBase64: 'AAA', x25519PubBase64: 'BBB'),
     Member(
       username: 'kaitlyn',
       ed25519PubBase64: 'CCC',
       x25519PubBase64: 'DDD',
-      isBot: false,
     ),
-    Member(
-      username: 'court-garden',
-      ed25519PubBase64: 'EEE',
-      x25519PubBase64: 'FFF',
-      isBot: true,
-      ownerUsername: 'court',
-    ),
+    Member(username: 'riley', ed25519PubBase64: 'EEE', x25519PubBase64: 'FFF'),
   ],
   createdAt: DateTime.utc(2026, 6, 10),
 );

@@ -2,17 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../inbox/inbox_state.dart';
-import '../../inbox/owned_bots_provider.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
 
-/// Step 1 of 2 — pick partner + familiars, then issue `CreateRoom`.
-///
-/// Per mocks/v0.3/create-chat-pick.html. `botAccountIds` is left empty for now:
-/// the wire `Member` shape (spec §7.1) does not carry account_id, so the
-/// client cannot send familiar IDs without a separate amendment. The picker
-/// still renders owned bots so the UI is functional once the amendment lands.
+/// "New chat" — name the chat and optionally include your partner, then
+/// issue `CreateRoom`.
 class CreateChatPickScreen extends ConsumerStatefulWidget {
   const CreateChatPickScreen({super.key, required this.selfUsername});
 
@@ -26,7 +21,6 @@ class CreateChatPickScreen extends ConsumerStatefulWidget {
 class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
   bool _includePartner = false;
   bool _submitting = false;
-  final _selectedBotUsernames = <String>{};
   final _nameController = TextEditingController();
 
   @override
@@ -39,20 +33,10 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
     final rooms = ref.read(inboxStateProvider).rooms;
     for (final r in rooms) {
       for (final m in r.members) {
-        if (!m.isBot && m.username != widget.selfUsername) return m.username;
+        if (m.username != widget.selfUsername) return m.username;
       }
     }
     return null;
-  }
-
-  void _toggleBot(String username) {
-    setState(() {
-      if (_selectedBotUsernames.contains(username)) {
-        _selectedBotUsernames.remove(username);
-      } else {
-        _selectedBotUsernames.add(username);
-      }
-    });
   }
 
   Future<void> _create() async {
@@ -65,20 +49,11 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
       );
       return;
     }
-    // Resolve checked familiars to account ids. The server addresses bots by
-    // id (CreateRoom.bot_account_ids), so a bot with no id can't be added.
-    final bots = ref.read(ownedBotsProvider);
-    final botAccountIds = <int>[
-      for (final b in bots)
-        if (_selectedBotUsernames.contains(b.username) && b.accountId != null)
-          b.accountId!,
-    ];
     setState(() => _submitting = true);
     final rawName = _nameController.text.trim();
     conn.send(
       CreateRoomFrame(
         name: rawName.isEmpty ? null : rawName,
-        botAccountIds: botAccountIds,
         inviteHumanPartner: _includePartner,
       ).toJson(),
     );
@@ -90,7 +65,6 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bots = ref.watch(ownedBotsProvider);
     final partnerUsername = _knownPartnerUsername();
 
     return Scaffold(
@@ -115,9 +89,8 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              "You'll always be in it. Pick your partner if they should be, "
-              "and any familiars you want listening. Membership is fixed "
-              "once the chat is created.",
+              "You'll always be in it. Pick your partner if they should be. "
+              "Membership is fixed once the chat is created.",
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 14,
@@ -166,27 +139,13 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
                 ),
               ),
             ],
-            const SizedBox(height: 24),
-            const _GroupHeader(label: '02 · FAMILIARS'),
-            const SizedBox(height: 8),
-            if (bots.isEmpty)
-              const _EmptyHint(
-                key: Key('familiars-empty-hint'),
-                text: 'No familiars yet. Create one first.',
-              ),
-            for (final b in bots)
-              _FamiliarRow(
-                bot: b,
-                checked: _selectedBotUsernames.contains(b.username),
-                onTap: () => _toggleBot(b.username),
-              ),
             const SizedBox(height: 32),
-            if (partnerUsername == null && bots.isEmpty)
+            if (partnerUsername == null)
               const Padding(
                 padding: EdgeInsets.only(bottom: 12),
                 child: Text(
                   "Nothing to put in a chat yet. Pair with your partner "
-                  "or create a familiar first, then come back.",
+                  "first, then come back.",
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 13,
@@ -196,9 +155,7 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
               ),
             Builder(
               builder: (context) {
-                final hasSelection =
-                    (_includePartner && partnerUsername != null) ||
-                    _selectedBotUsernames.isNotEmpty;
+                final hasSelection = _includePartner && partnerUsername != null;
                 return FilledButton(
                   key: const Key('create-chat-button'),
                   onPressed: (!hasSelection || _submitting) ? null : _create,
@@ -277,34 +234,6 @@ class _PartnerRow extends StatelessWidget {
       initial: username[0].toUpperCase(),
       title: username,
       subtitle: 'PARTNER',
-      checked: checked,
-      onTap: onTap,
-    );
-  }
-}
-
-class _FamiliarRow extends StatelessWidget {
-  const _FamiliarRow({
-    required this.bot,
-    required this.checked,
-    required this.onTap,
-  });
-
-  final Member bot;
-  final bool checked;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final owner = bot.ownerUsername;
-    return _PickRow(
-      key: Key('familiar-row-${bot.username}'),
-      avBg: TwilightColors.accentFamiliar,
-      initial: bot.username.isEmpty ? '?' : bot.username[0].toUpperCase(),
-      title: bot.username,
-      subtitle: owner == null
-          ? 'FAMILIAR'
-          : "FAMILIAR · ${owner.toUpperCase()}",
       checked: checked,
       onTap: onTap,
     );

@@ -17,8 +17,6 @@ pub struct Member {
     pub username: String,
     pub ed25519_pub: Vec<u8>,
     pub x25519_pub: Vec<u8>,
-    pub is_bot: bool,
-    pub owner_username: Option<String>,
 }
 
 impl Member {
@@ -28,8 +26,6 @@ impl Member {
             username: self.username,
             ed25519_pub: B64.encode(self.ed25519_pub),
             x25519_pub: B64.encode(self.x25519_pub),
-            is_bot: self.is_bot,
-            owner_username: self.owner_username,
         }
     }
 }
@@ -55,44 +51,13 @@ impl RoomDetail {
     }
 }
 
-type MemberDbRow = (i64, String, Vec<u8>, Vec<u8>, bool, Option<String>);
-
-/// Familiars owned by `owner_id`, regardless of room membership.
-/// Spec §8.2 amendment — populates the `owned_bots` field on the
-/// post-Authenticated `Rooms` frame so the Create-Chat picker can list
-/// familiars that aren't yet in any room.
-pub async fn owned_bots_for_account(pool: &PgPool, owner_id: i64) -> sqlx::Result<Vec<Member>> {
-    let rows: Vec<MemberDbRow> = sqlx::query_as(
-        "SELECT a.id, a.username, a.ed25519_pub, a.x25519_pub, a.is_bot,
-                owner.username AS owner_username
-         FROM accounts a
-         JOIN accounts owner ON owner.id = a.owner_account_id
-         WHERE a.is_bot = TRUE AND a.owner_account_id = $1
-         ORDER BY a.username ASC",
-    )
-    .bind(owner_id)
-    .fetch_all(pool)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|(id, u, ed, x, b, ow)| Member {
-            account_id: id,
-            username: u,
-            ed25519_pub: ed,
-            x25519_pub: x,
-            is_bot: b,
-            owner_username: ow,
-        })
-        .collect())
-}
+type MemberDbRow = (i64, String, Vec<u8>, Vec<u8>);
 
 pub async fn members_for_room(pool: &PgPool, room_id: &str) -> sqlx::Result<Vec<Member>> {
     let rows: Vec<MemberDbRow> = sqlx::query_as(
-        "SELECT a.id, a.username, a.ed25519_pub, a.x25519_pub, a.is_bot,
-                owner.username AS owner_username
+        "SELECT a.id, a.username, a.ed25519_pub, a.x25519_pub
          FROM room_members m
          JOIN accounts a ON a.id = m.account_id
-         LEFT JOIN accounts owner ON owner.id = a.owner_account_id
          WHERE m.room_id = $1
          ORDER BY m.joined_at ASC",
     )
@@ -101,13 +66,11 @@ pub async fn members_for_room(pool: &PgPool, room_id: &str) -> sqlx::Result<Vec<
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(id, u, ed, x, b, ow)| Member {
+        .map(|(id, u, ed, x)| Member {
             account_id: id,
             username: u,
             ed25519_pub: ed,
             x25519_pub: x,
-            is_bot: b,
-            owner_username: ow,
         })
         .collect())
 }
@@ -330,44 +293,22 @@ pub async fn set_partner_link(pool: &PgPool, a: i64, b: i64) -> Result<(), PairE
     Ok(())
 }
 
-/// True iff `bot_id` is a familiar owned by `human_id` directly, or by the
-/// partner of `human_id`. Spec §5.1 step 3: either of the room's humans may
-/// bring a bot they own (or that their partner owns).
-pub async fn bot_owned_by(pool: &PgPool, bot_id: i64, human_id: i64) -> sqlx::Result<bool> {
-    let row: (Option<i64>, Option<i64>) = sqlx::query_as(
-        "SELECT (SELECT owner_account_id FROM accounts WHERE id = $1 AND is_bot = TRUE),
-                (SELECT partner_account_id FROM accounts WHERE id = $2)",
-    )
-    .bind(bot_id)
-    .bind(human_id)
-    .fetch_one(pool)
-    .await?;
-    let (owner, partner) = row;
-    let Some(owner) = owner else {
-        return Ok(false);
-    };
-    Ok(owner == human_id || matches!(partner, Some(p) if p == owner))
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum CreateRoomError {
     #[error(transparent)]
     Db(#[from] sqlx::Error),
 }
 
-/// Create a room with `host` as the initiating human, optional `partner`
+/// Create a room with `host` as the initiating human and optional `partner`
 /// (the host's already-linked human partner — auto-added when CreateRoom
-/// requests `invite_human_partner` and the requester is already paired),
-/// and `bots` as the pre-joined familiar account_ids. When `partner` is
-/// `None`, no second human is seeded; the host can either invite a
-/// stranger via the returned pending_invite or never add one. Returns the
-/// ULID `room_id`. Caller validates bot ownership via `bot_owned_by`
-/// before calling — this function does not re-check.
+/// requests `invite_human_partner` and the requester is already paired).
+/// When `partner` is `None`, no second human is seeded; the host can either
+/// invite a stranger via the returned pending_invite or never add one.
+/// Returns the ULID `room_id`.
 pub async fn create_room_with_members(
     pool: &PgPool,
     host: i64,
     partner: Option<i64>,
-    bots: &[i64],
     name: String,
 ) -> Result<String, CreateRoomError> {
     let room_id = Ulid::new().to_string();
@@ -377,8 +318,7 @@ pub async fn create_room_with_members(
         .bind(&name)
         .execute(&mut *tx)
         .await?;
-    let extras = partner.into_iter().chain(bots.iter().copied());
-    for account_id in std::iter::once(host).chain(extras) {
+    for account_id in std::iter::once(host).chain(partner) {
         sqlx::query(
             "INSERT INTO room_members (room_id, account_id) VALUES ($1, $2)
              ON CONFLICT DO NOTHING",
@@ -387,77 +327,6 @@ pub async fn create_room_with_members(
         .bind(account_id)
         .execute(&mut *tx)
         .await?;
-    }
-    tx.commit().await?;
-    Ok(room_id)
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum FamiliarConsumeError {
-    #[error("account is already a familiar")]
-    AlreadyFamiliar,
-    #[error("invite already consumed")]
-    AlreadyConsumed,
-    #[error(transparent)]
-    Db(#[from] sqlx::Error),
-}
-
-/// Atomically: flip `consumer` to a familiar owned by `inviter`, create a
-/// fresh 1:1 room with both as members, and mark the invite consumed — all in
-/// one transaction so a mid-sequence crash can never strand the familiar in a
-/// half-applied state. Returns the new room id. Errors `AlreadyFamiliar` if the
-/// consumer is no longer flippable (guarded by `is_bot = FALSE`). Errors
-/// `AlreadyConsumed` if the invite row was already consumed (race lost): the
-/// in-transaction `mark_consumed` UPDATE affects 0 rows, so the flip + room are
-/// rolled back, making the single-use invite the serialization point even when
-/// two distinct fresh accounts race to consume it.
-pub async fn consume_familiar_invite(
-    pool: &PgPool,
-    consumer: i64,
-    inviter: i64,
-    token_hash: &[u8],
-    when: DateTime<Utc>,
-) -> Result<String, FamiliarConsumeError> {
-    let mut tx = pool.begin().await?;
-    let flipped = sqlx::query(
-        "UPDATE accounts SET is_bot = TRUE, owner_account_id = $2
-         WHERE id = $1 AND is_bot = FALSE",
-    )
-    .bind(consumer)
-    .bind(inviter)
-    .execute(&mut *tx)
-    .await?;
-    if flipped.rows_affected() != 1 {
-        // rolls back on drop
-        return Err(FamiliarConsumeError::AlreadyFamiliar);
-    }
-    let room_id = Ulid::new().to_string();
-    sqlx::query("INSERT INTO rooms (id, name) VALUES ($1, $2)")
-        .bind(&room_id)
-        .bind("")
-        .execute(&mut *tx)
-        .await?;
-    for account_id in [inviter, consumer] {
-        sqlx::query(
-            "INSERT INTO room_members (room_id, account_id) VALUES ($1, $2)
-             ON CONFLICT DO NOTHING",
-        )
-        .bind(&room_id)
-        .bind(account_id)
-        .execute(&mut *tx)
-        .await?;
-    }
-    let consumed = sqlx::query(
-        "UPDATE invites SET consumed_at = $2 WHERE token_hash = $1 AND consumed_at IS NULL",
-    )
-    .bind(token_hash)
-    .bind(when)
-    .execute(&mut *tx)
-    .await?;
-    if consumed.rows_affected() != 1 {
-        // The invite was already consumed (race lost) — rolling back on drop
-        // undoes the flip + room so only the first consumer wins.
-        return Err(FamiliarConsumeError::AlreadyConsumed);
     }
     tx.commit().await?;
     Ok(room_id)
@@ -477,7 +346,7 @@ pub struct LeaveOutcome {
     pub room_deleted: bool,
 }
 
-/// Remove `account_id` from `room_id`. If the room has no humans left
+/// Remove `account_id` from `room_id`. If the room has no members left
 /// afterward, cascade-delete the room (and via ON DELETE CASCADE, its
 /// invites + messages). The WS handler resolves remaining usernames via
 /// `members_for_room` before issuing the `MemberLeft` broadcast.
@@ -492,15 +361,12 @@ pub async fn leave_room(
         .bind(account_id)
         .execute(&mut *tx)
         .await?;
-    let (humans,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM room_members m
-         JOIN accounts a ON a.id = m.account_id
-         WHERE m.room_id = $1 AND a.is_bot = FALSE",
-    )
-    .bind(room_id)
-    .fetch_one(&mut *tx)
-    .await?;
-    let room_deleted = if humans == 0 {
+    let (remaining,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM room_members WHERE room_id = $1")
+            .bind(room_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    let room_deleted = if remaining == 0 {
         sqlx::query("DELETE FROM rooms WHERE id = $1")
             .bind(room_id)
             .execute(&mut *tx)

@@ -42,18 +42,6 @@ async fn main() -> Result<()> {
             get(littlelove_api::accounts::get_account_by_username),
         )
         .route(
-            "/accounts/bot",
-            axum::routing::post(littlelove_api::accounts::create_bot_account),
-        )
-        .route(
-            "/accounts/bot/:label",
-            axum::routing::delete(littlelove_api::accounts::delete_bot_account),
-        )
-        .route(
-            "/accounts/bot/:label/delete-challenge",
-            axum::routing::post(littlelove_api::accounts::create_delete_challenge),
-        )
-        .route(
             "/invites/:code/preview",
             axum::routing::post(littlelove_api::invites::preview_invite),
         )

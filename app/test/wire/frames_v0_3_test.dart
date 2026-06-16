@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/wire/frames.dart';
 
 void main() {
-  test('RoomsFrame parses members array and owned_bots', () {
+  test('RoomsFrame parses members array', () {
     final raw =
         jsonDecode('''
 {
@@ -12,39 +12,24 @@ void main() {
   "rooms":[
     {"room_id":"01J","name":"Garden",
      "members":[
-       {"username":"court","ed25519_pub":"AAAA","x25519_pub":"BBBB","is_bot":false},
-       {"username":"court-garden","ed25519_pub":"CCCC","x25519_pub":"DDDD","is_bot":true,"owner_username":"court"}
+       {"username":"court","ed25519_pub":"AAAA","x25519_pub":"BBBB"},
+       {"username":"kaitlyn","ed25519_pub":"CCCC","x25519_pub":"DDDD"}
      ],
      "created_at":"2026-06-10T17:00:00Z"}
-  ],
-  "owned_bots":[
-    {"username":"court-journal","ed25519_pub":"EEEE","x25519_pub":"FFFF","is_bot":true,"owner_username":"court"}
   ]
 }''')
             as Map<String, Object?>;
     final f = RoomServerFrame.fromJson(raw) as RoomsFrame;
     expect(f.rooms.single.name, 'Garden');
     expect(f.rooms.single.members.length, 2);
-    expect(f.rooms.single.members.last.isBot, true);
-    expect(f.rooms.single.members.last.ownerUsername, 'court');
-    expect(f.ownedBots.single.username, 'court-journal');
-  });
-
-  test('RoomsFrame defaults owned_bots to empty when absent', () {
-    final raw =
-        jsonDecode('''
-{"kind":"Rooms","rooms":[]}
-''')
-            as Map<String, Object?>;
-    final f = RoomServerFrame.fromJson(raw) as RoomsFrame;
-    expect(f.ownedBots, isEmpty);
+    expect(f.rooms.single.members.last.username, 'kaitlyn');
   });
 
   test('RoomCreatedFrame parses pending_invite when present', () {
     final raw =
         jsonDecode('''
 {"kind":"RoomCreated","room_id":"01J","name":"Travel",
- "members":[{"username":"court","ed25519_pub":"AAAA","x25519_pub":"BBBB","is_bot":false}],
+ "members":[{"username":"court","ed25519_pub":"AAAA","x25519_pub":"BBBB"}],
  "pending_invite":{"code":"amber-fern-locket-tide","qr_png_base64":"","expires_at":"2026-06-10T19:00:00Z"}
 }''')
             as Map<String, Object?>;
@@ -58,7 +43,7 @@ void main() {
     final raw =
         jsonDecode('''
 {"kind":"RoomCreated","room_id":"01J","name":"",
- "members":[{"username":"court","ed25519_pub":"AAAA","x25519_pub":"BBBB","is_bot":false}]
+ "members":[{"username":"court","ed25519_pub":"AAAA","x25519_pub":"BBBB"}]
 }''')
             as Map<String, Object?>;
     final f = RoomServerFrame.fromJson(raw) as RoomCreatedFrame;
@@ -70,8 +55,8 @@ void main() {
         jsonDecode('''
 {"kind":"InviteConsumed","room_id":"01J","name":"",
  "members":[
-   {"username":"court","ed25519_pub":"AAAA","x25519_pub":"BBBB","is_bot":false},
-   {"username":"kaitlyn","ed25519_pub":"CCCC","x25519_pub":"DDDD","is_bot":false}
+   {"username":"court","ed25519_pub":"AAAA","x25519_pub":"BBBB"},
+   {"username":"kaitlyn","ed25519_pub":"CCCC","x25519_pub":"DDDD"}
  ]
 }''')
             as Map<String, Object?>;
@@ -113,12 +98,10 @@ void main() {
   test('CreateRoomFrame / RenameRoomFrame / LeaveRoomFrame serialize', () {
     final c = const CreateRoomFrame(
       name: 'Garden',
-      botAccountIds: [42],
       inviteHumanPartner: false,
     ).toJson();
     expect(c['kind'], 'CreateRoom');
     expect(c['name'], 'Garden');
-    expect(c['bot_account_ids'], [42]);
     expect(c['invite_human_partner'], false);
 
     final r = const RenameRoomFrame(roomId: '01J', name: 'x').toJson();
@@ -129,11 +112,5 @@ void main() {
     final l = const LeaveRoomFrame(roomId: '01J').toJson();
     expect(l['kind'], 'LeaveRoom');
     expect(l['room_id'], '01J');
-  });
-
-  test('CreateFamiliarInviteFrame serializes to a bare kind tag', () {
-    final j = const CreateFamiliarInviteFrame().toJson();
-    expect(j['kind'], 'CreateFamiliarInvite');
-    expect(j.length, 1, reason: 'frame should carry no payload fields');
   });
 }

@@ -50,36 +50,27 @@ class IdentifyFrame {
 
 // ---------- Shared payload types (spec §8.2 v0.3) ----------
 
-/// One participant of a room (human or familiar). Same shape used by
-/// `Rooms`, `RoomCreated`, `InviteConsumed` payloads.
+/// One participant of a room. Same shape used by `Rooms`, `RoomCreated`,
+/// `InviteConsumed` payloads.
 class Member {
   const Member({
     required this.username,
     required this.ed25519PubBase64,
     required this.x25519PubBase64,
-    required this.isBot,
     this.accountId,
-    this.ownerUsername,
   });
 
-  /// Server-assigned account id. Used to address familiars in
-  /// `CreateRoomFrame.botAccountIds`. Null when the server omits it.
+  /// Server-assigned account id. Null when the server omits it.
   final int? accountId;
   final String username;
   final String ed25519PubBase64;
   final String x25519PubBase64;
-  final bool isBot;
-
-  /// Present for familiars (`isBot == true`); null for humans.
-  final String? ownerUsername;
 
   factory Member.fromJson(Map<String, Object?> j) => Member(
     accountId: (j['account_id'] as num?)?.toInt(),
     username: j['username']! as String,
     ed25519PubBase64: j['ed25519_pub']! as String,
     x25519PubBase64: j['x25519_pub']! as String,
-    isBot: (j['is_bot'] as bool?) ?? false,
-    ownerUsername: j['owner_username'] as String?,
   );
 }
 
@@ -144,10 +135,6 @@ sealed class RoomServerFrame {
               .cast<Map<String, Object?>>()
               .map(RoomDetail.fromJson)
               .toList(growable: false),
-          ownedBots: ((json['owned_bots'] as List<dynamic>?) ?? const [])
-              .cast<Map<String, Object?>>()
-              .map(Member.fromJson)
-              .toList(growable: false),
         );
       case 'InviteCreated':
         return InviteCreatedFrame(
@@ -210,9 +197,8 @@ sealed class RoomServerFrame {
 }
 
 class RoomsFrame extends RoomServerFrame {
-  const RoomsFrame({required this.rooms, required this.ownedBots});
+  const RoomsFrame({required this.rooms});
   final List<RoomDetail> rooms;
-  final List<Member> ownedBots;
 }
 
 class InviteCreatedFrame extends RoomServerFrame {
@@ -310,14 +296,6 @@ class ConsumeInviteFrame {
   };
 }
 
-class CreateFamiliarInviteFrame {
-  const CreateFamiliarInviteFrame();
-
-  Map<String, Object?> toJson() => <String, Object?>{
-    'kind': 'CreateFamiliarInvite',
-  };
-}
-
 class SubscribeFrame {
   const SubscribeFrame({required this.roomId, required this.sinceMessageId});
   final String roomId;
@@ -351,19 +329,13 @@ class SendFrame {
 }
 
 class CreateRoomFrame {
-  const CreateRoomFrame({
-    this.name,
-    required this.botAccountIds,
-    required this.inviteHumanPartner,
-  });
+  const CreateRoomFrame({this.name, required this.inviteHumanPartner});
   final String? name;
-  final List<int> botAccountIds;
   final bool inviteHumanPartner;
 
   Map<String, Object?> toJson() => <String, Object?>{
     'kind': 'CreateRoom',
     'name': name,
-    'bot_account_ids': botAccountIds,
     'invite_human_partner': inviteHumanPartner,
   };
 }

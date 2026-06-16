@@ -1,3 +1,10 @@
+> **HISTORICAL — superseded (annotated 2026-06-16).** This document predates the
+> removal of the AI "familiar" / bring-your-own-model feature. LittleLove is now a
+> couples-first, channels-based, fully end-to-end-encrypted messenger with **no AI
+> and no familiars**. Any mention below of bots, familiars, character cards, LLMs,
+> or cloud/local AI describes a **retired** design and does NOT reflect the current
+> product. For current framing see `README.md` and `docs/positioning.md`.
+
 # LittleLove Bot — Long-Term Memory Design (v0.3)
 
 **Status:** draft, awaiting Court's review

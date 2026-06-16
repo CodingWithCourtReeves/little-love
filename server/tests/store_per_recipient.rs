@@ -8,11 +8,11 @@ use littlelove_api::store::MessageRow;
 #[serial_test::serial]
 async fn insert_and_replay_per_recipient() {
     let store = common::fresh_store().await;
-    let (court, kait, garden, room) = common::seed_couple_plus_bot(&store).await;
+    let (court, kait, riley, room) = common::seed_trio_room(&store).await;
 
     let ts = chrono::Utc::now();
     let id = ulid::Ulid::new().to_string();
-    for (rcpt, body) in [(kait, "b_kait"), (garden, "b_garden")] {
+    for (rcpt, body) in [(kait, "b_kait"), (riley, "b_riley")] {
         store
             .insert(MessageRow {
                 id: id.clone(),
@@ -34,19 +34,19 @@ async fn insert_and_replay_per_recipient() {
     assert_eq!(kait_msgs[0].body, "b_kait");
     assert_eq!(kait_msgs[0].id, id);
 
-    let garden_msgs = store
-        .messages_for_recipient(&room, garden, None)
+    let riley_msgs = store
+        .messages_for_recipient(&room, riley, None)
         .await
         .unwrap();
-    assert_eq!(garden_msgs.len(), 1);
-    assert_eq!(garden_msgs[0].body, "b_garden");
+    assert_eq!(riley_msgs.len(), 1);
+    assert_eq!(riley_msgs[0].body, "b_riley");
 }
 
 #[tokio::test]
 #[serial_test::serial]
 async fn since_message_id_skips_replay_at_or_before() {
     let store = common::fresh_store().await;
-    let (court, kait, _garden, room) = common::seed_couple_plus_bot(&store).await;
+    let (court, kait, _riley, room) = common::seed_trio_room(&store).await;
 
     let ts = chrono::Utc::now();
     // Hand-rolled, strictly-ordered ULID strings — two calls to Ulid::new() in

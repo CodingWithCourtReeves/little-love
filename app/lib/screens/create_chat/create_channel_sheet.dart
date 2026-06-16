@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../inbox/owned_bots_provider.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
@@ -46,7 +45,6 @@ class _CreateChannelSheet extends ConsumerStatefulWidget {
 class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
   final _controller = TextEditingController();
   final _focus = FocusNode();
-  final _selectedBots = <String>{};
   bool _submitting = false;
 
   @override
@@ -78,27 +76,14 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
       );
       return;
     }
-    final bots = ref.read(ownedBotsProvider);
-    final botAccountIds = <int>[
-      for (final b in bots)
-        if (_selectedBots.contains(b.username) && b.accountId != null)
-          b.accountId!,
-    ];
     setState(() => _submitting = true);
     // Mirror create_chat_pick_screen.dart: conn.send(Frame.toJson())
-    conn.send(
-      CreateRoomFrame(
-        name: name,
-        botAccountIds: botAccountIds,
-        inviteHumanPartner: true,
-      ).toJson(),
-    );
+    conn.send(CreateRoomFrame(name: name, inviteHumanPartner: true).toJson());
     if (mounted) Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
-    final bots = ref.watch(ownedBotsProvider);
     final preview = _formatted.isEmpty ? 'channel' : _formatted;
     return SafeArea(
       child: Padding(
@@ -128,7 +113,7 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
             ),
             const SizedBox(height: 6),
             const Text(
-              'A topic room just for the two of you. Add a familiar to listen in.',
+              'A topic room just for the two of you.',
               style: TextStyle(fontSize: 13, color: TwilightColors.textMuted),
             ),
             const SizedBox(height: 20),
@@ -175,33 +160,6 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
               ),
             ),
             const SizedBox(height: 16),
-            if (bots.isNotEmpty) ...[
-              const Text(
-                'ADD A FAMILIAR · OPTIONAL',
-                style: TextStyle(
-                  fontSize: 10,
-                  letterSpacing: 1.8,
-                  color: TwilightColors.accentFamiliar,
-                ),
-              ),
-              const SizedBox(height: 8),
-              for (final b in bots)
-                CheckboxListTile(
-                  key: Key('channel-familiar-${b.username}'),
-                  value: _selectedBots.contains(b.username),
-                  onChanged: (v) => setState(() {
-                    if (v == true) {
-                      _selectedBots.add(b.username);
-                    } else {
-                      _selectedBots.remove(b.username);
-                    }
-                  }),
-                  title: Text(b.username),
-                  controlAffinity: ListTileControlAffinity.trailing,
-                  activeColor: TwilightColors.accentUser,
-                ),
-              const SizedBox(height: 8),
-            ],
             FilledButton(
               key: const Key('create-channel-button'),
               onPressed: (_formatted.isEmpty || _submitting) ? null : _create,

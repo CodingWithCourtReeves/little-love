@@ -202,7 +202,7 @@ class _SectionLabel extends StatelessWidget {
       style: const TextStyle(
         fontSize: 10,
         letterSpacing: 2.0,
-        color: TwilightColors.accentFamiliar,
+        color: TwilightColors.accentSage,
       ),
     ),
   );

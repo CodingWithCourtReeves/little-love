@@ -26,7 +26,6 @@ import '../../wire/live_connection.dart';
 import '../create_chat/create_channel_sheet.dart';
 import '../create_chat/create_chat_invite_screen.dart';
 import '../create_chat/create_chat_pick_screen.dart';
-import '../pair/bring_familiar.dart';
 import '../pair/enter_code.dart';
 import '../pair/show_invite.dart';
 
@@ -86,7 +85,7 @@ class InboxShell extends ConsumerWidget {
                         fontSize: 11,
                         letterSpacing: 2.4,
                         fontWeight: FontWeight.w500,
-                        color: TwilightColors.accentFamiliar,
+                        color: TwilightColors.accentSage,
                       ),
                     ),
                     const SizedBox(height: 14),
@@ -287,28 +286,11 @@ class PairCard extends ConsumerWidget {
           _PairOption(
             glyph: '✦',
             title: 'Create a chat',
-            detail: 'Pick partner + familiars, then send the invite.',
+            detail: 'Pick your partner, then send the invite.',
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) =>
                     CreateChatPickScreen(selfUsername: account.username),
-              ),
-            ),
-          ),
-          const Divider(
-            height: 1,
-            thickness: 1,
-            color: TwilightColors.borderSoft,
-            indent: 18,
-            endIndent: 18,
-          ),
-          _PairOption(
-            glyph: '◆',
-            title: 'Add a familiar',
-            detail: 'Generate a code your familiar CLI enters to join you.',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const BringFamiliarScreen(),
               ),
             ),
           ),
@@ -365,7 +347,7 @@ class _PairOption extends StatelessWidget {
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                border: Border.all(color: TwilightColors.accentFamiliar),
+                border: Border.all(color: TwilightColors.accentSage),
                 borderRadius: BorderRadius.circular(2),
               ),
               alignment: Alignment.center,
@@ -375,7 +357,7 @@ class _PairOption extends StatelessWidget {
                   fontFamily: 'Inter',
                   fontSize: 16,
                   fontWeight: FontWeight.w500,
-                  color: TwilightColors.accentFamiliar,
+                  color: TwilightColors.accentSage,
                 ),
               ),
             ),

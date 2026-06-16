@@ -19,34 +19,6 @@ pub use littlelove_crypto::invite::{
 /// Invites expire 1 hour after creation per spec §4.2.
 pub const INVITE_TTL_SECONDS: i64 = 60 * 60;
 
-/// Discriminates a 'partner' invite (pairs two humans — existing behavior)
-/// from a 'familiar' invite (confers bot ownership on consume). Persisted as
-/// the `invites.kind` text column (migration 0008).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InviteKind {
-    Partner,
-    Familiar,
-}
-
-impl InviteKind {
-    /// The canonical DB text for this kind.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            InviteKind::Partner => "partner",
-            InviteKind::Familiar => "familiar",
-        }
-    }
-
-    /// Parse the DB text. Unknown values fall back to `Partner` (matches the
-    /// column default and keeps legacy rows interpretable).
-    pub fn from_db(s: &str) -> InviteKind {
-        match s {
-            "familiar" => InviteKind::Familiar,
-            _ => InviteKind::Partner,
-        }
-    }
-}
-
 /// One row in the `invites` table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InviteRow {
@@ -54,7 +26,6 @@ pub struct InviteRow {
     pub inviter_id: i64,
     pub expires_at: DateTime<Utc>,
     pub consumed_at: Option<DateTime<Utc>>,
-    pub kind: InviteKind,
 }
 
 /// State of an invite for handler error mapping (spec §4.2 + §8.2 Error
@@ -80,10 +51,8 @@ impl InviteRow {
 }
 
 /// Insert a fresh invite. Any outstanding (unconsumed) invites for the same
-/// `inviter_id` **and the same `kind`** are deleted first per spec §4.2
-/// ("Creating a new one revokes the prior"). Revocation is scoped to the kind
-/// so the partner and familiar invite flows don't stomp each other: minting a
-/// familiar invite leaves a pending partner invite intact, and vice versa.
+/// `inviter_id` are deleted first per spec §4.2 ("Creating a new one revokes
+/// the prior").
 ///
 /// `room_id` is `Some(_)` when the invite is created by `CreateRoom { invite_human_partner: true }`
 /// (the consumer joins the existing room) and `None` for the legacy `CreateInvite` WSS frame
@@ -94,23 +63,20 @@ pub async fn create_invite_record(
     token_hash: &[u8],
     expires_at: DateTime<Utc>,
     room_id: Option<&str>,
-    kind: InviteKind,
 ) -> sqlx::Result<()> {
     let mut tx = pool.begin().await?;
-    sqlx::query("DELETE FROM invites WHERE inviter_id = $1 AND consumed_at IS NULL AND kind = $2")
+    sqlx::query("DELETE FROM invites WHERE inviter_id = $1 AND consumed_at IS NULL")
         .bind(inviter_id)
-        .bind(kind.as_str())
         .execute(&mut *tx)
         .await?;
     sqlx::query(
-        "INSERT INTO invites (token_hash, inviter_id, expires_at, room_id, kind)
-         VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO invites (token_hash, inviter_id, expires_at, room_id)
+         VALUES ($1, $2, $3, $4)",
     )
     .bind(token_hash)
     .bind(inviter_id)
     .bind(expires_at)
     .bind(room_id)
-    .bind(kind.as_str())
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -129,24 +95,23 @@ pub async fn room_for_invite(pool: &PgPool, token_hash: &[u8]) -> sqlx::Result<O
     Ok(row.and_then(|(r,)| r))
 }
 
-type InviteDbRow = (Vec<u8>, i64, DateTime<Utc>, Option<DateTime<Utc>>, String);
+type InviteDbRow = (Vec<u8>, i64, DateTime<Utc>, Option<DateTime<Utc>>);
 
 /// Look up an invite by its token hash. Returns `None` if no such row.
 pub async fn lookup_invite(pool: &PgPool, token_hash: &[u8]) -> sqlx::Result<Option<InviteRow>> {
     let row: Option<InviteDbRow> = sqlx::query_as(
-        "SELECT token_hash, inviter_id, expires_at, consumed_at, kind
+        "SELECT token_hash, inviter_id, expires_at, consumed_at
          FROM invites WHERE token_hash = $1",
     )
     .bind(token_hash)
     .fetch_optional(pool)
     .await?;
     Ok(row.map(
-        |(token_hash, inviter_id, expires_at, consumed_at, kind)| InviteRow {
+        |(token_hash, inviter_id, expires_at, consumed_at)| InviteRow {
             token_hash,
             inviter_id,
             expires_at,
             consumed_at,
-            kind: InviteKind::from_db(&kind),
         },
     ))
 }
@@ -218,10 +183,10 @@ use serde::Serialize;
 
 use crate::ws::AppState;
 
-/// v0.3 invite preview (spec §8.1) — full room roster so the joining client
-/// can render the inviting household (humans + familiars) and choose whether
-/// to proceed. Legacy v0.2 invites (no `invites.room_id`) return 404; the
-/// v0.3 client always issues CreateRoom + invite_human_partner together.
+/// Invite preview (spec §8.1) — full room roster so the joining client can
+/// render the inviting partner and choose whether to proceed. Legacy v0.2
+/// invites (no `invites.room_id`) return 404; the client always issues
+/// CreateRoom + invite_human_partner together.
 #[derive(Debug, Serialize)]
 pub struct InvitePreviewResponse {
     pub room_id: String,
@@ -291,12 +256,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn invite_kind_round_trips_through_db_text() {
-        assert_eq!(InviteKind::Partner.as_str(), "partner");
-        assert_eq!(InviteKind::Familiar.as_str(), "familiar");
-        assert_eq!(InviteKind::from_db("partner"), InviteKind::Partner);
-        assert_eq!(InviteKind::from_db("familiar"), InviteKind::Familiar);
-        // Unknown / legacy values fall back to Partner (the column default).
-        assert_eq!(InviteKind::from_db("garbage"), InviteKind::Partner);
+    fn invite_state_classifies_against_now() {
+        let now = Utc::now();
+        let pending = InviteRow {
+            token_hash: vec![0u8; 32],
+            inviter_id: 1,
+            expires_at: now + Duration::seconds(60),
+            consumed_at: None,
+        };
+        assert_eq!(pending.state(now), InviteState::Pending);
+
+        let expired = InviteRow {
+            expires_at: now - Duration::seconds(1),
+            ..pending.clone()
+        };
+        assert_eq!(expired.state(now), InviteState::Expired);
+
+        let consumed = InviteRow {
+            consumed_at: Some(now),
+            ..pending.clone()
+        };
+        assert_eq!(consumed.state(now), InviteState::Consumed);
     }
 }

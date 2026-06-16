@@ -28,7 +28,6 @@ class Sidebar extends ConsumerWidget {
 
     final partners = bucket(RoomShape.partner);
     final chats = bucket(RoomShape.chat);
-    final familiars = bucket(RoomShape.familiar);
 
     ConversationListItem item(Room r) => ConversationListItem(
       key: Key('room-${r.roomId}'),
@@ -49,9 +48,6 @@ class Sidebar extends ConsumerWidget {
           const SizedBox(height: 16),
           _sectionHeader('CHATS', theme),
           ...chats.map(item),
-          const SizedBox(height: 16),
-          _sectionHeader('FAMILIARS', theme),
-          ...familiars.map(item),
           const Spacer(),
           Container(height: 1, color: TwilightColors.borderSoft),
           _footer(theme),

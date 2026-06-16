@@ -1,12 +1,12 @@
-//! Smoke test: migration 0006 applies cleanly on top of 0001–0005 and
-//! exposes the v0.3 schema deltas (is_bot/owner/partner on accounts,
-//! rooms.name, invites.room_id, dropped monogamy index).
+//! Smoke test: the migration chain applies cleanly and exposes the expected
+//! schema (partner link on accounts, rooms.name, invites.room_id, dropped
+//! monogamy index). Migration 0009 dropped the retired is_bot/owner columns.
 
 mod common;
 
 #[tokio::test]
 #[serial_test::serial]
-async fn migration_0006_creates_new_columns() {
+async fn migrations_expose_partner_schema() {
     let store = common::fresh_store().await;
     let pool = store.pool();
 
@@ -18,10 +18,14 @@ async fn migration_0006_creates_new_columns() {
     .fetch_all(pool)
     .await
     .unwrap();
-    assert_eq!(
-        cols.len(),
-        3,
-        "expected is_bot/owner_account_id/partner_account_id, got {cols:?}"
+    let names: std::collections::HashSet<String> = cols.into_iter().map(|(c,)| c).collect();
+    assert!(
+        names.contains("partner_account_id"),
+        "partner_account_id should exist, got {names:?}"
+    );
+    assert!(
+        !names.contains("is_bot") && !names.contains("owner_account_id"),
+        "is_bot/owner_account_id should be dropped by migration 0009, got {names:?}"
     );
 
     let name_col: Option<(String,)> = sqlx::query_as(

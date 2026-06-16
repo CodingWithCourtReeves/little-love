@@ -3,8 +3,6 @@ WORKDIR /build
 COPY Cargo.toml Cargo.lock* ./
 COPY crypto/Cargo.toml crypto/Cargo.toml
 COPY crypto/src crypto/src
-COPY bot/Cargo.toml bot/Cargo.toml
-COPY bot/src bot/src
 COPY server/Cargo.toml server/Cargo.toml
 COPY server/src server/src
 COPY server/migrations server/migrations

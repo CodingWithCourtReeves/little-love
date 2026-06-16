@@ -82,8 +82,7 @@ class CreateChatInviteScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Familiars are already members — they join the moment the chat is '
-              'created. Your partner becomes a member when they enter this code.',
+              'Your partner becomes a member the moment they enter this code.',
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 13,
@@ -264,10 +263,8 @@ class _RosterList extends StatelessWidget {
                 Container(
                   width: 28,
                   height: 28,
-                  decoration: BoxDecoration(
-                    color: m.isBot
-                        ? TwilightColors.accentFamiliar
-                        : TwilightColors.accentUser,
+                  decoration: const BoxDecoration(
+                    color: TwilightColors.accentUser,
                     shape: BoxShape.circle,
                   ),
                   alignment: Alignment.center,
@@ -297,7 +294,7 @@ class _RosterList extends StatelessWidget {
                   style: TextStyle(
                     fontFamily: 'JetBrainsMono',
                     fontSize: 10,
-                    color: TwilightColors.accentFamiliar,
+                    color: TwilightColors.accentSage,
                   ),
                 ),
               ],

@@ -70,12 +70,7 @@ void main() {
 
   test('send writes JSON to the sink', () async {
     final h = await _openConn();
-    h.conn.send(
-      const CreateRoomFrame(
-        botAccountIds: [],
-        inviteHumanPartner: true,
-      ).toJson(),
-    );
+    h.conn.send(const CreateRoomFrame(inviteHumanPartner: true).toJson());
     expect(h.sink.writes.length, 2); // Identify (handshake) + CreateRoom
     final last = jsonDecode(h.sink.writes.last) as Map<String, Object?>;
     expect(last['kind'], 'CreateRoom');
@@ -114,12 +109,7 @@ void main() {
       expect(didClose, isTrue);
 
       // The socket is dead; a send must be a no-op, not a write to a dead sink.
-      h.conn.send(
-        const CreateRoomFrame(
-          botAccountIds: [],
-          inviteHumanPartner: true,
-        ).toJson(),
-      );
+      h.conn.send(const CreateRoomFrame(inviteHumanPartner: true).toJson());
       expect(
         h.sink.writes.length,
         before,
