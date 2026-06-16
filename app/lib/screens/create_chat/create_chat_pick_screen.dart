@@ -1,0 +1,414 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../inbox/inbox_state.dart';
+import '../../inbox/owned_bots_provider.dart';
+import '../../theme/twilight.dart';
+import '../../wire/frames.dart';
+import '../../wire/live_connection.dart';
+
+/// Step 1 of 2 — pick partner + familiars, then issue `CreateRoom`.
+///
+/// Per mocks/v0.3/create-chat-pick.html. `botAccountIds` is left empty for now:
+/// the wire `Member` shape (spec §7.1) does not carry account_id, so the
+/// client cannot send familiar IDs without a separate amendment. The picker
+/// still renders owned bots so the UI is functional once the amendment lands.
+class CreateChatPickScreen extends ConsumerStatefulWidget {
+  const CreateChatPickScreen({super.key, required this.selfUsername});
+
+  final String selfUsername;
+
+  @override
+  ConsumerState<CreateChatPickScreen> createState() =>
+      _CreateChatPickScreenState();
+}
+
+class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
+  bool _includePartner = false;
+  bool _submitting = false;
+  final _selectedBotUsernames = <String>{};
+  final _nameController = TextEditingController();
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  String? _knownPartnerUsername() {
+    final rooms = ref.read(inboxStateProvider).rooms;
+    for (final r in rooms) {
+      for (final m in r.members) {
+        if (!m.isBot && m.username != widget.selfUsername) return m.username;
+      }
+    }
+    return null;
+  }
+
+  void _toggleBot(String username) {
+    setState(() {
+      if (_selectedBotUsernames.contains(username)) {
+        _selectedBotUsernames.remove(username);
+      } else {
+        _selectedBotUsernames.add(username);
+      }
+    });
+  }
+
+  Future<void> _create() async {
+    if (_submitting) return;
+    final conn = ref.read(liveConnectionProvider).asData?.value;
+    if (conn == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Not connected — try again in a moment.')),
+      );
+      return;
+    }
+    // Resolve checked familiars to account ids. The server addresses bots by
+    // id (CreateRoom.bot_account_ids), so a bot with no id can't be added.
+    final bots = ref.read(ownedBotsProvider);
+    final botAccountIds = <int>[
+      for (final b in bots)
+        if (_selectedBotUsernames.contains(b.username) && b.accountId != null)
+          b.accountId!,
+    ];
+    setState(() => _submitting = true);
+    final rawName = _nameController.text.trim();
+    conn.send(
+      CreateRoomFrame(
+        name: rawName.isEmpty ? null : rawName,
+        botAccountIds: botAccountIds,
+        inviteHumanPartner: _includePartner,
+      ).toJson(),
+    );
+    if (!mounted) return;
+    // Pop back to the inbox root; the router selects the new room when the
+    // RoomCreated frame lands, so the user arrives in the conversation.
+    Navigator.of(context).popUntil((route) => route.isFirst);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bots = ref.watch(ownedBotsProvider);
+    final partnerUsername = _knownPartnerUsername();
+
+    return Scaffold(
+      backgroundColor: TwilightColors.bgCanvas,
+      appBar: AppBar(
+        backgroundColor: TwilightColors.bgSurface,
+        title: const Text('New chat'),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              "Who's in this chat?",
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w500,
+                fontSize: 26,
+                color: TwilightColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "You'll always be in it. Pick your partner if they should be, "
+              "and any familiars you want listening. Membership is fixed "
+              "once the chat is created.",
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                color: TwilightColors.textMuted,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const _GroupHeader(label: '00 · NAME (OPTIONAL)'),
+            const SizedBox(height: 8),
+            TextField(
+              key: const Key('chat-name-field'),
+              controller: _nameController,
+              decoration: const InputDecoration(
+                hintText: 'e.g. travel planning, weekly check-in',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              maxLength: 64,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 15,
+                color: TwilightColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const _GroupHeader(label: '01 · PARTNER'),
+            const SizedBox(height: 8),
+            _PartnerRow(
+              partnerUsername: partnerUsername,
+              checked: _includePartner,
+              onTap: () => setState(() => _includePartner = !_includePartner),
+            ),
+            if (_includePartner && partnerUsername != null) ...[
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  "@$partnerUsername joins the moment the chat is created — "
+                  "no code, no waiting. You're already linked.",
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    color: TwilightColors.textMuted,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 24),
+            const _GroupHeader(label: '02 · FAMILIARS'),
+            const SizedBox(height: 8),
+            if (bots.isEmpty)
+              const _EmptyHint(
+                key: Key('familiars-empty-hint'),
+                text: 'No familiars yet. Create one first.',
+              ),
+            for (final b in bots)
+              _FamiliarRow(
+                bot: b,
+                checked: _selectedBotUsernames.contains(b.username),
+                onTap: () => _toggleBot(b.username),
+              ),
+            const SizedBox(height: 32),
+            if (partnerUsername == null && bots.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text(
+                  "Nothing to put in a chat yet. Pair with your partner "
+                  "or create a familiar first, then come back.",
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    color: TwilightColors.textMuted,
+                  ),
+                ),
+              ),
+            Builder(
+              builder: (context) {
+                final hasSelection =
+                    (_includePartner && partnerUsername != null) ||
+                    _selectedBotUsernames.isNotEmpty;
+                return FilledButton(
+                  key: const Key('create-chat-button'),
+                  onPressed: (!hasSelection || _submitting) ? null : _create,
+                  child: const Text('Create chat'),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupHeader extends StatelessWidget {
+  const _GroupHeader({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: const TextStyle(
+        fontFamily: 'JetBrainsMono',
+        fontSize: 10,
+        letterSpacing: 2.0,
+        color: TwilightColors.textMuted,
+      ),
+    );
+  }
+}
+
+class _EmptyHint extends StatelessWidget {
+  const _EmptyHint({super.key, required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 13,
+          color: TwilightColors.textMuted,
+        ),
+      ),
+    );
+  }
+}
+
+class _PartnerRow extends StatelessWidget {
+  const _PartnerRow({
+    required this.partnerUsername,
+    required this.checked,
+    required this.onTap,
+  });
+
+  final String? partnerUsername;
+  final bool checked;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final username = partnerUsername;
+    if (username == null) {
+      return const _EmptyHint(
+        key: Key('partner-empty-hint'),
+        text: 'No partner yet. Send an invite first.',
+      );
+    }
+    return _PickRow(
+      key: const Key('partner-row'),
+      avBg: TwilightColors.accentPartner,
+      initial: username[0].toUpperCase(),
+      title: username,
+      subtitle: 'PARTNER',
+      checked: checked,
+      onTap: onTap,
+    );
+  }
+}
+
+class _FamiliarRow extends StatelessWidget {
+  const _FamiliarRow({
+    required this.bot,
+    required this.checked,
+    required this.onTap,
+  });
+
+  final Member bot;
+  final bool checked;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final owner = bot.ownerUsername;
+    return _PickRow(
+      key: Key('familiar-row-${bot.username}'),
+      avBg: TwilightColors.accentFamiliar,
+      initial: bot.username.isEmpty ? '?' : bot.username[0].toUpperCase(),
+      title: bot.username,
+      subtitle: owner == null
+          ? 'FAMILIAR'
+          : "FAMILIAR · ${owner.toUpperCase()}",
+      checked: checked,
+      onTap: onTap,
+    );
+  }
+}
+
+class _PickRow extends StatelessWidget {
+  const _PickRow({
+    super.key,
+    required this.avBg,
+    required this.initial,
+    required this.title,
+    required this.subtitle,
+    required this.checked,
+    required this.onTap,
+  });
+
+  final Color avBg;
+  final String initial;
+  final String title;
+  final String subtitle;
+  final bool checked;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: checked ? TwilightColors.bgSurface : Colors.transparent,
+          border: Border.all(color: TwilightColors.borderSoft),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(color: avBg, shape: BoxShape.circle),
+              alignment: Alignment.center,
+              child: Text(
+                initial,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontWeight: FontWeight.w500,
+                  fontSize: 13,
+                  color: Color(0xFFFFFAFB),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w500,
+                      fontSize: 15,
+                      color: TwilightColors.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontFamily: 'JetBrainsMono',
+                      fontSize: 10,
+                      letterSpacing: 1.2,
+                      color: TwilightColors.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _Checkbox(checked: checked),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Checkbox extends StatelessWidget {
+  const _Checkbox({required this.checked});
+  final bool checked;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        color: checked ? TwilightColors.accentUser : Colors.transparent,
+        border: Border.all(
+          color: checked ? TwilightColors.accentUser : TwilightColors.textMuted,
+        ),
+      ),
+      alignment: Alignment.center,
+      child: checked
+          ? const Icon(Icons.check, size: 14, color: Color(0xFFFFFAFB))
+          : null,
+    );
+  }
+}

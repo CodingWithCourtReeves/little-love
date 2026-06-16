@@ -71,6 +71,7 @@ pub enum AuthServerFrame {
 #[serde(tag = "kind")]
 pub enum RoomClientFrame {
     CreateInvite,
+    CreateFamiliarInvite,
     ConsumeInvite {
         code: String,
         signature_over_token: String,
@@ -108,6 +109,12 @@ pub enum RoomClientFrame {
 pub enum RoomServerFrame {
     Rooms {
         rooms: Vec<RoomDetail>,
+        /// Spec §8.2 amendment (2026-06-10). Every familiar the
+        /// authenticated user owns. Lets the Create-Chat picker list
+        /// familiars not yet in any room. Empty array when the user owns
+        /// none.
+        #[serde(default)]
+        owned_bots: Vec<Member>,
     },
 
     InviteCreated {
@@ -148,6 +155,12 @@ pub enum RoomServerFrame {
         body: String,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         replayed: bool,
+        /// Echoed back to the sender on their own self-copy so the client can
+        /// reconcile the optimistic local echo (keyed by this id) with the
+        /// authoritative server row. Absent for messages addressed to other
+        /// recipients and for replayed history (not persisted).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_msg_id: Option<Uuid>,
     },
 
     Error {
@@ -160,6 +173,11 @@ pub enum RoomServerFrame {
 /// One member of a room (spec §7.1).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Member {
+    /// Stable account id. Lets the client address familiars by id when
+    /// issuing `CreateRoom { bot_account_ids }`. `#[serde(default)]` keeps
+    /// older payloads (which omit it) deserializable.
+    #[serde(default)]
+    pub account_id: i64,
     pub username: String,
     pub ed25519_pub: String,
     pub x25519_pub: String,
@@ -312,6 +330,13 @@ mod tests {
     }
 
     #[test]
+    fn parses_create_familiar_invite_frame() {
+        let raw = r#"{"kind":"CreateFamiliarInvite"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        assert!(matches!(frame, RoomClientFrame::CreateFamiliarInvite));
+    }
+
+    #[test]
     fn parses_consume_invite_frame() {
         let raw = r#"{"kind":"ConsumeInvite","code":"a-b-c-d","signature_over_token":"AAAA"}"#;
         let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
@@ -432,6 +457,7 @@ mod tests {
                 name: "".into(),
                 members: vec![
                     Member {
+                        account_id: 1,
                         username: "court".into(),
                         ed25519_pub: "AAAA".into(),
                         x25519_pub: "BBBB".into(),
@@ -439,6 +465,7 @@ mod tests {
                         owner_username: None,
                     },
                     Member {
+                        account_id: 2,
                         username: "court-garden".into(),
                         ed25519_pub: "CCCC".into(),
                         x25519_pub: "DDDD".into(),
@@ -448,6 +475,7 @@ mod tests {
                 ],
                 created_at: "2026-06-09T17:00:00Z".parse().unwrap(),
             }],
+            owned_bots: vec![],
         };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"Rooms""#));
@@ -504,6 +532,7 @@ mod tests {
             room_id: "01J".into(),
             name: "".into(),
             members: vec![Member {
+                account_id: 1,
                 username: "court".into(),
                 ed25519_pub: "AAAA".into(),
                 x25519_pub: "BBBB".into(),
@@ -547,10 +576,15 @@ mod tests {
             ts: "2026-06-09T17:00:00Z".parse().unwrap(),
             body: "hi".into(),
             replayed: false,
+            client_msg_id: None,
         };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"Message""#));
         assert!(!s.contains("replayed"), "false replayed should be omitted");
+        assert!(
+            !s.contains("client_msg_id"),
+            "absent client_msg_id should be omitted"
+        );
     }
 
     #[test]

@@ -6,8 +6,31 @@ import 'package:littlelove/conversation/conversation_page.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
+import 'package:littlelove/inbox/inbox_state.dart';
+import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/theme/twilight.dart';
+import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
+
+Room _roomA() => Room(
+  roomId: 'roomA',
+  name: 'Kaitlyn',
+  members: const [
+    Member(
+      username: 'court',
+      ed25519PubBase64: 'AAA',
+      x25519PubBase64: 'BBB',
+      isBot: false,
+    ),
+    Member(
+      username: 'kaitlyn',
+      ed25519PubBase64: 'CCC',
+      x25519PubBase64: 'DDD',
+      isBot: false,
+    ),
+  ],
+  createdAt: DateTime.utc(2026, 6, 9),
+);
 
 final _account = LocalAccount(
   username: 'court',
@@ -27,6 +50,8 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
+    container.read(inboxStateProvider.notifier).setRooms([_roomA()]);
+    container.read(inboxStateProvider.notifier).select('roomA');
     container.read(messageStoreProvider('roomA').notifier).setAll([
       Msg(
         id: '1',
@@ -49,8 +74,8 @@ void main() {
         child: MaterialApp(
           theme: buildTwilightTheme(),
           home: ConversationPage(
-            roomId: 'roomA',
-            contactDisplayName: 'Kaitlyn',
+            room: _roomA(),
+            selfUsername: 'court',
             onSend: (_) {},
           ),
         ),
@@ -59,7 +84,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('hey love'), findsOneWidget);
     expect(find.text('long. miss you.'), findsOneWidget);
-    expect(find.text('Kaitlyn'), findsWidgets);
+    expect(find.byKey(const Key('channel-switcher-pill')), findsOneWidget);
   });
 
   testWidgets('tapping send button fires onSend', (tester) async {
@@ -77,8 +102,8 @@ void main() {
         child: MaterialApp(
           theme: buildTwilightTheme(),
           home: ConversationPage(
-            roomId: 'roomA',
-            contactDisplayName: 'Kaitlyn',
+            room: _roomA(),
+            selfUsername: 'court',
             onSend: (t) => sent = t,
           ),
         ),

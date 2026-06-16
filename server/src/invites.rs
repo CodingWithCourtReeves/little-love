@@ -19,6 +19,34 @@ pub use littlelove_crypto::invite::{
 /// Invites expire 1 hour after creation per spec §4.2.
 pub const INVITE_TTL_SECONDS: i64 = 60 * 60;
 
+/// Discriminates a 'partner' invite (pairs two humans — existing behavior)
+/// from a 'familiar' invite (confers bot ownership on consume). Persisted as
+/// the `invites.kind` text column (migration 0008).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InviteKind {
+    Partner,
+    Familiar,
+}
+
+impl InviteKind {
+    /// The canonical DB text for this kind.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InviteKind::Partner => "partner",
+            InviteKind::Familiar => "familiar",
+        }
+    }
+
+    /// Parse the DB text. Unknown values fall back to `Partner` (matches the
+    /// column default and keeps legacy rows interpretable).
+    pub fn from_db(s: &str) -> InviteKind {
+        match s {
+            "familiar" => InviteKind::Familiar,
+            _ => InviteKind::Partner,
+        }
+    }
+}
+
 /// One row in the `invites` table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InviteRow {
@@ -26,6 +54,7 @@ pub struct InviteRow {
     pub inviter_id: i64,
     pub expires_at: DateTime<Utc>,
     pub consumed_at: Option<DateTime<Utc>>,
+    pub kind: InviteKind,
 }
 
 /// State of an invite for handler error mapping (spec §4.2 + §8.2 Error
@@ -51,8 +80,10 @@ impl InviteRow {
 }
 
 /// Insert a fresh invite. Any outstanding (unconsumed) invites for the same
-/// `inviter_id` are deleted first per spec §4.2 ("Creating a new one revokes
-/// the prior").
+/// `inviter_id` **and the same `kind`** are deleted first per spec §4.2
+/// ("Creating a new one revokes the prior"). Revocation is scoped to the kind
+/// so the partner and familiar invite flows don't stomp each other: minting a
+/// familiar invite leaves a pending partner invite intact, and vice versa.
 ///
 /// `room_id` is `Some(_)` when the invite is created by `CreateRoom { invite_human_partner: true }`
 /// (the consumer joins the existing room) and `None` for the legacy `CreateInvite` WSS frame
@@ -63,20 +94,23 @@ pub async fn create_invite_record(
     token_hash: &[u8],
     expires_at: DateTime<Utc>,
     room_id: Option<&str>,
+    kind: InviteKind,
 ) -> sqlx::Result<()> {
     let mut tx = pool.begin().await?;
-    sqlx::query("DELETE FROM invites WHERE inviter_id = $1 AND consumed_at IS NULL")
+    sqlx::query("DELETE FROM invites WHERE inviter_id = $1 AND consumed_at IS NULL AND kind = $2")
         .bind(inviter_id)
+        .bind(kind.as_str())
         .execute(&mut *tx)
         .await?;
     sqlx::query(
-        "INSERT INTO invites (token_hash, inviter_id, expires_at, room_id)
-         VALUES ($1, $2, $3, $4)",
+        "INSERT INTO invites (token_hash, inviter_id, expires_at, room_id, kind)
+         VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(token_hash)
     .bind(inviter_id)
     .bind(expires_at)
     .bind(room_id)
+    .bind(kind.as_str())
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -95,22 +129,24 @@ pub async fn room_for_invite(pool: &PgPool, token_hash: &[u8]) -> sqlx::Result<O
     Ok(row.and_then(|(r,)| r))
 }
 
-type InviteDbRow = (Vec<u8>, i64, DateTime<Utc>, Option<DateTime<Utc>>);
+type InviteDbRow = (Vec<u8>, i64, DateTime<Utc>, Option<DateTime<Utc>>, String);
 
 /// Look up an invite by its token hash. Returns `None` if no such row.
 pub async fn lookup_invite(pool: &PgPool, token_hash: &[u8]) -> sqlx::Result<Option<InviteRow>> {
     let row: Option<InviteDbRow> = sqlx::query_as(
-        "SELECT token_hash, inviter_id, expires_at, consumed_at FROM invites WHERE token_hash = $1",
+        "SELECT token_hash, inviter_id, expires_at, consumed_at, kind
+         FROM invites WHERE token_hash = $1",
     )
     .bind(token_hash)
     .fetch_optional(pool)
     .await?;
     Ok(row.map(
-        |(token_hash, inviter_id, expires_at, consumed_at)| InviteRow {
+        |(token_hash, inviter_id, expires_at, consumed_at, kind)| InviteRow {
             token_hash,
             inviter_id,
             expires_at,
             consumed_at,
+            kind: InviteKind::from_db(&kind),
         },
     ))
 }
@@ -248,4 +284,19 @@ pub async fn preview_invite(
         expires_at: invite.expires_at,
     })
     .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invite_kind_round_trips_through_db_text() {
+        assert_eq!(InviteKind::Partner.as_str(), "partner");
+        assert_eq!(InviteKind::Familiar.as_str(), "familiar");
+        assert_eq!(InviteKind::from_db("partner"), InviteKind::Partner);
+        assert_eq!(InviteKind::from_db("familiar"), InviteKind::Familiar);
+        // Unknown / legacy values fall back to Partner (the column default).
+        assert_eq!(InviteKind::from_db("garbage"), InviteKind::Partner);
+    }
 }

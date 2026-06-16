@@ -18,6 +18,10 @@ class _StubTransport implements PairingTransport {
   }
 
   @override
+  Future<InviteCreatedFrame> createFamiliarInvite() =>
+      throw UnimplementedError();
+
+  @override
   Future<InviteConsumedFrame> consumeInvite({
     required String code,
     required Uint8List signature,

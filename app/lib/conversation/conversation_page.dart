@@ -5,11 +5,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../identity/providers.dart';
+import '../inbox/channel_switcher.dart';
+import '../inbox/room.dart';
 import '../theme/twilight.dart';
 import '../wire/message.dart';
 import 'message_store.dart';
 
 typedef SendCallback = void Function(String text);
+typedef RenameCallback = void Function(String newName);
 
 class _SendIntent extends Intent {
   const _SendIntent();
@@ -42,14 +45,21 @@ class _GapItem extends _Item {
 class ConversationPage extends ConsumerStatefulWidget {
   const ConversationPage({
     super.key,
-    required this.roomId,
-    required this.contactDisplayName,
+    required this.room,
+    required this.selfUsername,
     required this.onSend,
+    this.onRename,
+    this.onNewChannel,
   });
 
-  final String roomId;
-  final String contactDisplayName;
+  final Room room;
+  final String selfUsername;
   final SendCallback onSend;
+  final RenameCallback? onRename;
+  final VoidCallback? onNewChannel;
+
+  String get roomId => room.roomId;
+  String get contactDisplayName => room.displayName(selfUsername);
 
   @override
   ConsumerState<ConversationPage> createState() => _ConversationPageState();
@@ -124,6 +134,50 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     _handleSubmit(_controller.text);
   }
 
+  Future<void> _showRenameDialog() async {
+    final controller = TextEditingController(text: widget.room.name);
+    final newName = await showDialog<String?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename chat'),
+        content: TextField(
+          key: const Key('rename-dialog-field'),
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Chat name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('rename-dialog-save'),
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (newName == null) return;
+    widget.onRename?.call(newName);
+  }
+
+  Color _senderColor(String username) {
+    if (username == widget.selfUsername) return TwilightColors.accentUser;
+    // Stable hash → one of three accents per spec §7.5 (sage / mauve / wine).
+    const palette = <Color>[
+      Color(0xFF4F7A5E), // sage
+      Color(0xFF9C7E94), // mauve
+      Color(0xFF8A3E5A), // wine
+    ];
+    var h = 0;
+    for (final c in username.codeUnits) {
+      h = (h * 31 + c) & 0x7fffffff;
+    }
+    return palette[h % palette.length];
+  }
+
   @override
   Widget build(BuildContext context) {
     final messages = ref.watch(messageStoreProvider(widget.roomId));
@@ -155,53 +209,36 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
         titleSpacing: 8,
-        title: Row(
-          children: [
-            _PeerAvatar(label: widget.contactDisplayName),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    widget.contactDisplayName,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: -0.1,
-                      color: TwilightColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      _Dot(color: TwilightColors.accentFamiliar),
-                      SizedBox(width: 6),
-                      Text(
-                        'paired',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 11,
-                          letterSpacing: 0.6,
-                          color: TwilightColors.accentFamiliar,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
+        title: ChannelSwitcher(
+          selfUsername: widget.selfUsername,
+          onNewChannel: widget.onNewChannel,
         ),
-        actions: const [
-          Padding(
+        actions: [
+          const Padding(
             padding: EdgeInsets.symmetric(horizontal: 16),
             child: _E2ESeal(),
           ),
+          if (widget.onRename != null)
+            PopupMenuButton<String>(
+              key: const Key('room-menu-button'),
+              icon: const Icon(
+                Icons.more_vert,
+                color: TwilightColors.textMuted,
+              ),
+              onSelected: (value) {
+                if (value == 'rename' && widget.onRename != null) {
+                  _showRenameDialog();
+                }
+              },
+              itemBuilder: (_) => [
+                if (widget.onRename != null)
+                  const PopupMenuItem<String>(
+                    key: Key('room-menu-rename'),
+                    value: 'rename',
+                    child: Text('Rename chat'),
+                  ),
+              ],
+            ),
         ],
       ),
       body: Column(
@@ -311,6 +348,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
   Widget _bubble(Msg m, String me) {
     final mine = m.from == me;
     final tip = _formatFullDateTime(m.ts.toLocal());
+    final showSenderLabel = !mine && widget.room.members.length >= 3;
     if (_isEmojiOnly(m.body)) {
       return Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
@@ -329,6 +367,16 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         ),
       );
     }
+    // Resolve whether this message's sender is a familiar (bot) in this room.
+    final senderIsBot = widget.room.memberByUsername(m.from)?.isBot ?? false;
+    final bubbleColor = mine
+        ? TwilightColors.bubbleUserBg
+        : (senderIsBot
+              ? TwilightColors.bubbleFamiliarBg
+              : TwilightColors.bubblePartnerBg);
+    final bubbleBorder = senderIsBot && !mine
+        ? TwilightColors.bubbleFamiliarBorder
+        : TwilightColors.borderSoft;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Tooltip(
@@ -336,26 +384,46 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         waitDuration: const Duration(milliseconds: 400),
         preferBelow: false,
         verticalOffset: 14,
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          constraints: const BoxConstraints(maxWidth: 480),
-          decoration: BoxDecoration(
-            color: mine
-                ? TwilightColors.bubbleUserBg
-                : TwilightColors.bubblePartnerBg,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: TwilightColors.borderSoft),
-          ),
-          child: Text(
-            m.body,
-            style: TextStyle(
-              color: mine
-                  ? TwilightColors.bubbleUserText
-                  : TwilightColors.textPrimary,
-              fontSize: 16,
+        child: Column(
+          crossAxisAlignment: mine
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+          children: [
+            if (showSenderLabel)
+              Padding(
+                padding: const EdgeInsets.only(left: 14, top: 4),
+                child: Text(
+                  m.from,
+                  key: Key('sender-label-${m.id}'),
+                  style: TextStyle(
+                    fontFamily: 'JetBrainsMono',
+                    fontSize: 10,
+                    letterSpacing: 1.0,
+                    color: _senderColor(m.from),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              constraints: const BoxConstraints(maxWidth: 480),
+              decoration: BoxDecoration(
+                color: bubbleColor,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: bubbleBorder),
+              ),
+              child: Text(
+                m.body,
+                style: TextStyle(
+                  color: mine
+                      ? TwilightColors.bubbleUserText
+                      : TwilightColors.textPrimary,
+                  fontSize: 16,
+                ),
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -596,44 +664,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
       ),
     );
   }
-}
-
-class _PeerAvatar extends StatelessWidget {
-  const _PeerAvatar({required this.label});
-  final String label;
-  @override
-  Widget build(BuildContext context) {
-    final initial = label.isEmpty ? '?' : label[0].toUpperCase();
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: const BoxDecoration(
-        color: TwilightColors.accentPartner,
-        shape: BoxShape.circle,
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        initial,
-        style: const TextStyle(
-          color: Color(0xFFFFFAFB),
-          fontFamily: 'Inter',
-          fontSize: 15,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    );
-  }
-}
-
-class _Dot extends StatelessWidget {
-  const _Dot({required this.color});
-  final Color color;
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 6,
-    height: 6,
-    decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-  );
 }
 
 class _E2ESeal extends StatelessWidget {

@@ -217,7 +217,7 @@ pub async fn run(args: RunArgs) -> Result<()> {
                     // from the summary input but kept in recent turns.
                     let fallback = "(having trouble right now — try again in a moment)";
                     let wire = aead::encrypt_wire(&room_key, fallback.as_bytes())?;
-                    send_message(&mut session, &room.room_id, &wire).await?;
+                    send_message(&mut session, &room.room_id, &room.peer_x25519_pub, &wire).await?;
                     continue;
                 };
                 {
@@ -226,7 +226,7 @@ pub async fn run(args: RunArgs) -> Result<()> {
                     m.record_turn(Role::Assistant, &reply_text)?;
                 }
                 let wire = aead::encrypt_wire(&room_key, reply_text.as_bytes())?;
-                send_message(&mut session, &room.room_id, &wire).await?;
+                send_message(&mut session, &room.room_id, &room.peer_x25519_pub, &wire).await?;
 
                 let trigger = { memory.lock().await.needs_summary(args.summary_every)? };
                 // Only spawn if no other refresh is in flight. swap returns

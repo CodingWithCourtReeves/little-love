@@ -52,6 +52,7 @@ async fn invite_preview_returns_room_roster_including_bots() {
     let room_id = littlelove_api::rooms::create_room_with_members(
         &pool,
         court_id,
+        None,
         &[bot_id],
         "Travel".into(),
     )
@@ -66,6 +67,7 @@ async fn invite_preview_returns_room_roster_including_bots() {
         &hash,
         expires_at,
         Some(&room_id),
+        littlelove_api::invites::InviteKind::Partner,
     )
     .await
     .unwrap();

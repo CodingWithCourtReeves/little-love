@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'frames.dart' show Member;
+
 class AccountRecord {
   AccountRecord({
     required this.username,
@@ -119,22 +121,24 @@ class RestClient {
 
 class InvitePreviewResponse {
   InvitePreviewResponse({
-    required this.inviterUsername,
-    required this.inviterEd25519PubBase64,
-    required this.inviterX25519PubBase64,
+    required this.roomId,
+    required this.name,
+    required this.members,
     required this.expiresAt,
   });
 
-  final String inviterUsername;
-  final String inviterEd25519PubBase64;
-  final String inviterX25519PubBase64;
+  final String roomId;
+  final String name;
+  final List<Member> members;
   final DateTime expiresAt;
 
   factory InvitePreviewResponse.fromJson(Map<String, Object?> json) =>
       InvitePreviewResponse(
-        inviterUsername: json['inviter_username']! as String,
-        inviterEd25519PubBase64: json['inviter_ed25519_pub']! as String,
-        inviterX25519PubBase64: json['inviter_x25519_pub']! as String,
+        roomId: json['room_id']! as String,
+        name: (json['name'] as String?) ?? '',
+        members: (json['members']! as List<Object?>)
+            .map((m) => Member.fromJson(m! as Map<String, Object?>))
+            .toList(),
         expiresAt: DateTime.parse(json['expires_at']! as String).toUtc(),
       );
 }

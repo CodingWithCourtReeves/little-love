@@ -10,7 +10,7 @@ async fn create_room_with_one_human_and_one_bot() {
     let store = common::fresh_store().await;
     let (court, garden) = common::seed_human_plus_owned_bot(&store).await;
 
-    let room = create_room_with_members(store.pool(), court, &[garden], "Garden".into())
+    let room = create_room_with_members(store.pool(), court, None, &[garden], "Garden".into())
         .await
         .unwrap();
 
@@ -24,7 +24,7 @@ async fn create_room_with_one_human_and_one_bot() {
 async fn rename_room_changes_name() {
     let store = common::fresh_store().await;
     let (court, garden) = common::seed_human_plus_owned_bot(&store).await;
-    let room = create_room_with_members(store.pool(), court, &[garden], "Garden".into())
+    let room = create_room_with_members(store.pool(), court, None, &[garden], "Garden".into())
         .await
         .unwrap();
 
@@ -39,7 +39,7 @@ async fn rename_room_changes_name() {
 async fn leave_room_removes_member_and_cascades_when_last_human_leaves() {
     let store = common::fresh_store().await;
     let (court, garden) = common::seed_human_plus_owned_bot(&store).await;
-    let room = create_room_with_members(store.pool(), court, &[garden], "Garden".into())
+    let room = create_room_with_members(store.pool(), court, None, &[garden], "Garden".into())
         .await
         .unwrap();
 

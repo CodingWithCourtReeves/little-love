@@ -20,19 +20,73 @@ pub struct ClientIdentity {
 
 pub struct Session {
     pub socket: WsStream,
-    pub initial_rooms: Vec<RoomSummary>,
+    pub initial_rooms: Vec<RoomDescriptor>,
+    pub self_username: String,
 }
 
 pub type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
+/// v0.3 wire-level member (spec §7.1).
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct RoomSummary {
+pub struct Member {
+    pub username: String,
+    pub ed25519_pub: String,
+    pub x25519_pub: String,
+    #[serde(default)]
+    pub is_bot: bool,
+    #[serde(default)]
+    pub owner_username: Option<String>,
+}
+
+/// v0.3 `RoomDetail` (spec §7.1) — carried inside `Rooms`, `RoomCreated`,
+/// `InviteConsumed`.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RoomDetail {
+    pub room_id: String,
+    #[serde(default)]
+    pub name: String,
+    pub members: Vec<Member>,
+    /// `Rooms` carries this; the struct variants `InviteConsumed` /
+    /// `RoomCreated` don't (spec §8.2). Default to `None` so the same type
+    /// works for both shapes.
+    #[serde(default)]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Flat "the other side" view the bot has used since v0.2. In v0.3 the
+/// wire carries the full roster; this struct is derived from it so the run
+/// loop continues to read `peer_*` fields without per-call lookup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoomDescriptor {
     pub room_id: String,
     pub peer_username: String,
     pub peer_ed25519_pub: String,
     pub peer_x25519_pub: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl RoomDescriptor {
+    /// Build the v0.2-shaped descriptor from a v0.3 `RoomDetail`. Picks the
+    /// first non-self member as "the peer" — the bot only joins couple-shape
+    /// rooms (one human + one bot), so the choice is unambiguous.
+    pub fn from_detail(detail: &RoomDetail, self_username: &str) -> Result<Self> {
+        let peer = detail
+            .members
+            .iter()
+            .find(|m| m.username != self_username)
+            .ok_or_else(|| {
+                anyhow!(
+                    "room {} has no member other than self ({self_username})",
+                    detail.room_id
+                )
+            })?;
+        Ok(Self {
+            room_id: detail.room_id.clone(),
+            peer_username: peer.username.clone(),
+            peer_ed25519_pub: peer.ed25519_pub.clone(),
+            peer_x25519_pub: peer.x25519_pub.clone(),
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -43,7 +97,12 @@ enum ServerFrame {
     },
     Authenticated,
     Rooms {
-        rooms: Vec<RoomSummary>,
+        rooms: Vec<RoomDetail>,
+        // owned_bots is sent by v0.3 servers; the bot has no use for it and
+        // shouldn't fail to decode if older / different servers omit it.
+        #[serde(default)]
+        #[allow(dead_code)]
+        owned_bots: Vec<Member>,
     },
     Error {
         code: String,
@@ -99,7 +158,10 @@ pub async fn connect_and_identify(ws_url: &str, identity: &ClientIdentity) -> Re
         let parsed: ServerFrame = serde_json::from_str(&text)?;
         match parsed {
             ServerFrame::Authenticated => continue,
-            ServerFrame::Rooms { rooms } => break rooms,
+            ServerFrame::Rooms {
+                rooms,
+                owned_bots: _,
+            } => break rooms,
             ServerFrame::Error { code, message } => {
                 return Err(anyhow!("auth error: {code} {message}"));
             }
@@ -108,28 +170,28 @@ pub async fn connect_and_identify(ws_url: &str, identity: &ClientIdentity) -> Re
             }
         }
     };
+    let initial_rooms = initial_rooms
+        .iter()
+        .map(|d| RoomDescriptor::from_detail(d, &identity.username))
+        .collect::<Result<Vec<_>>>()?;
     Ok(Session {
         socket: sock,
         initial_rooms,
+        self_username: identity.username.clone(),
     })
-}
-
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-pub struct RoomDescriptor {
-    pub room_id: String,
-    pub peer_username: String,
-    pub peer_ed25519_pub: String,
-    pub peer_x25519_pub: String,
 }
 
 #[derive(Deserialize)]
 #[serde(tag = "kind")]
 #[allow(dead_code)]
 enum RoomServerFrame {
-    InviteConsumed(RoomDescriptor),
-    RoomCreated(RoomDescriptor),
+    InviteConsumed(RoomDetail),
+    RoomCreated(RoomDetail),
     Rooms {
-        rooms: Vec<RoomSummary>,
+        rooms: Vec<RoomDetail>,
+        #[serde(default)]
+        #[allow(dead_code)]
+        owned_bots: Vec<Member>,
     },
     Message {
         id: String,
@@ -180,7 +242,9 @@ pub async fn consume_invite(
         if let Message::Text(t) = next {
             let parsed: RoomServerFrame = serde_json::from_str(&t)?;
             match parsed {
-                RoomServerFrame::InviteConsumed(d) => return Ok(d),
+                RoomServerFrame::InviteConsumed(detail) => {
+                    return RoomDescriptor::from_detail(&detail, &identity.username);
+                }
                 RoomServerFrame::Error { code, message } => {
                     return Err(anyhow!("consume invite error: {code} {message}"));
                 }
@@ -269,11 +333,21 @@ pub async fn subscribe(session: &mut Session, room_id: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn send_message(session: &mut Session, room_id: &str, wire_body: &str) -> Result<()> {
+/// v0.3 `Send` (spec §6.2 / §8.2). The bot only ever sits in couple-shape
+/// rooms — one peer — so `bodies` always has exactly one entry, keyed by
+/// the peer's x25519 pubkey (base64).
+pub async fn send_message(
+    session: &mut Session,
+    room_id: &str,
+    peer_x25519_pub_b64: &str,
+    wire_body: &str,
+) -> Result<()> {
+    let mut bodies = std::collections::HashMap::new();
+    bodies.insert(peer_x25519_pub_b64.to_string(), wire_body.to_string());
     let frame = serde_json::json!({
         "kind": "Send",
         "room_id": room_id,
-        "body": wire_body,
+        "bodies": bodies,
         "client_msg_id": Uuid::new_v4(),
     });
     session

@@ -18,16 +18,30 @@ class _StubTransport implements PairingTransport {
   Future<InviteCreatedFrame> createInvite() => throw UnimplementedError();
 
   @override
+  Future<InviteCreatedFrame> createFamiliarInvite() =>
+      throw UnimplementedError();
+
+  @override
   Future<InviteConsumedFrame> consumeInvite({
     required String code,
     required Uint8List signature,
-  }) async => InviteConsumedFrame(
-    const RoomFramePeer(
-      roomId: '01JNEWROOM',
-      peerUsername: 'court',
-      peerEd25519PubBase64: 'AAAA',
-      peerX25519PubBase64: 'BBBB',
-    ),
+  }) async => const InviteConsumedFrame(
+    roomId: '01JNEWROOM',
+    name: '',
+    members: [
+      Member(
+        username: 'court',
+        ed25519PubBase64: 'AAAA',
+        x25519PubBase64: 'BBBB',
+        isBot: false,
+      ),
+      Member(
+        username: 'kaitlyn',
+        ed25519PubBase64: 'CCCC',
+        x25519PubBase64: 'DDDD',
+        isBot: false,
+      ),
+    ],
   );
 }
 
@@ -36,55 +50,82 @@ Future<DerivedIdentity> _identity() => derivedIdentityFromSigningSeedForTest(
 );
 
 void main() {
-  testWidgets('preview → confirm → consume puts a Room in inbox state', (
-    tester,
-  ) async {
-    final mockHttp = MockClient((req) async {
-      expect(req.url.path, '/invites/abandon-abandon-abandon-ability/preview');
-      return http.Response(
-        jsonEncode({
-          'inviter_username': 'court',
-          'inviter_ed25519_pub': 'AAAA',
-          'inviter_x25519_pub': 'BBBB',
-          'expires_at': '2026-06-09T18:00:00Z',
-        }),
-        200,
-        headers: const {'content-type': 'application/json'},
+  testWidgets(
+    'preview → confirm → consume puts a Room in inbox state, shows v0.3 roster',
+    (tester) async {
+      final mockHttp = MockClient((req) async {
+        expect(
+          req.url.path,
+          '/invites/abandon-abandon-abandon-ability/preview',
+        );
+        return http.Response(
+          jsonEncode({
+            'room_id': '01JNEWROOM',
+            'name': '',
+            'members': [
+              {
+                'username': 'court',
+                'ed25519_pub': 'AAAA',
+                'x25519_pub': 'BBBB',
+                'is_bot': false,
+              },
+              {
+                'username': 'court-garden',
+                'ed25519_pub': 'EEEE',
+                'x25519_pub': 'FFFF',
+                'is_bot': true,
+                'owner_username': 'court',
+              },
+            ],
+            'expires_at': '2026-06-09T18:00:00Z',
+          }),
+          200,
+          headers: const {'content-type': 'application/json'},
+        );
+      });
+      final identity = await _identity();
+      final container = ProviderContainer(
+        overrides: [
+          pairingTransportProvider.overrideWithValue(_StubTransport()),
+          httpClientProvider.overrideWithValue(mockHttp),
+        ],
       );
-    });
-    final identity = await _identity();
-    final container = ProviderContainer(
-      overrides: [
-        pairingTransportProvider.overrideWithValue(_StubTransport()),
-        httpClientProvider.overrideWithValue(mockHttp),
-      ],
-    );
-    addTearDown(container.dispose);
+      addTearDown(container.dispose);
 
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: MaterialApp(home: EnterCodeScreen(identity: identity)),
-      ),
-    );
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: EnterCodeScreen(identity: identity, selfUsername: 'kaitlyn'),
+          ),
+        ),
+      );
 
-    await tester.enterText(
-      find.byKey(const Key('enter-code-field')),
-      'abandon-abandon-abandon-ability',
-    );
-    await tester.tap(find.byKey(const Key('preview-button')));
-    await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('enter-code-field')),
+        'abandon-abandon-abandon-ability',
+      );
+      await tester.tap(find.byKey(const Key('preview-button')));
+      await tester.pumpAndSettle();
 
-    expect(find.textContaining('Pair with @court'), findsOneWidget);
+      expect(find.textContaining('Pair with @court'), findsOneWidget);
+      expect(find.byKey(const Key('preview-roster-card')), findsOneWidget);
+      expect(find.text('court'), findsOneWidget);
+      expect(find.textContaining("court's court-garden"), findsOneWidget);
+      expect(find.textContaining('You · kaitlyn'), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('confirm-pair-button')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('confirm-pair-button')));
+      await tester.pumpAndSettle();
 
-    final inbox = container.read(inboxStateProvider);
-    expect(inbox.rooms.length, 1);
-    expect(inbox.rooms.single.roomId, '01JNEWROOM');
-    expect(inbox.rooms.single.peerUsername, 'court');
-  });
+      final inbox = container.read(inboxStateProvider);
+      expect(inbox.rooms.length, 1);
+      expect(inbox.rooms.single.roomId, '01JNEWROOM');
+      expect(
+        inbox.rooms.single.members.map((m) => m.username).toList(),
+        containsAll(<String>['court', 'kaitlyn']),
+      );
+    },
+  );
 
   testWidgets('malformed code is rejected before any REST call', (
     tester,
@@ -104,7 +145,9 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(home: EnterCodeScreen(identity: identity)),
+        child: MaterialApp(
+          home: EnterCodeScreen(identity: identity, selfUsername: 'kaitlyn'),
+        ),
       ),
     );
 

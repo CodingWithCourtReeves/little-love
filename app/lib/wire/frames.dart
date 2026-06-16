@@ -1,3 +1,5 @@
+// Auth-phase frames (spec §3.3). These travel before Authenticated.
+
 sealed class ServerFrame {
   const ServerFrame();
 
@@ -46,10 +48,90 @@ class IdentifyFrame {
   };
 }
 
-/// Post-Authenticated server frames (spec §8.2). Kept as a sibling sealed
-/// family rather than extending [ServerFrame] so the auth-phase exhaustive
-/// switch in `auth_handshake.dart` stays valid. Auth-phase and room-phase
-/// are distinct protocols on the same socket.
+// ---------- Shared payload types (spec §8.2 v0.3) ----------
+
+/// One participant of a room (human or familiar). Same shape used by
+/// `Rooms`, `RoomCreated`, `InviteConsumed` payloads.
+class Member {
+  const Member({
+    required this.username,
+    required this.ed25519PubBase64,
+    required this.x25519PubBase64,
+    required this.isBot,
+    this.accountId,
+    this.ownerUsername,
+  });
+
+  /// Server-assigned account id. Used to address familiars in
+  /// `CreateRoomFrame.botAccountIds`. Null when the server omits it.
+  final int? accountId;
+  final String username;
+  final String ed25519PubBase64;
+  final String x25519PubBase64;
+  final bool isBot;
+
+  /// Present for familiars (`isBot == true`); null for humans.
+  final String? ownerUsername;
+
+  factory Member.fromJson(Map<String, Object?> j) => Member(
+    accountId: (j['account_id'] as num?)?.toInt(),
+    username: j['username']! as String,
+    ed25519PubBase64: j['ed25519_pub']! as String,
+    x25519PubBase64: j['x25519_pub']! as String,
+    isBot: (j['is_bot'] as bool?) ?? false,
+    ownerUsername: j['owner_username'] as String?,
+  );
+}
+
+/// A room as the server sees it: id, optional display name, full roster,
+/// creation timestamp. Inlined into `Rooms` / `RoomCreated` /
+/// `InviteConsumed` frames.
+class RoomDetail {
+  const RoomDetail({
+    required this.roomId,
+    required this.name,
+    required this.members,
+    required this.createdAt,
+  });
+
+  final String roomId;
+  final String name;
+  final List<Member> members;
+  final DateTime createdAt;
+
+  factory RoomDetail.fromJson(Map<String, Object?> j) => RoomDetail(
+    roomId: j['room_id']! as String,
+    name: (j['name'] as String?) ?? '',
+    members: (j['members']! as List<dynamic>)
+        .cast<Map<String, Object?>>()
+        .map(Member.fromJson)
+        .toList(growable: false),
+    createdAt: DateTime.parse(j['created_at']! as String).toUtc(),
+  );
+}
+
+/// Pending invite returned inline with `RoomCreated` when the creator asked
+/// to invite their human partner alongside room creation.
+class PendingInvite {
+  const PendingInvite({
+    required this.code,
+    required this.qrPngBase64,
+    required this.expiresAt,
+  });
+
+  final String code;
+  final String qrPngBase64;
+  final DateTime expiresAt;
+
+  factory PendingInvite.fromJson(Map<String, Object?> j) => PendingInvite(
+    code: j['code']! as String,
+    qrPngBase64: (j['qr_png_base64'] as String?) ?? '',
+    expiresAt: DateTime.parse(j['expires_at']! as String).toUtc(),
+  );
+}
+
+// ---------- Post-Authenticated server → client frames (spec §8.2) ----------
+
 sealed class RoomServerFrame {
   const RoomServerFrame();
 
@@ -60,7 +142,11 @@ sealed class RoomServerFrame {
         return RoomsFrame(
           rooms: (json['rooms']! as List<dynamic>)
               .cast<Map<String, Object?>>()
-              .map(RoomFramePeer.fromJson)
+              .map(RoomDetail.fromJson)
+              .toList(growable: false),
+          ownedBots: ((json['owned_bots'] as List<dynamic>?) ?? const [])
+              .cast<Map<String, Object?>>()
+              .map(Member.fromJson)
               .toList(growable: false),
         );
       case 'InviteCreated':
@@ -70,9 +156,38 @@ sealed class RoomServerFrame {
           expiresAt: DateTime.parse(json['expires_at']! as String).toUtc(),
         );
       case 'InviteConsumed':
-        return InviteConsumedFrame(RoomFramePeer.fromJson(json));
+        return InviteConsumedFrame(
+          roomId: json['room_id']! as String,
+          name: (json['name'] as String?) ?? '',
+          members: (json['members']! as List<dynamic>)
+              .cast<Map<String, Object?>>()
+              .map(Member.fromJson)
+              .toList(growable: false),
+        );
       case 'RoomCreated':
-        return RoomCreatedFrame(RoomFramePeer.fromJson(json));
+        return RoomCreatedFrame(
+          roomId: json['room_id']! as String,
+          name: (json['name'] as String?) ?? '',
+          members: (json['members']! as List<dynamic>)
+              .cast<Map<String, Object?>>()
+              .map(Member.fromJson)
+              .toList(growable: false),
+          pendingInvite: json['pending_invite'] == null
+              ? null
+              : PendingInvite.fromJson(
+                  json['pending_invite']! as Map<String, Object?>,
+                ),
+        );
+      case 'RoomRenamed':
+        return RoomRenamedFrame(
+          roomId: json['room_id']! as String,
+          name: json['name']! as String,
+        );
+      case 'MemberLeft':
+        return MemberLeftFrame(
+          roomId: json['room_id']! as String,
+          username: json['username']! as String,
+        );
       case 'Message':
         return MessageFrame(
           id: json['id']! as String,
@@ -81,6 +196,7 @@ sealed class RoomServerFrame {
           ts: DateTime.parse(json['ts']! as String).toUtc(),
           body: json['body']! as String,
           replayed: (json['replayed'] as bool?) ?? false,
+          clientMsgId: json['client_msg_id'] as String?,
         );
       case 'Error':
         return RoomErrorFrame(
@@ -93,38 +209,10 @@ sealed class RoomServerFrame {
   }
 }
 
-/// Peer-pub bundle returned by Rooms / InviteConsumed / RoomCreated (spec §8.2).
-class RoomFramePeer {
-  const RoomFramePeer({
-    required this.roomId,
-    required this.peerUsername,
-    required this.peerEd25519PubBase64,
-    required this.peerX25519PubBase64,
-    this.createdAt,
-  });
-
-  final String roomId;
-  final String peerUsername;
-  final String peerEd25519PubBase64;
-  final String peerX25519PubBase64;
-
-  /// Only present in `Rooms` frames; `InviteConsumed` / `RoomCreated` omit it.
-  final DateTime? createdAt;
-
-  factory RoomFramePeer.fromJson(Map<String, Object?> json) => RoomFramePeer(
-    roomId: json['room_id']! as String,
-    peerUsername: json['peer_username']! as String,
-    peerEd25519PubBase64: json['peer_ed25519_pub']! as String,
-    peerX25519PubBase64: json['peer_x25519_pub']! as String,
-    createdAt: json['created_at'] == null
-        ? null
-        : DateTime.parse(json['created_at']! as String).toUtc(),
-  );
-}
-
 class RoomsFrame extends RoomServerFrame {
-  const RoomsFrame({required this.rooms});
-  final List<RoomFramePeer> rooms;
+  const RoomsFrame({required this.rooms, required this.ownedBots});
+  final List<RoomDetail> rooms;
+  final List<Member> ownedBots;
 }
 
 class InviteCreatedFrame extends RoomServerFrame {
@@ -139,15 +227,39 @@ class InviteCreatedFrame extends RoomServerFrame {
 }
 
 class InviteConsumedFrame extends RoomServerFrame {
-  const InviteConsumedFrame(this.peer);
-  final RoomFramePeer peer;
-  String get roomId => peer.roomId;
+  const InviteConsumedFrame({
+    required this.roomId,
+    required this.name,
+    required this.members,
+  });
+  final String roomId;
+  final String name;
+  final List<Member> members;
 }
 
 class RoomCreatedFrame extends RoomServerFrame {
-  const RoomCreatedFrame(this.peer);
-  final RoomFramePeer peer;
-  String get roomId => peer.roomId;
+  const RoomCreatedFrame({
+    required this.roomId,
+    required this.name,
+    required this.members,
+    required this.pendingInvite,
+  });
+  final String roomId;
+  final String name;
+  final List<Member> members;
+  final PendingInvite? pendingInvite;
+}
+
+class RoomRenamedFrame extends RoomServerFrame {
+  const RoomRenamedFrame({required this.roomId, required this.name});
+  final String roomId;
+  final String name;
+}
+
+class MemberLeftFrame extends RoomServerFrame {
+  const MemberLeftFrame({required this.roomId, required this.username});
+  final String roomId;
+  final String username;
 }
 
 class MessageFrame extends RoomServerFrame {
@@ -158,18 +270,26 @@ class MessageFrame extends RoomServerFrame {
     required this.ts,
     required this.body,
     required this.replayed,
+    this.clientMsgId,
   });
   final String id;
   final String roomId;
   final String from;
   final DateTime ts;
+
+  /// Single ciphertext addressed to this recipient (spec §6.2 — the server
+  /// fans out one row per recipient and each session only ever sees its
+  /// own addressed body).
   final String body;
   final bool replayed;
+
+  /// Present only on the sender's own live self-copy: the `clientMsgId` of the
+  /// originating `SendFrame`. Lets the sending session reconcile its optimistic
+  /// local echo (keyed by this id) with the authoritative server row. Null for
+  /// messages from others and for replayed history.
+  final String? clientMsgId;
 }
 
-/// Room-phase Error frame (same shape as the auth-phase [ErrorFrame] but
-/// classified into the [RoomServerFrame] family so the post-handshake
-/// switch stays exhaustive).
 class RoomErrorFrame extends RoomServerFrame {
   const RoomErrorFrame({required this.code, required this.message});
   final String code;
@@ -177,11 +297,6 @@ class RoomErrorFrame extends RoomServerFrame {
 }
 
 // ---------- Outbound (client → server) ----------
-
-class CreateInviteFrame {
-  const CreateInviteFrame();
-  Map<String, Object?> toJson() => const {'kind': 'CreateInvite'};
-}
 
 class ConsumeInviteFrame {
   const ConsumeInviteFrame({required this.code, required this.signatureBase64});
@@ -192,6 +307,14 @@ class ConsumeInviteFrame {
     'kind': 'ConsumeInvite',
     'code': code,
     'signature_over_token': signatureBase64,
+  };
+}
+
+class CreateFamiliarInviteFrame {
+  const CreateFamiliarInviteFrame();
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'CreateFamiliarInvite',
   };
 }
 
@@ -210,17 +333,59 @@ class SubscribeFrame {
 class SendFrame {
   const SendFrame({
     required this.roomId,
-    required this.body,
+    required this.bodies,
     required this.clientMsgId,
   });
   final String roomId;
-  final String body;
+
+  /// Map from recipient `x25519_pub_b64` to the addressed ciphertext.
+  final Map<String, String> bodies;
   final String clientMsgId;
 
   Map<String, Object?> toJson() => <String, Object?>{
     'kind': 'Send',
     'room_id': roomId,
-    'body': body,
+    'bodies': bodies,
     'client_msg_id': clientMsgId,
+  };
+}
+
+class CreateRoomFrame {
+  const CreateRoomFrame({
+    this.name,
+    required this.botAccountIds,
+    required this.inviteHumanPartner,
+  });
+  final String? name;
+  final List<int> botAccountIds;
+  final bool inviteHumanPartner;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'CreateRoom',
+    'name': name,
+    'bot_account_ids': botAccountIds,
+    'invite_human_partner': inviteHumanPartner,
+  };
+}
+
+class RenameRoomFrame {
+  const RenameRoomFrame({required this.roomId, required this.name});
+  final String roomId;
+  final String name;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'RenameRoom',
+    'room_id': roomId,
+    'name': name,
+  };
+}
+
+class LeaveRoomFrame {
+  const LeaveRoomFrame({required this.roomId});
+  final String roomId;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'LeaveRoom',
+    'room_id': roomId,
   };
 }
