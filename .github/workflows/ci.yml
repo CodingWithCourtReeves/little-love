@@ -56,7 +56,10 @@ jobs:
       - run: flutter test
 
   ios-build:
-    runs-on: macos-latest
+    # Runs on a self-hosted macOS runner (Court's Mac) instead of GitHub-hosted
+    # macOS to avoid the 10x Actions-minute multiplier. rust + flutter stay on
+    # GitHub-hosted Linux (cheap, and service containers only work on Linux).
+    runs-on: [self-hosted, macOS]
     defaults:
       run:
         working-directory: app
