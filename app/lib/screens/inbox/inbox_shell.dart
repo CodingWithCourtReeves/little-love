@@ -40,11 +40,14 @@ class InboxShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Activate the router for this signed-in session. Reading the provider
-    // is enough — it stays alive while InboxShell is mounted.
-    ref
-        .watch(liveConnectionProvider)
-        .whenData((_) => ref.watch(roomMessageRouterProvider));
+    // Activate the router + outbox drain for this signed-in session. Watching
+    // (not reading) keeps them alive while InboxShell is mounted, so the
+    // drain's constructor re-fires its kick on every WS-data transition —
+    // i.e. the persistent outbox auto-flushes on reconnect.
+    ref.watch(liveConnectionProvider).whenData((_) {
+      ref.watch(roomMessageRouterProvider);
+      ref.watch(outboxDrainProvider);
+    });
 
     final inbox = ref.watch(inboxStateProvider);
     final detail = _detail(context, ref, inbox.selectedRoomId, inbox.rooms);
@@ -170,8 +173,9 @@ class InboxShell extends ConsumerWidget {
 
   /// Route a send through the persistent outbox so it survives a WS reconnect
   /// (or an app kill) mid-send. We persist the ciphertext envelope, render an
-  /// optimistic `sending…` bubble immediately, then kick the drain — the row
-  /// is only removed once the server echoes it back (see [RoomMessageRouter]).
+  /// optimistic in-flight bubble (clock marker) immediately, then kick the
+  /// drain — the row flips to a heart once the server echoes it back (see
+  /// [RoomMessageRouter]).
   Future<void> _sendEncrypted(WidgetRef ref, Room room, String text) async {
     final clientMsgId = ref.read(outboxIdGenProvider)();
     var inserted = false;

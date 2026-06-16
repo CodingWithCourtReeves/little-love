@@ -84,6 +84,31 @@ void main() {
     await h.server.close();
   });
 
+  test('closed completes when the socket drops (onDone)', () async {
+    final h = await _openConn();
+    var didClose = false;
+    unawaited(h.conn.closed.then((_) => didClose = true));
+
+    // Server hangs up. _onDone should complete `closed`.
+    await h.server.close();
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    expect(didClose, isTrue);
+
+    await h.conn.close();
+  });
+
+  test('closed completes on explicit close()', () async {
+    final h = await _openConn();
+    var didClose = false;
+    unawaited(h.conn.closed.then((_) => didClose = true));
+
+    await h.conn.close();
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    expect(didClose, isTrue);
+
+    await h.server.close();
+  });
+
   test(
     'room-phase frames arriving before first subscriber are buffered (no drop)',
     () async {

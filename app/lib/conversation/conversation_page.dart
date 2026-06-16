@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../identity/providers.dart';
 import '../inbox/channel_switcher.dart';
@@ -36,6 +37,23 @@ class _DayItem extends _Item {
 class _GapItem extends _Item {
   const _GapItem(this.time);
   final DateTime time;
+}
+
+/// Per-message status marker drawn inside my own bubble, Telegram style: a
+/// heart once the server acks (sent), a clock while still in flight (sending).
+/// Failed sends are not in-bubble — they collapse to a caption below the run.
+enum _Marker { sent, sending }
+
+class _StatusModel {
+  const _StatusModel(this.inBubble, this.failedRun);
+
+  /// Marker to draw inside each of my non-failed bubbles, keyed by message id.
+  final Map<String, _Marker> inBubble;
+
+  /// For every run that contains a failure, the run's trailing message id maps
+  /// to the clientMsgIds of all failed messages in that run — so one tap on the
+  /// caption retries the whole stack.
+  final Map<String, List<String>> failedRun;
 }
 
 /// Conversation detail pane for a single room. Reads messages from
@@ -203,6 +221,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     _prevMessageCount = messages.length;
 
     final sorted = [...messages]..sort((a, b) => a.ts.compareTo(b.ts));
+    final status = _statusModel(sorted, me);
     final items = _itemize(sorted).reversed.toList();
     return Scaffold(
       backgroundColor: TwilightColors.bgCanvas,
@@ -260,7 +279,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
                   itemBuilder: (_, i) {
                     final item = items[i];
                     return switch (item) {
-                      _BubbleItem(:final msg) => _bubble(msg, me),
+                      _BubbleItem(:final msg) => _bubble(
+                        msg,
+                        me,
+                        status.inBubble[msg.id],
+                        status.failedRun[msg.id],
+                      ),
                       _DayItem(:final day) => _daySeparator(day),
                       _GapItem(:final time) => _gapHeader(time),
                     };
@@ -348,35 +372,22 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     );
   }
 
-  Widget _bubble(Msg m, String me) {
-    final mine = m.from == me;
-    final content = _bubbleContent(m, me);
-    if (!mine || m.sendStatus == SendStatus.sent) return content;
+  Widget _bubble(Msg m, String me, _Marker? marker, List<String>? failedIds) {
+    // The sent/sending marker (if any) is drawn inside the bubble itself.
+    final content = _bubbleContent(m, me, marker);
+    // A run with no failure renders no caption — just the bubble.
+    if (failedIds == null) return content;
 
-    // Own message that hasn't been confirmed by the server echo yet: show a
-    // muted `sending…` caption, or `failed · tap to retry` once the send has
-    // exhausted its attempt. Tapping a failed bubble re-kicks the outbox.
-    final isFailed = m.sendStatus == SendStatus.failed;
-    final caption = isFailed
-        ? const Text(
-            'failed · tap to retry',
-            style: TextStyle(
-              color: TwilightColors.warningTone,
-              fontSize: 11,
-            ),
-          )
-        : const Text(
-            'sending…',
-            style: TextStyle(
-              color: TwilightColors.textMuted,
-              fontSize: 11,
-            ),
-          );
-
-    final tappable = isFailed && widget.onRetry != null
+    // Tapping anywhere on the trailing failed bubble retries every failed
+    // message in the run, not just this one.
+    final tappable = widget.onRetry != null
         ? GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => widget.onRetry!(m.clientMsgId ?? m.id),
+            onTap: () {
+              for (final id in failedIds) {
+                widget.onRetry!(id);
+              }
+            },
             child: content,
           )
         : content;
@@ -385,32 +396,55 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         tappable,
-        Padding(
-          padding: const EdgeInsets.only(right: 16, top: 2, bottom: 2),
-          child: caption,
+        const Padding(
+          padding: EdgeInsets.only(right: 16, top: 2, bottom: 2),
+          child: Text(
+            'failed · tap to retry',
+            style: TextStyle(color: TwilightColors.warningTone, fontSize: 11),
+          ),
         ),
       ],
     );
   }
 
-  Widget _bubbleContent(Msg m, String me) {
+  /// Heart (sent) or clock (sending) tucked into a bubble's bottom-right
+  /// corner, Telegram style.
+  static Widget _markerWidget(_Marker marker) {
+    return switch (marker) {
+      _Marker.sent => SvgPicture.asset(
+        'assets/icons/heart-sent.svg',
+        key: const Key('status-heart'),
+        height: 11,
+        colorFilter: const ColorFilter.mode(
+          TwilightColors.accentUser,
+          BlendMode.srcIn,
+        ),
+      ),
+      _Marker.sending => const Icon(
+        Icons.schedule,
+        key: Key('status-clock'),
+        size: 12,
+        color: TwilightColors.textMuted,
+      ),
+    };
+  }
+
+  Widget _bubbleContent(Msg m, String me, _Marker? marker) {
     final mine = m.from == me;
-    final tip = _formatFullDateTime(m.ts.toLocal());
+    // Cap the bubble so there's always a gutter on the opposite side, like
+    // iMessage/Telegram. A fixed 480 never bites on a phone, so fall back to a
+    // fraction of the viewport; the 480 ceiling keeps desktop bubbles sane.
+    final viewportFraction = MediaQuery.sizeOf(context).width * 0.78;
+    final maxBubbleWidth = viewportFraction < 480 ? viewportFraction : 480.0;
     final showSenderLabel = !mine && widget.room.members.length >= 3;
     if (_isEmojiOnly(m.body)) {
       return Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-        child: Tooltip(
-          message: tip,
-          waitDuration: const Duration(milliseconds: 400),
-          preferBelow: false,
-          verticalOffset: 18,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 14),
-            child: Text(
-              m.body.trim(),
-              style: const TextStyle(fontSize: 48, height: 1.1),
-            ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 14),
+          child: Text(
+            m.body.trim(),
+            style: const TextStyle(fontSize: 48, height: 1.1),
           ),
         ),
       );
@@ -427,53 +461,79 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         : TwilightColors.borderSoft;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Tooltip(
-        message: tip,
-        waitDuration: const Duration(milliseconds: 400),
-        preferBelow: false,
-        verticalOffset: 14,
-        child: Column(
-          crossAxisAlignment: mine
-              ? CrossAxisAlignment.end
-              : CrossAxisAlignment.start,
-          children: [
-            if (showSenderLabel)
-              Padding(
-                padding: const EdgeInsets.only(left: 14, top: 4),
-                child: Text(
-                  m.from,
-                  key: Key('sender-label-${m.id}'),
-                  style: TextStyle(
-                    fontFamily: 'JetBrainsMono',
-                    fontSize: 10,
-                    letterSpacing: 1.0,
-                    color: _senderColor(m.from),
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            Container(
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              constraints: const BoxConstraints(maxWidth: 480),
-              decoration: BoxDecoration(
-                color: bubbleColor,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: bubbleBorder),
-              ),
+      child: Column(
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          if (showSenderLabel)
+            Padding(
+              padding: const EdgeInsets.only(left: 14, top: 4),
               child: Text(
-                m.body,
+                m.from,
+                key: Key('sender-label-${m.id}'),
                 style: TextStyle(
-                  color: mine
-                      ? TwilightColors.bubbleUserText
-                      : TwilightColors.textPrimary,
-                  fontSize: 16,
+                  fontFamily: 'JetBrainsMono',
+                  fontSize: 10,
+                  letterSpacing: 1.0,
+                  color: _senderColor(m.from),
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ),
-          ],
-        ),
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+            decoration: BoxDecoration(
+              color: bubbleColor,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: bubbleBorder),
+            ),
+            child: _bubbleBody(m, mine, marker),
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _bubbleBody(Msg m, bool mine, _Marker? marker) {
+    final text = Text(
+      m.body,
+      style: TextStyle(
+        color: mine ? TwilightColors.bubbleUserText : TwilightColors.textPrimary,
+        fontSize: 16,
+      ),
+    );
+    // Every bubble carries an hh:mm timestamp bottom-right; my bubbles add the
+    // sent/sending marker just to the right of the time.
+    final meta = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          _formatHm(m.ts.toLocal()),
+          style: TextStyle(
+            fontSize: 10,
+            color: mine
+                ? TwilightColors.bubbleUserText.withValues(alpha: 0.55)
+                : TwilightColors.textMuted,
+          ),
+        ),
+        if (marker != null) ...[
+          const SizedBox(width: 4),
+          _markerWidget(marker),
+        ],
+      ],
+    );
+    // Let the meta flow right after the text: it tucks onto the same line for
+    // short messages and drops to the bottom-right for ones that wrap — no
+    // fixed gutter carving an empty column down the side.
+    return Wrap(
+      alignment: WrapAlignment.end,
+      crossAxisAlignment: WrapCrossAlignment.end,
+      spacing: 6,
+      runSpacing: 2,
+      children: [text, meta],
     );
   }
 
@@ -539,6 +599,43 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     return out;
   }
 
+  /// Build the status model: a per-message marker for each of my non-failed
+  /// bubbles (heart when sent, clock when in flight), plus — for any run that
+  /// contains a failure — a collapsed caption keyed to the run's trailing
+  /// message so one tap retries every failed message in that run. A failure is
+  /// never hidden: failed messages carry no in-bubble marker and always surface
+  /// the caption.
+  static _StatusModel _statusModel(List<Msg> sorted, String me) {
+    final inBubble = <String, _Marker>{};
+    final failedRun = <String, List<String>>{};
+    var i = 0;
+    while (i < sorted.length) {
+      if (sorted[i].from != me) {
+        i++;
+        continue;
+      }
+      final failedIds = <String>[];
+      var j = i;
+      while (j < sorted.length && sorted[j].from == me) {
+        final m = sorted[j];
+        switch (m.sendStatus) {
+          case SendStatus.failed:
+            failedIds.add(m.clientMsgId ?? m.id);
+          case SendStatus.sending:
+            inBubble[m.id] = _Marker.sending;
+          case SendStatus.sent:
+            inBubble[m.id] = _Marker.sent;
+        }
+        j++;
+      }
+      if (failedIds.isNotEmpty) {
+        failedRun[sorted[j - 1].id] = failedIds;
+      }
+      i = j;
+    }
+    return _StatusModel(inBubble, failedRun);
+  }
+
   static DateTime _dateOnly(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
 
   static String _formatDaySeparator(DateTime day) {
@@ -555,8 +652,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     return _formatTime(t);
   }
 
-  static String _formatFullDateTime(DateTime t) {
-    return '${_formatDaySeparator(_dateOnly(t))} at ${_formatTime(t)}';
+  /// Compact 24-hour, zero-padded time for the in-bubble stamp (e.g. 09:03).
+  static String _formatHm(DateTime t) {
+    final h = t.hour.toString().padLeft(2, '0');
+    final m = t.minute.toString().padLeft(2, '0');
+    return '$h:$m';
   }
 
   static String _formatTime(DateTime t) {

@@ -27,6 +27,11 @@ abstract class LiveConnection {
   /// returned.
   void send(Object payload);
 
+  /// Completes when this connection is no longer usable — the post-handshake
+  /// socket dropped (`onDone`/`onError`) or [close] was called. Never errors.
+  /// [liveConnectionProvider] awaits this to trigger a reconnect.
+  Future<void> get closed;
+
   Future<void> close();
 
   /// Production constructor: opens the socket and runs the handshake.
@@ -98,6 +103,7 @@ class _RealLiveConnection implements LiveConnection {
   late final StreamController<RoomServerFrame> _incoming;
   late final StreamSubscription<dynamic> _sub;
   final Completer<void> _authReady = Completer<void>();
+  final Completer<void> _closedSignal = Completer<void>();
   final List<RoomServerFrame> _buffer = [];
   final List<dynamic> _eventQueue = [];
   bool _processing = false;
@@ -112,6 +118,13 @@ class _RealLiveConnection implements LiveConnection {
   Stream<RoomServerFrame> get incoming => _incoming.stream;
 
   @override
+  Future<void> get closed => _closedSignal.future;
+
+  void _signalClosed() {
+    if (!_closedSignal.isCompleted) _closedSignal.complete();
+  }
+
+  @override
   void send(Object payload) {
     if (_closed) return;
     _sink.add(jsonEncode(payload));
@@ -121,6 +134,7 @@ class _RealLiveConnection implements LiveConnection {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    _signalClosed();
     if (!_authReady.isCompleted) {
       _authReady.completeError(
         StateError('connection closed before handshake completed'),
@@ -226,6 +240,7 @@ class _RealLiveConnection implements LiveConnection {
   void _onDone() {
     if (_closed) return;
     _closed = true;
+    _signalClosed();
     if (!_authReady.isCompleted) {
       _authReady.completeError(
         StateError('server closed the connection during handshake'),
@@ -235,6 +250,7 @@ class _RealLiveConnection implements LiveConnection {
   }
 
   void _onError(Object e, StackTrace _) {
+    _signalClosed();
     if (!_authReady.isCompleted) {
       _authReady.completeError(e);
     } else if (!_incoming.isClosed) {
@@ -243,8 +259,12 @@ class _RealLiveConnection implements LiveConnection {
   }
 }
 
-/// One live connection per signed-in session. Errors / null account propagate
-/// as `AsyncError` / `AsyncLoading`; widgets handle via `.when`.
+/// One live connection per signed-in session. While the network is down,
+/// [LiveConnection.connect] throws; we retry with bounded backoff so a queued
+/// send flushes the moment the socket returns. Once connected, a socket drop
+/// completes [LiveConnection.closed], which re-resolves this provider — that
+/// rebuild brings up a fresh socket and rebuilds [outboxDrainProvider], whose
+/// constructor auto-drains the persistent outbox.
 final liveConnectionProvider = FutureProvider<LiveConnection>((ref) async {
   final account = await ref.watch(accountProvider.future);
   if (account == null) {
@@ -252,11 +272,33 @@ final liveConnectionProvider = FutureProvider<LiveConnection>((ref) async {
   }
   final identity = await ref.watch(currentIdentityProvider.future);
   final url = ref.watch(serverEndpointProvider).wsConnect;
-  final conn = await LiveConnection.connect(
-    url: url,
-    username: account.username,
-    identity: identity,
-  );
-  ref.onDispose(conn.close);
-  return conn;
+
+  var disposed = false;
+  ref.onDispose(() => disposed = true);
+
+  var backoff = const Duration(milliseconds: 500);
+  const maxBackoff = Duration(seconds: 10);
+  while (true) {
+    try {
+      final conn = await LiveConnection.connect(
+        url: url,
+        username: account.username,
+        identity: identity,
+      );
+      ref.onDispose(conn.close);
+      // Reconnect on an unexpected drop. Guarded so explicit disposal
+      // (sign-out / hot-restart) doesn't loop back into a rebuild.
+      unawaited(
+        conn.closed.then((_) {
+          if (!disposed) ref.invalidateSelf();
+        }),
+      );
+      return conn;
+    } catch (_) {
+      if (disposed) rethrow;
+      await Future<void>.delayed(backoff);
+      backoff = backoff * 2;
+      if (backoff > maxBackoff) backoff = maxBackoff;
+    }
+  }
 });

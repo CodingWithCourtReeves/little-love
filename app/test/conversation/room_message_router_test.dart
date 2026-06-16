@@ -30,6 +30,8 @@ class _FakeConn implements LiveConnection {
   @override
   void send(Object payload) => sent.add(payload);
   @override
+  Future<void> get closed => Completer<void>().future;
+  @override
   Future<void> close() async => _ctl.close();
 
   void emit(RoomServerFrame f) => _ctl.add(f);

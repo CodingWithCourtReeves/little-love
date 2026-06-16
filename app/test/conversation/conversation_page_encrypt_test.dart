@@ -26,6 +26,8 @@ class _CapturingConn implements LiveConnection {
   @override
   void send(Object payload) => sent.add(payload as Map<String, Object?>);
   @override
+  Future<void> get closed => Completer<void>().future;
+  @override
   Future<void> close() async => _ctl.close();
 }
 

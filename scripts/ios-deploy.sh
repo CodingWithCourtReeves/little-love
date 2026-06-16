@@ -114,7 +114,24 @@ flutter build ios --"$MODE" \
 
 restore_xcconfig
 
-echo "→ installing on $DEVICE_ID"
-flutter install -d "$DEVICE_ID"
+# Upgrade-install in place via devicectl. Unlike `flutter install` (which
+# uninstalls first and wipes the keychain + local accounts), this preserves
+# the app's data container. An upgrade only fails if the signing identity
+# changed — rare here, since the team (9PVUX2535W) is fixed. CoreDevice can
+# be flaky over USB, so retry a couple of times before giving up.
+echo "→ installing on $DEVICE_ID (upgrade in place — preserves app data)"
+APP_PATH="$ROOT_DIR/app/build/ios/iphoneos/Runner.app"
+attempt=0
+until xcrun devicectl device install app --device "$DEVICE_ID" "$APP_PATH"; do
+  attempt=$((attempt + 1))
+  if [[ "$attempt" -ge 3 ]]; then
+    echo "✗ install failed after $attempt attempts" >&2
+    echo "  if this is a signing-identity change, run with a manual uninstall:" >&2
+    echo "  xcrun devicectl device uninstall app --device $DEVICE_ID dev.littlelove.littlelove" >&2
+    exit 1
+  fi
+  echo "  CoreDevice hiccup; retrying ($attempt)…" >&2
+  sleep 2
+done
 
 echo "✓ installed. Find LittleLove on your home screen."
