@@ -8,24 +8,25 @@ on:
 
 jobs:
   rust:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: littlelove
-          POSTGRES_PASSWORD: dev
-          POSTGRES_DB: littlelove
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U littlelove"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
+    # Self-hosted macOS runner (Court's Mac). GitHub `services:` containers only
+    # work on Linux runners, so we start Postgres ourselves via the Mac's Docker.
+    runs-on: [self-hosted, macOS]
     env:
       DATABASE_URL: postgres://littlelove:dev@localhost:5432/littlelove
     steps:
       - uses: actions/checkout@v4
+      - name: Start Postgres
+        run: |
+          docker rm -f ci-postgres 2>/dev/null || true
+          docker run -d --name ci-postgres \
+            -e POSTGRES_USER=littlelove -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=littlelove \
+            -p 5432:5432 postgres:16-alpine
+          for i in $(seq 1 30); do
+            if docker exec ci-postgres pg_isready -U littlelove >/dev/null 2>&1; then
+              echo "postgres ready"; break
+            fi
+            sleep 1
+          done
       - uses: dtolnay/rust-toolchain@1.88
         with:
           components: rustfmt, clippy
@@ -38,9 +39,12 @@ jobs:
         run: cargo build --workspace --all-targets
       - name: test
         run: cargo test --workspace
+      - name: Stop Postgres
+        if: always()
+        run: docker rm -f ci-postgres || true
 
   flutter:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS]
     defaults:
       run:
         working-directory: app
@@ -56,7 +60,10 @@ jobs:
       - run: flutter test
 
   ios-build:
-    runs-on: macos-latest
+    # Runs on a self-hosted macOS runner (Court's Mac) instead of GitHub-hosted
+    # macOS to avoid the 10x Actions-minute multiplier. rust + flutter stay on
+    # GitHub-hosted Linux (cheap, and service containers only work on Linux).
+    runs-on: [self-hosted, macOS]
     defaults:
       run:
         working-directory: app
