@@ -161,11 +161,18 @@ env / Railway secrets: `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`,
 - Max presign TTL is 7 days (604,800 s); our ~10 min upload / download windows
   are well within range.
 
-### 5.4 Commit on send
+### 5.4 Commit on send — deferred
 
-When a `Send` whose envelope is `kind:"file"` is persisted, flip the matching
-`attachments.committed = true` (keyed by `blob_key`). This is a code-level write
-in the WS send handler, not a migration.
+The `attachments.committed` column ships in the migration (default `false`) but
+**is not written in this iteration.** The server cannot read which `blob_key` a
+`Send` references — the envelope is E2EE ciphertext — so marking a blob
+"committed" would require adding the `blob_key` to the (plaintext) `Send` frame,
+leaking attachment linkage to the server and breaking the E2EE invariant for no
+MVP benefit (nothing reads `committed` yet). Commit-on-send is therefore folded
+into the same future work as the orphan reaper (§8): when we build the reaper we
+decide how it learns which blobs are live (e.g. a dedicated authenticated
+`CommitBlob { blob_key }` frame, kept separate from message content). Until
+then every row stays `committed=false` and nothing sweeps blobs.
 
 ### 5.5 Body size cap
 
