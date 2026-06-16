@@ -154,6 +154,20 @@ async fn consume_familiar_invite_makes_consumer_a_bot_in_a_one_to_one_room() {
     .unwrap();
     assert!(is_bot, "helper.is_bot should be TRUE");
     assert_eq!(owner_id, Some(court_id), "helper owned by court");
+
+    // 6. The invite row itself was marked consumed inside the same transaction.
+    //    Asserting this keeps the suite from staying green if mark_consumed were
+    //    dropped from consume_familiar_invite.
+    let (consumed_at,): (Option<chrono::DateTime<chrono::Utc>>,) =
+        sqlx::query_as("SELECT consumed_at FROM invites WHERE inviter_id = $1")
+            .bind(court_id)
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert!(
+        consumed_at.is_some(),
+        "the familiar invite must be marked consumed after a successful consume"
+    );
 }
 
 /// Atomicity: if a later step in the familiar-consume transaction fails, the
@@ -206,6 +220,89 @@ async fn consume_familiar_invite_rolls_back_flip_on_failure() {
         .await
         .unwrap();
     assert_eq!(rooms, 0, "no room should leak from the rolled-back tx");
+}
+
+/// Single-use under concurrency: once an invite has been consumed, a second
+/// distinct fresh account racing to consume the SAME familiar invite must lose.
+/// Both accounts are flippable (is_bot=FALSE), so the flip guard alone wouldn't
+/// stop the second one — the `rows_affected()` check on the in-transaction
+/// `mark_consumed` makes the invite row the serialization point. The loser gets
+/// `AlreadyConsumed` and its flip + room are rolled back.
+#[file_serial(db)]
+#[tokio::test]
+async fn consume_familiar_invite_rejects_already_consumed_invite() {
+    use littlelove_api::invites::{create_invite_record, default_expiry, generate_invite, InviteKind};
+    use littlelove_api::rooms::{consume_familiar_invite, FamiliarConsumeError};
+
+    let store = fresh_store().await;
+    let inviter_sk = SigningKey::from_bytes(&[1u8; 32]);
+    let consumer1_sk = SigningKey::from_bytes(&[7u8; 32]);
+    let consumer2_sk = SigningKey::from_bytes(&[8u8; 32]);
+    insert_account(&store, "court", &inviter_sk.verifying_key()).await;
+    insert_account(&store, "helper1", &consumer1_sk.verifying_key()).await;
+    insert_account(&store, "helper2", &consumer2_sk.verifying_key()).await;
+
+    let ids = |u: &'static str| {
+        let pool = store.pool().clone();
+        async move {
+            let (id,): (i64,) = sqlx::query_as("SELECT id FROM accounts WHERE username = $1")
+                .bind(u)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            id
+        }
+    };
+    let inviter_id = ids("court").await;
+    let consumer1_id = ids("helper1").await;
+    let consumer2_id = ids("helper2").await;
+
+    // INSERT a real familiar invite row so the first consume's mark_consumed
+    // actually affects 1 row. token_hash is derived via the same generate_invite
+    // flow the server uses.
+    let now = chrono::Utc::now();
+    let (_canonical, _code, token_hash) = generate_invite();
+    create_invite_record(
+        store.pool(),
+        inviter_id,
+        &token_hash,
+        default_expiry(now),
+        None,
+        InviteKind::Familiar,
+    )
+    .await
+    .unwrap();
+
+    // First consumer wins.
+    let first = consume_familiar_invite(store.pool(), consumer1_id, inviter_id, &token_hash, now)
+        .await;
+    assert!(first.is_ok(), "first consume should succeed, got {first:?}");
+
+    // Second consumer races on the SAME (now consumed) invite and loses.
+    let second = consume_familiar_invite(store.pool(), consumer2_id, inviter_id, &token_hash, now)
+        .await;
+    let err = second.expect_err("second consume must be rejected");
+    assert!(
+        matches!(err, FamiliarConsumeError::AlreadyConsumed),
+        "expected AlreadyConsumed, got {err:?}"
+    );
+
+    // The loser's flip rolled back: helper2 is still a flippable human.
+    let (is_bot2, owner2): (bool, Option<i64>) =
+        sqlx::query_as("SELECT is_bot, owner_account_id FROM accounts WHERE id = $1")
+            .bind(consumer2_id)
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert!(!is_bot2, "second consumer's is_bot flip must have rolled back");
+    assert_eq!(owner2, None, "second consumer's owner must have rolled back");
+
+    // Only the first consume's room exists — the loser's room rolled back.
+    let (rooms,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM rooms")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(rooms, 1, "only the winner's room should exist");
 }
 
 /// Fix 1: a familiar (is_bot=TRUE) account must be rejected when it tries to

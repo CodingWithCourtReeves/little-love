@@ -396,6 +396,8 @@ pub async fn create_room_with_members(
 pub enum FamiliarConsumeError {
     #[error("account is already a familiar")]
     AlreadyFamiliar,
+    #[error("invite already consumed")]
+    AlreadyConsumed,
     #[error(transparent)]
     Db(#[from] sqlx::Error),
 }
@@ -404,7 +406,11 @@ pub enum FamiliarConsumeError {
 /// fresh 1:1 room with both as members, and mark the invite consumed — all in
 /// one transaction so a mid-sequence crash can never strand the familiar in a
 /// half-applied state. Returns the new room id. Errors `AlreadyFamiliar` if the
-/// consumer is no longer flippable (guarded by `is_bot = FALSE`).
+/// consumer is no longer flippable (guarded by `is_bot = FALSE`). Errors
+/// `AlreadyConsumed` if the invite row was already consumed (race lost): the
+/// in-transaction `mark_consumed` UPDATE affects 0 rows, so the flip + room are
+/// rolled back, making the single-use invite the serialization point even when
+/// two distinct fresh accounts race to consume it.
 pub async fn consume_familiar_invite(
     pool: &PgPool,
     consumer: i64,
@@ -441,13 +447,18 @@ pub async fn consume_familiar_invite(
         .execute(&mut *tx)
         .await?;
     }
-    sqlx::query(
+    let consumed = sqlx::query(
         "UPDATE invites SET consumed_at = $2 WHERE token_hash = $1 AND consumed_at IS NULL",
     )
     .bind(token_hash)
     .bind(when)
     .execute(&mut *tx)
     .await?;
+    if consumed.rows_affected() != 1 {
+        // The invite was already consumed (race lost) — rolling back on drop
+        // undoes the flip + room so only the first consumer wins.
+        return Err(FamiliarConsumeError::AlreadyConsumed);
+    }
     tx.commit().await?;
     Ok(room_id)
 }

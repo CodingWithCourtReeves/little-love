@@ -497,6 +497,10 @@ async fn handle_consume_invite(
                     send_error(tx, "NotPermitted", "account is already a familiar");
                     return;
                 }
+                Err(FamiliarConsumeError::AlreadyConsumed) => {
+                    send_error(tx, error_codes::INVITE_CONSUMED, "");
+                    return;
+                }
                 Err(FamiliarConsumeError::Db(e)) => {
                     warn!("familiar consume failed: {e}");
                     send_error(tx, "Internal", "");
