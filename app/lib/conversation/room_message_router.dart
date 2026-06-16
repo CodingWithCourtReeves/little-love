@@ -148,6 +148,17 @@ class RoomMessageRouter {
       store.reconcile(f.clientMsgId!, msg);
     } else {
       store.add(msg);
+      // A live partner message landing in the open room should flip the
+      // sender's bubble to a double heart now, not on the next reopen.
+      // `clientMsgId == null && !replayed` is precisely a live partner message
+      // (my own live self-copy always carries a clientMsgId, handled above;
+      // replays are covered by the open trigger and must not spam a MarkRead
+      // per row). The watermark in sendMarkRead already covers this message
+      // since it's in the store before this runs.
+      if (!f.replayed &&
+          ref.read(inboxStateProvider).selectedRoomId == f.roomId) {
+        sendMarkRead(ref, f.roomId);
+      }
     }
   }
 

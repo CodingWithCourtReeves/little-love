@@ -284,6 +284,143 @@ void main() {
     expect(msgs.firstWhere((m) => m.id == 'b').sendStatus, SendStatus.sent);
   });
 
+  test(
+    'live partner message into the selected room sends a MarkRead',
+    () async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final conn = _FakeConn();
+      final container = await _container(conn: conn, me: me);
+
+      container.read(inboxStateProvider.notifier).setRooms([
+        Room(
+          roomId: 'room1',
+          name: '',
+          members: [_member('court', me), _member('kaitlyn', peer)],
+          createdAt: DateTime.utc(2026, 6, 10),
+        ),
+      ]);
+      container.read(inboxStateProvider.notifier).select('room1');
+      container.read(roomMessageRouterProvider);
+
+      final key = await deriveRoomKey(
+        me: peer,
+        peerX25519Pub: me.x25519PublicKey,
+        roomId: 'room1',
+      );
+      final body = await encryptOutgoing(key, 'hi love');
+
+      conn.emit(
+        MessageFrame(
+          id: 'm1',
+          roomId: 'room1',
+          from: 'kaitlyn',
+          ts: DateTime.utc(2026, 6, 10, 12),
+          body: body,
+          replayed: false,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      final marks = conn.sent
+          .cast<Map<String, Object?>>()
+          .where((m) => m['kind'] == 'MarkRead')
+          .toList();
+      expect(marks, hasLength(1));
+      expect(marks.single['room_id'], 'room1');
+      expect(marks.single['up_to_message_id'], 'm1');
+    },
+  );
+
+  test(
+    'live partner message into a non-selected room sends no MarkRead',
+    () async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final conn = _FakeConn();
+      final container = await _container(conn: conn, me: me);
+
+      container.read(inboxStateProvider.notifier).setRooms([
+        Room(
+          roomId: 'room1',
+          name: '',
+          members: [_member('court', me), _member('kaitlyn', peer)],
+          createdAt: DateTime.utc(2026, 6, 10),
+        ),
+      ]);
+      // No room selected.
+      container.read(roomMessageRouterProvider);
+
+      final key = await deriveRoomKey(
+        me: peer,
+        peerX25519Pub: me.x25519PublicKey,
+        roomId: 'room1',
+      );
+      final body = await encryptOutgoing(key, 'hi love');
+
+      conn.emit(
+        MessageFrame(
+          id: 'm1',
+          roomId: 'room1',
+          from: 'kaitlyn',
+          ts: DateTime.utc(2026, 6, 10, 12),
+          body: body,
+          replayed: false,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      final marks = conn.sent
+          .cast<Map<String, Object?>>()
+          .where((m) => m['kind'] == 'MarkRead')
+          .toList();
+      expect(marks, isEmpty);
+    },
+  );
+
+  test('a replayed partner message sends no MarkRead', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final container = await _container(conn: conn, me: me);
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        name: '',
+        members: [_member('court', me), _member('kaitlyn', peer)],
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
+    container.read(inboxStateProvider.notifier).select('room1');
+    container.read(roomMessageRouterProvider);
+
+    final key = await deriveRoomKey(
+      me: peer,
+      peerX25519Pub: me.x25519PublicKey,
+      roomId: 'room1',
+    );
+    final body = await encryptOutgoing(key, 'hi love');
+
+    conn.emit(
+      MessageFrame(
+        id: 'm1',
+        roomId: 'room1',
+        from: 'kaitlyn',
+        ts: DateTime.utc(2026, 6, 10, 12),
+        body: body,
+        replayed: true,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    final marks = conn.sent
+        .cast<Map<String, Object?>>()
+        .where((m) => m['kind'] == 'MarkRead')
+        .toList();
+    expect(marks, isEmpty);
+  });
+
   test('replayed self-copy with read:true lands as SendStatus.read', () async {
     final me = await deriveIdentity(seedA);
     final peer = await deriveIdentity(seedB);
