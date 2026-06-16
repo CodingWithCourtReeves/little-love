@@ -9,7 +9,9 @@ use std::collections::HashMap;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 mod common;
-use common::{drain_rooms, fresh_store, handshake_as, insert_account, next_frame, spawn_server, Ws};
+use common::{
+    drain_rooms, fresh_store, handshake_as, insert_account, next_frame, spawn_server, Ws,
+};
 
 fn x25519_b64(username: &str) -> String {
     let mut x = [0u8; 32];
@@ -38,10 +40,14 @@ async fn paired_pair(
     littlelove_api::rooms::set_partner_link(pool, court_id, kait_id)
         .await
         .unwrap();
-    let room_id =
-        littlelove_api::rooms::create_room_with_members(pool, court_id, Some(kait_id), String::new())
-            .await
-            .unwrap();
+    let room_id = littlelove_api::rooms::create_room_with_members(
+        pool,
+        court_id,
+        Some(kait_id),
+        String::new(),
+    )
+    .await
+    .unwrap();
     let mut court = handshake_as(addr, "court", court_sk).await;
     drain_rooms(&mut court).await;
     let mut kaitlyn = handshake_as(addr, "kaitlyn", kait_sk).await;

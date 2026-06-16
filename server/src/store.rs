@@ -133,16 +133,14 @@ impl Store {
         Ok(rows
             .into_iter()
             .map(
-                |(id, room_id, from_account_id, recipient_account_id, body, ts, read)| {
-                    MessageRow {
-                        id,
-                        room_id,
-                        from_account_id,
-                        recipient_account_id,
-                        body,
-                        ts,
-                        read,
-                    }
+                |(id, room_id, from_account_id, recipient_account_id, body, ts, read)| MessageRow {
+                    id,
+                    room_id,
+                    from_account_id,
+                    recipient_account_id,
+                    body,
+                    ts,
+                    read,
                 },
             )
             .collect())

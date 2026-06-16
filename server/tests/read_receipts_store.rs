@@ -67,14 +67,20 @@ async fn replay_reports_read_state_on_senders_self_copy() {
     send_one(&store, &id, &room, court, kait).await;
 
     // Before the partner reads: court's self-copy replays as unread.
-    let before = store.messages_for_recipient(&room, court, None).await.unwrap();
+    let before = store
+        .messages_for_recipient(&room, court, None)
+        .await
+        .unwrap();
     assert_eq!(before.len(), 1);
     assert!(!before[0].read, "should be unread before mark_read");
 
     store.mark_read(&room, kait, &id).await.unwrap();
 
     // After: court's self-copy replays as read.
-    let after = store.messages_for_recipient(&room, court, None).await.unwrap();
+    let after = store
+        .messages_for_recipient(&room, court, None)
+        .await
+        .unwrap();
     assert_eq!(after.len(), 1);
     assert!(after[0].read, "should be read after partner mark_read");
 }
