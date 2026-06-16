@@ -40,9 +40,10 @@ class _GapItem extends _Item {
 }
 
 /// Per-message status marker drawn inside my own bubble, Telegram style: a
-/// heart once the server acks (sent), a clock while still in flight (sending).
-/// Failed sends are not in-bubble — they collapse to a caption below the run.
-enum _Marker { sent, sending }
+/// heart once the server acks (sent), a double heart once the partner opens the
+/// chat (read), a clock while still in flight (sending). Failed sends are not
+/// in-bubble — they collapse to a caption below the run.
+enum _Marker { sent, sending, read }
 
 class _StatusModel {
   const _StatusModel(this.inBubble, this.failedRun);
@@ -420,6 +421,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
           BlendMode.srcIn,
         ),
       ),
+      // Two-tone double heart — no colorFilter so both fills survive.
+      _Marker.read => SvgPicture.asset(
+        'assets/icons/heart-read.svg',
+        key: const Key('status-double-heart'),
+        height: 11,
+      ),
       _Marker.sending => const Icon(
         Icons.schedule,
         key: Key('status-clock'),
@@ -623,6 +630,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
             inBubble[m.id] = _Marker.sending;
           case SendStatus.sent:
             inBubble[m.id] = _Marker.sent;
+          case SendStatus.read:
+            inBubble[m.id] = _Marker.read;
         }
         j++;
       }

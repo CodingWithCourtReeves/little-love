@@ -76,6 +76,32 @@ void main() {
     expect(find.byKey(const Key('status-heart')), findsOneWidget);
   });
 
+  testWidgets('a read message shows the double heart, not the single', (
+    tester,
+  ) async {
+    final container = _container();
+    addTearDown(container.dispose);
+    await container.read(accountProvider.future);
+
+    container
+        .read(messageStoreProvider('r1').notifier)
+        .add(
+          Msg(
+            id: 'srv-1',
+            from: 'me',
+            to: 'r1',
+            body: 'miss you',
+            ts: DateTime(2026, 6, 13, 10, 5),
+            sendStatus: SendStatus.read,
+          ),
+        );
+
+    await _pump(tester, container);
+    expect(find.byKey(const Key('status-double-heart')), findsOneWidget);
+    expect(find.byKey(const Key('status-heart')), findsNothing);
+    expect(find.byKey(const Key('status-clock')), findsNothing);
+  });
+
   testWidgets('a message sent to me shows its hh:mm timestamp, no marker', (
     tester,
   ) async {

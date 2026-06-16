@@ -97,7 +97,8 @@ class LivePairingTransport implements PairingTransport {
       case RoomsFrame() ||
           RoomRenamedFrame() ||
           MemberLeftFrame() ||
-          MessageFrame():
+          MessageFrame() ||
+          ReadFrame():
         break;
     }
   }
