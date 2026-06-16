@@ -250,6 +250,8 @@ class _RealLiveConnection implements LiveConnection {
   }
 
   void _onError(Object e, StackTrace _) {
+    if (_closed) return;
+    _closed = true;
     _signalClosed();
     if (!_authReady.isCompleted) {
       _authReady.completeError(e);

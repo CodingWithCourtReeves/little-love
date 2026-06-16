@@ -233,8 +233,48 @@ void main() {
     await _pump(tester, container, onRetry: retried.add);
     expect(find.text('failed · tap to retry'), findsOneWidget);
     expect(find.byKey(const Key('status-clock')), findsOneWidget);
-    // Retrying the run re-sends only the failed member.
+    // The caption anchors to the failed message itself; tapping it re-sends
+    // only the failed member. The still-sending sibling is not a retry target.
     await tester.tap(find.text('second'));
+    expect(retried, isEmpty);
+    await tester.tap(find.text('first'));
+    expect(retried, ['cli-0']);
+  });
+
+  testWidgets('the failed caption anchors to the failed message, not a later '
+      'sent sibling', (tester) async {
+    final retried = <String>[];
+    final container = _container();
+    addTearDown(container.dispose);
+    await container.read(accountProvider.future);
+
+    // A message failed; a later one in the same run succeeded. The caption and
+    // its tap target belong to the failed bubble, not the one that went through.
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(Msg(
+          id: 'cli-0',
+          from: 'me',
+          to: 'r1',
+          body: 'oops',
+          ts: DateTime.utc(2026, 6, 13, 10, 0),
+          clientMsgId: 'cli-0',
+          sendStatus: SendStatus.failed,
+        ));
+    store.add(Msg(
+          id: 'srv-1',
+          from: 'me',
+          to: 'r1',
+          body: 'made it',
+          ts: DateTime.utc(2026, 6, 13, 10, 1),
+        ));
+
+    await _pump(tester, container, onRetry: retried.add);
+    expect(find.text('failed · tap to retry'), findsOneWidget);
+    // The succeeded sibling keeps its heart and is not a retry target.
+    expect(find.byKey(const Key('status-heart')), findsOneWidget);
+    await tester.tap(find.text('made it'));
+    expect(retried, isEmpty);
+    await tester.tap(find.text('oops'));
     expect(retried, ['cli-0']);
   });
 }

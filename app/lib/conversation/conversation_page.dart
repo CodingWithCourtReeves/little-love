@@ -615,12 +615,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         continue;
       }
       final failedIds = <String>[];
+      String? lastFailedId;
       var j = i;
       while (j < sorted.length && sorted[j].from == me) {
         final m = sorted[j];
         switch (m.sendStatus) {
           case SendStatus.failed:
             failedIds.add(m.clientMsgId ?? m.id);
+            lastFailedId = m.id;
           case SendStatus.sending:
             inBubble[m.id] = _Marker.sending;
           case SendStatus.sent:
@@ -628,8 +630,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         }
         j++;
       }
-      if (failedIds.isNotEmpty) {
-        failedRun[sorted[j - 1].id] = failedIds;
+      if (lastFailedId != null) {
+        failedRun[lastFailedId] = failedIds;
       }
       i = j;
     }
