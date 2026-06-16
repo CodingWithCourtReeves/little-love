@@ -76,6 +76,9 @@ class RoomMessageRouter {
       case MessageFrame():
         await _ingestMessage(f);
 
+      case ReadFrame(:final roomId, :final messageIds):
+        ref.read(messageStoreProvider(roomId).notifier).markRead(messageIds);
+
       case InviteCreatedFrame():
       case RoomErrorFrame():
         // Owned by LivePairingTransport / CreateChat screens.
@@ -130,6 +133,9 @@ class RoomMessageRouter {
       body: plaintext,
       ts: f.ts,
       replayed: f.replayed,
+      // `read` is only set on the sender's own self-copy that the partner has
+      // seen; replay it as the double-heart state. Otherwise default sent.
+      sendStatus: f.read ? SendStatus.read : SendStatus.sent,
     );
     final store = ref.read(messageStoreProvider(f.roomId).notifier);
     // Live self-copy of our own message: swap the optimistic echo (keyed by

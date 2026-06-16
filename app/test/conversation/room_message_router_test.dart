@@ -255,6 +255,77 @@ void main() {
     },
   );
 
+  test('ReadFrame flips matching messages in the store to read', () async {
+    final me = await deriveIdentity(seedA);
+    final conn = _FakeConn();
+    final container = await _container(conn: conn, me: me);
+    container.read(roomMessageRouterProvider);
+
+    final store = container.read(messageStoreProvider('room1').notifier);
+    for (final id in ['a', 'b']) {
+      store.add(
+        Msg(
+          id: id,
+          from: 'court',
+          to: 'room1',
+          body: 'x',
+          ts: DateTime.utc(2026, 6, 10, 12),
+        ),
+      );
+    }
+
+    conn.emit(
+      const ReadFrame(roomId: 'room1', messageIds: ['a'], reader: 'kaitlyn'),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    final msgs = container.read(messageStoreProvider('room1'));
+    expect(msgs.firstWhere((m) => m.id == 'a').sendStatus, SendStatus.read);
+    expect(msgs.firstWhere((m) => m.id == 'b').sendStatus, SendStatus.sent);
+  });
+
+  test('replayed self-copy with read:true lands as SendStatus.read', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final container = await _container(conn: conn, me: me);
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        name: '',
+        members: [_member('court', me), _member('kaitlyn', peer)],
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
+    container.read(roomMessageRouterProvider);
+
+    // My own self-copy: encrypted to my own key.
+    final key = await deriveRoomKey(
+      me: me,
+      peerX25519Pub: me.x25519PublicKey,
+      roomId: 'room1',
+    );
+    final body = await encryptOutgoing(key, 'miss you');
+
+    conn.emit(
+      MessageFrame(
+        id: 'srv-1',
+        roomId: 'room1',
+        from: 'court',
+        ts: DateTime.utc(2026, 6, 10, 12),
+        body: body,
+        replayed: true,
+        read: true,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    final msgs = container.read(messageStoreProvider('room1'));
+    expect(msgs, hasLength(1));
+    expect(msgs.single.sendStatus, SendStatus.read);
+  });
+
   test(
     'self-copy with clientMsgId reconciles the echo and drops the outbox row',
     () async {

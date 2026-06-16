@@ -46,6 +46,26 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     next[idx] = state[idx].copyWith(sendStatus: status);
     state = next;
   }
+
+  /// Mark the given message ids as read (the partner has seen them → double
+  /// heart). Ids not in the buffer are ignored. Driven by an inbound
+  /// `ReadFrame` relayed from the server.
+  void markRead(List<String> ids) {
+    final wanted = ids.toSet();
+    if (wanted.isEmpty) return;
+    var changed = false;
+    final next = [
+      for (final m in state)
+        if (wanted.contains(m.id) && m.sendStatus != SendStatus.read)
+          () {
+            changed = true;
+            return m.copyWith(sendStatus: SendStatus.read);
+          }()
+        else
+          m,
+    ];
+    if (changed) state = next;
+  }
 }
 
 final messageStoreProvider =
