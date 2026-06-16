@@ -412,20 +412,24 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
   /// corner, Telegram style.
   static Widget _markerWidget(_Marker marker) {
     return switch (marker) {
-      _Marker.sent => SvgPicture.asset(
-        'assets/icons/heart-sent.svg',
-        key: const Key('status-heart'),
-        height: 11,
-        colorFilter: const ColorFilter.mode(
-          TwilightColors.accentUser,
-          BlendMode.srcIn,
-        ),
-      ),
-      // Two-tone double heart — no colorFilter so both fills survive.
-      _Marker.read => SvgPicture.asset(
-        'assets/icons/heart-read.svg',
+      _Marker.sent => _heart(TwilightColors.accentUser, key: 'status-heart'),
+      // Read = a double heart: a soft trailing heart with the full-accent heart
+      // overlapping on top. Both tones come from theme tokens (not baked into
+      // the asset) so a future palette switcher recolors them together.
+      _Marker.read => SizedBox(
         key: const Key('status-double-heart'),
         height: 11,
+        width: 18,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned(
+              left: 0,
+              child: _heart(TwilightColors.accentUserSoft),
+            ),
+            Positioned(left: 6, child: _heart(TwilightColors.accentUser)),
+          ],
+        ),
       ),
       _Marker.sending => const Icon(
         Icons.schedule,
@@ -435,6 +439,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
       ),
     };
   }
+
+  static Widget _heart(Color color, {String? key}) => SvgPicture.asset(
+    'assets/icons/heart-sent.svg',
+    key: key == null ? null : Key(key),
+    height: 11,
+    colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+  );
 
   Widget _bubbleContent(Msg m, String me, _Marker? marker) {
     final mine = m.from == me;
