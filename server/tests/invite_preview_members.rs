@@ -25,9 +25,15 @@ async fn invite_preview_returns_room_roster() {
 
     let (canonical, code, hash) = littlelove_crypto::invite::generate_invite();
     let expires_at = littlelove_api::invites::default_expiry(chrono::Utc::now());
-    littlelove_api::invites::create_invite_record(&pool, court_id, &hash, expires_at, Some(&room_id))
-        .await
-        .unwrap();
+    littlelove_api::invites::create_invite_record(
+        &pool,
+        court_id,
+        &hash,
+        expires_at,
+        Some(&room_id),
+    )
+    .await
+    .unwrap();
     let _ = canonical;
 
     let resp: serde_json::Value = reqwest::Client::new()
