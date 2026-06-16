@@ -757,6 +757,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
+            if (widget.onAttach != null)
+              IconButton(
+                key: const Key('composer-attach'),
+                onPressed: () => widget.onAttach!.call(),
+                icon: const Icon(Icons.add, color: TwilightColors.textMuted),
+                tooltip: 'Attach a photo or video',
+              ),
             CompositedTransformTarget(
               link: _emojiLink,
               child: OverlayPortal(

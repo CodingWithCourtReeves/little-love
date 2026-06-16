@@ -1,11 +1,16 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../attachment/attachment_descriptor.dart';
+import '../../attachment/attachment_download.dart';
 import '../../attachment/attachment_upload.dart';
+import '../../attachment/attachment_viewer.dart';
 import '../../attachment/file_crypto.dart';
 import '../../attachment/thumbnail.dart';
 import '../../conversation/conversation_page.dart';
@@ -168,6 +173,9 @@ class InboxShell extends ConsumerWidget {
       selfUsername: account.username,
       onSend: (text) => _sendEncrypted(ref, room, text),
       onRetry: (clientMsgId) => _retry(ref, clientMsgId),
+      onAttach: () => _pickAndSend(ref, room, context),
+      onOpenAttachment: (descriptor) =>
+          _openAttachment(ref, room, context, descriptor),
       onRename: (newName) {
         final conn = ref.read(liveConnectionProvider).asData?.value;
         conn?.send(
@@ -307,6 +315,70 @@ class InboxShell extends ConsumerWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not send attachment.')),
       );
+    }
+  }
+
+  Future<void> _pickAndSend(WidgetRef ref, Room room, BuildContext context) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (_) => SafeArea(
+        child: Wrap(children: [
+          ListTile(
+            leading: const Icon(Icons.photo_library_outlined),
+            title: const Text('Photo Library'),
+            onTap: () => Navigator.pop(context, 'photos'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.insert_drive_file_outlined),
+            title: const Text('Choose File'),
+            onTap: () => Navigator.pop(context, 'file'),
+          ),
+        ]),
+      ),
+    );
+    if (!context.mounted) return;
+    if (choice == 'photos') {
+      final picked = await ImagePicker().pickMedia();
+      if (picked == null || !context.mounted) return;
+      final bytes = await picked.readAsBytes();
+      final mime = _mimeFor(picked.name, picked.mimeType);
+      if (!context.mounted) return;
+      await _sendAttachment(ref, room, context,
+          bytes: bytes, filename: picked.name, mime: mime,
+          videoPath: mime.startsWith('video/') ? picked.path : null);
+    } else if (choice == 'file') {
+      final res = await FilePicker.pickFiles(withReadStream: false);
+      final f = (res != null && res.files.isNotEmpty) ? res.files.first : null;
+      if (f == null || f.path == null || !context.mounted) return;
+      final bytes = await File(f.path!).readAsBytes();
+      final mime = _mimeFor(f.name, null);
+      if (!context.mounted) return;
+      await _sendAttachment(ref, room, context,
+          bytes: bytes, filename: f.name, mime: mime,
+          videoPath: mime.startsWith('video/') ? f.path : null);
+    }
+  }
+
+  String _mimeFor(String name, String? hint) {
+    if (hint != null && hint.isNotEmpty) return hint;
+    final lower = name.toLowerCase();
+    if (lower.endsWith('.mp4') || lower.endsWith('.mov')) return 'video/mp4';
+    if (lower.endsWith('.png')) return 'image/png';
+    return 'image/jpeg';
+  }
+
+  Future<void> _openAttachment(
+    WidgetRef ref, Room room, BuildContext context, AttachmentDescriptor descriptor) async {
+    final conn = ref.read(liveConnectionProvider).asData?.value;
+    if (conn == null) return;
+    try {
+      final file = await fetchAndDecrypt(conn: conn, descriptor: descriptor);
+      if (!context.mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => AttachmentViewer(file: file, descriptor: descriptor),
+      ));
+    } catch (e) {
+      debugPrint('open attachment failed: $e');
     }
   }
 
