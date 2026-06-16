@@ -9,9 +9,7 @@ on:
 
 jobs:
   railway:
-    # Self-hosted macOS runner (Court's Mac) — just runs the Railway CLI, so no
-    # GitHub-hosted minutes. setup-node provides node/npm regardless of host PATH.
-    runs-on: [self-hosted, macOS]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-node@v4
         with:
