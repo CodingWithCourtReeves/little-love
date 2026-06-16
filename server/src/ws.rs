@@ -223,6 +223,11 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 Ok(RoomClientFrame::LeaveRoom { room_id }) => {
                     handle_leave_room(&state, &me, &room_id, &tx).await;
                 }
+                Ok(RoomClientFrame::RequestUpload { .. })
+                | Ok(RoomClientFrame::RequestDownload { .. }) => {
+                    // Real handlers wired in once AppState.r2 lands.
+                    send_error(&tx, error_codes::R2_UNAVAILABLE, "");
+                }
                 Err(e) => warn!("invalid frame from {}: {e}", me.username),
             }
         }

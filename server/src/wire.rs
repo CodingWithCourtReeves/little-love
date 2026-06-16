@@ -85,6 +85,14 @@ pub enum RoomClientFrame {
         bodies: HashMap<String, String>,
         client_msg_id: Uuid,
     },
+    RequestUpload {
+        request_id: Uuid,
+        room_id: String,
+        byte_size: i64,
+    },
+    RequestDownload {
+        blob_key: String,
+    },
     CreateRoom {
         #[serde(default)]
         name: Option<String>,
@@ -154,6 +162,19 @@ pub enum RoomServerFrame {
         client_msg_id: Option<Uuid>,
     },
 
+    UploadGranted {
+        request_id: Uuid,
+        blob_key: String,
+        url: String,
+        expires_at: DateTime<Utc>,
+    },
+
+    DownloadGranted {
+        blob_key: String,
+        url: String,
+        expires_at: DateTime<Utc>,
+    },
+
     Error {
         code: String,
         #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -203,6 +224,9 @@ pub mod error_codes {
     pub const FAN_OUT_MISMATCH: &str = "FanOutMismatch";
     pub const MONOGAMY_VIOLATION: &str = "MonogamyViolation";
     pub const BODY_TOO_LARGE: &str = "BodyTooLarge";
+    pub const BLOB_TOO_LARGE: &str = "BlobTooLarge";
+    pub const UNKNOWN_BLOB: &str = "UnknownBlob";
+    pub const R2_UNAVAILABLE: &str = "R2Unavailable";
 }
 
 #[cfg(test)]
@@ -570,5 +594,51 @@ mod tests {
         assert_eq!(error_codes::FAN_OUT_MISMATCH, "FanOutMismatch");
         assert_eq!(error_codes::MONOGAMY_VIOLATION, "MonogamyViolation");
         assert_eq!(error_codes::ALREADY_PAIRED, "AlreadyPaired");
+    }
+
+    #[test]
+    fn parses_request_upload_frame() {
+        let raw = r#"{"kind":"RequestUpload","request_id":"7c4e1c8a-7e7e-4b7a-9f23-1a0a17070707","room_id":"01J","byte_size":1048576}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::RequestUpload {
+                room_id, byte_size, ..
+            } => {
+                assert_eq!(room_id, "01J");
+                assert_eq!(byte_size, 1_048_576);
+            }
+            _ => panic!("expected RequestUpload"),
+        }
+    }
+
+    #[test]
+    fn parses_request_download_frame() {
+        let raw = r#"{"kind":"RequestDownload","blob_key":"01JBLOB"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        assert!(matches!(frame, RoomClientFrame::RequestDownload { blob_key } if blob_key == "01JBLOB"));
+    }
+
+    #[test]
+    fn serializes_upload_granted_frame() {
+        let f = RoomServerFrame::UploadGranted {
+            request_id: Uuid::nil(),
+            blob_key: "01JBLOB".into(),
+            url: "https://r2/put".into(),
+            expires_at: "2026-06-16T18:00:00Z".parse().unwrap(),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"UploadGranted""#));
+        assert!(s.contains(r#""blob_key":"01JBLOB""#));
+    }
+
+    #[test]
+    fn serializes_download_granted_frame() {
+        let f = RoomServerFrame::DownloadGranted {
+            blob_key: "01JBLOB".into(),
+            url: "https://r2/get".into(),
+            expires_at: "2026-06-16T18:00:00Z".parse().unwrap(),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"DownloadGranted""#));
     }
 }
