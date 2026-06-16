@@ -8,13 +8,12 @@ import 'live_connection.dart';
 
 /// Multiplexed `PairingTransport` over a `LiveConnection`.
 ///
-/// In v0.3 the "Invite them with a code" path is no longer a standalone
-/// `CreateInvite` frame; instead `createInvite()` issues `CreateRoom
+/// The "Invite them with a code" path is not a standalone `CreateInvite`
+/// frame; instead `createInvite()` issues `CreateRoom
 /// { invite_human_partner: true }` and waits for the matching `RoomCreated`
 /// (which carries an inline `pending_invite`). The transport adapts the
 /// resulting `pending_invite` back into the `InviteCreatedFrame` shape its
-/// callers already understand — keeping `show_invite.dart` working until
-/// the v0.3 `CreateChatInviteScreen` replaces it (plan Task 11).
+/// callers already understand.
 ///
 /// FIFO queue per kind: the next matching frame resolves the head of the
 /// queue. A `RoomError` resolves the oldest pending call (createInvite
@@ -28,7 +27,6 @@ class LivePairingTransport implements PairingTransport {
   late final StreamSubscription<RoomServerFrame> _sub;
 
   final _pendingCreate = <Completer<InviteCreatedFrame>>[];
-  final _pendingFamiliar = <Completer<InviteCreatedFrame>>[];
   final _pendingConsume = <Completer<InviteConsumedFrame>>[];
 
   @override
@@ -37,18 +35,9 @@ class LivePairingTransport implements PairingTransport {
     _pendingCreate.add(c);
     _conn.send(
       const CreateRoomFrame(
-        botAccountIds: [],
         inviteHumanPartner: true,
       ).toJson(),
     );
-    return c.future;
-  }
-
-  @override
-  Future<InviteCreatedFrame> createFamiliarInvite() {
-    final c = Completer<InviteCreatedFrame>();
-    _pendingFamiliar.add(c);
-    _conn.send(const CreateFamiliarInviteFrame().toJson());
     return c.future;
   }
 
@@ -84,12 +73,9 @@ class LivePairingTransport implements PairingTransport {
               );
         }
       case InviteCreatedFrame():
-        // The familiar path resolves on the standalone InviteCreated frame.
-        // Fall back to a pending partner createInvite() for forward-compat
-        // (a future server build re-emitting standalone InviteCreated).
-        if (_pendingFamiliar.isNotEmpty) {
-          _pendingFamiliar.removeAt(0).complete(frame);
-        } else if (_pendingCreate.isNotEmpty) {
+        // Forward-compat: a server build re-emitting a standalone
+        // InviteCreated resolves a pending createInvite().
+        if (_pendingCreate.isNotEmpty) {
           _pendingCreate.removeAt(0).complete(frame);
         }
       case InviteConsumedFrame():
@@ -107,9 +93,7 @@ class LivePairingTransport implements PairingTransport {
           code: frame.code,
           message: frame.message,
         );
-        if (_pendingFamiliar.isNotEmpty) {
-          _pendingFamiliar.removeAt(0).completeError(err);
-        } else if (_pendingCreate.isNotEmpty) {
+        if (_pendingCreate.isNotEmpty) {
           _pendingCreate.removeAt(0).completeError(err);
         } else if (_pendingConsume.isNotEmpty) {
           _pendingConsume.removeAt(0).completeError(err);

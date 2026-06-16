@@ -79,9 +79,9 @@ class InboxNotifier extends Notifier<InboxState> {
     state = state.copyWith(rooms: List.unmodifiable(next));
   }
 
-  /// Drop `username` from `roomId`. If no humans remain in the room, the
+  /// Drop `username` from `roomId`. If no members remain in the room, the
   /// room itself is removed (server cascades; client mirrors so the
-  /// inbox doesn't render an empty-bot-only ghost room).
+  /// inbox doesn't render an empty ghost room).
   void removeMember(String roomId, String username) {
     final updated = <Room>[];
     for (final r in state.rooms) {
@@ -92,8 +92,8 @@ class InboxNotifier extends Notifier<InboxState> {
       final newMembers = r.members
           .where((m) => m.username != username)
           .toList(growable: false);
-      final humansLeft = newMembers.any((m) => !m.isBot);
-      if (humansLeft) {
+      final membersLeft = newMembers.isNotEmpty;
+      if (membersLeft) {
         updated.add(
           Room(
             roomId: r.roomId,

@@ -13,19 +13,17 @@ Future<DerivedIdentity> _identityFromByte(int b) =>
       Uint8List.fromList(List.filled(32, b)),
     );
 
-Member memberOf(DerivedIdentity id, String username, {bool bot = false}) =>
-    Member(
-      username: username,
-      ed25519PubBase64: base64.encode(id.ed25519PublicKey),
-      x25519PubBase64: base64.encode(id.x25519PublicKey),
-      isBot: bot,
-    );
+Member memberOf(DerivedIdentity id, String username) => Member(
+  username: username,
+  ed25519PubBase64: base64.encode(id.ed25519PublicKey),
+  x25519PubBase64: base64.encode(id.x25519PublicKey),
+);
 
 void main() {
   test('encrypts one ciphertext per other member plus a self-copy', () async {
     final me = await _identityFromByte(11);
     final partner = await _identityFromByte(12);
-    final bot = await _identityFromByte(13);
+    final riley = await _identityFromByte(13);
 
     final room = Room(
       roomId: 'r1',
@@ -33,7 +31,7 @@ void main() {
       members: [
         memberOf(me, 'court'),
         memberOf(partner, 'kaitlyn'),
-        memberOf(bot, 'court-garden', bot: true),
+        memberOf(riley, 'riley'),
       ],
       createdAt: DateTime.utc(2026, 6, 10),
     );
@@ -52,7 +50,7 @@ void main() {
     expect(frame.bodies.length, 3);
     expect(frame.bodies.keys.toSet(), {
       base64.encode(partner.x25519PublicKey),
-      base64.encode(bot.x25519PublicKey),
+      base64.encode(riley.x25519PublicKey),
       base64.encode(me.x25519PublicKey),
     });
     // Ciphertexts differ per recipient (distinct keys, including self).

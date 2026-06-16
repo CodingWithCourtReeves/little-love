@@ -49,15 +49,10 @@ async fn paired_pair(
     littlelove_api::rooms::set_partner_link(pool, court_id, kait_id)
         .await
         .unwrap();
-    let room_id = littlelove_api::rooms::create_room_with_members(
-        pool,
-        court_id,
-        Some(kait_id),
-        &[],
-        String::new(),
-    )
-    .await
-    .unwrap();
+    let room_id =
+        littlelove_api::rooms::create_room_with_members(pool, court_id, Some(kait_id), String::new())
+            .await
+            .unwrap();
 
     let mut court = handshake_as(addr, "court", court_sk).await;
     drain_rooms(&mut court).await;

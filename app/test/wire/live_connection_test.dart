@@ -72,7 +72,6 @@ void main() {
     final h = await _openConn();
     h.conn.send(
       const CreateRoomFrame(
-        botAccountIds: [],
         inviteHumanPartner: true,
       ).toJson(),
     );

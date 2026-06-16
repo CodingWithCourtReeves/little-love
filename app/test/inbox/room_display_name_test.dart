@@ -2,12 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/wire/frames.dart';
 
-Member m(String u, {bool bot = false, String? owner}) => Member(
+Member m(String u) => Member(
   username: u,
   ed25519PubBase64: '',
   x25519PubBase64: '',
-  isBot: bot,
-  ownerUsername: owner,
 );
 
 Room r(List<Member> members, {String name = ''}) => Room(
@@ -23,47 +21,10 @@ void main() {
       expect(r([m('court'), m('kaitlyn')]).displayName('court'), 'Kaitlyn');
     });
 
-    test('solo + 1 bot → bot label', () {
+    test('three members → alpha-sorted other members', () {
       expect(
-        r([
-          m('court'),
-          m('court-garden', bot: true, owner: 'court'),
-        ]).displayName('court'),
-        'Garden',
-      );
-    });
-
-    test('solo + 2 bots → alpha-sorted bot labels', () {
-      expect(
-        r([
-          m('court'),
-          m('court-garden', bot: true, owner: 'court'),
-          m('court-journal', bot: true, owner: 'court'),
-        ]).displayName('court'),
-        'Garden + Journal',
-      );
-    });
-
-    test('couple + bot → partner then bot', () {
-      expect(
-        r([
-          m('court'),
-          m('kaitlyn'),
-          m('court-garden', bot: true, owner: 'court'),
-        ]).displayName('court'),
-        'Kaitlyn + Garden',
-      );
-    });
-
-    test('couple + 2 bots → partner then alpha-sorted bots', () {
-      expect(
-        r([
-          m('court'),
-          m('kaitlyn'),
-          m('court-garden', bot: true, owner: 'court'),
-          m('court-journal', bot: true, owner: 'court'),
-        ]).displayName('court'),
-        'Kaitlyn + Garden + Journal',
+        r([m('court'), m('kaitlyn'), m('riley')]).displayName('court'),
+        'Kaitlyn + Riley',
       );
     });
   });
@@ -80,23 +41,9 @@ void main() {
       expect(r([m('court'), m('kaitlyn')]).shape('court'), RoomShape.partner);
     });
 
-    test('one bot, unnamed → familiar', () {
+    test('three members, unnamed → chat', () {
       expect(
-        r([
-          m('court'),
-          m('court-garden', bot: true, owner: 'court'),
-        ]).shape('court'),
-        RoomShape.familiar,
-      );
-    });
-
-    test('partner plus bot → chat', () {
-      expect(
-        r([
-          m('court'),
-          m('kaitlyn'),
-          m('court-garden', bot: true, owner: 'court'),
-        ]).shape('court'),
+        r([m('court'), m('kaitlyn'), m('riley')]).shape('court'),
         RoomShape.chat,
       );
     });
@@ -104,17 +51,6 @@ void main() {
     test('named room with just partner → chat', () {
       expect(
         r([m('court'), m('kaitlyn')], name: 'travel').shape('court'),
-        RoomShape.chat,
-      );
-    });
-
-    test('multiple bots → chat', () {
-      expect(
-        r([
-          m('court'),
-          m('court-garden', bot: true, owner: 'court'),
-          m('court-journal', bot: true, owner: 'court'),
-        ]).shape('court'),
         RoomShape.chat,
       );
     });
@@ -130,13 +66,11 @@ void main() {
             username: 'a',
             ed25519PubBase64: 'AAAA',
             x25519PubBase64: 'BBBB',
-            isBot: false,
           ),
           Member(
             username: 'b',
             ed25519PubBase64: 'CCCC',
             x25519PubBase64: 'DDDD',
-            isBot: false,
           ),
         ],
         createdAt: DateTime.utc(2026, 6, 10),

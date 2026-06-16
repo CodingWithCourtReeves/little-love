@@ -14,13 +14,6 @@ class _FakeTransport implements PairingTransport {
   );
 
   @override
-  Future<InviteCreatedFrame> createFamiliarInvite() async => InviteCreatedFrame(
-    code: 'fam-a-b-c',
-    qrPngBase64: 'AAAA',
-    expiresAt: DateTime.utc(2026, 6, 15, 18),
-  );
-
-  @override
   Future<InviteConsumedFrame> consumeInvite({
     required String code,
     required Uint8List signature,
@@ -32,7 +25,6 @@ class _FakeTransport implements PairingTransport {
         username: 'court',
         ed25519PubBase64: 'AAAA',
         x25519PubBase64: 'BBBB',
-        isBot: false,
       ),
     ],
   );

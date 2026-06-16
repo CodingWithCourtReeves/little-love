@@ -1,4 +1,4 @@
-//! v0.3 room mutation helpers: create / rename / leave.
+//! Room mutation helpers: create / rename / leave.
 
 mod common;
 
@@ -6,11 +6,11 @@ use littlelove_api::rooms::{create_room_with_members, leave_room, rename_room, r
 
 #[tokio::test]
 #[serial_test::serial]
-async fn create_room_with_one_human_and_one_bot() {
+async fn create_room_with_two_humans() {
     let store = common::fresh_store().await;
-    let (court, garden) = common::seed_human_plus_owned_bot(&store).await;
+    let (court, kait) = common::seed_two_humans(&store).await;
 
-    let room = create_room_with_members(store.pool(), court, None, &[garden], "Garden".into())
+    let room = create_room_with_members(store.pool(), court, Some(kait), "Garden".into())
         .await
         .unwrap();
 
@@ -23,8 +23,8 @@ async fn create_room_with_one_human_and_one_bot() {
 #[serial_test::serial]
 async fn rename_room_changes_name() {
     let store = common::fresh_store().await;
-    let (court, garden) = common::seed_human_plus_owned_bot(&store).await;
-    let room = create_room_with_members(store.pool(), court, None, &[garden], "Garden".into())
+    let (court, kait) = common::seed_two_humans(&store).await;
+    let room = create_room_with_members(store.pool(), court, Some(kait), "Garden".into())
         .await
         .unwrap();
 
@@ -36,26 +36,26 @@ async fn rename_room_changes_name() {
 
 #[tokio::test]
 #[serial_test::serial]
-async fn leave_room_removes_member_and_cascades_when_last_human_leaves() {
+async fn leave_room_removes_member_and_cascades_when_last_member_leaves() {
     let store = common::fresh_store().await;
-    let (court, garden) = common::seed_human_plus_owned_bot(&store).await;
-    let room = create_room_with_members(store.pool(), court, None, &[garden], "Garden".into())
+    let (court, _kait) = common::seed_two_humans(&store).await;
+    let room = create_room_with_members(store.pool(), court, None, "Solo".into())
         .await
         .unwrap();
 
     let outcome = leave_room(store.pool(), &room, court).await.unwrap();
     assert!(
         outcome.room_deleted,
-        "last human left → room cascade-deleted"
+        "last member left → room cascade-deleted"
     );
     assert!(room_detail(store.pool(), &room).await.unwrap().is_none());
 }
 
 #[tokio::test]
 #[serial_test::serial]
-async fn leave_room_keeps_room_when_other_human_remains() {
+async fn leave_room_keeps_room_when_other_member_remains() {
     let store = common::fresh_store().await;
-    let (court, kait, _bot, room) = common::seed_couple_plus_bot(&store).await;
+    let (court, kait, _riley, room) = common::seed_trio_room(&store).await;
 
     let outcome = leave_room(store.pool(), &room, court).await.unwrap();
     assert!(!outcome.room_deleted);

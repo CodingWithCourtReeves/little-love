@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../identity/current_identity.dart';
 import '../inbox/inbox_state.dart';
-import '../inbox/owned_bots_provider.dart';
 import '../inbox/select_room.dart';
 import '../inbox/pending_invites_provider.dart';
 import '../inbox/room.dart';
@@ -31,7 +30,7 @@ class RoomMessageRouter {
 
   Future<void> _onFrame(RoomServerFrame f) async {
     switch (f) {
-      case RoomsFrame(:final rooms, :final ownedBots):
+      case RoomsFrame(:final rooms):
         final mapped = rooms
             .map(
               (r) => Room(
@@ -43,7 +42,6 @@ class RoomMessageRouter {
             )
             .toList(growable: false);
         ref.read(inboxStateProvider.notifier).setRooms(mapped);
-        ref.read(ownedBotsProvider.notifier).set(ownedBots);
         for (final r in mapped) {
           _subscribe(r.roomId);
         }

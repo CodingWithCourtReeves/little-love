@@ -11,7 +11,9 @@ class TwilightColors {
   static const textMuted = Color(0xFF7C6C78);
   static const accentUser = Color(0xFFA04A6A);
   static const accentPartner = Color(0xFF9C7E94);
-  static const accentFamiliar = Color(0xFF4F7A5E);
+
+  /// Sage accent used for section labels, channel chrome, and step markers.
+  static const accentSage = Color(0xFF4F7A5E);
   static const borderSoft = Color(0xFFD9C7CD);
   static const ruleStrong = Color(0xFF4F7A5E);
   static const warningTone = Color(0xFFB85C5C);
@@ -20,12 +22,6 @@ class TwilightColors {
   static const bubbleUserBg = Color(0xFFE8C8D2);
   static const bubbleUserText = Color(0xFF3A1424);
   static const bubblePartnerBg = Color(0xFFFFFAFB);
-
-  /// Sage tint for familiar (bot) message bubbles — distinguishes AI
-  /// participants from the partner's white bubbles. Values mirror the v0.4
-  /// mock (mocks/v0.4/channel-with-familiar.html).
-  static const Color bubbleFamiliarBg = Color(0xFFEFEDDF);
-  static const Color bubbleFamiliarBorder = Color(0xFFDFDCC4);
 }
 
 /// Builds a Material ThemeData using Twilight colors. Phase 1.5
@@ -35,7 +31,7 @@ ThemeData buildTwilightTheme() {
   const base = ColorScheme.light(
     primary: TwilightColors.accentUser,
     onPrimary: Colors.white,
-    secondary: TwilightColors.accentFamiliar,
+    secondary: TwilightColors.accentSage,
     surface: TwilightColors.bgSurface,
     onSurface: TwilightColors.textPrimary,
   );

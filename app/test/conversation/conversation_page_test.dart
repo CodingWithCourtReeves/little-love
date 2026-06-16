@@ -20,13 +20,11 @@ Room _roomA() => Room(
       username: 'court',
       ed25519PubBase64: 'AAA',
       x25519PubBase64: 'BBB',
-      isBot: false,
     ),
     Member(
       username: 'kaitlyn',
       ed25519PubBase64: 'CCC',
       x25519PubBase64: 'DDD',
-      isBot: false,
     ),
   ],
   createdAt: DateTime.utc(2026, 6, 9),

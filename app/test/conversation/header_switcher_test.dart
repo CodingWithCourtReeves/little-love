@@ -10,8 +10,6 @@ Member m(String u) => Member(
   username: u,
   ed25519PubBase64: '',
   x25519PubBase64: '',
-  isBot: false,
-  ownerUsername: null,
 );
 
 void main() {

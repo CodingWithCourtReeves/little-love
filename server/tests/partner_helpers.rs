@@ -1,8 +1,8 @@
-//! Monogamy + partner link + bot ownership helpers (spec §3, §5.1).
+//! Monogamy + partner link helpers (spec §3, §5.1).
 
 mod common;
 
-use littlelove_api::rooms::{bot_owned_by, monogamy_check, set_partner_link, MonogamyError};
+use littlelove_api::rooms::{monogamy_check, set_partner_link, MonogamyError};
 
 #[tokio::test]
 #[serial_test::serial]
@@ -48,32 +48,4 @@ async fn set_partner_link_is_idempotent() {
             .await
             .unwrap();
     assert_eq!(pa, Some(b));
-}
-
-#[tokio::test]
-#[serial_test::serial]
-async fn bot_owned_by_recognises_owner_and_partner() {
-    let store = common::fresh_store().await;
-    let (court, kait, garden_bot, _room) = common::seed_couple_plus_bot(&store).await;
-    assert!(bot_owned_by(store.pool(), garden_bot, court).await.unwrap());
-    assert!(bot_owned_by(store.pool(), garden_bot, kait).await.unwrap());
-}
-
-#[tokio::test]
-#[serial_test::serial]
-async fn bot_owned_by_rejects_stranger() {
-    let store = common::fresh_store().await;
-    let (_court, _kait, garden_bot, _room) = common::seed_couple_plus_bot(&store).await;
-    let (stranger,): (i64,) = sqlx::query_as(
-        "INSERT INTO accounts (username, ed25519_pub, x25519_pub)
-         VALUES ('riley', $1, $2) RETURNING id",
-    )
-    .bind(vec![40u8; 32])
-    .bind(vec![41u8; 32])
-    .fetch_one(store.pool())
-    .await
-    .unwrap();
-    assert!(!bot_owned_by(store.pool(), garden_bot, stranger)
-        .await
-        .unwrap());
 }

@@ -119,7 +119,7 @@ class _EnterCodeScreenState extends ConsumerState<EnterCodeScreen> {
 
   String? _inviterUsername(InvitePreviewResponse preview) {
     for (final m in preview.members) {
-      if (!m.isBot && m.username != widget.selfUsername) return m.username;
+      if (m.username != widget.selfUsername) return m.username;
     }
     return null;
   }
@@ -239,7 +239,6 @@ class _RosterCard extends StatelessWidget {
                 username: selfUsername,
                 ed25519PubBase64: '',
                 x25519PubBase64: '',
-                isBot: false,
               ),
               isSelf: true,
             ),
@@ -257,22 +256,15 @@ class _MemberRow extends StatelessWidget {
 
   String _label() {
     if (isSelf) return 'You · ${member.username}';
-    if (member.isBot) {
-      final owner = member.ownerUsername;
-      return owner == null ? member.username : "$owner's ${member.username}";
-    }
     return member.username;
   }
 
   String _role() {
     if (isSelf) return 'JOINING';
-    if (member.isBot) return 'FAMILIAR';
     return 'HOST';
   }
 
   Color _avColor() {
-    if (isSelf) return TwilightColors.accentUser;
-    if (member.isBot) return TwilightColors.accentFamiliar;
     return TwilightColors.accentUser;
   }
 

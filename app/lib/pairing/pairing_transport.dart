@@ -8,10 +8,6 @@ import '../wire/live_pairing_transport.dart';
 
 abstract class PairingTransport {
   Future<InviteCreatedFrame> createInvite();
-
-  /// Mint a familiar-ownership invite. Resolves on the standalone
-  /// `InviteCreated` frame (the familiar path is not coupled to RoomCreated).
-  Future<InviteCreatedFrame> createFamiliarInvite();
   Future<InviteConsumedFrame> consumeInvite({
     required String code,
     required Uint8List signature,

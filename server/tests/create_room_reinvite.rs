@@ -69,7 +69,6 @@ async fn create_room_auto_adds_paired_partner_without_invite() {
             serde_json::json!({
                 "kind": "CreateRoom",
                 "name": "travel",
-                "bot_account_ids": [],
                 "invite_human_partner": true,
             })
             .to_string(),
@@ -117,7 +116,6 @@ async fn create_room_mints_invite_when_partner_not_paired() {
             serde_json::json!({
                 "kind": "CreateRoom",
                 "name": "first room",
-                "bot_account_ids": [],
                 "invite_human_partner": true,
             })
             .to_string(),

@@ -75,13 +75,11 @@ void main() {
               username: 'court',
               ed25519PubBase64: base64.encode(me.ed25519PublicKey),
               x25519PubBase64: base64.encode(me.x25519PublicKey),
-              isBot: false,
             ),
             Member(
               username: 'kaitlyn',
               ed25519PubBase64: base64.encode(peer.ed25519PublicKey),
               x25519PubBase64: base64.encode(peer.x25519PublicKey),
-              isBot: false,
             ),
           ],
           createdAt: DateTime.utc(2026, 6, 10),

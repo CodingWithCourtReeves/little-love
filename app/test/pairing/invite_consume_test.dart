@@ -16,10 +16,6 @@ class _RecordingTransport implements PairingTransport {
   Future<InviteCreatedFrame> createInvite() => throw UnimplementedError();
 
   @override
-  Future<InviteCreatedFrame> createFamiliarInvite() =>
-      throw UnimplementedError();
-
-  @override
   Future<InviteConsumedFrame> consumeInvite({
     required String code,
     required Uint8List signature,
@@ -34,7 +30,6 @@ class _RecordingTransport implements PairingTransport {
           username: 'court',
           ed25519PubBase64: 'AAAA',
           x25519PubBase64: 'BBBB',
-          isBot: false,
         ),
       ],
     );

@@ -1,6 +1,8 @@
 # LittleLove
 
-A private messenger for couples. End-to-end encrypted, hosted by a small couple. AI familiars run on hardware *you* own — no cloud AI providers, ever.
+A private messenger for couples. One-to-one with your partner, organized into channels, end-to-end encrypted throughout. No AI, no third parties — just the two of you.
+
+On the roadmap, all end-to-end encrypted: file uploads (photo/video), voice memos, voice calls, and FaceTime-style video.
 
 > **Day-1 alpha**: Court and Kaitlyn are the only users; the code is intentionally throwaway in the places that matter (symmetric encryption with a pre-shared key, no signup flow, no client persistence). The Phase 1 design at `docs/superpowers/specs/2026-06-09-littlelove-design.md` is the real product; Day-1 exists to prove the wire.
 

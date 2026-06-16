@@ -449,16 +449,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         ),
       );
     }
-    // Resolve whether this message's sender is a familiar (bot) in this room.
-    final senderIsBot = widget.room.memberByUsername(m.from)?.isBot ?? false;
     final bubbleColor = mine
         ? TwilightColors.bubbleUserBg
-        : (senderIsBot
-              ? TwilightColors.bubbleFamiliarBg
-              : TwilightColors.bubblePartnerBg);
-    final bubbleBorder = senderIsBot && !mine
-        ? TwilightColors.bubbleFamiliarBorder
-        : TwilightColors.borderSoft;
+        : TwilightColors.bubblePartnerBg;
+    const bubbleBorder = TwilightColors.borderSoft;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
@@ -828,7 +822,7 @@ class _E2ESeal extends StatelessWidget {
         Icon(
           Icons.lock_outline,
           size: 14,
-          color: TwilightColors.accentFamiliar,
+          color: TwilightColors.accentSage,
           semanticLabel: 'End-to-end encrypted',
         ),
         SizedBox(width: 8),

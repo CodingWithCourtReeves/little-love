@@ -28,7 +28,6 @@ class DrawerContent extends ConsumerWidget {
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     final partners = bucket(RoomShape.partner);
     final chats = bucket(RoomShape.chat);
-    final familiars = bucket(RoomShape.familiar);
 
     Widget header(String label) => Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -64,9 +63,6 @@ class DrawerContent extends ConsumerWidget {
             const SizedBox(height: 16),
             header('CHATS'),
             ...chats.map(item),
-            const SizedBox(height: 16),
-            header('FAMILIARS'),
-            ...familiars.map(item),
             const Spacer(),
             Container(height: 1, color: TwilightColors.borderSoft),
             Material(

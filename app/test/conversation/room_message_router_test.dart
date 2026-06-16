@@ -10,7 +10,6 @@ import 'package:littlelove/crypto/ecdh.dart';
 import 'package:littlelove/identity/current_identity.dart';
 import 'package:littlelove/identity/keypair.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
-import 'package:littlelove/inbox/owned_bots_provider.dart';
 import 'package:littlelove/inbox/pending_invites_provider.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/outbox/outbox_store.dart';
@@ -56,19 +55,17 @@ Future<ProviderContainer> _container({
   return container;
 }
 
-Member _member(String username, DerivedIdentity id, {bool bot = false}) =>
-    Member(
-      username: username,
-      ed25519PubBase64: base64.encode(id.ed25519PublicKey),
-      x25519PubBase64: base64.encode(id.x25519PublicKey),
-      isBot: bot,
-    );
+Member _member(String username, DerivedIdentity id) => Member(
+  username: username,
+  ed25519PubBase64: base64.encode(id.ed25519PublicKey),
+  x25519PubBase64: base64.encode(id.x25519PublicKey),
+);
 
 void main() {
   final seedA = Uint8List.fromList(List<int>.generate(16, (i) => i + 1));
   final seedB = Uint8List.fromList(List<int>.generate(16, (i) => i + 101));
 
-  test('Rooms frame populates inbox + ownedBots + subscribes', () async {
+  test('Rooms frame populates inbox + subscribes', () async {
     final me = await deriveIdentity(seedA);
     final peer = await deriveIdentity(seedB);
     final conn = _FakeConn();
@@ -86,7 +83,6 @@ void main() {
             createdAt: DateTime.utc(2026, 6, 10),
           ),
         ],
-        ownedBots: [_member('court-garden', peer, bot: true)],
       ),
     );
     await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -94,9 +90,6 @@ void main() {
     final inbox = container.read(inboxStateProvider);
     expect(inbox.rooms, hasLength(1));
     expect(inbox.rooms.single.roomId, 'room1');
-
-    final owned = container.read(ownedBotsProvider);
-    expect(owned.single.username, 'court-garden');
 
     final subs = conn.sent
         .cast<Map<String, Object?>>()
@@ -238,30 +231,28 @@ void main() {
   });
 
   test(
-    'MemberLeft drops the member; room cascades when last human leaves',
+    'MemberLeft drops the member; room cascades when last member leaves',
     () async {
       final me = await deriveIdentity(seedA);
-      final peer = await deriveIdentity(seedB);
       final conn = _FakeConn();
       final container = await _container(conn: conn, me: me);
 
       container.read(inboxStateProvider.notifier).setRooms([
         Room(
-          roomId: 'soloBot',
+          roomId: 'solo',
           name: '',
           members: [
             _member('court', me),
-            _member('court-garden', peer, bot: true),
           ],
           createdAt: DateTime.utc(2026, 6, 10),
         ),
       ]);
       container.read(roomMessageRouterProvider);
 
-      conn.emit(const MemberLeftFrame(roomId: 'soloBot', username: 'court'));
+      conn.emit(const MemberLeftFrame(roomId: 'solo', username: 'court'));
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      // Court was the only human → room cascades.
+      // Court was the only member → room cascades.
       expect(container.read(inboxStateProvider).rooms, isEmpty);
     },
   );

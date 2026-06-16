@@ -6,12 +6,10 @@ import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/wire/frames.dart';
 
-Member m(String u, {bool bot = false, String? owner}) => Member(
+Member m(String u) => Member(
   username: u,
   ed25519PubBase64: '',
   x25519PubBase64: '',
-  isBot: bot,
-  ownerUsername: owner,
 );
 
 Room room(String id, List<Member> members, {String name = ''}) => Room(

@@ -16,14 +16,11 @@ Room _soloRoom() => Room(
       username: 'court',
       ed25519PubBase64: 'AAAA',
       x25519PubBase64: 'BBBB',
-      isBot: false,
     ),
     Member(
-      username: 'court-garden',
+      username: 'kaitlyn',
       ed25519PubBase64: 'GGGG',
       x25519PubBase64: 'HHHH',
-      isBot: true,
-      ownerUsername: 'court',
     ),
   ],
   createdAt: DateTime.utc(2026, 6, 10),
@@ -66,9 +63,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('amber-fern-locket-tide'), findsOneWidget);
-    // Roster: court IN, court-garden IN, Partner PENDING
+    // Roster: court IN, kaitlyn IN, Partner PENDING
     expect(find.text('court'), findsOneWidget);
-    expect(find.text('court-garden'), findsOneWidget);
+    expect(find.text('kaitlyn'), findsOneWidget);
     expect(find.text('PENDING'), findsOneWidget);
 
     await tester.ensureVisible(find.byKey(const Key('copy-code-button')));
