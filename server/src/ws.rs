@@ -223,6 +223,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 Ok(RoomClientFrame::LeaveRoom { room_id }) => {
                     handle_leave_room(&state, &me, &room_id, &tx).await;
                 }
+                Ok(RoomClientFrame::MarkRead {
+                    room_id: _,
+                    up_to_message_id: _,
+                }) => {
+                    // Wired in the mark-read handler task.
+                }
                 Err(e) => warn!("invalid frame from {}: {e}", me.username),
             }
         }
@@ -514,6 +520,7 @@ async fn handle_subscribe(
             ts: row.ts,
             body: row.body,
             replayed: true,
+            read: false,
             client_msg_id: None,
         });
     }
@@ -637,6 +644,7 @@ async fn handle_send(
             ts,
             body: body.clone(),
             replayed: false,
+            read: false,
             client_msg_id: None,
         };
         state.routing.deliver(&m.username, frame).await;
@@ -654,6 +662,7 @@ async fn handle_send(
                 ts,
                 body: body.clone(),
                 replayed: false,
+                read: false,
                 client_msg_id: Some(client_msg_id),
             };
             state.routing.deliver(&me.username, frame).await;

@@ -98,6 +98,12 @@ pub enum RoomClientFrame {
     LeaveRoom {
         room_id: String,
     },
+    /// Sent when the client opens a chat: acknowledges every message in the
+    /// room up to and including `up_to_message_id` as read.
+    MarkRead {
+        room_id: String,
+        up_to_message_id: String,
+    },
 }
 
 /// Post-Authenticated server frames (spec §8.2).
@@ -146,12 +152,25 @@ pub enum RoomServerFrame {
         body: String,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         replayed: bool,
+        /// True on the sender's own self-copy once the partner has read this
+        /// message. Set on `Subscribe` replay so double hearts survive a
+        /// restart; omitted (false) for unread messages and incoming ones.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        read: bool,
         /// Echoed back to the sender on their own self-copy so the client can
         /// reconcile the optimistic local echo (keyed by this id) with the
         /// authoritative server row. Absent for messages addressed to other
         /// recipients and for replayed history (not persisted).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         client_msg_id: Option<Uuid>,
+    },
+
+    /// Relayed to a sender when the partner reads one or more of their
+    /// messages. `message_ids` are the ids that just flipped to read.
+    Read {
+        room_id: String,
+        message_ids: Vec<String>,
+        reader: String,
     },
 
     Error {
@@ -542,6 +561,7 @@ mod tests {
             ts: "2026-06-09T17:00:00Z".parse().unwrap(),
             body: "hi".into(),
             replayed: false,
+            read: false,
             client_msg_id: None,
         };
         let s = serde_json::to_string(&f).unwrap();
@@ -570,5 +590,66 @@ mod tests {
         assert_eq!(error_codes::FAN_OUT_MISMATCH, "FanOutMismatch");
         assert_eq!(error_codes::MONOGAMY_VIOLATION, "MonogamyViolation");
         assert_eq!(error_codes::ALREADY_PAIRED, "AlreadyPaired");
+    }
+
+    #[test]
+    fn parses_mark_read_frame() {
+        let raw = r#"{"kind":"MarkRead","room_id":"01J","up_to_message_id":"01JX"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::MarkRead {
+                room_id,
+                up_to_message_id,
+            } => {
+                assert_eq!(room_id, "01J");
+                assert_eq!(up_to_message_id, "01JX");
+            }
+            _ => panic!("expected MarkRead"),
+        }
+    }
+
+    #[test]
+    fn serializes_read_frame() {
+        let f = RoomServerFrame::Read {
+            room_id: "01J".into(),
+            message_ids: vec!["01JA".into(), "01JB".into()],
+            reader: "kaitlyn".into(),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"Read""#));
+        assert!(s.contains(r#""reader":"kaitlyn""#));
+        assert!(s.contains(r#""message_ids":["01JA","01JB"]"#));
+    }
+
+    #[test]
+    fn serializes_message_frame_with_read_true() {
+        let f = RoomServerFrame::Message {
+            id: "01J".into(),
+            room_id: "01J".into(),
+            from: "court".into(),
+            ts: "2026-06-09T17:00:00Z".parse().unwrap(),
+            body: "hi".into(),
+            replayed: true,
+            read: true,
+            client_msg_id: None,
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""read":true"#));
+    }
+
+    #[test]
+    fn message_frame_omits_read_when_false() {
+        let f = RoomServerFrame::Message {
+            id: "01J".into(),
+            room_id: "01J".into(),
+            from: "court".into(),
+            ts: "2026-06-09T17:00:00Z".parse().unwrap(),
+            body: "hi".into(),
+            replayed: false,
+            read: false,
+            client_msg_id: None,
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(!s.contains("read"), "false read should be omitted: {s}");
     }
 }
