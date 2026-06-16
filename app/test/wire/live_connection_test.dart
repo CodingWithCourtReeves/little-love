@@ -115,7 +115,6 @@ void main() {
       // The socket is dead; a send must be a no-op, not a write to a dead sink.
       h.conn.send(
         const CreateRoomFrame(
-          botAccountIds: [],
           inviteHumanPartner: true,
         ).toJson(),
       );

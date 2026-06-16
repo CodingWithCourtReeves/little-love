@@ -21,7 +21,6 @@ void main() {
     username: username,
     ed25519PubBase64: base64.encode(id.ed25519PublicKey),
     x25519PubBase64: base64.encode(id.x25519PublicKey),
-    isBot: false,
   );
 
   Room mkRoom(String id, DerivedIdentity me, DerivedIdentity peer) => Room(
