@@ -78,7 +78,9 @@ class RoomMessageRouter {
 
       case InviteCreatedFrame():
       case RoomErrorFrame():
-        // Owned by LivePairingTransport / CreateChat screens.
+      case UploadGrantedFrame():
+      case DownloadGrantedFrame():
+        // Owned by LivePairingTransport / attachment upload+download flows.
         break;
     }
   }
