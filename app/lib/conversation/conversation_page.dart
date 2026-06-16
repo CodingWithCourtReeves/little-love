@@ -423,10 +423,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            Positioned(
-              left: 0,
-              child: _heart(TwilightColors.accentUserSoft),
-            ),
+            Positioned(left: 0, child: _heart(TwilightColors.accentUserSoft)),
             Positioned(left: 6, child: _heart(TwilightColors.accentUser)),
           ],
         ),
