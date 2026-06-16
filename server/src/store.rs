@@ -13,6 +13,10 @@ pub struct MessageRow {
     pub recipient_account_id: i64,
     pub body: String,
     pub ts: DateTime<Utc>,
+    /// Read receipt: true when *another* recipient of this message id has read
+    /// it. Output-only — computed by [`Store::messages_for_recipient`] and
+    /// ignored on insert (the column defaults NULL, then `mark_read` sets it).
+    pub read: bool,
 }
 
 #[derive(Clone)]
@@ -20,7 +24,7 @@ pub struct Store {
     pool: PgPool,
 }
 
-type MessageDbRow = (String, String, i64, i64, String, DateTime<Utc>);
+type MessageDbRow = (String, String, i64, i64, String, DateTime<Utc>, bool);
 
 impl Store {
     pub async fn connect(database_url: &str) -> anyhow::Result<Self> {
@@ -92,25 +96,35 @@ impl Store {
         recipient_account_id: i64,
         since_message_id: Option<&str>,
     ) -> anyhow::Result<Vec<MessageRow>> {
+        // `read` is true when another recipient of the same message id has it
+        // marked read. Meaningful for the caller's own self-copies (did the
+        // partner read what I sent?); harmless for incoming messages, where the
+        // client never renders a send marker anyway.
+        let read_expr = "EXISTS (SELECT 1 FROM messages r
+                 WHERE r.id = m.id
+                   AND r.recipient_account_id <> m.recipient_account_id
+                   AND r.read_at IS NOT NULL) AS read";
         let rows = if let Some(since) = since_message_id {
-            sqlx::query_as::<_, MessageDbRow>(
-                "SELECT id, room_id, from_account_id, recipient_account_id, body, ts
-                 FROM messages
-                 WHERE room_id = $1 AND recipient_account_id = $2 AND id > $3
-                 ORDER BY id ASC",
-            )
+            sqlx::query_as::<_, MessageDbRow>(&format!(
+                "SELECT m.id, m.room_id, m.from_account_id, m.recipient_account_id, m.body, m.ts,
+                        {read_expr}
+                 FROM messages m
+                 WHERE m.room_id = $1 AND m.recipient_account_id = $2 AND m.id > $3
+                 ORDER BY m.id ASC"
+            ))
             .bind(room_id)
             .bind(recipient_account_id)
             .bind(since)
             .fetch_all(&self.pool)
             .await?
         } else {
-            sqlx::query_as::<_, MessageDbRow>(
-                "SELECT id, room_id, from_account_id, recipient_account_id, body, ts
-                 FROM messages
-                 WHERE room_id = $1 AND recipient_account_id = $2
-                 ORDER BY id ASC",
-            )
+            sqlx::query_as::<_, MessageDbRow>(&format!(
+                "SELECT m.id, m.room_id, m.from_account_id, m.recipient_account_id, m.body, m.ts,
+                        {read_expr}
+                 FROM messages m
+                 WHERE m.room_id = $1 AND m.recipient_account_id = $2
+                 ORDER BY m.id ASC"
+            ))
             .bind(room_id)
             .bind(recipient_account_id)
             .fetch_all(&self.pool)
@@ -119,15 +133,47 @@ impl Store {
         Ok(rows
             .into_iter()
             .map(
-                |(id, room_id, from_account_id, recipient_account_id, body, ts)| MessageRow {
-                    id,
-                    room_id,
-                    from_account_id,
-                    recipient_account_id,
-                    body,
-                    ts,
+                |(id, room_id, from_account_id, recipient_account_id, body, ts, read)| {
+                    MessageRow {
+                        id,
+                        room_id,
+                        from_account_id,
+                        recipient_account_id,
+                        body,
+                        ts,
+                        read,
+                    }
                 },
             )
             .collect())
+    }
+
+    /// Mark every message in `room_id` addressed to `reader_account_id` as read,
+    /// up to and including `up_to_message_id`, skipping the reader's own
+    /// self-copies and rows already read. Returns the `(message_id,
+    /// from_account_id)` of the rows that flipped so the caller can notify each
+    /// sender. Idempotent: a second call with the same watermark flips nothing.
+    pub async fn mark_read(
+        &self,
+        room_id: &str,
+        reader_account_id: i64,
+        up_to_message_id: &str,
+    ) -> anyhow::Result<Vec<(String, i64)>> {
+        let rows = sqlx::query_as::<_, (String, i64)>(
+            "UPDATE messages
+             SET read_at = now()
+             WHERE room_id = $1
+               AND recipient_account_id = $2
+               AND from_account_id <> $2
+               AND read_at IS NULL
+               AND id <= $3
+             RETURNING id, from_account_id",
+        )
+        .bind(room_id)
+        .bind(reader_account_id)
+        .bind(up_to_message_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
     }
 }

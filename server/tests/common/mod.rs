@@ -217,6 +217,41 @@ pub async fn seed_trio_room(store: &Store) -> (i64, i64, i64, String) {
     (court_id, kait_id, riley_id, room_id)
 }
 
+/// Seed the couple `court` + `kaitlyn` (partner-linked) plus a shared room
+/// with exactly the two of them — the real product topology. Returns
+/// `(court_id, kaitlyn_id, room_id)`.
+pub async fn seed_couple_room(store: &Store) -> (i64, i64, String) {
+    let pool = store.pool();
+    let (court_id, kait_id) = seed_two_humans(store).await;
+    sqlx::query("UPDATE accounts SET partner_account_id = $1 WHERE id = $2")
+        .bind(kait_id)
+        .bind(court_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE accounts SET partner_account_id = $1 WHERE id = $2")
+        .bind(court_id)
+        .bind(kait_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    let room_id = ulid::Ulid::new().to_string();
+    sqlx::query("INSERT INTO rooms (id, name) VALUES ($1, '')")
+        .bind(&room_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    for who in [court_id, kait_id] {
+        sqlx::query("INSERT INTO room_members (room_id, account_id) VALUES ($1, $2)")
+            .bind(&room_id)
+            .bind(who)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+    (court_id, kait_id, room_id)
+}
+
 /// Sign the **domain-separated** ConsumeInvite input (spec §8.5.1) over the
 /// canonical 32-byte token. Returns base64 of the signature.
 pub fn sign_invite_consume_b64(sk: &SigningKey, canonical_token: &[u8]) -> String {
