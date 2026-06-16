@@ -33,11 +33,7 @@ class LivePairingTransport implements PairingTransport {
   Future<InviteCreatedFrame> createInvite() {
     final c = Completer<InviteCreatedFrame>();
     _pendingCreate.add(c);
-    _conn.send(
-      const CreateRoomFrame(
-        inviteHumanPartner: true,
-      ).toJson(),
-    );
+    _conn.send(const CreateRoomFrame(inviteHumanPartner: true).toJson());
     return c.future;
   }
 

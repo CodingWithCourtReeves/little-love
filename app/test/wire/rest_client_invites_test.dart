@@ -28,10 +28,7 @@ void main() {
       final r = await client.previewInvite('amber-fern-locket-tide');
       expect(r.roomId, '01JNROOM');
       expect(r.name, '');
-      expect(r.members.map((m) => m.username).toList(), [
-        'court',
-        'kaitlyn',
-      ]);
+      expect(r.members.map((m) => m.username).toList(), ['court', 'kaitlyn']);
       expect(r.expiresAt.toUtc(), DateTime.utc(2026, 6, 9, 18, 0, 0));
     });
 

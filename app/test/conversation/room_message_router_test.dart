@@ -241,9 +241,7 @@ void main() {
         Room(
           roomId: 'solo',
           name: '',
-          members: [
-            _member('court', me),
-          ],
+          members: [_member('court', me)],
           createdAt: DateTime.utc(2026, 6, 10),
         ),
       ]);

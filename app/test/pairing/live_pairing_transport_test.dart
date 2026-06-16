@@ -69,11 +69,7 @@ void main() {
           'room_id': '01JROOM',
           'name': '',
           'members': [
-            {
-              'username': 'court',
-              'ed25519_pub': 'AAAA',
-              'x25519_pub': 'BBBB',
-            },
+            {'username': 'court', 'ed25519_pub': 'AAAA', 'x25519_pub': 'BBBB'},
           ],
           'pending_invite': {
             'code': 'amber-fern-locket-tide',
@@ -108,11 +104,7 @@ void main() {
         'room_id': '01JROOMID',
         'name': '',
         'members': [
-          {
-            'username': 'court',
-            'ed25519_pub': 'AAAA',
-            'x25519_pub': 'BBBB',
-          },
+          {'username': 'court', 'ed25519_pub': 'AAAA', 'x25519_pub': 'BBBB'},
         ],
       }),
     );

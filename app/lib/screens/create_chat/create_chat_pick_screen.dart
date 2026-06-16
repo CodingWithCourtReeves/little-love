@@ -155,8 +155,7 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
               ),
             Builder(
               builder: (context) {
-                final hasSelection =
-                    _includePartner && partnerUsername != null;
+                final hasSelection = _includePartner && partnerUsername != null;
                 return FilledButton(
                   key: const Key('create-chat-button'),
                   onPressed: (!hasSelection || _submitting) ? null : _create,

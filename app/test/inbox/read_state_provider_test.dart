@@ -13,11 +13,8 @@ import 'package:littlelove/wire/message.dart';
 Msg msg(String id, DateTime ts) =>
     Msg(id: id, from: 'kaitlyn', to: 'room-a', body: 'hi', ts: ts);
 
-Member member(String u) => Member(
-  username: u,
-  ed25519PubBase64: '',
-  x25519PubBase64: '',
-);
+Member member(String u) =>
+    Member(username: u, ed25519PubBase64: '', x25519PubBase64: '');
 
 Room roomFor(String id) => Room(
   roomId: id,

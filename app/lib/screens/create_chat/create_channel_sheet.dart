@@ -78,12 +78,7 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
     }
     setState(() => _submitting = true);
     // Mirror create_chat_pick_screen.dart: conn.send(Frame.toJson())
-    conn.send(
-      CreateRoomFrame(
-        name: name,
-        inviteHumanPartner: true,
-      ).toJson(),
-    );
+    conn.send(CreateRoomFrame(name: name, inviteHumanPartner: true).toJson());
     if (mounted) Navigator.of(context).pop();
   }
 

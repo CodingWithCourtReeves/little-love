@@ -8,16 +8,8 @@ Room _r(String id, String peer) => Room(
   roomId: id,
   name: '',
   members: [
-    const Member(
-      username: 'court',
-      ed25519PubBase64: '',
-      x25519PubBase64: '',
-    ),
-    Member(
-      username: peer,
-      ed25519PubBase64: 'AAA',
-      x25519PubBase64: 'BBB',
-    ),
+    const Member(username: 'court', ed25519PubBase64: '', x25519PubBase64: ''),
+    Member(username: peer, ed25519PubBase64: 'AAA', x25519PubBase64: 'BBB'),
   ],
   createdAt: DateTime.utc(2026, 6, 9),
 );

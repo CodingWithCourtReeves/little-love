@@ -2,11 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/wire/frames.dart';
 
-Member m(String u) => Member(
-  username: u,
-  ed25519PubBase64: '',
-  x25519PubBase64: '',
-);
+Member m(String u) =>
+    Member(username: u, ed25519PubBase64: '', x25519PubBase64: '');
 
 Room r(List<Member> members, {String name = ''}) => Room(
   roomId: 'r',

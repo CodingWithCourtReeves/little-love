@@ -16,11 +16,7 @@ Room _roomA() => Room(
   roomId: 'roomA',
   name: 'Kaitlyn',
   members: const [
-    Member(
-      username: 'court',
-      ed25519PubBase64: 'AAA',
-      x25519PubBase64: 'BBB',
-    ),
+    Member(username: 'court', ed25519PubBase64: 'AAA', x25519PubBase64: 'BBB'),
     Member(
       username: 'kaitlyn',
       ed25519PubBase64: 'CCC',

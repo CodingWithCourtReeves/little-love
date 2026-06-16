@@ -329,10 +329,7 @@ class SendFrame {
 }
 
 class CreateRoomFrame {
-  const CreateRoomFrame({
-    this.name,
-    required this.inviteHumanPartner,
-  });
+  const CreateRoomFrame({this.name, required this.inviteHumanPartner});
   final String? name;
   final bool inviteHumanPartner;
 

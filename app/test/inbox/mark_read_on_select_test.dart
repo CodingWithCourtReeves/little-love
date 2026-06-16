@@ -8,11 +8,8 @@ import 'package:littlelove/inbox/select_room.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
 
-Member m(String u) => Member(
-  username: u,
-  ed25519PubBase64: '',
-  x25519PubBase64: '',
-);
+Member m(String u) =>
+    Member(username: u, ed25519PubBase64: '', x25519PubBase64: '');
 
 void main() {
   test('selectAndMarkRead selects the room and clears its unread', () {

@@ -6,11 +6,8 @@ import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/wire/frames.dart';
 
-Member m(String u) => Member(
-  username: u,
-  ed25519PubBase64: '',
-  x25519PubBase64: '',
-);
+Member m(String u) =>
+    Member(username: u, ed25519PubBase64: '', x25519PubBase64: '');
 
 void main() {
   testWidgets('conversation header renders the channel switcher pill', (
