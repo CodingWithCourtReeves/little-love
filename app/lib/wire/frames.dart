@@ -183,7 +183,14 @@ sealed class RoomServerFrame {
           ts: DateTime.parse(json['ts']! as String).toUtc(),
           body: json['body']! as String,
           replayed: (json['replayed'] as bool?) ?? false,
+          read: (json['read'] as bool?) ?? false,
           clientMsgId: json['client_msg_id'] as String?,
+        );
+      case 'Read':
+        return ReadFrame(
+          roomId: json['room_id']! as String,
+          messageIds: (json['message_ids']! as List<dynamic>).cast<String>(),
+          reader: json['reader']! as String,
         );
       case 'Error':
         return RoomErrorFrame(
@@ -256,6 +263,7 @@ class MessageFrame extends RoomServerFrame {
     required this.ts,
     required this.body,
     required this.replayed,
+    this.read = false,
     this.clientMsgId,
   });
   final String id;
@@ -269,11 +277,27 @@ class MessageFrame extends RoomServerFrame {
   final String body;
   final bool replayed;
 
+  /// True on the sender's own self-copy once the partner has read it. Set on
+  /// `Subscribe` replay so double hearts survive a restart; false otherwise.
+  final bool read;
+
   /// Present only on the sender's own live self-copy: the `clientMsgId` of the
   /// originating `SendFrame`. Lets the sending session reconcile its optimistic
   /// local echo (keyed by this id) with the authoritative server row. Null for
   /// messages from others and for replayed history.
   final String? clientMsgId;
+}
+
+/// Relayed to a sender when the partner reads one or more of their messages.
+class ReadFrame extends RoomServerFrame {
+  const ReadFrame({
+    required this.roomId,
+    required this.messageIds,
+    required this.reader,
+  });
+  final String roomId;
+  final List<String> messageIds;
+  final String reader;
 }
 
 class RoomErrorFrame extends RoomServerFrame {
@@ -325,6 +349,20 @@ class SendFrame {
     'room_id': roomId,
     'bodies': bodies,
     'client_msg_id': clientMsgId,
+  };
+}
+
+/// Sent when the client opens a chat: acknowledges every message in the room
+/// up to and including [upToMessageId] as read.
+class MarkReadFrame {
+  const MarkReadFrame({required this.roomId, required this.upToMessageId});
+  final String roomId;
+  final String upToMessageId;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'MarkRead',
+    'room_id': roomId,
+    'up_to_message_id': upToMessageId,
   };
 }
 

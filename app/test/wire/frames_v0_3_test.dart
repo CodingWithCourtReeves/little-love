@@ -113,4 +113,49 @@ void main() {
     expect(l['kind'], 'LeaveRoom');
     expect(l['room_id'], '01J');
   });
+
+  test('MessageFrame parses read flag (defaults false)', () {
+    final unread = RoomServerFrame.fromJson(
+      jsonDecode(
+            '{"kind":"Message","id":"01J","room_id":"01J","from":"court",'
+            '"ts":"2026-06-10T17:00:00Z","body":"ct"}',
+          )
+          as Map<String, Object?>,
+    );
+    expect((unread as MessageFrame).read, false);
+
+    final read = RoomServerFrame.fromJson(
+      jsonDecode(
+            '{"kind":"Message","id":"01J","room_id":"01J","from":"court",'
+            '"ts":"2026-06-10T17:00:00Z","body":"ct","read":true}',
+          )
+          as Map<String, Object?>,
+    );
+    expect((read as MessageFrame).read, true);
+  });
+
+  test('ReadFrame parses room, ids, reader', () {
+    final f = RoomServerFrame.fromJson(
+      jsonDecode(
+            '{"kind":"Read","room_id":"01J",'
+            '"message_ids":["01JA","01JB"],"reader":"kaitlyn"}',
+          )
+          as Map<String, Object?>,
+    );
+    expect(f, isA<ReadFrame>());
+    final r = f as ReadFrame;
+    expect(r.roomId, '01J');
+    expect(r.messageIds, ['01JA', '01JB']);
+    expect(r.reader, 'kaitlyn');
+  });
+
+  test('MarkReadFrame serializes', () {
+    final j = const MarkReadFrame(
+      roomId: '01J',
+      upToMessageId: '01JZ',
+    ).toJson();
+    expect(j['kind'], 'MarkRead');
+    expect(j['room_id'], '01J');
+    expect(j['up_to_message_id'], '01JZ');
+  });
 }
