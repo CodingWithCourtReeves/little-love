@@ -43,15 +43,19 @@ const MAX_ROOM_NAME_CHARS: usize = 64;
 /// well past the product target (a couple in a shared room); the cap is a DoS
 /// bound, not a product limit.
 const MAX_SEND_RECIPIENTS: usize = 16;
-/// Hard cap on per-recipient ciphertext (base64). 64 KiB comfortably fits a
-/// long text message plus its envelope; binary attachments aren't in scope
-/// yet.
-const MAX_BODY_BYTES: usize = 65_536;
+/// Hard cap on per-recipient ciphertext (base64). 96 KiB fits a long text
+/// message OR a `kind:"file"` envelope whose inline thumbnail is ~5–15 KB
+/// (base64-expanded). Full file bytes never travel in the body — they go to R2.
+const MAX_BODY_BYTES: usize = 98_304;
+/// Hard cap on a single attachment upload (raw plaintext bytes). 500 MiB,
+/// single presigned PUT, one-shot client-side AEAD (spec §4).
+const MAX_ATTACHMENT_BYTES: i64 = 500 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AppState {
     pub routing: Routing,
     pub store: Option<Store>,
+    pub r2: Option<crate::r2::R2Presigner>,
 }
 
 /// WSS close code for auth failures (spec §3.3 step 6).
