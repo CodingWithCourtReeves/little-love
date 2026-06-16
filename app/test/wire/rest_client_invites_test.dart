@@ -4,14 +4,20 @@ import 'package:http/testing.dart';
 import 'package:littlelove/wire/rest_client.dart';
 
 void main() {
-  group('RestClient.previewInvite', () {
-    test('200 returns InvitePreviewResponse', () async {
+  group('RestClient.previewInvite (v0.3)', () {
+    test('200 returns roster InvitePreviewResponse', () async {
       final mock = MockClient((req) async {
         expect(req.method, 'POST');
         expect(req.url.path, '/invites/amber-fern-locket-tide/preview');
         return http.Response(
-          '{"inviter_username":"court","inviter_ed25519_pub":"AAAA",'
-          '"inviter_x25519_pub":"BBBB","expires_at":"2026-06-09T18:00:00Z"}',
+          '{"room_id":"01JNROOM",'
+          '"name":"",'
+          '"members":['
+          '{"username":"court","ed25519_pub":"AAAA","x25519_pub":"BBBB","is_bot":false},'
+          '{"username":"court-garden","ed25519_pub":"EEEE","x25519_pub":"FFFF",'
+          '"is_bot":true,"owner_username":"court"}'
+          '],'
+          '"expires_at":"2026-06-09T18:00:00Z"}',
           200,
           headers: const {'content-type': 'application/json'},
         );
@@ -21,9 +27,15 @@ void main() {
         httpClient: mock,
       );
       final r = await client.previewInvite('amber-fern-locket-tide');
-      expect(r.inviterUsername, 'court');
-      expect(r.inviterEd25519PubBase64, 'AAAA');
-      expect(r.inviterX25519PubBase64, 'BBBB');
+      expect(r.roomId, '01JNROOM');
+      expect(r.name, '');
+      expect(r.members.map((m) => m.username).toList(), [
+        'court',
+        'court-garden',
+      ]);
+      expect(r.members[0].isBot, isFalse);
+      expect(r.members[1].isBot, isTrue);
+      expect(r.members[1].ownerUsername, 'court');
       expect(r.expiresAt.toUtc(), DateTime.utc(2026, 6, 9, 18, 0, 0));
     });
 

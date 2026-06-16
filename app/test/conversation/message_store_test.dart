@@ -54,52 +54,39 @@ void main() {
     expect(container.read(messageStoreProvider('roomA')).length, 1);
   });
 
-  test('promote replaces a row by old id and preserves clientMsgId', () {
+  test('reconcile swaps the optimistic echo id in place', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);
-    final store = container.read(messageStoreProvider('r1').notifier);
-    store.add(Msg(
-      id: 'cli-1',
-      from: 'me',
-      to: 'r1',
-      body: 'hi',
-      ts: DateTime.utc(2026, 6, 13),
-      clientMsgId: 'cli-1',
-      sendStatus: SendStatus.sending,
-    ));
-    store.promote(
-      fromId: 'cli-1',
-      toMsg: Msg(
-        id: 'srv-1',
-        from: 'me',
-        to: 'r1',
-        body: 'hi',
-        ts: DateTime.utc(2026, 6, 13),
-        clientMsgId: 'cli-1',
-        sendStatus: SendStatus.sent,
-      ),
-    );
-    final after = container.read(messageStoreProvider('r1'));
-    expect(after.single.id, 'srv-1');
-    expect(after.single.sendStatus, SendStatus.sent);
-    expect(after.single.clientMsgId, 'cli-1');
+    final store = container.read(messageStoreProvider('roomA').notifier);
+    store.add(_msg('uuid-echo', 'first'));
+    store.add(_msg('2', 'second'));
+
+    store.reconcile('uuid-echo', _msg('ULID-real', 'first'));
+
+    final out = container.read(messageStoreProvider('roomA'));
+    // Position preserved, id swapped to the authoritative server id.
+    expect(out.map((m) => m.id).toList(), ['ULID-real', '2']);
+    expect(out.length, 2);
   });
 
-  test('promote with unknown fromId falls back to add', () {
+  test('reconcile is idempotent once the server id is present', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);
-    final store = container.read(messageStoreProvider('r1').notifier);
-    store.promote(
-      fromId: 'missing',
-      toMsg: Msg(
-        id: 'srv-1',
-        from: 'peer',
-        to: 'r1',
-        body: 'hi',
-        ts: DateTime.utc(2026, 6, 13),
-      ),
-    );
-    expect(container.read(messageStoreProvider('r1')).single.id, 'srv-1');
+    final store = container.read(messageStoreProvider('roomA').notifier);
+    store.add(_msg('uuid-echo', 'first'));
+    store.reconcile('uuid-echo', _msg('ULID-real', 'first'));
+    // A duplicate echo (e.g. a reconnect replay) must not double-up.
+    store.reconcile('uuid-echo', _msg('ULID-real', 'first'));
+    expect(container.read(messageStoreProvider('roomA')).length, 1);
+  });
+
+  test('reconcile falls back to append when no echo exists', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('roomA').notifier);
+    store.reconcile('missing-echo', _msg('ULID-real', 'orphan'));
+    final out = container.read(messageStoreProvider('roomA'));
+    expect(out.single.id, 'ULID-real');
   });
 
   test('updateStatus changes sendStatus on the matching id', () {

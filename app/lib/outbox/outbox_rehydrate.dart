@@ -39,15 +39,30 @@ Future<void> rehydrateOutbox({
   for (final row in rows) {
     final room = byId[row.roomId];
     if (room == null) continue; // stale row, skip
-    String text;
-    try {
-      if (decrypt != null) {
-        text = await decrypt(room, row.bodyCipher);
-      } else {
-        final key = await keyCache.getOrDerive(room, identity);
-        text = await decryptIncoming(key, row.bodyCipher);
+    // The bubble shows our own plaintext, so decrypt the self-copy — the
+    // ciphertext addressed to our own x25519 key (see buildSendFrame).
+    final selfPub = room.memberByUsername(me)?.x25519PubBase64;
+    final selfCipher = selfPub == null ? null : row.bodies[selfPub];
+
+    String? text;
+    if (selfCipher != null) {
+      try {
+        if (decrypt != null) {
+          text = await decrypt(room, selfCipher);
+        } else {
+          final key = await keyCache.getOrDeriveFor(
+            roomId: room.roomId,
+            peerX25519PubBase64: selfPub!,
+            me: identity,
+          );
+          text = await decryptIncoming(key, selfCipher);
+        }
+      } catch (_) {
+        text = null;
       }
-    } catch (_) {
+    }
+
+    if (text == null || text == cannotDecryptSentinel) {
       await store.markAttempt(row.clientMsgId, error: 'decrypt-failed');
       getMessageStore(row.roomId).add(Msg(
             id: row.clientMsgId,

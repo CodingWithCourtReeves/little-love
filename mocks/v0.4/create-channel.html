@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove v0.4 — Create channel</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-canvas:#F4EBEC;--bg-surface:#EBDFE2;--bg-surface-alt:#E2D3D8;
+    --text-primary:#2A1F2A;--text-muted:#7C6C78;
+    --accent-user:#A04A6A;--accent-partner:#9C7E94;--accent-familiar:#4F7A5E;
+    --border-soft:#D9C7CD;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#cfc0c6;color:var(--text-primary);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .stage{display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 16px 64px}
+  .caption{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;color:#5d4f59;text-transform:uppercase}
+  .caption b{color:var(--accent-user)}
+  .phone{width:390px;height:780px;background:var(--bg-canvas);border-radius:44px;border:10px solid #2A1F2A;box-shadow:0 24px 60px rgba(42,31,42,.34);overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:flex-end}
+  .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:150px;height:26px;background:#2A1F2A;border-bottom-left-radius:16px;border-bottom-right-radius:16px;z-index:30}
+  /* faint switcher behind, top */
+  .ghost{position:absolute;top:0;left:0;right:0;padding:34px 14px 12px;background:var(--bg-surface);border-bottom:1px solid var(--border-soft);filter:blur(.5px);opacity:.7}
+  .ghost .pill{display:inline-flex;align-items:center;gap:8px;background:var(--bg-surface-alt);border:1px solid var(--border-soft);border-radius:999px;padding:6px 12px 6px 6px}
+  .ghost .av{width:26px;height:26px;border-radius:50%;background:var(--accent-partner);color:#FFFAFB;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
+  .ghost .nm{font-family:'Inter Tight';font-weight:600;font-size:14px}
+  .scrim{position:absolute;inset:0;background:rgba(42,31,42,.4);z-index:5}
+  /* bottom sheet */
+  .sheet{position:relative;z-index:10;background:var(--bg-canvas);border-top-left-radius:24px;border-top-right-radius:24px;padding:10px 22px 30px;box-shadow:0 -16px 40px rgba(42,31,42,.25)}
+  .grab{width:42px;height:5px;border-radius:3px;background:var(--border-soft);margin:0 auto 18px}
+  .shead{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .shead h2{font-family:'Inter Tight';font-weight:600;font-size:23px;letter-spacing:-.02em;margin:0}
+  .shead .x{color:var(--text-muted);font-size:20px}
+  .ssub{font-size:13px;color:var(--text-muted);line-height:1.5;margin:0 0 22px}
+  .label{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.2em;color:var(--accent-familiar);margin:0 0 9px}
+  .namewrap{display:flex;align-items:center;background:var(--bg-surface-alt);border:1.5px solid var(--accent-user);border-radius:10px;padding:0 14px}
+  .namewrap .hash{font-family:'Inter Tight';font-weight:600;font-size:20px;color:var(--text-muted);margin-right:6px}
+  .namewrap input{flex:1;border:0;background:transparent;outline:0;padding:14px 0;font-size:17px;font-family:'Inter Tight';font-weight:500;color:var(--text-primary)}
+  .namewrap .caret{width:2px;height:22px;background:var(--accent-user);animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .hint{font-size:11.5px;color:var(--text-muted);margin:9px 2px 0;line-height:1.45}
+  .hint b{color:var(--text-primary);font-weight:500}
+  .divider{height:1px;background:var(--border-soft);margin:24px 0}
+  .frow{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--border-soft);border-radius:10px;margin-bottom:8px;background:var(--bg-surface)}
+  .frow .fav{width:32px;height:32px;border-radius:8px;background:var(--accent-familiar);color:#FFFAFB;display:flex;align-items:center;justify-content:center;font-weight:600;font-family:'Inter Tight'}
+  .frow .fb{flex:1}
+  .frow .fb .t{font-size:15px;font-weight:500;font-family:'Inter Tight'}
+  .frow .fb .s{font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;letter-spacing:.06em}
+  .chk{width:22px;height:22px;border-radius:6px;border:1.5px solid var(--text-muted);display:flex;align-items:center;justify-content:center;color:#FFFAFB;font-size:13px}
+  .chk.on{background:var(--accent-user);border-color:var(--accent-user)}
+  .create{margin-top:20px;background:var(--accent-user);color:#FFFAFB;text-align:center;padding:15px;border-radius:999px;font-size:15px;font-weight:600;font-family:'Inter Tight'}
+  /* on-screen keyboard */
+  .kbd{position:relative;z-index:10;background:var(--bg-surface-alt);padding:8px 5px 22px;display:flex;flex-direction:column;gap:7px}
+  .krow{display:flex;justify-content:center;gap:5px}
+  .key{background:#FFFAFB;border-radius:6px;min-width:30px;height:40px;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 1px 0 rgba(42,31,42,.25);color:var(--text-primary)}
+  .key.wide{min-width:62px;font-size:12px;color:var(--text-muted)}
+  .key.space{flex:1}
+  .note{max-width:390px;font-size:12.5px;color:#4a3f47;line-height:1.55;background:rgba(255,255,255,.55);border:1px solid var(--border-soft);border-radius:10px;padding:12px 14px}
+  .note b{color:var(--accent-user)}
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="caption">LittleLove v0.4 · <b>05</b> New channel — naming it</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="ghost"><span class="pill"><span class="av">K</span><span class="nm">Kaitlyn</span></span></div>
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <div class="shead"><h2>New channel</h2><span class="x">✕</span></div>
+        <p class="ssub">A topic room just for you and Kaitlyn. You can add a familiar to listen in.</p>
+
+        <p class="label">CHANNEL NAME</p>
+        <div class="namewrap">
+          <span class="hash">#</span>
+          <input value="date-ideas" />
+          <span class="caret"></span>
+        </div>
+        <p class="hint">Lowercase, dashes for spaces. <b>#date-ideas</b> · auto-formatted as you type.</p>
+
+        <div class="divider"></div>
+
+        <p class="label">ADD A FAMILIAR · OPTIONAL</p>
+        <div class="frow">
+          <div class="fav">G</div>
+          <div class="fb"><div class="t">Garden</div><div class="s">FAMILIAR · COURT</div></div>
+          <div class="chk on">✓</div>
+        </div>
+        <div class="frow">
+          <div class="fav">J</div>
+          <div class="fb"><div class="t">Journal</div><div class="s">FAMILIAR · COURT</div></div>
+          <div class="chk"></div>
+        </div>
+
+        <div class="create">Create #date-ideas</div>
+      </div>
+      <div class="kbd" aria-hidden="true">
+        <div class="krow"><span class="key">q</span><span class="key">w</span><span class="key">e</span><span class="key">r</span><span class="key">t</span><span class="key">y</span><span class="key">u</span><span class="key">i</span><span class="key">o</span><span class="key">p</span></div>
+        <div class="krow"><span class="key">a</span><span class="key">s</span><span class="key">d</span><span class="key">f</span><span class="key">g</span><span class="key">h</span><span class="key">j</span><span class="key">k</span><span class="key">l</span></div>
+        <div class="krow"><span class="key wide">⇧</span><span class="key">z</span><span class="key">x</span><span class="key">c</span><span class="key">v</span><span class="key">b</span><span class="key">n</span><span class="key">m</span><span class="key wide">⌫</span></div>
+        <div class="krow"><span class="key wide">123</span><span class="key space">space</span><span class="key wide">done</span></div>
+      </div>
+    </div>
+    <div class="note">
+      <b>Answering "how do I type the name?"</b> Tapping <b>New channel</b> slides up a bottom sheet over the thread. The <b>name field is focused immediately</b> (caret blinking, keyboard up) so you can just start typing — no extra tap. We <b>auto-format to lowercase-with-dashes</b> as you type (typing "Date Ideas" becomes <b>date-ideas</b>) and show the live <b>#preview</b>. Below: an optional familiar picker (humans are implied — both of you are always in it). The button label reflects the name: <b>Create #date-ideas</b>.
+    </div>
+  </div>
+</body>
+</html>

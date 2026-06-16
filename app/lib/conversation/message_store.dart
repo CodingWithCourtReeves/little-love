@@ -18,21 +18,27 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     state = List.unmodifiable(messages);
   }
 
-  /// Replace a message identified by [fromId] with [toMsg] in place. If no row
-  /// matches (replay race, peer message), fall back to [add] so we never lose
-  /// data.
-  void promote({required String fromId, required Msg toMsg}) {
-    final idx = state.indexWhere((m) => m.id == fromId);
-    if (idx < 0) {
-      add(toMsg);
+  /// Swap an optimistic local echo (keyed by `clientMsgId`) for the
+  /// authoritative server row, preserving its position in the buffer. Used
+  /// when the server echoes back the sender's own self-copy. Idempotent:
+  /// if `server.id` is already present, do nothing (a duplicate echo); if no
+  /// echo with `clientMsgId` exists (e.g. it was never rendered), fall back to
+  /// a plain idempotent append.
+  void reconcile(String clientMsgId, Msg server) {
+    if (state.any((m) => m.id == server.id)) return;
+    final idx = state.indexWhere((m) => m.id == clientMsgId);
+    if (idx == -1) {
+      add(server);
       return;
     }
     final next = [...state];
-    next[idx] = toMsg;
-    state = next;
+    next[idx] = server;
+    state = List.unmodifiable(next);
   }
 
   /// Flip the [SendStatus] on a row identified by [id]. No-op if not found.
+  /// The outbox send path uses this to mark a row `failed` on error, or to
+  /// reset it to `sending` when the user taps to retry.
   void updateStatus(String id, SendStatus status) {
     final idx = state.indexWhere((m) => m.id == id);
     if (idx < 0) return;

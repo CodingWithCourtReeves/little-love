@@ -70,10 +70,15 @@ void main() {
 
   test('send writes JSON to the sink', () async {
     final h = await _openConn();
-    h.conn.send(const CreateInviteFrame().toJson());
-    expect(h.sink.writes.length, 2); // Identify (handshake) + CreateInvite
+    h.conn.send(
+      const CreateRoomFrame(
+        botAccountIds: [],
+        inviteHumanPartner: true,
+      ).toJson(),
+    );
+    expect(h.sink.writes.length, 2); // Identify (handshake) + CreateRoom
     final last = jsonDecode(h.sink.writes.last) as Map<String, Object?>;
-    expect(last['kind'], 'CreateInvite');
+    expect(last['kind'], 'CreateRoom');
 
     await h.conn.close();
     await h.server.close();

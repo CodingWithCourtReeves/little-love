@@ -37,16 +37,15 @@ async fn full_pairing_flow_succeeds() {
     let invite_created = next_frame(&mut court_sock).await;
     let code = invite_created["code"].as_str().unwrap().to_string();
 
-    // 2. REST preview surfaces inviter info (no auth required).
+    // 2. Legacy v0.2-style CreateInvite leaves invites.room_id NULL, so the
+    //    v0.3 roster-bearing preview returns 404 — clients in this flow use
+    //    the consume-time roster from InviteConsumed instead.
     let resp = reqwest::Client::new()
         .post(format!("http://{addr}/invites/{code}/preview"))
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
-    let preview: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(preview["inviter_username"], "court");
-    assert!(preview["inviter_ed25519_pub"].as_str().unwrap().len() > 30);
+    assert_eq!(resp.status(), 404);
 
     // 3. Kaitlyn connects, signs the canonical token, sends ConsumeInvite.
     let mut kaitlyn_sock = handshake_as(addr, "kaitlyn", &kaitlyn_sk).await;
@@ -66,15 +65,22 @@ async fn full_pairing_flow_succeeds() {
         .unwrap();
     let consumed = next_frame(&mut kaitlyn_sock).await;
     assert_eq!(consumed["kind"], "InviteConsumed", "got {consumed}");
-    assert_eq!(consumed["peer_username"], "court");
     let room_id = consumed["room_id"].as_str().unwrap().to_string();
     assert!(!room_id.is_empty());
+    let members = consumed["members"].as_array().unwrap();
+    let usernames: Vec<&str> = members
+        .iter()
+        .map(|m| m["username"].as_str().unwrap())
+        .collect();
+    assert!(usernames.contains(&"court"));
+    assert!(usernames.contains(&"kaitlyn"));
 
-    // 4. Court receives RoomCreated.
+    // 4. Court receives RoomCreated with the full roster.
     let room_created = next_frame(&mut court_sock).await;
     assert_eq!(room_created["kind"], "RoomCreated", "got {room_created}");
-    assert_eq!(room_created["peer_username"], "kaitlyn");
     assert_eq!(room_created["room_id"], room_id);
+    let members = room_created["members"].as_array().unwrap();
+    assert_eq!(members.len(), 2);
 }
 
 #[file_serial(db)]

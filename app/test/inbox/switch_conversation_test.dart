@@ -6,8 +6,30 @@ import 'package:littlelove/conversation/conversation_page.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
+import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/theme/twilight.dart';
+import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
+
+Room _room(String id, String name) => Room(
+  roomId: id,
+  name: name,
+  members: const [
+    Member(
+      username: 'court',
+      ed25519PubBase64: 'AAA',
+      x25519PubBase64: 'BBB',
+      isBot: false,
+    ),
+    Member(
+      username: 'kaitlyn',
+      ed25519PubBase64: 'CCC',
+      x25519PubBase64: 'DDD',
+      isBot: false,
+    ),
+  ],
+  createdAt: DateTime.utc(2026, 6, 9),
+);
 
 final _account = LocalAccount(
   username: 'court',
@@ -49,8 +71,8 @@ void main() {
         child: MaterialApp(
           theme: buildTwilightTheme(),
           home: ConversationPage(
-            roomId: id,
-            contactDisplayName: name,
+            room: _room(id, name),
+            selfUsername: 'court',
             onSend: (_) {},
           ),
         ),

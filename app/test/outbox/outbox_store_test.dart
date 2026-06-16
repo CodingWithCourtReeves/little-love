@@ -23,18 +23,18 @@ void main() {
     await s.enqueue(
       clientMsgId: 'a',
       roomId: 'r1',
-      bodyCipher: 'ct-a',
+      bodies: {'k': 'ct-a'},
       createdAt: DateTime.utc(2026, 6, 13, 10, 0, 0),
     );
     await s.enqueue(
       clientMsgId: 'b',
       roomId: 'r1',
-      bodyCipher: 'ct-b',
+      bodies: {'k': 'ct-b'},
       createdAt: DateTime.utc(2026, 6, 13, 10, 0, 1),
     );
     final rows = await s.pending();
     expect(rows.map((r) => r.clientMsgId).toList(), ['a', 'b']);
-    expect(rows.first.bodyCipher, 'ct-a');
+    expect(rows.first.bodies['k'], 'ct-a');
     expect(rows.first.roomId, 'r1');
   });
 
@@ -44,7 +44,7 @@ void main() {
     await s.enqueue(
       clientMsgId: 'a',
       roomId: 'r1',
-      bodyCipher: 'ct',
+      bodies: {'k': 'ct'},
       createdAt: DateTime.utc(2026, 6, 13),
     );
     expect(await s.remove('a'), isTrue);
@@ -57,7 +57,7 @@ void main() {
     await s.enqueue(
       clientMsgId: 'a',
       roomId: 'r1',
-      bodyCipher: 'ct',
+      bodies: {'k': 'ct'},
       createdAt: DateTime.utc(2026, 6, 13),
     );
     await s.markAttempt('a', error: 'boom');
@@ -73,7 +73,7 @@ void main() {
     await s.enqueue(
       clientMsgId: 'a',
       roomId: 'r1',
-      bodyCipher: 'ct',
+      bodies: {'k': 'ct'},
       createdAt: DateTime.utc(2026, 6, 13),
     );
     await s.markAttempt('a', error: 'x');
@@ -89,12 +89,12 @@ void main() {
     await s.enqueue(
       clientMsgId: 'a',
       roomId: 'r1',
-      bodyCipher: 'ct',
+      bodies: {'k': 'ct'},
       createdAt: DateTime.utc(2026, 6, 13),
     );
     final row = await s.lookup('a');
     expect(row, isNotNull);
     expect(row!.roomId, 'r1');
-    expect(row.bodyCipher, 'ct');
+    expect(row.bodies['k'], 'ct');
   });
 }

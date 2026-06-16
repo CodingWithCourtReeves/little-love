@@ -6,12 +6,19 @@ import '../pairing/pairing_transport.dart';
 import 'frames.dart';
 import 'live_connection.dart';
 
-/// Multiplexed `PairingTransport` over a `LiveConnection`. FIFO queue per
-/// frame kind: the next `InviteCreated` resolves the head of the createInvite
-/// queue; the next `InviteConsumed` resolves the head of the consumeInvite
-/// queue. A `RoomError` resolves the oldest pending call (createInvite first
-/// then consumeInvite) — the server only emits one Error per unanswered
-/// request and replies arrive in order on the single socket.
+/// Multiplexed `PairingTransport` over a `LiveConnection`.
+///
+/// In v0.3 the "Invite them with a code" path is no longer a standalone
+/// `CreateInvite` frame; instead `createInvite()` issues `CreateRoom
+/// { invite_human_partner: true }` and waits for the matching `RoomCreated`
+/// (which carries an inline `pending_invite`). The transport adapts the
+/// resulting `pending_invite` back into the `InviteCreatedFrame` shape its
+/// callers already understand — keeping `show_invite.dart` working until
+/// the v0.3 `CreateChatInviteScreen` replaces it (plan Task 11).
+///
+/// FIFO queue per kind: the next matching frame resolves the head of the
+/// queue. A `RoomError` resolves the oldest pending call (createInvite
+/// first, then consumeInvite).
 class LivePairingTransport implements PairingTransport {
   LivePairingTransport(this._conn) {
     _sub = _conn.incoming.listen(_onFrame);
@@ -21,13 +28,27 @@ class LivePairingTransport implements PairingTransport {
   late final StreamSubscription<RoomServerFrame> _sub;
 
   final _pendingCreate = <Completer<InviteCreatedFrame>>[];
+  final _pendingFamiliar = <Completer<InviteCreatedFrame>>[];
   final _pendingConsume = <Completer<InviteConsumedFrame>>[];
 
   @override
   Future<InviteCreatedFrame> createInvite() {
     final c = Completer<InviteCreatedFrame>();
     _pendingCreate.add(c);
-    _conn.send(const CreateInviteFrame().toJson());
+    _conn.send(
+      const CreateRoomFrame(
+        botAccountIds: [],
+        inviteHumanPartner: true,
+      ).toJson(),
+    );
+    return c.future;
+  }
+
+  @override
+  Future<InviteCreatedFrame> createFamiliarInvite() {
+    final c = Completer<InviteCreatedFrame>();
+    _pendingFamiliar.add(c);
+    _conn.send(const CreateFamiliarInviteFrame().toJson());
     return c.future;
   }
 
@@ -49,8 +70,26 @@ class LivePairingTransport implements PairingTransport {
 
   void _onFrame(RoomServerFrame frame) {
     switch (frame) {
-      case InviteCreatedFrame():
+      case RoomCreatedFrame(:final pendingInvite):
+        if (pendingInvite == null) break;
         if (_pendingCreate.isNotEmpty) {
+          _pendingCreate
+              .removeAt(0)
+              .complete(
+                InviteCreatedFrame(
+                  code: pendingInvite.code,
+                  qrPngBase64: pendingInvite.qrPngBase64,
+                  expiresAt: pendingInvite.expiresAt,
+                ),
+              );
+        }
+      case InviteCreatedFrame():
+        // The familiar path resolves on the standalone InviteCreated frame.
+        // Fall back to a pending partner createInvite() for forward-compat
+        // (a future server build re-emitting standalone InviteCreated).
+        if (_pendingFamiliar.isNotEmpty) {
+          _pendingFamiliar.removeAt(0).complete(frame);
+        } else if (_pendingCreate.isNotEmpty) {
           _pendingCreate.removeAt(0).complete(frame);
         }
       case InviteConsumedFrame():
@@ -58,16 +97,27 @@ class LivePairingTransport implements PairingTransport {
           _pendingConsume.removeAt(0).complete(frame);
         }
       case RoomErrorFrame():
+        // Errors carry no request correlation id, so we dispatch by fixed queue
+        // priority. This only routes correctly when at most one mint/consume
+        // call is in flight at a time — which the pairing UI guarantees (each
+        // screen drives a single request). Overlapping calls of different kinds
+        // could mis-route an error; revisit with a correlation id if that flow
+        // ever becomes concurrent.
         final err = PairingTransportException(
           code: frame.code,
           message: frame.message,
         );
-        if (_pendingCreate.isNotEmpty) {
+        if (_pendingFamiliar.isNotEmpty) {
+          _pendingFamiliar.removeAt(0).completeError(err);
+        } else if (_pendingCreate.isNotEmpty) {
           _pendingCreate.removeAt(0).completeError(err);
         } else if (_pendingConsume.isNotEmpty) {
           _pendingConsume.removeAt(0).completeError(err);
         }
-      case RoomsFrame() || RoomCreatedFrame() || MessageFrame():
+      case RoomsFrame() ||
+          RoomRenamedFrame() ||
+          MemberLeftFrame() ||
+          MessageFrame():
         break;
     }
   }

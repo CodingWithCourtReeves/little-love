@@ -1,15 +1,19 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
-/// One row in the persistent outbound queue. `bodyCipher` is the base64
-/// envelope produced by [encryptOutgoing] — plaintext is never persisted.
+/// One row in the persistent outbound queue. `bodies` is the v0.3 per-recipient
+/// fan-out map (recipient `x25519_pub_b64` → base64 ciphertext envelope from
+/// [encryptOutgoing]), including the sender's own self-copy. Plaintext is never
+/// persisted — only ciphertext addressed to each member's key.
 class OutboxRow {
   OutboxRow({
     required this.clientMsgId,
     required this.roomId,
-    required this.bodyCipher,
+    required this.bodies,
     required this.createdAt,
     required this.attempts,
     required this.lastError,
@@ -17,7 +21,7 @@ class OutboxRow {
 
   final String clientMsgId;
   final String roomId;
-  final String bodyCipher;
+  final Map<String, String> bodies;
   final DateTime createdAt;
   final int attempts;
   final String? lastError;
@@ -38,7 +42,7 @@ abstract class OutboxStore {
   Future<void> enqueue({
     required String clientMsgId,
     required String roomId,
-    required String bodyCipher,
+    required Map<String, String> bodies,
     DateTime? createdAt,
   });
 
@@ -78,7 +82,7 @@ class SqliteOutboxStore implements OutboxStore {
       CREATE TABLE outbox (
         client_msg_id TEXT PRIMARY KEY,
         room_id       TEXT NOT NULL,
-        body_cipher   TEXT NOT NULL,
+        bodies_json   TEXT NOT NULL,
         created_at    INTEGER NOT NULL,
         attempts      INTEGER NOT NULL DEFAULT 0,
         last_error    TEXT
@@ -95,7 +99,7 @@ class SqliteOutboxStore implements OutboxStore {
   Future<void> enqueue({
     required String clientMsgId,
     required String roomId,
-    required String bodyCipher,
+    required Map<String, String> bodies,
     DateTime? createdAt,
   }) async {
     final ts = (createdAt ?? DateTime.now().toUtc()).millisecondsSinceEpoch;
@@ -104,7 +108,7 @@ class SqliteOutboxStore implements OutboxStore {
       {
         'client_msg_id': clientMsgId,
         'room_id': roomId,
-        'body_cipher': bodyCipher,
+        'bodies_json': jsonEncode(bodies),
         'created_at': ts,
         'attempts': 0,
         'last_error': null,
@@ -166,7 +170,8 @@ class SqliteOutboxStore implements OutboxStore {
   OutboxRow _rowFromMap(Map<String, Object?> r) => OutboxRow(
         clientMsgId: r['client_msg_id'] as String,
         roomId: r['room_id'] as String,
-        bodyCipher: r['body_cipher'] as String,
+        bodies: (jsonDecode(r['bodies_json'] as String) as Map<String, Object?>)
+            .map((k, v) => MapEntry(k, v as String)),
         createdAt: DateTime.fromMillisecondsSinceEpoch(
           r['created_at'] as int,
           isUtc: true,

@@ -3,12 +3,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../theme/twilight.dart';
 import 'inbox_state.dart';
+import 'select_room.dart';
 
 /// Compact icon rail at 600–799px widths (spec §6.1). One icon per room;
 /// label appears as a tooltip. Each tile is ≥56×56 (well over the 44×44
 /// floor required by spec §6.4).
 class NavigationRailChrome extends ConsumerWidget {
-  const NavigationRailChrome({super.key});
+  const NavigationRailChrome({super.key, this.username = ''});
+
+  /// Authenticated user's username — used to derive a room's display label
+  /// when [Room.name] is empty.
+  final String username;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -26,7 +31,7 @@ class NavigationRailChrome extends ConsumerWidget {
               context,
               ref,
               r.roomId,
-              r.peerUsername,
+              r.displayName(username),
               r.roomId == inbox.selectedRoomId,
             ),
         ],
@@ -45,7 +50,7 @@ class NavigationRailChrome extends ConsumerWidget {
       message: label,
       child: InkWell(
         key: Key('rail-room-$roomId'),
-        onTap: () => ref.read(inboxStateProvider.notifier).select(roomId),
+        onTap: () => selectAndMarkRead(ref, roomId),
         child: Container(
           width: 56,
           constraints: const BoxConstraints(minHeight: 56),

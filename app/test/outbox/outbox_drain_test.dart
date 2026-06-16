@@ -6,14 +6,14 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 class _FakeSender {
   final List<Map<String, Object?>> sent = [];
   bool throwOnNext = false;
-  void send(String roomId, String bodyCipher, String clientMsgId) {
+  void send(String roomId, Map<String, String> bodies, String clientMsgId) {
     if (throwOnNext) {
       throwOnNext = false;
       throw StateError('socket closed');
     }
     sent.add({
       'room_id': roomId,
-      'body_cipher': bodyCipher,
+      'bodies': bodies,
       'client_msg_id': clientMsgId,
     });
   }
@@ -41,13 +41,13 @@ void main() {
     await s.enqueue(
       clientMsgId: 'a',
       roomId: 'r1',
-      bodyCipher: 'ct-a',
+      bodies: {'k': 'ct-a'},
       createdAt: DateTime.utc(2026, 6, 13, 10, 0, 0),
     );
     await s.enqueue(
       clientMsgId: 'b',
       roomId: 'r1',
-      bodyCipher: 'ct-b',
+      bodies: {'k': 'ct-b'},
       createdAt: DateTime.utc(2026, 6, 13, 10, 0, 1),
     );
     final drain = OutboxDrain(store: s, send: sender.send);
@@ -65,7 +65,7 @@ void main() {
     await s.enqueue(
       clientMsgId: 'a',
       roomId: 'r1',
-      bodyCipher: 'ct',
+      bodies: {'k': 'ct'},
       createdAt: DateTime.utc(2026, 6, 13),
     );
     final drain = OutboxDrain(store: s, send: sender.send);
@@ -83,7 +83,7 @@ void main() {
     await s.enqueue(
       clientMsgId: 'a',
       roomId: 'r1',
-      bodyCipher: 'ct',
+      bodies: {'k': 'ct'},
       createdAt: DateTime.utc(2026, 6, 13),
     );
     final drain = OutboxDrain(store: s, send: sender.send);
@@ -106,7 +106,7 @@ void main() {
     await s.enqueue(
       clientMsgId: 'a',
       roomId: 'r1',
-      bodyCipher: 'ct',
+      bodies: {'k': 'ct'},
       createdAt: DateTime.utc(2026, 6, 13),
     );
     final drain = OutboxDrain(store: s, send: sender.send);

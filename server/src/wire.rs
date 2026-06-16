@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -64,12 +66,12 @@ pub enum AuthServerFrame {
     Error { code: String, message: String },
 }
 
-/// Post-Authenticated client frames (spec §8.2). All v0.2 authenticated
-/// operations flow through here.
+/// Post-Authenticated client frames (spec §8.2).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum RoomClientFrame {
     CreateInvite,
+    CreateFamiliarInvite,
     ConsumeInvite {
         code: String,
         signature_over_token: String,
@@ -80,8 +82,24 @@ pub enum RoomClientFrame {
     },
     Send {
         room_id: String,
-        body: String,
+        /// Map from recipient `x25519_pub_b64` to the addressed ciphertext (spec §6.2).
+        bodies: HashMap<String, String>,
         client_msg_id: Uuid,
+    },
+    CreateRoom {
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        bot_account_ids: Vec<i64>,
+        #[serde(default)]
+        invite_human_partner: bool,
+    },
+    RenameRoom {
+        room_id: String,
+        name: String,
+    },
+    LeaveRoom {
+        room_id: String,
     },
 }
 
@@ -90,15 +108,45 @@ pub enum RoomClientFrame {
 #[serde(tag = "kind")]
 pub enum RoomServerFrame {
     Rooms {
-        rooms: Vec<RoomSummary>,
+        rooms: Vec<RoomDetail>,
+        /// Spec §8.2 amendment (2026-06-10). Every familiar the
+        /// authenticated user owns. Lets the Create-Chat picker list
+        /// familiars not yet in any room. Empty array when the user owns
+        /// none.
+        #[serde(default)]
+        owned_bots: Vec<Member>,
     },
+
     InviteCreated {
         code: String,
         qr_png_base64: String,
         expires_at: DateTime<Utc>,
     },
-    InviteConsumed(RoomDescriptor),
-    RoomCreated(RoomDescriptor),
+
+    InviteConsumed {
+        room_id: String,
+        name: String,
+        members: Vec<Member>,
+    },
+
+    RoomCreated {
+        room_id: String,
+        name: String,
+        members: Vec<Member>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pending_invite: Option<PendingInvite>,
+    },
+
+    RoomRenamed {
+        room_id: String,
+        name: String,
+    },
+
+    MemberLeft {
+        room_id: String,
+        username: String,
+    },
+
     Message {
         id: String,
         room_id: String,
@@ -107,9 +155,14 @@ pub enum RoomServerFrame {
         body: String,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         replayed: bool,
+        /// Echoed back to the sender on their own self-copy so the client can
+        /// reconcile the optimistic local echo (keyed by this id) with the
+        /// authoritative server row. Absent for messages addressed to other
+        /// recipients and for replayed history (not persisted).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         client_msg_id: Option<Uuid>,
     },
+
     Error {
         code: String,
         #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -117,25 +170,38 @@ pub enum RoomServerFrame {
     },
 }
 
-/// Subset of a room used in the `Rooms` server frame. Matches the shape
-/// returned by `POST /invites/{code}/preview` plus a `room_id` + timestamp.
+/// One member of a room (spec §7.1).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RoomSummary {
+pub struct Member {
+    /// Stable account id. Lets the client address familiars by id when
+    /// issuing `CreateRoom { bot_account_ids }`. `#[serde(default)]` keeps
+    /// older payloads (which omit it) deserializable.
+    #[serde(default)]
+    pub account_id: i64,
+    pub username: String,
+    pub ed25519_pub: String,
+    pub x25519_pub: String,
+    pub is_bot: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_username: Option<String>,
+}
+
+/// Carried inside `Rooms`, `RoomCreated`, `InviteConsumed` payloads (spec §7.1).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RoomDetail {
     pub room_id: String,
-    pub peer_username: String,
-    pub peer_ed25519_pub: String,
-    pub peer_x25519_pub: String,
+    pub name: String,
+    pub members: Vec<Member>,
     pub created_at: DateTime<Utc>,
 }
 
-/// Used by `InviteConsumed` (sent to consumer) and `RoomCreated` (pushed to
-/// the inviter). Same payload shape, different `kind` discriminant.
+/// Inlined into `RoomCreated` when the creator asked for an invite at room-
+/// creation time (spec §5.2).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RoomDescriptor {
-    pub room_id: String,
-    pub peer_username: String,
-    pub peer_ed25519_pub: String,
-    pub peer_x25519_pub: String,
+pub struct PendingInvite {
+    pub code: String,
+    pub qr_png_base64: String,
+    pub expires_at: DateTime<Utc>,
 }
 
 /// Server error codes used in `RoomServerFrame::Error` (spec §8.2).
@@ -147,6 +213,12 @@ pub mod error_codes {
     pub const INVALID_SIGNATURE: &str = "InvalidSignature";
     pub const UNKNOWN_ROOM: &str = "UnknownRoom";
     pub const BAD_CODE: &str = "BadCode";
+    pub const FAN_OUT_MISMATCH: &str = "FanOutMismatch";
+    pub const MONOGAMY_VIOLATION: &str = "MonogamyViolation";
+    pub const NOT_OWNED_BOT: &str = "NotOwnedBot";
+    pub const MEMBERSHIP_FROZEN: &str = "MembershipFrozen";
+    pub const BOT_SESSION_IN_USE: &str = "BotSessionInUse";
+    pub const BODY_TOO_LARGE: &str = "BodyTooLarge";
 }
 
 #[cfg(test)]
@@ -258,6 +330,13 @@ mod tests {
     }
 
     #[test]
+    fn parses_create_familiar_invite_frame() {
+        let raw = r#"{"kind":"CreateFamiliarInvite"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        assert!(matches!(frame, RoomClientFrame::CreateFamiliarInvite));
+    }
+
+    #[test]
     fn parses_consume_invite_frame() {
         let raw = r#"{"kind":"ConsumeInvite","code":"a-b-c-d","signature_over_token":"AAAA"}"#;
         let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
@@ -290,17 +369,19 @@ mod tests {
     }
 
     #[test]
-    fn parses_send_frame() {
-        let raw = r#"{"kind":"Send","room_id":"01J","body":"ct","client_msg_id":"7c4e1c8a-7e7e-4b7a-9f23-1a0a17070707"}"#;
+    fn parses_send_frame_with_bodies_map() {
+        let raw = r#"{"kind":"Send","room_id":"01J","bodies":{"AAAA":"ct1","BBBB":"ct2"},"client_msg_id":"7c4e1c8a-7e7e-4b7a-9f23-1a0a17070707"}"#;
         let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
         match frame {
             RoomClientFrame::Send {
                 room_id,
-                body,
+                bodies,
                 client_msg_id,
             } => {
                 assert_eq!(room_id, "01J");
-                assert_eq!(body, "ct");
+                assert_eq!(bodies.len(), 2);
+                assert_eq!(bodies["AAAA"], "ct1");
+                assert_eq!(bodies["BBBB"], "ct2");
                 assert!(!client_msg_id.is_nil());
             }
             _ => panic!("expected Send"),
@@ -308,19 +389,99 @@ mod tests {
     }
 
     #[test]
-    fn serializes_rooms_frame() {
+    fn parses_create_room_frame_with_defaults() {
+        let raw = r#"{"kind":"CreateRoom"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::CreateRoom {
+                name,
+                bot_account_ids,
+                invite_human_partner,
+            } => {
+                assert!(name.is_none());
+                assert!(bot_account_ids.is_empty());
+                assert!(!invite_human_partner);
+            }
+            _ => panic!("expected CreateRoom"),
+        }
+    }
+
+    #[test]
+    fn parses_create_room_frame_with_fields() {
+        let raw = r#"{"kind":"CreateRoom","name":"Travel","bot_account_ids":[42,43],"invite_human_partner":true}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::CreateRoom {
+                name,
+                bot_account_ids,
+                invite_human_partner,
+            } => {
+                assert_eq!(name.as_deref(), Some("Travel"));
+                assert_eq!(bot_account_ids, vec![42, 43]);
+                assert!(invite_human_partner);
+            }
+            _ => panic!("expected CreateRoom"),
+        }
+    }
+
+    #[test]
+    fn parses_rename_room_frame() {
+        let raw = r#"{"kind":"RenameRoom","room_id":"01J","name":"New name"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::RenameRoom { room_id, name } => {
+                assert_eq!(room_id, "01J");
+                assert_eq!(name, "New name");
+            }
+            _ => panic!("expected RenameRoom"),
+        }
+    }
+
+    #[test]
+    fn parses_leave_room_frame() {
+        let raw = r#"{"kind":"LeaveRoom","room_id":"01J"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::LeaveRoom { room_id } => {
+                assert_eq!(room_id, "01J");
+            }
+            _ => panic!("expected LeaveRoom"),
+        }
+    }
+
+    #[test]
+    fn serializes_rooms_frame_with_member_roster() {
         let f = RoomServerFrame::Rooms {
-            rooms: vec![RoomSummary {
+            rooms: vec![RoomDetail {
                 room_id: "01J".into(),
-                peer_username: "kaitlyn".into(),
-                peer_ed25519_pub: "AAAA".into(),
-                peer_x25519_pub: "BBBB".into(),
+                name: "".into(),
+                members: vec![
+                    Member {
+                        account_id: 1,
+                        username: "court".into(),
+                        ed25519_pub: "AAAA".into(),
+                        x25519_pub: "BBBB".into(),
+                        is_bot: false,
+                        owner_username: None,
+                    },
+                    Member {
+                        account_id: 2,
+                        username: "court-garden".into(),
+                        ed25519_pub: "CCCC".into(),
+                        x25519_pub: "DDDD".into(),
+                        is_bot: true,
+                        owner_username: Some("court".into()),
+                    },
+                ],
                 created_at: "2026-06-09T17:00:00Z".parse().unwrap(),
             }],
+            owned_bots: vec![],
         };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"Rooms""#));
-        assert!(s.contains(r#""peer_username":"kaitlyn""#));
+        assert!(s.contains(r#""members":["#));
+        assert!(s.contains(r#""is_bot":true"#));
+        assert!(s.contains(r#""owner_username":"court""#));
     }
 
     #[test]
@@ -336,28 +497,74 @@ mod tests {
     }
 
     #[test]
-    fn serializes_room_created_frame() {
-        let f = RoomServerFrame::RoomCreated(RoomDescriptor {
+    fn serializes_room_created_with_pending_invite() {
+        let f = RoomServerFrame::RoomCreated {
             room_id: "01J".into(),
-            peer_username: "kaitlyn".into(),
-            peer_ed25519_pub: "AAAA".into(),
-            peer_x25519_pub: "BBBB".into(),
-        });
+            name: "Travel planning".into(),
+            members: vec![],
+            pending_invite: Some(PendingInvite {
+                code: "amber-fern-locket-tide".into(),
+                qr_png_base64: "".into(),
+                expires_at: "2026-06-09T18:00:00Z".parse().unwrap(),
+            }),
+        };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"RoomCreated""#));
-        assert!(s.contains(r#""room_id":"01J""#));
+        assert!(s.contains(r#""pending_invite":{"#));
+        assert!(s.contains(r#""code":"amber-fern-locket-tide""#));
+    }
+
+    #[test]
+    fn serializes_room_created_omits_null_pending_invite() {
+        let f = RoomServerFrame::RoomCreated {
+            room_id: "01J".into(),
+            name: "".into(),
+            members: vec![],
+            pending_invite: None,
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(!s.contains("pending_invite"));
     }
 
     #[test]
     fn serializes_invite_consumed_frame() {
-        let f = RoomServerFrame::InviteConsumed(RoomDescriptor {
+        let f = RoomServerFrame::InviteConsumed {
             room_id: "01J".into(),
-            peer_username: "court".into(),
-            peer_ed25519_pub: "AAAA".into(),
-            peer_x25519_pub: "BBBB".into(),
-        });
+            name: "".into(),
+            members: vec![Member {
+                account_id: 1,
+                username: "court".into(),
+                ed25519_pub: "AAAA".into(),
+                x25519_pub: "BBBB".into(),
+                is_bot: false,
+                owner_username: None,
+            }],
+        };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"InviteConsumed""#));
+        assert!(s.contains(r#""username":"court""#));
+    }
+
+    #[test]
+    fn serializes_room_renamed_frame() {
+        let f = RoomServerFrame::RoomRenamed {
+            room_id: "01J".into(),
+            name: "Travel".into(),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"RoomRenamed""#));
+        assert!(s.contains(r#""name":"Travel""#));
+    }
+
+    #[test]
+    fn serializes_member_left_frame() {
+        let f = RoomServerFrame::MemberLeft {
+            room_id: "01J".into(),
+            username: "court-garden".into(),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"MemberLeft""#));
+        assert!(s.contains(r#""username":"court-garden""#));
     }
 
     #[test]
@@ -376,24 +583,8 @@ mod tests {
         assert!(!s.contains("replayed"), "false replayed should be omitted");
         assert!(
             !s.contains("client_msg_id"),
-            "None client_msg_id should be omitted"
+            "absent client_msg_id should be omitted"
         );
-    }
-
-    #[test]
-    fn serializes_room_message_frame_with_client_msg_id() {
-        let id: Uuid = "7c4e1c8a-7e7e-4b7a-9f23-1a0a17070707".parse().unwrap();
-        let f = RoomServerFrame::Message {
-            id: "01J".into(),
-            room_id: "01J".into(),
-            from: "court".into(),
-            ts: "2026-06-09T17:00:00Z".parse().unwrap(),
-            body: "hi".into(),
-            replayed: false,
-            client_msg_id: Some(id),
-        };
-        let s = serde_json::to_string(&f).unwrap();
-        assert!(s.contains(r#""client_msg_id":"7c4e1c8a-7e7e-4b7a-9f23-1a0a17070707""#));
     }
 
     #[test]
@@ -405,7 +596,15 @@ mod tests {
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"Error""#));
         assert!(s.contains(r#""code":"AlreadyPaired""#));
-        // empty message field is omitted
         assert!(!s.contains("\"message\""));
+    }
+
+    #[test]
+    fn error_codes_module_carries_v0_3_codes() {
+        assert_eq!(error_codes::FAN_OUT_MISMATCH, "FanOutMismatch");
+        assert_eq!(error_codes::MONOGAMY_VIOLATION, "MonogamyViolation");
+        assert_eq!(error_codes::NOT_OWNED_BOT, "NotOwnedBot");
+        assert_eq!(error_codes::MEMBERSHIP_FROZEN, "MembershipFrozen");
+        assert_eq!(error_codes::BOT_SESSION_IN_USE, "BotSessionInUse");
     }
 }

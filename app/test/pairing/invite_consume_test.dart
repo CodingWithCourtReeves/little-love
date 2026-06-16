@@ -16,19 +16,27 @@ class _RecordingTransport implements PairingTransport {
   Future<InviteCreatedFrame> createInvite() => throw UnimplementedError();
 
   @override
+  Future<InviteCreatedFrame> createFamiliarInvite() =>
+      throw UnimplementedError();
+
+  @override
   Future<InviteConsumedFrame> consumeInvite({
     required String code,
     required Uint8List signature,
   }) async {
     capturedCode = code;
     capturedSig = signature;
-    return InviteConsumedFrame(
-      const RoomFramePeer(
-        roomId: '01J',
-        peerUsername: 'court',
-        peerEd25519PubBase64: 'AAAA',
-        peerX25519PubBase64: 'BBBB',
-      ),
+    return const InviteConsumedFrame(
+      roomId: '01J',
+      name: '',
+      members: [
+        Member(
+          username: 'court',
+          ed25519PubBase64: 'AAAA',
+          x25519PubBase64: 'BBBB',
+          isBot: false,
+        ),
+      ],
     );
   }
 }

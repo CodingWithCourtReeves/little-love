@@ -10,7 +10,7 @@ class MemoryOutboxStore implements OutboxStore {
   Future<void> enqueue({
     required String clientMsgId,
     required String roomId,
-    required String bodyCipher,
+    required Map<String, String> bodies,
     DateTime? createdAt,
   }) async {
     _rows.putIfAbsent(
@@ -18,7 +18,7 @@ class MemoryOutboxStore implements OutboxStore {
       () => OutboxRow(
         clientMsgId: clientMsgId,
         roomId: roomId,
-        bodyCipher: bodyCipher,
+        bodies: bodies,
         createdAt: createdAt ?? DateTime.now().toUtc(),
         attempts: 0,
         lastError: null,
@@ -51,7 +51,7 @@ class MemoryOutboxStore implements OutboxStore {
     _rows[clientMsgId] = OutboxRow(
       clientMsgId: r.clientMsgId,
       roomId: r.roomId,
-      bodyCipher: r.bodyCipher,
+      bodies: r.bodies,
       createdAt: r.createdAt,
       attempts: reset ? 0 : r.attempts + 1,
       lastError: reset ? null : error,

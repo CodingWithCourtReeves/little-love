@@ -40,11 +40,41 @@ class _ShowInviteScreenState extends ConsumerState<ShowInviteScreen> {
               return const CircularProgressIndicator();
             }
             if (snap.hasError) {
+              final err = snap.error;
+              final isAlreadyPaired =
+                  err is PairingTransportException &&
+                  err.code == 'AlreadyPaired';
               return Padding(
                 padding: const EdgeInsets.all(24),
-                child: Text(
-                  'Could not create invite: ${snap.error}',
-                  style: const TextStyle(color: TwilightColors.textPrimary),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      isAlreadyPaired
+                          ? "You're already paired with a partner."
+                          : 'Could not create invite: $err',
+                      style: const TextStyle(
+                        color: TwilightColors.textPrimary,
+                        fontFamily: 'Inter',
+                        fontSize: 16,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    if (isAlreadyPaired) ...[
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Leave the current partner chat first if you want to '
+                        'pair with someone new.',
+                        style: TextStyle(
+                          color: TwilightColors.textMuted,
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ],
                 ),
               );
             }

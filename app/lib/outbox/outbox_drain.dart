@@ -9,7 +9,7 @@ import 'outbox_store.dart';
 
 typedef OutboxSend = void Function(
   String roomId,
-  String bodyCipher,
+  Map<String, String> bodies,
   String clientMsgId,
 );
 
@@ -47,7 +47,7 @@ class OutboxDrain {
     for (final row in rows) {
       if (_sentThisCycle.contains(row.clientMsgId)) continue;
       try {
-        send(row.roomId, row.bodyCipher, row.clientMsgId);
+        send(row.roomId, row.bodies, row.clientMsgId);
         _sentThisCycle.add(row.clientMsgId);
         await store.markAttempt(row.clientMsgId);
       } catch (e) {
@@ -91,12 +91,12 @@ final outboxDrainProvider = Provider<OutboxDrain>((ref) {
 
   final drain = OutboxDrain(
     store: store,
-    send: (roomId, bodyCipher, clientMsgId) {
+    send: (roomId, bodies, clientMsgId) {
       if (conn == null) throw StateError('not connected');
       conn.send(
         SendFrame(
           roomId: roomId,
-          body: bodyCipher,
+          bodies: bodies,
           clientMsgId: clientMsgId,
         ).toJson(),
       );
@@ -122,7 +122,7 @@ class _NoopOutboxStore implements OutboxStore {
   Future<void> enqueue({
     required String clientMsgId,
     required String roomId,
-    required String bodyCipher,
+    required Map<String, String> bodies,
     DateTime? createdAt,
   }) async {}
 

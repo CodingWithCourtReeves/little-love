@@ -7,12 +7,25 @@ import 'package:littlelove/inbox/navigation_rail.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/inbox/sidebar.dart';
 import 'package:littlelove/theme/twilight.dart';
+import 'package:littlelove/wire/frames.dart';
 
 Room _r(String id, String peer) => Room(
   roomId: id,
-  peerUsername: peer,
-  peerEd25519PubBase64: 'AAA',
-  peerX25519PubBase64: 'BBB',
+  name: '',
+  members: [
+    const Member(
+      username: 'court',
+      ed25519PubBase64: '',
+      x25519PubBase64: '',
+      isBot: false,
+    ),
+    Member(
+      username: peer,
+      ed25519PubBase64: 'AAA',
+      x25519PubBase64: 'BBB',
+      isBot: false,
+    ),
+  ],
   createdAt: DateTime.utc(2026, 6, 9),
 );
 

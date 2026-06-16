@@ -1,5 +1,3 @@
-import 'dart:async' show unawaited;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,6 +5,10 @@ import '../../conversation/conversation_page.dart';
 import '../../conversation/message_store.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../conversation/room_message_router.dart';
+import '../../conversation/send_fanout.dart';
+import '../../outbox/outbox_drain.dart';
+import '../../outbox/outbox_store.dart';
+import '../../wire/message.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
 import '../../identity/keypair.dart';
@@ -14,14 +16,17 @@ import '../../inbox/drawer.dart';
 import '../../inbox/inbox_state.dart';
 import '../../inbox/layout_scaffold.dart';
 import '../../inbox/navigation_rail.dart';
+import '../../inbox/pending_invites_provider.dart';
+import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
 import '../../inbox/sidebar.dart';
-import '../../outbox/outbox_drain.dart';
-import '../../outbox/outbox_store.dart';
-import '../../pairing/encryption.dart';
 import '../../theme/twilight.dart';
+import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
-import '../../wire/message.dart';
+import '../create_chat/create_channel_sheet.dart';
+import '../create_chat/create_chat_invite_screen.dart';
+import '../create_chat/create_chat_pick_screen.dart';
+import '../pair/bring_familiar.dart';
 import '../pair/enter_code.dart';
 import '../pair/show_invite.dart';
 
@@ -46,7 +51,7 @@ class InboxShell extends ConsumerWidget {
 
     return LayoutScaffold(
       sidebar: Sidebar(username: account.username),
-      rail: const NavigationRailChrome(),
+      rail: NavigationRailChrome(username: account.username),
       drawer: DrawerContent(username: account.username),
       detail: detail,
     );
@@ -71,9 +76,8 @@ class InboxShell extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // 'No conversations yet' kept verbatim for widget tests.
                     const Text(
-                      'No conversations yet',
+                      'STEP 4 OF 4 · PAIR',
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 11,
@@ -84,7 +88,7 @@ class InboxShell extends ConsumerWidget {
                     ),
                     const SizedBox(height: 14),
                     const Text(
-                      'Pair with your partner to begin.',
+                      'Invite your partner',
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 28,
@@ -102,7 +106,7 @@ class InboxShell extends ConsumerWidget {
                       style: TwilightType.lede,
                     ),
                     const SizedBox(height: 28),
-                    _PairCard(account: account),
+                    PairCard(account: account),
                   ],
                 ),
               ),
@@ -112,52 +116,85 @@ class InboxShell extends ConsumerWidget {
       );
     }
     if (selectedId == null) {
-      return Scaffold(
-        backgroundColor: TwilightColors.bgCanvas,
-        body: const Center(
-          child: Text(
-            'Select a conversation',
-            style: TextStyle(color: TwilightColors.textMuted),
-          ),
-        ),
-      );
+      final home = defaultHomeRoomId(rooms, account.username);
+      if (home != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(inboxStateProvider.notifier).select(home);
+          ref.read(readStateProvider.notifier).markRead(home);
+        });
+        // One frame of empty canvas before selection lands.
+        return const Scaffold(backgroundColor: TwilightColors.bgCanvas);
+      }
+      // No rooms case is handled above; this is a defensive fallback.
+      return const Scaffold(backgroundColor: TwilightColors.bgCanvas);
     }
     final room = rooms.firstWhere((r) => r.roomId == selectedId);
+    // A "solo" room is one where Court is the only member AND a pending invite
+    // exists for it — the user got here by tapping "Invite them with a code",
+    // creating the room, then leaving the show-invite screen. Route them back
+    // to the invite code instead of an empty conversation.
+    final pending = ref.watch(pendingInvitesProvider);
+    final dismissed = ref.watch(dismissedInvitesProvider);
+    final isSolo =
+        room.members.length == 1 &&
+        room.members.first.username == account.username;
+    if (isSolo &&
+        pending.containsKey(room.roomId) &&
+        !dismissed.contains(room.roomId)) {
+      return CreateChatInviteScreen(
+        roomId: room.roomId,
+        onDone: () =>
+            ref.read(dismissedInvitesProvider.notifier).dismiss(room.roomId),
+      );
+    }
+    // Viewing a room marks it read. Done post-frame to avoid mutating a
+    // provider during build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(readStateProvider.notifier).markRead(room.roomId);
+    });
     return ConversationPage(
       key: ValueKey(selectedId),
-      roomId: selectedId,
-      contactDisplayName: room.peerUsername,
+      room: room,
+      selfUsername: account.username,
       onSend: (text) => _sendEncrypted(ref, room, text),
       onRetry: (clientMsgId) => _retry(ref, clientMsgId),
+      onRename: (newName) {
+        final conn = ref.read(liveConnectionProvider).asData?.value;
+        conn?.send(
+          RenameRoomFrame(roomId: room.roomId, name: newName).toJson(),
+        );
+      },
+      onNewChannel: () => showCreateChannelSheet(context, ref),
     );
   }
 
-  /// Synchronous from the composer's POV — kicks an async enqueue + drain
-  /// and returns immediately. Every failure path updates UI state so the
-  /// fire-and-forget future never silently drops a message.
-  void _sendEncrypted(WidgetRef ref, Room room, String text) {
+  /// Route a send through the persistent outbox so it survives a WS reconnect
+  /// (or an app kill) mid-send. We persist the ciphertext envelope, render an
+  /// optimistic `sending…` bubble immediately, then kick the drain — the row
+  /// is only removed once the server echoes it back (see [RoomMessageRouter]).
+  Future<void> _sendEncrypted(WidgetRef ref, Room room, String text) async {
     final clientMsgId = ref.read(outboxIdGenProvider)();
-    unawaited(_enqueueAndKick(ref, room, text, clientMsgId));
-  }
-
-  Future<void> _enqueueAndKick(
-    WidgetRef ref,
-    Room room,
-    String text,
-    String clientMsgId,
-  ) async {
     var inserted = false;
     try {
       final me = await ref.read(currentIdentityProvider.future);
-      final key = await ref.read(roomKeyCacheProvider).getOrDerive(room, me);
-      final cipher = await encryptOutgoing(key, text);
+      final cache = ref.read(roomKeyCacheProvider);
+      final frame = await buildSendFrame(
+        room: room,
+        me: me,
+        selfUsername: account.username,
+        plaintext: text,
+        cache: cache,
+        clientMsgId: clientMsgId,
+      );
       final store = await ref.read(outboxStoreProvider.future);
       await store.enqueue(
         clientMsgId: clientMsgId,
         roomId: room.roomId,
-        bodyCipher: cipher,
+        bodies: frame.bodies,
       );
-      ref.read(messageStoreProvider(room.roomId).notifier).add(
+      ref
+          .read(messageStoreProvider(room.roomId).notifier)
+          .add(
             Msg(
               id: clientMsgId,
               from: account.username,
@@ -171,9 +208,9 @@ class InboxShell extends ConsumerWidget {
       inserted = true;
       await ref.read(outboxDrainProvider).kick();
     } catch (e) {
-      // If we never inserted the optimistic bubble, the user has no UI to
-      // act on — log and move on. If we did insert it, flip it to failed so
-      // the caption appears with a retry affordance.
+      // If the optimistic bubble made it in, flip it to `failed` so the user
+      // gets a tap-to-retry affordance. If we failed before inserting it,
+      // there is no UI to update — log and move on.
       if (inserted) {
         ref
             .read(messageStoreProvider(room.roomId).notifier)
@@ -193,15 +230,15 @@ class InboxShell extends ConsumerWidget {
         .read(messageStoreProvider(row.roomId).notifier)
         .updateStatus(clientMsgId, SendStatus.sending);
     final drain = ref.read(outboxDrainProvider);
-    // The drain's per-cycle dedup set still remembers the prior send;
-    // clear just this id so retry actually re-sends.
+    // The drain's per-cycle dedup set still remembers the prior send; clear
+    // just this id so the retry actually re-sends without a WS reconnect.
     drain.resetCycle(clientMsgId: clientMsgId);
     await drain.kick();
   }
 }
 
-class _PairCard extends ConsumerWidget {
-  const _PairCard({required this.account});
+class PairCard extends ConsumerWidget {
+  const PairCard({super.key, required this.account});
   final LocalAccount account;
 
   @override
@@ -236,6 +273,41 @@ class _PairCard extends ConsumerWidget {
             detail: 'Enter a code your partner sent you.',
             onTap: () => _openEnterCode(context, ref),
           ),
+          const Divider(
+            height: 1,
+            thickness: 1,
+            color: TwilightColors.borderSoft,
+            indent: 18,
+            endIndent: 18,
+          ),
+          _PairOption(
+            glyph: '✦',
+            title: 'Create a chat',
+            detail: 'Pick partner + familiars, then send the invite.',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    CreateChatPickScreen(selfUsername: account.username),
+              ),
+            ),
+          ),
+          const Divider(
+            height: 1,
+            thickness: 1,
+            color: TwilightColors.borderSoft,
+            indent: 18,
+            endIndent: 18,
+          ),
+          _PairOption(
+            glyph: '◆',
+            title: 'Add a familiar',
+            detail: 'Generate a code your familiar CLI enters to join you.',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const BringFamiliarScreen(),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -257,7 +329,8 @@ class _PairCard extends ConsumerWidget {
     if (!context.mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => EnterCodeScreen(identity: identity),
+        builder: (_) =>
+            EnterCodeScreen(identity: identity, selfUsername: account.username),
       ),
     );
   }

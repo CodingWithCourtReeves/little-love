@@ -8,6 +8,7 @@ import 'package:littlelove/conversation/room_key_cache.dart';
 import 'package:littlelove/identity/keypair.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/outbox/outbox_rehydrate.dart';
+import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
 
 import 'memory_outbox_store.dart';
@@ -16,34 +17,41 @@ void main() {
   final seedA = Uint8List.fromList(List<int>.generate(16, (i) => i + 1));
   final seedB = Uint8List.fromList(List<int>.generate(16, (i) => i + 101));
 
-  Room mkRoom(String id, DerivedIdentity peer) => Room(
+  Member member(String username, DerivedIdentity id) => Member(
+        username: username,
+        ed25519PubBase64: base64.encode(id.ed25519PublicKey),
+        x25519PubBase64: base64.encode(id.x25519PublicKey),
+        isBot: false,
+      );
+
+  Room mkRoom(String id, DerivedIdentity me, DerivedIdentity peer) => Room(
         roomId: id,
-        peerUsername: 'kaitlyn',
-        peerEd25519PubBase64: base64.encode(peer.ed25519PublicKey),
-        peerX25519PubBase64: base64.encode(peer.x25519PublicKey),
+        name: '',
+        members: [member('court', me), member('kaitlyn', peer)],
         createdAt: DateTime.utc(2026, 6, 10),
       );
 
   test('rehydrate re-inserts a sending bubble per pending row', () async {
     final me = await deriveIdentity(seedA);
     final peer = await deriveIdentity(seedB);
+    final selfPub = base64.encode(me.x25519PublicKey);
     final store = MemoryOutboxStore();
     await store.enqueue(
       clientMsgId: 'cli-1',
       roomId: 'room1',
-      bodyCipher: 'ct-1',
+      bodies: {selfPub: 'ct-1'},
       createdAt: DateTime.utc(2026, 6, 13, 9, 0),
     );
     await store.enqueue(
       clientMsgId: 'cli-2',
       roomId: 'room2',
-      bodyCipher: 'ct-2',
+      bodies: {selfPub: 'ct-2'},
       createdAt: DateTime.utc(2026, 6, 13, 9, 1),
     );
     await store.enqueue(
       clientMsgId: 'cli-stale',
       roomId: 'gone',
-      bodyCipher: 'ct-x',
+      bodies: {selfPub: 'ct-x'},
       createdAt: DateTime.utc(2026, 6, 13, 9, 2),
     );
 
@@ -55,7 +63,7 @@ void main() {
       me: 'court',
       identity: me,
       keyCache: container.read(roomKeyCacheProvider),
-      rooms: [mkRoom('room1', peer), mkRoom('room2', peer)],
+      rooms: [mkRoom('room1', me, peer), mkRoom('room2', me, peer)],
       getMessageStore: (rid) =>
           container.read(messageStoreProvider(rid).notifier),
       decrypt: (room, cipher) async => 'plain($cipher)',
@@ -78,11 +86,12 @@ void main() {
   test('rehydrate marks row failed when decrypt throws', () async {
     final me = await deriveIdentity(seedA);
     final peer = await deriveIdentity(seedB);
+    final selfPub = base64.encode(me.x25519PublicKey);
     final store = MemoryOutboxStore();
     await store.enqueue(
       clientMsgId: 'cli-1',
       roomId: 'room1',
-      bodyCipher: 'ct-broken',
+      bodies: {selfPub: 'ct-broken'},
       createdAt: DateTime.utc(2026, 6, 13, 9, 0),
     );
 
@@ -94,7 +103,7 @@ void main() {
       me: 'court',
       identity: me,
       keyCache: container.read(roomKeyCacheProvider),
-      rooms: [mkRoom('room1', peer)],
+      rooms: [mkRoom('room1', me, peer)],
       getMessageStore: (rid) =>
           container.read(messageStoreProvider(rid).notifier),
       decrypt: (room, cipher) async => throw StateError('bad key'),
