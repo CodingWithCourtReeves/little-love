@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LittleLove — Attachments (photo / video)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-canvas:#F4EBEC;--bg-surface:#EBDFE2;--bg-surface-alt:#E2D3D8;
+    --text-primary:#2A1F2A;--text-muted:#7C6C78;
+    --accent-user:#A04A6A;--accent-partner:#9C7E94;--accent-sage:#4F7A5E;
+    --border-soft:#D9C7CD;--warning:#B85C5C;
+    --bubble-user:#E8C8D2;--bubble-user-text:#3A1424;--bubble-partner:#FFFAFB;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#cfc0c6;color:var(--text-primary);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .stage{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:26px;padding:40px 16px 72px}
+  .caption{width:100%;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;color:#5d4f59;text-transform:uppercase}
+  .caption b{color:var(--accent-user)}
+  .col{display:flex;flex-direction:column;align-items:center;gap:12px}
+  .col .scrn-label{font-family:'Inter Tight';font-weight:600;font-size:13px;letter-spacing:.02em;color:var(--text-primary)}
+  .col .scrn-sub{font-size:11.5px;color:var(--text-muted);max-width:340px;text-align:center;line-height:1.5;margin-top:-4px}
+
+  /* phone frame */
+  .phone{width:360px;height:760px;background:var(--bg-canvas);border-radius:44px;border:10px solid #2A1F2A;box-shadow:0 24px 60px rgba(42,31,42,.34);overflow:hidden;position:relative;display:flex;flex-direction:column}
+  .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:140px;height:24px;background:#2A1F2A;border-bottom-left-radius:16px;border-bottom-right-radius:16px;z-index:30}
+  .hdr{flex-shrink:0;background:var(--bg-surface);padding:32px 14px 12px;border-bottom:1px solid var(--border-soft);display:flex;align-items:center;gap:10px}
+  .av{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#FFFAFB;font-weight:600;font-size:13px;font-family:'Inter Tight';background:var(--accent-partner)}
+  .nm{font-family:'Inter Tight';font-weight:600;font-size:15px}
+  .nm small{display:block;font-weight:400;font-size:10.5px;color:var(--accent-sage);letter-spacing:.04em}
+  .thread{flex:1;overflow:hidden;padding:14px 14px;display:flex;flex-direction:column;gap:2px;background:var(--bg-canvas)}
+  .grp{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);font-family:'Inter Tight';margin:14px 2px 4px}
+  .row{display:flex;margin-bottom:2px}
+  .row.me{justify-content:flex-end}
+  .row.them{justify-content:flex-start}
+  .bub{position:relative;max-width:74%;padding:9px 13px;border-radius:16px;font-size:15px;line-height:1.42;border:1px solid var(--border-soft)}
+  .row.me .bub{background:var(--bubble-user);color:var(--bubble-user-text);border-color:transparent;border-bottom-right-radius:5px}
+  .row.them .bub{background:var(--bubble-partner);border-bottom-left-radius:5px}
+
+  /* in-bubble status marker */
+  .bub.tail{padding-right:30px;padding-bottom:7px}
+  .inbub{position:absolute;right:9px;bottom:6px;display:flex;align-items:center;gap:3px;line-height:0}
+  .inbub svg{display:block}
+  .inbub .heart{fill:var(--accent-user)}
+  .inbub .clock{stroke:#9a6b7e;fill:none}
+
+  /* ---- media bubble: thumbnail fills the bubble ---- */
+  .mediabub{padding:4px;max-width:78%;border-radius:18px;overflow:hidden}
+  .row.me .mediabub{background:var(--bubble-user);border-bottom-right-radius:6px}
+  .row.them .mediabub{background:var(--bubble-partner);border-bottom-left-radius:6px}
+  .thumb{position:relative;width:212px;height:158px;border-radius:14px;overflow:hidden;display:block}
+  .thumb.tall{height:240px}
+  /* simulated photos (stand-ins for the real preview JPEG) */
+  .ph-sunset{background:linear-gradient(180deg,#f7c9a0 0%,#e89b86 38%,#b5617e 70%,#5e3d63 100%)}
+  .ph-sea{background:linear-gradient(180deg,#bfe3e0 0%,#7fb6bd 45%,#3f6f86 100%)}
+  .ph-forest{background:linear-gradient(160deg,#9fc08a 0%,#4f7a5e 55%,#27402f 100%)}
+  .ph-city{background:linear-gradient(180deg,#3a2740 0%,#6b3f5e 50%,#c98ea3 100%)}
+  .ph-grain{position:absolute;inset:0;background:
+     radial-gradient(circle at 30% 28%, rgba(255,255,255,.35), transparent 38%),
+     radial-gradient(circle at 72% 64%, rgba(0,0,0,.18), transparent 46%)}
+  /* time + status chip floated over the media, bottom-right */
+  .overchip{position:absolute;right:8px;bottom:8px;display:flex;align-items:center;gap:4px;background:rgba(20,12,18,.46);backdrop-filter:blur(3px);color:#fff;font-size:11px;padding:3px 8px;border-radius:11px;line-height:1}
+  .overchip .heart{fill:#fff}
+  .overchip .clock{stroke:#fff;fill:none}
+  /* video play overlay + duration */
+  .play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:54px;height:54px;border-radius:50%;background:rgba(20,12,18,.42);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;border:1.5px solid rgba(255,255,255,.75)}
+  .play svg{margin-left:3px;fill:#fff}
+  .durchip{position:absolute;left:8px;bottom:8px;display:flex;align-items:center;gap:4px;background:rgba(20,12,18,.5);color:#fff;font-size:11px;font-weight:500;padding:3px 8px;border-radius:11px;line-height:1}
+  .durchip svg{fill:#fff}
+  /* sending overlay (upload in progress) */
+  .uploading .ph-grain{filter:none}
+  .uploading::after{content:"";position:absolute;inset:0;background:rgba(244,235,236,.34)}
+  .ring{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2}
+  .ring .track{stroke:rgba(255,255,255,.55);fill:none}
+  .ring .arc{stroke:#fff;fill:none;stroke-linecap:round}
+  .uppct{position:absolute;left:50%;top:calc(50% + 34px);transform:translateX(-50%);z-index:2;color:#fff;font-size:11px;font-family:'JetBrains Mono';text-shadow:0 1px 3px rgba(0,0,0,.4)}
+
+  /* composer */
+  .composer{flex-shrink:0;border-top:1px solid var(--border-soft);background:var(--bg-surface);padding:10px 10px calc(10px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:9px}
+  .plus{width:34px;height:34px;border-radius:50%;flex-shrink:0;background:var(--bg-surface-alt);display:flex;align-items:center;justify-content:center;border:1px solid var(--border-soft)}
+  .plus svg{stroke:var(--accent-user);fill:none}
+  .plus.active{background:var(--accent-user)}
+  .plus.active svg{stroke:#fff;transform:rotate(45deg)}
+  .field{flex:1;height:36px;border-radius:18px;background:#FFFAFB;border:1px solid var(--border-soft);display:flex;align-items:center;padding:0 14px;color:var(--text-muted);font-size:14px}
+
+  /* iOS action sheet */
+  .dim{position:absolute;inset:0;background:rgba(20,12,18,.32);z-index:40;display:flex;flex-direction:column;justify-content:flex-end;padding:10px}
+  .sheet{background:rgba(248,242,243,.92);backdrop-filter:blur(14px);border-radius:16px;overflow:hidden;margin-bottom:8px}
+  .sheet .opt{padding:16px;text-align:center;font-size:17px;color:var(--accent-user);border-bottom:1px solid rgba(217,199,205,.7);display:flex;align-items:center;justify-content:center;gap:9px}
+  .sheet .opt:last-child{border-bottom:none}
+  .sheet .opt svg{stroke:var(--accent-user);fill:none}
+  .sheet .ttl{padding:12px 16px;text-align:center;font-size:12px;color:var(--text-muted)}
+  .cancel{background:rgba(255,250,251,.96);border-radius:16px;padding:16px;text-align:center;font-size:17px;font-weight:600;color:var(--accent-user)}
+
+  /* picker grid */
+  .pk-hdr{flex-shrink:0;background:var(--bg-surface);padding:30px 16px 12px;border-bottom:1px solid var(--border-soft);display:flex;align-items:center;justify-content:space-between}
+  .pk-hdr .t{font-family:'Inter Tight';font-weight:600;font-size:16px}
+  .pk-hdr .x{font-size:14px;color:var(--accent-user)}
+  .grid{flex:1;overflow:hidden;padding:3px;display:grid;grid-template-columns:repeat(3,1fr);gap:3px;align-content:start;background:var(--bg-canvas)}
+  .cell{position:relative;aspect-ratio:1/1;border-radius:3px;overflow:hidden}
+  .cell .dur{position:absolute;right:4px;bottom:4px;background:rgba(20,12,18,.6);color:#fff;font-size:9.5px;padding:1px 5px;border-radius:7px}
+  .cell.sel::after{content:"";position:absolute;inset:0;border:3px solid var(--accent-user);border-radius:3px}
+  .cell .tick{position:absolute;right:5px;top:5px;width:18px;height:18px;border-radius:50%;background:var(--accent-user);display:flex;align-items:center;justify-content:center}
+  .cell .tick svg{stroke:#fff;fill:none}
+  .pk-foot{flex-shrink:0;background:var(--bg-surface);border-top:1px solid var(--border-soft);padding:12px 16px calc(14px + env(safe-area-inset-bottom));display:flex;justify-content:flex-end}
+  .pk-foot .add{background:var(--accent-user);color:#fff;font-weight:600;font-size:14px;padding:9px 20px;border-radius:20px}
+
+  /* full-screen viewer */
+  .viewer{position:absolute;inset:0;z-index:50;background:#140c12;display:flex;flex-direction:column}
+  .v-top{padding:34px 16px 12px;display:flex;align-items:center;justify-content:space-between;color:#fff}
+  .v-top .x{font-size:22px;line-height:1}
+  .v-top .sv{font-size:13px;color:#e6d7dd}
+  .v-stage{flex:1;display:flex;align-items:center;justify-content:center;position:relative}
+  .v-stage .big{width:100%;height:62%;position:relative}
+  .v-foot{padding:14px 16px calc(20px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:14px;color:#fff}
+  .v-foot .bar{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.25);position:relative}
+  .v-foot .bar i{position:absolute;left:0;top:0;bottom:0;width:34%;background:#fff;border-radius:2px}
+  .v-foot .bar i::after{content:"";position:absolute;right:-5px;top:50%;transform:translateY(-50%);width:11px;height:11px;border-radius:50%;background:#fff}
+  .v-foot .tm{font-size:11px;font-family:'JetBrains Mono';color:#e6d7dd}
+
+  .note{max-width:1040px;font-size:12.5px;color:#4a3f47;line-height:1.65;background:rgba(255,255,255,.5);border:1px solid var(--border-soft);border-radius:10px;padding:16px 18px}
+  .note b{color:var(--accent-user)} .note code{font-family:'JetBrains Mono';font-size:11px;color:var(--accent-user);background:rgba(255,255,255,.6);padding:1px 5px;border-radius:5px}
+  .note .lock{color:var(--accent-sage);font-weight:600}
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="caption">LittleLove · <b>attachments</b> — photo &amp; video · iOS MVP · twilight</div>
+
+    <!-- ============ SCREEN 1: composer + action sheet ============ -->
+    <div class="col">
+      <div class="scrn-label">1 · Attach</div>
+      <div class="scrn-sub">Tap <b>+</b> in the composer → native iOS sheet. Photo Library uses <code>image_picker</code>; Choose File uses <code>file_picker</code>.</div>
+      <div class="phone">
+        <div class="notch"></div>
+        <header class="hdr"><div class="av">K</div><span class="nm">Kaitlyn<small>end-to-end encrypted</small></span></header>
+        <div class="thread">
+          <div class="row them"><div class="bub">did you get a photo of the cabin?</div></div>
+          <div class="row me"><div class="bub tail">one sec, sending it now<span class="inbub"><svg class="heart" width="13" height="12" viewBox="0 0 32 29"><path d="M16 27C16 27 3 18.5 3 9.8C3 5.4 6.2 2.5 10 2.5C12.7 2.5 14.9 4.2 16 6.4C17.1 4.2 19.3 2.5 22 2.5C25.8 2.5 29 5.4 29 9.8C29 18.5 16 27 16 27Z"/></svg></span></div></div>
+        </div>
+        <div class="dim">
+          <div class="sheet">
+            <div class="ttl">Send a photo or video</div>
+            <div class="opt"><svg width="19" height="19" viewBox="0 0 24 24" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="8.5" cy="10" r="1.8"/><path d="M4 17l5-4 3.5 3 3-2.5L20 17" stroke-linecap="round" stroke-linejoin="round"/></svg>Photo Library</div>
+            <div class="opt"><svg width="19" height="19" viewBox="0 0 24 24" stroke-width="1.8"><path d="M5 4h9l5 5v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z" stroke-linejoin="round"/><path d="M14 4v5h5" stroke-linejoin="round"/></svg>Choose File</div>
+          </div>
+          <div class="cancel">Cancel</div>
+        </div>
+        <div class="composer">
+          <div class="plus active"><svg width="18" height="18" viewBox="0 0 24 24" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg></div>
+          <div class="field">Message…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ SCREEN 2: picker ============ -->
+    <div class="col">
+      <div class="scrn-label">2 · Pick from library</div>
+      <div class="scrn-sub">Standard iOS photo grid. Videos show a duration badge. Selection mark in twilight accent.</div>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="pk-hdr"><span class="x">Cancel</span><span class="t">Recents</span><span class="x">&nbsp;</span></div>
+        <div class="grid">
+          <div class="cell sel"><div class="thumb ph-sunset" style="width:100%;height:100%"><div class="ph-grain"></div></div><div class="tick"><svg width="11" height="11" viewBox="0 0 24 24" stroke-width="3"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div>
+          <div class="cell"><div class="thumb ph-sea" style="width:100%;height:100%"><div class="ph-grain"></div></div></div>
+          <div class="cell"><div class="thumb ph-forest" style="width:100%;height:100%"><div class="ph-grain"></div></div><span class="dur">0:08</span></div>
+          <div class="cell"><div class="thumb ph-city" style="width:100%;height:100%"><div class="ph-grain"></div></div></div>
+          <div class="cell"><div class="thumb ph-sea" style="width:100%;height:100%;filter:hue-rotate(20deg)"><div class="ph-grain"></div></div></div>
+          <div class="cell"><div class="thumb ph-sunset" style="width:100%;height:100%;filter:hue-rotate(-25deg)"><div class="ph-grain"></div></div><span class="dur">1:12</span></div>
+          <div class="cell"><div class="thumb ph-forest" style="width:100%;height:100%;filter:saturate(.7)"><div class="ph-grain"></div></div></div>
+          <div class="cell"><div class="thumb ph-city" style="width:100%;height:100%;filter:hue-rotate(40deg)"><div class="ph-grain"></div></div></div>
+          <div class="cell"><div class="thumb ph-sea" style="width:100%;height:100%;filter:brightness(1.1)"><div class="ph-grain"></div></div></div>
+        </div>
+        <div class="pk-foot"><div class="add">Add (1)</div></div>
+      </div>
+    </div>
+
+    <!-- ============ SCREEN 3: uploading ============ -->
+    <div class="col">
+      <div class="scrn-label">3 · Sending (encrypt + upload)</div>
+      <div class="scrn-sub">Optimistic bubble appears instantly with the local thumbnail; progress ring tracks the encrypted R2 upload. Clock until the server acks.</div>
+      <div class="phone">
+        <div class="notch"></div>
+        <header class="hdr"><div class="av">K</div><span class="nm">Kaitlyn<small>end-to-end encrypted</small></span></header>
+        <div class="thread">
+          <div class="row them"><div class="bub">did you get a photo of the cabin?</div></div>
+          <div class="grp">Today</div>
+          <div class="row me">
+            <div class="mediabub">
+              <div class="thumb ph-sunset uploading">
+                <div class="ph-grain"></div>
+                <svg class="ring" width="48" height="48" viewBox="0 0 48 48">
+                  <circle class="track" cx="24" cy="24" r="19" stroke-width="3.5"/>
+                  <circle class="arc" cx="24" cy="24" r="19" stroke-width="3.5" stroke-dasharray="119" stroke-dashoffset="46" transform="rotate(-90 24 24)"/>
+                </svg>
+                <span class="uppct">61%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="composer">
+          <div class="plus"><svg width="18" height="18" viewBox="0 0 24 24" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg></div>
+          <div class="field">Message…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ SCREEN 4: IMAGE conversation ============ -->
+    <div class="col">
+      <div class="scrn-label">4 · Conversation — image</div>
+      <div class="scrn-sub">Inline preview thumbnail renders immediately (decrypted from the message body). Tap to open full-size.</div>
+      <div class="phone">
+        <div class="notch"></div>
+        <header class="hdr"><div class="av">K</div><span class="nm">Kaitlyn<small>end-to-end encrypted</small></span></header>
+        <div class="thread">
+          <div class="grp">Yesterday</div>
+          <div class="row them"><div class="bub">show me the view from the deck 🌅</div></div>
+          <div class="row me">
+            <div class="mediabub">
+              <div class="thumb ph-sunset tall">
+                <div class="ph-grain"></div>
+                <span class="overchip">9:42<svg class="heart" width="12" height="11" viewBox="0 0 32 29"><path d="M16 27C16 27 3 18.5 3 9.8C3 5.4 6.2 2.5 10 2.5C12.7 2.5 14.9 4.2 16 6.4C17.1 4.2 19.3 2.5 22 2.5C25.8 2.5 29 5.4 29 9.8C29 18.5 16 27 16 27Z"/></svg></span>
+              </div>
+            </div>
+          </div>
+          <div class="row them"><div class="bub">oh my. that's unreal 😍</div></div>
+          <div class="row them">
+            <div class="mediabub">
+              <div class="thumb ph-sea">
+                <div class="ph-grain"></div>
+                <span class="overchip">9:44</span>
+              </div>
+            </div>
+          </div>
+          <div class="row them"><div class="bub">here's the morning one too</div></div>
+          <div class="row me"><div class="bub tail">stunning. save that one<span class="inbub"><svg class="heart" width="13" height="12" viewBox="0 0 32 29"><path d="M16 27C16 27 3 18.5 3 9.8C3 5.4 6.2 2.5 10 2.5C12.7 2.5 14.9 4.2 16 6.4C17.1 4.2 19.3 2.5 22 2.5C25.8 2.5 29 5.4 29 9.8C29 18.5 16 27 16 27Z"/></svg></span></div></div>
+        </div>
+        <div class="composer">
+          <div class="plus"><svg width="18" height="18" viewBox="0 0 24 24" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg></div>
+          <div class="field">Message…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ SCREEN 5: VIDEO conversation ============ -->
+    <div class="col">
+      <div class="scrn-label">5 · Conversation — video</div>
+      <div class="scrn-sub">Poster frame (from <code>video_thumbnail</code>) with play overlay + duration. Tap → <code>video_player</code> after the blob downloads &amp; decrypts.</div>
+      <div class="phone">
+        <div class="notch"></div>
+        <header class="hdr"><div class="av">K</div><span class="nm">Kaitlyn<small>end-to-end encrypted</small></span></header>
+        <div class="thread">
+          <div class="grp">Today</div>
+          <div class="row them"><div class="bub">did you film the waves? 🌊</div></div>
+          <div class="row me">
+            <div class="mediabub">
+              <div class="thumb ph-sea tall">
+                <div class="ph-grain"></div>
+                <div class="play"><svg width="20" height="20" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+                <span class="durchip"><svg width="11" height="11" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>0:08</span>
+                <span class="overchip">10:15<svg class="heart" width="12" height="11" viewBox="0 0 32 29"><path d="M16 27C16 27 3 18.5 3 9.8C3 5.4 6.2 2.5 10 2.5C12.7 2.5 14.9 4.2 16 6.4C17.1 4.2 19.3 2.5 22 2.5C25.8 2.5 29 5.4 29 9.8C29 18.5 16 27 16 27Z"/></svg></span>
+              </div>
+            </div>
+          </div>
+          <div class="row them"><div class="bub">the sound on that 🤍</div></div>
+          <div class="row them">
+            <div class="mediabub">
+              <div class="thumb ph-forest">
+                <div class="ph-grain"></div>
+                <div class="play"><svg width="20" height="20" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+                <span class="durchip"><svg width="11" height="11" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>1:12</span>
+                <span class="overchip">10:16</span>
+              </div>
+            </div>
+          </div>
+          <div class="row me"><div class="bub tail">sending the sunset clip next<span class="inbub"><svg class="clock" width="13" height="13" viewBox="0 0 24 24" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div></div>
+        </div>
+        <div class="composer">
+          <div class="plus"><svg width="18" height="18" viewBox="0 0 24 24" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg></div>
+          <div class="field">Message…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ SCREEN 6: viewer ============ -->
+    <div class="col">
+      <div class="scrn-label">6 · Tap to open (full screen)</div>
+      <div class="scrn-sub">Full blob downloads &amp; decrypts to a local file, then plays. Same chrome for the image lightbox (no scrubber).</div>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="viewer">
+          <div class="v-top"><span class="x">✕</span><span class="sv">cabin-waves.mp4</span><span class="x" style="opacity:.5">⤓</span></div>
+          <div class="v-stage">
+            <div class="big ph-sea"><div class="ph-grain"></div>
+              <div class="play"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+            </div>
+          </div>
+          <div class="v-foot"><span class="tm">0:03</span><div class="bar"><i></i></div><span class="tm">0:08</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>How the preview thumbnail works (and why it's instant):</b> when you send a photo/video, the client makes a tiny downscaled JPEG (≤180px, a video poster frame for clips), encrypts it, and tucks it <i>inside the message body itself</i> — the same per-recipient encrypted envelope that already carries text. So the recipient renders the preview the moment the message arrives, with <span class="lock">no extra download</span>. The full-resolution file is encrypted once with its own key, uploaded to <b>R2</b>, and only fetched + decrypted when you <b>tap</b> to open (screen 6). The server brokers short-lived upload/download URLs over the authenticated WebSocket but <span class="lock">never sees the file key</span> — R2 holds only ciphertext. Status marks match the existing message-status spec: a faint <b>clock</b> while uploading/sending, a <b>heart</b> once the server acks. <i>Thumbnails here are CSS gradients standing in for real photos.</i>
+    </div>
+  </div>
+</body>
+</html>
