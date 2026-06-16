@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../attachment/attachment_descriptor.dart';
 import '../identity/providers.dart';
 import '../inbox/channel_switcher.dart';
 import '../inbox/room.dart';
@@ -15,6 +16,7 @@ import 'message_store.dart';
 typedef SendCallback = void Function(String text);
 typedef RenameCallback = void Function(String newName);
 typedef RetryCallback = void Function(String clientMsgId);
+typedef OpenAttachmentCallback = void Function(AttachmentDescriptor descriptor);
 
 class _SendIntent extends Intent {
   const _SendIntent();
@@ -70,6 +72,8 @@ class ConversationPage extends ConsumerStatefulWidget {
     this.onRename,
     this.onNewChannel,
     this.onRetry,
+    this.onAttach,
+    this.onOpenAttachment,
   });
 
   final Room room;
@@ -78,6 +82,12 @@ class ConversationPage extends ConsumerStatefulWidget {
   final RenameCallback? onRename;
   final VoidCallback? onNewChannel;
   final RetryCallback? onRetry;
+
+  /// Tapped the composer's attach (+) button. Null disables the affordance.
+  final Future<void> Function()? onAttach;
+
+  /// Tapped a received/sent media tile to open it full-screen.
+  final OpenAttachmentCallback? onOpenAttachment;
 
   String get roomId => room.roomId;
   String get contactDisplayName => room.displayName(selfUsername);
@@ -431,6 +441,19 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
   Widget _bubbleContent(Msg m, String me, _Marker? marker) {
     final mine = m.from == me;
+    if (m.attachment != null) {
+      return Align(
+        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+          child: _MediaBubble(
+            msg: m,
+            isMe: mine,
+            onOpen: () => widget.onOpenAttachment?.call(m.attachment!),
+          ),
+        ),
+      );
+    }
     // Cap the bubble so there's always a gutter on the opposite side, like
     // iMessage/Telegram. A fixed 480 never bites on a phone, so fall back to a
     // fraction of the viewport; the 480 ceiling keeps desktop bubbles sane.
@@ -810,6 +833,91 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
       ),
     );
   }
+}
+
+class _MediaBubble extends StatelessWidget {
+  const _MediaBubble({required this.msg, required this.isMe, required this.onOpen});
+  final Msg msg;
+  final bool isMe;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final d = msg.attachment!;
+    final aspect = (d.width > 0 && d.height > 0) ? d.width / d.height : 4 / 3;
+    return GestureDetector(
+      onTap: onOpen,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 240),
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: isMe ? TwilightColors.bubbleUserBg : TwilightColors.bubblePartnerBg,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: AspectRatio(
+            aspectRatio: aspect.clamp(0.6, 1.9),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _ThumbImage(thumbB64: d.thumbB64),
+                if (d.isVideo) const Center(child: _PlayBadge()),
+                if (msg.sendStatus == SendStatus.sending)
+                  Container(
+                    color: const Color(0x57F4EBEC),
+                    child: const Center(
+                      child: SizedBox(
+                        width: 30, height: 30,
+                        child: CircularProgressIndicator(strokeWidth: 3),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Decodes + decrypts the inline thumb (FutureBuilder; tiny, fast).
+class _ThumbImage extends StatefulWidget {
+  const _ThumbImage({required this.thumbB64});
+  final String thumbB64;
+  @override
+  State<_ThumbImage> createState() => _ThumbImageState();
+}
+
+class _ThumbImageState extends State<_ThumbImage> {
+  late final Future<Uint8List> _bytes = decodeThumb(widget.thumbB64);
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: _bytes,
+      builder: (_, snap) {
+        if (snap.hasData) {
+          return Image.memory(snap.data!, fit: BoxFit.cover, gaplessPlayback: true);
+        }
+        return Container(color: TwilightColors.bgSurfaceAlt);
+      },
+    );
+  }
+}
+
+class _PlayBadge extends StatelessWidget {
+  const _PlayBadge();
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 52, height: 52,
+        decoration: BoxDecoration(
+          color: const Color(0x6B140C12),
+          shape: BoxShape.circle,
+          border: Border.all(color: const Color(0xBFFFFFFF), width: 1.5),
+        ),
+        child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 30),
+      );
 }
 
 class _E2ESeal extends StatelessWidget {
