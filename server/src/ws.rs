@@ -298,7 +298,16 @@ async fn handle_create_invite(
     }
     let (canonical, code, hash) = generate_invite();
     let expires_at = default_expiry(Utc::now());
-    if let Err(e) = create_invite_record(store.pool(), me.id, &hash, expires_at, None, InviteKind::Partner).await {
+    if let Err(e) = create_invite_record(
+        store.pool(),
+        me.id,
+        &hash,
+        expires_at,
+        None,
+        InviteKind::Partner,
+    )
+    .await
+    {
         warn!("create_invite_record failed: {e}");
         send_error(tx, "Internal", "");
         return;
@@ -339,9 +348,15 @@ async fn handle_create_familiar_invite(
     // legacy CreateInvite path) rather than leaving an empty solo room.
     let (canonical, code, hash) = generate_invite();
     let expires_at = default_expiry(Utc::now());
-    if let Err(e) =
-        create_invite_record(store.pool(), me.id, &hash, expires_at, None, InviteKind::Familiar)
-            .await
+    if let Err(e) = create_invite_record(
+        store.pool(),
+        me.id,
+        &hash,
+        expires_at,
+        None,
+        InviteKind::Familiar,
+    )
+    .await
     {
         warn!("create_invite_record (familiar) failed: {e}");
         send_error(tx, "Internal", "");
@@ -849,22 +864,17 @@ async fn handle_create_room(
         None
     };
 
-    let room_id = match create_room_with_members(
-        store.pool(),
-        me.id,
-        auto_partner,
-        &bot_ids,
-        name.clone(),
-    )
-    .await
-    {
-        Ok(id) => id,
-        Err(CreateRoomError::Db(e)) => {
-            warn!("create_room_with_members: {e}");
-            send_error(tx, "Internal", "");
-            return;
-        }
-    };
+    let room_id =
+        match create_room_with_members(store.pool(), me.id, auto_partner, &bot_ids, name.clone())
+            .await
+        {
+            Ok(id) => id,
+            Err(CreateRoomError::Db(e)) => {
+                warn!("create_room_with_members: {e}");
+                send_error(tx, "Internal", "");
+                return;
+            }
+        };
 
     // Only mint a pending invite when the requester asked for a human
     // partner AND no existing partner exists. Otherwise (already paired or
@@ -872,8 +882,15 @@ async fn handle_create_room(
     let pending = if invite_partner && auto_partner.is_none() {
         let (canonical, code, hash) = generate_invite();
         let expires_at = default_expiry(Utc::now());
-        if let Err(e) =
-            create_invite_record(store.pool(), me.id, &hash, expires_at, Some(&room_id), InviteKind::Partner).await
+        if let Err(e) = create_invite_record(
+            store.pool(),
+            me.id,
+            &hash,
+            expires_at,
+            Some(&room_id),
+            InviteKind::Partner,
+        )
+        .await
         {
             warn!("create_invite_record: {e}");
             send_error(tx, "Internal", "");

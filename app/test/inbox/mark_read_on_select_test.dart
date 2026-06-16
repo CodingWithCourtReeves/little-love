@@ -9,12 +9,12 @@ import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
 
 Member m(String u) => Member(
-      username: u,
-      ed25519PubBase64: '',
-      x25519PubBase64: '',
-      isBot: false,
-      ownerUsername: null,
-    );
+  username: u,
+  ed25519PubBase64: '',
+  x25519PubBase64: '',
+  isBot: false,
+  ownerUsername: null,
+);
 
 void main() {
   test('selectAndMarkRead selects the room and clears its unread', () {
@@ -27,9 +27,16 @@ void main() {
       createdAt: DateTime.utc(2026, 6, 14),
     );
     c.read(inboxStateProvider.notifier).setRooms([room]);
-    c.read(messageStoreProvider('room-a').notifier).add(
-          Msg(id: 'm1', from: 'kaitlyn', to: 'room-a', body: 'hi',
-              ts: DateTime.utc(2026, 6, 14, 12)),
+    c
+        .read(messageStoreProvider('room-a').notifier)
+        .add(
+          Msg(
+            id: 'm1',
+            from: 'kaitlyn',
+            to: 'room-a',
+            body: 'hi',
+            ts: DateTime.utc(2026, 6, 14, 12),
+          ),
         );
     // Activate the provider so it tracks dependencies and re-evaluates.
     c.listen(roomUnreadProvider('room-a'), (_, _) {});

@@ -58,7 +58,10 @@ async fn migration_0008_check_rejects_invalid_kind() {
 
     assert!(result.is_err(), "CHECK should reject kind='invalid'");
     assert!(
-        result.unwrap_err().to_string().contains("invites_kind_valid"),
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("invites_kind_valid"),
         "error should mention the constraint name 'invites_kind_valid'",
     );
 }

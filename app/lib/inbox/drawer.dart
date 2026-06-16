@@ -73,10 +73,7 @@ class DrawerContent extends ConsumerWidget {
               color: Colors.transparent,
               child: ListTile(
                 key: const Key('drawer-new-chat'),
-                leading: const Icon(
-                  Icons.add,
-                  color: TwilightColors.textMuted,
-                ),
+                leading: const Icon(Icons.add, color: TwilightColors.textMuted),
                 title: const Text('New chat'),
                 onTap: () {
                   final account = ref.read(accountProvider).asData?.value;

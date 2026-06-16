@@ -11,7 +11,7 @@ import 'package:path/path.dart' as p;
 /// markers across a user's devices).
 class ReadStateStore {
   ReadStateStore({Directory? homeDirectory})
-      : _home = homeDirectory ?? _defaultHome();
+    : _home = homeDirectory ?? _defaultHome();
 
   final Directory _home;
 
@@ -51,9 +51,7 @@ class ReadStateStore {
   Future<void> save(Map<String, DateTime> state) async {
     final f = _file;
     await f.parent.create(recursive: true);
-    final raw = state.map(
-      (k, v) => MapEntry(k, v.toUtc().toIso8601String()),
-    );
+    final raw = state.map((k, v) => MapEntry(k, v.toUtc().toIso8601String()));
     await f.writeAsString(jsonEncode(raw));
   }
 }

@@ -22,46 +22,43 @@ Member memberOf(DerivedIdentity id, String username, {bool bot = false}) =>
     );
 
 void main() {
-  test(
-    'encrypts one ciphertext per other member plus a self-copy',
-    () async {
-      final me = await _identityFromByte(11);
-      final partner = await _identityFromByte(12);
-      final bot = await _identityFromByte(13);
+  test('encrypts one ciphertext per other member plus a self-copy', () async {
+    final me = await _identityFromByte(11);
+    final partner = await _identityFromByte(12);
+    final bot = await _identityFromByte(13);
 
-      final room = Room(
-        roomId: 'r1',
-        name: '',
-        members: [
-          memberOf(me, 'court'),
-          memberOf(partner, 'kaitlyn'),
-          memberOf(bot, 'court-garden', bot: true),
-        ],
-        createdAt: DateTime.utc(2026, 6, 10),
-      );
+    final room = Room(
+      roomId: 'r1',
+      name: '',
+      members: [
+        memberOf(me, 'court'),
+        memberOf(partner, 'kaitlyn'),
+        memberOf(bot, 'court-garden', bot: true),
+      ],
+      createdAt: DateTime.utc(2026, 6, 10),
+    );
 
-      final cache = RoomKeyCache();
-      final frame = await buildSendFrame(
-        room: room,
-        me: me,
-        selfUsername: 'court',
-        plaintext: 'hello',
-        cache: cache,
-      );
+    final cache = RoomKeyCache();
+    final frame = await buildSendFrame(
+      room: room,
+      me: me,
+      selfUsername: 'court',
+      plaintext: 'hello',
+      cache: cache,
+    );
 
-      expect(frame.roomId, 'r1');
-      // Two other members + a copy addressed to ourselves.
-      expect(frame.bodies.length, 3);
-      expect(frame.bodies.keys.toSet(), {
-        base64.encode(partner.x25519PublicKey),
-        base64.encode(bot.x25519PublicKey),
-        base64.encode(me.x25519PublicKey),
-      });
-      // Ciphertexts differ per recipient (distinct keys, including self).
-      final cts = frame.bodies.values.toSet();
-      expect(cts.length, 3);
-    },
-  );
+    expect(frame.roomId, 'r1');
+    // Two other members + a copy addressed to ourselves.
+    expect(frame.bodies.length, 3);
+    expect(frame.bodies.keys.toSet(), {
+      base64.encode(partner.x25519PublicKey),
+      base64.encode(bot.x25519PublicKey),
+      base64.encode(me.x25519PublicKey),
+    });
+    // Ciphertexts differ per recipient (distinct keys, including self).
+    final cts = frame.bodies.values.toSet();
+    expect(cts.length, 3);
+  });
 
   test('solo room (self only) still produces a self-copy', () async {
     final me = await _identityFromByte(20);

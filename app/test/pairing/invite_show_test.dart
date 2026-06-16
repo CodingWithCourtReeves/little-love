@@ -17,7 +17,8 @@ class _StubTransport implements PairingTransport {
   );
 
   @override
-  Future<InviteCreatedFrame> createFamiliarInvite() => throw UnimplementedError();
+  Future<InviteCreatedFrame> createFamiliarInvite() =>
+      throw UnimplementedError();
 
   @override
   Future<InviteConsumedFrame> consumeInvite({
@@ -32,7 +33,8 @@ class _FailingTransport implements PairingTransport {
       throw StateError('server down');
 
   @override
-  Future<InviteCreatedFrame> createFamiliarInvite() => throw UnimplementedError();
+  Future<InviteCreatedFrame> createFamiliarInvite() =>
+      throw UnimplementedError();
 
   @override
   Future<InviteConsumedFrame> consumeInvite({

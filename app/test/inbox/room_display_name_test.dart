@@ -77,10 +77,7 @@ void main() {
 
   group('shape classification', () {
     test('two humans, unnamed → partner', () {
-      expect(
-        r([m('court'), m('kaitlyn')]).shape('court'),
-        RoomShape.partner,
-      );
+      expect(r([m('court'), m('kaitlyn')]).shape('court'), RoomShape.partner);
     });
 
     test('one bot, unnamed → familiar', () {

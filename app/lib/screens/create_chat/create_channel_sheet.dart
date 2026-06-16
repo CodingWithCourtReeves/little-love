@@ -29,7 +29,8 @@ Future<void> showCreateChannelSheet(BuildContext context, WidgetRef ref) {
     ),
     builder: (sheetCtx) => Padding(
       padding: EdgeInsets.only(
-          bottom: MediaQuery.of(sheetCtx).viewInsets.bottom),
+        bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+      ),
       child: const _CreateChannelSheet(),
     ),
   );
@@ -38,7 +39,8 @@ Future<void> showCreateChannelSheet(BuildContext context, WidgetRef ref) {
 class _CreateChannelSheet extends ConsumerStatefulWidget {
   const _CreateChannelSheet();
   @override
-  ConsumerState<_CreateChannelSheet> createState() => _CreateChannelSheetState();
+  ConsumerState<_CreateChannelSheet> createState() =>
+      _CreateChannelSheetState();
 }
 
 class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
@@ -111,16 +113,18 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
                 height: 5,
                 margin: const EdgeInsets.only(bottom: 18),
                 decoration: BoxDecoration(
-                    color: TwilightColors.borderSoft,
-                    borderRadius: BorderRadius.circular(3)),
+                  color: TwilightColors.borderSoft,
+                  borderRadius: BorderRadius.circular(3),
+                ),
               ),
             ),
             const Text(
               'New channel',
               style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 23,
-                  color: TwilightColors.textPrimary),
+                fontWeight: FontWeight.w600,
+                fontSize: 23,
+                color: TwilightColors.textPrimary,
+              ),
             ),
             const SizedBox(height: 6),
             const Text(
@@ -133,9 +137,10 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
                 const Text(
                   '#',
                   style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                      color: TwilightColors.textMuted),
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: TwilightColors.textMuted,
+                  ),
                 ),
                 const SizedBox(width: 6),
                 Expanded(
@@ -148,11 +153,14 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
                     onChanged: (_) => setState(() {}),
                     onSubmitted: (_) => _create(),
                     decoration: const InputDecoration(
-                        hintText: 'date-ideas', border: InputBorder.none),
+                      hintText: 'date-ideas',
+                      border: InputBorder.none,
+                    ),
                     style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w500,
-                        color: TwilightColors.textPrimary),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w500,
+                      color: TwilightColors.textPrimary,
+                    ),
                   ),
                 ),
               ],
@@ -162,16 +170,19 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
               'Preview:  #$preview',
               key: const Key('channel-preview'),
               style: const TextStyle(
-                  fontSize: 12, color: TwilightColors.textMuted),
+                fontSize: 12,
+                color: TwilightColors.textMuted,
+              ),
             ),
             const SizedBox(height: 16),
             if (bots.isNotEmpty) ...[
               const Text(
                 'ADD A FAMILIAR · OPTIONAL',
                 style: TextStyle(
-                    fontSize: 10,
-                    letterSpacing: 1.8,
-                    color: TwilightColors.accentFamiliar),
+                  fontSize: 10,
+                  letterSpacing: 1.8,
+                  color: TwilightColors.accentFamiliar,
+                ),
               ),
               const SizedBox(height: 8),
               for (final b in bots)

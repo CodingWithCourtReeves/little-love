@@ -38,8 +38,8 @@ class ReadStateNotifier extends Notifier<Map<String, DateTime>> {
 
 final readStateProvider =
     NotifierProvider<ReadStateNotifier, Map<String, DateTime>>(
-  ReadStateNotifier.new,
-);
+      ReadStateNotifier.new,
+    );
 
 /// True iff [roomId] has a message newer than its last-read marker (or any
 /// message at all when there is no marker yet).

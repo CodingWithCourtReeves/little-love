@@ -34,8 +34,9 @@ class ChannelSwitcher extends ConsumerWidget {
     final isPartner =
         selected != null && selected.shape(selfUsername) == RoomShape.partner;
     final label = selected?.displayName(selfUsername) ?? 'LittleLove';
-    final unreadElsewhere =
-        ref.watch(anyUnreadProvider(inbox.selectedRoomId ?? ''));
+    final unreadElsewhere = ref.watch(
+      anyUnreadProvider(inbox.selectedRoomId ?? ''),
+    );
 
     return InkWell(
       key: const Key('channel-switcher-pill'),
@@ -54,18 +55,24 @@ class ChannelSwitcher extends ConsumerWidget {
             if (!isPartner)
               const Padding(
                 padding: EdgeInsets.only(right: 6),
-                child: Text('#',
-                    style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: TwilightColors.textMuted)),
+                child: Text(
+                  '#',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: TwilightColors.textMuted,
+                  ),
+                ),
               ),
             Flexible(
-              child: Text(label,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
-                      color: TwilightColors.textPrimary)),
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                  color: TwilightColors.textPrimary,
+                ),
+              ),
             ),
             const SizedBox(width: 4),
             if (unreadElsewhere)
@@ -74,10 +81,14 @@ class ChannelSwitcher extends ConsumerWidget {
                 height: 7,
                 margin: const EdgeInsets.only(right: 4),
                 decoration: const BoxDecoration(
-                    color: TwilightColors.accentUser, shape: BoxShape.circle),
+                  color: TwilightColors.accentUser,
+                  shape: BoxShape.circle,
+                ),
               ),
-            const Text('▾',
-                style: TextStyle(color: TwilightColors.textMuted, fontSize: 13)),
+            const Text(
+              '▾',
+              style: TextStyle(color: TwilightColors.textMuted, fontSize: 13),
+            ),
           ],
         ),
       ),
@@ -95,10 +106,9 @@ class ChannelSwitcher extends ConsumerWidget {
       builder: (sheetCtx) => Consumer(
         builder: (context, ref, _) {
           final inbox = ref.watch(inboxStateProvider);
-          List<Room> bucket(RoomShape s) => inbox.rooms
-              .where((r) => r.shape(selfUsername) == s)
-              .toList()
-            ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+          List<Room> bucket(RoomShape s) =>
+              inbox.rooms.where((r) => r.shape(selfUsername) == s).toList()
+                ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
           final partners = bucket(RoomShape.partner);
           final channels = bucket(RoomShape.chat);
 
@@ -106,23 +116,29 @@ class ChannelSwitcher extends ConsumerWidget {
             final unread = ref.watch(roomUnreadProvider(r.roomId));
             return ListTile(
               key: Key('switcher-row-${r.roomId}'),
-              leading: Text(partner ? '' : '#',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: TwilightColors.textMuted)),
+              leading: Text(
+                partner ? '' : '#',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: TwilightColors.textMuted,
+                ),
+              ),
               title: Text(
                 r.displayName(selfUsername),
                 style: TextStyle(
-                    fontWeight: unread ? FontWeight.w700 : FontWeight.w500,
-                    color: TwilightColors.textPrimary),
+                  fontWeight: unread ? FontWeight.w700 : FontWeight.w500,
+                  color: TwilightColors.textPrimary,
+                ),
               ),
               trailing: unread
                   ? Container(
                       width: 9,
                       height: 9,
                       decoration: const BoxDecoration(
-                          color: TwilightColors.accentUser,
-                          shape: BoxShape.circle))
+                        color: TwilightColors.accentUser,
+                        shape: BoxShape.circle,
+                      ),
+                    )
                   : null,
               selected: inbox.selectedRoomId == r.roomId,
               onTap: () {
@@ -147,13 +163,20 @@ class ChannelSwitcher extends ConsumerWidget {
                 const Divider(height: 1, color: TwilightColors.borderSoft),
                 ListTile(
                   key: const Key('switcher-new-channel'),
-                  leading: const Text('+',
-                      style: TextStyle(
-                          fontSize: 18, color: TwilightColors.accentUser)),
-                  title: const Text('New channel',
-                      style: TextStyle(
-                          color: TwilightColors.accentUser,
-                          fontWeight: FontWeight.w500)),
+                  leading: const Text(
+                    '+',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: TwilightColors.accentUser,
+                    ),
+                  ),
+                  title: const Text(
+                    'New channel',
+                    style: TextStyle(
+                      color: TwilightColors.accentUser,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                   onTap: () {
                     Navigator.of(sheetCtx).pop();
                     onNewChannel?.call();
@@ -173,11 +196,14 @@ class _SectionLabel extends StatelessWidget {
   final String text;
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-        child: Text(text,
-            style: const TextStyle(
-                fontSize: 10,
-                letterSpacing: 2.0,
-                color: TwilightColors.accentFamiliar)),
-      );
+    padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+    child: Text(
+      text,
+      style: const TextStyle(
+        fontSize: 10,
+        letterSpacing: 2.0,
+        color: TwilightColors.accentFamiliar,
+      ),
+    ),
+  );
 }

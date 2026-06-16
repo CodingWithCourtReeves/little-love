@@ -133,7 +133,8 @@ class InboxShell extends ConsumerWidget {
     // to the invite code instead of an empty conversation.
     final pending = ref.watch(pendingInvitesProvider);
     final dismissed = ref.watch(dismissedInvitesProvider);
-    final isSolo = room.members.length == 1 &&
+    final isSolo =
+        room.members.length == 1 &&
         room.members.first.username == account.username;
     if (isSolo &&
         pending.containsKey(room.roomId) &&

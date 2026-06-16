@@ -14,21 +14,28 @@ Msg msg(String id, DateTime ts) =>
     Msg(id: id, from: 'kaitlyn', to: 'room-a', body: 'hi', ts: ts);
 
 Member member(String u) => Member(
-    username: u, ed25519PubBase64: '', x25519PubBase64: '', isBot: false);
+  username: u,
+  ed25519PubBase64: '',
+  x25519PubBase64: '',
+  isBot: false,
+);
 
 Room roomFor(String id) => Room(
-    roomId: id,
-    name: id,
-    members: [member('court'), member('kaitlyn')],
-    createdAt: DateTime.utc(2026, 6, 14));
+  roomId: id,
+  name: id,
+  members: [member('court'), member('kaitlyn')],
+  createdAt: DateTime.utc(2026, 6, 14),
+);
 
 ProviderContainer makeContainer() {
   final tmp = Directory.systemTemp.createTempSync('rsp_test');
-  return ProviderContainer(overrides: [
-    readStateStoreProvider.overrideWithValue(
-      ReadStateStore(homeDirectory: tmp),
-    ),
-  ]);
+  return ProviderContainer(
+    overrides: [
+      readStateStoreProvider.overrideWithValue(
+        ReadStateStore(homeDirectory: tmp),
+      ),
+    ],
+  );
 }
 
 void main() {
@@ -41,7 +48,8 @@ void main() {
   test('newest message after last-read marks the room unread', () {
     final c = makeContainer();
     addTearDown(c.dispose);
-    c.read(messageStoreProvider('room-a').notifier)
+    c
+        .read(messageStoreProvider('room-a').notifier)
         .add(msg('m1', DateTime.utc(2026, 6, 14, 12)));
     expect(c.read(roomUnreadProvider('room-a')), isTrue);
   });
@@ -49,9 +57,11 @@ void main() {
   test('marking read clears unread', () {
     final c = makeContainer();
     addTearDown(c.dispose);
-    c.read(messageStoreProvider('room-a').notifier)
+    c
+        .read(messageStoreProvider('room-a').notifier)
         .add(msg('m1', DateTime.utc(2026, 6, 14, 12)));
-    c.read(readStateProvider.notifier)
+    c
+        .read(readStateProvider.notifier)
         .markRead('room-a', at: DateTime.utc(2026, 6, 14, 12));
     expect(c.read(roomUnreadProvider('room-a')), isFalse);
   });
@@ -64,7 +74,8 @@ void main() {
     c.listen(roomUnreadProvider('room-a'), (_, _) {});
     final store = c.read(messageStoreProvider('room-a').notifier);
     store.add(msg('m1', DateTime.utc(2026, 6, 14, 12)));
-    c.read(readStateProvider.notifier)
+    c
+        .read(readStateProvider.notifier)
         .markRead('room-a', at: DateTime.utc(2026, 6, 14, 12));
     store.add(msg('m2', DateTime.utc(2026, 6, 14, 13)));
     expect(c.read(roomUnreadProvider('room-a')), isTrue);
@@ -73,17 +84,22 @@ void main() {
   test('anyUnread is false when no room is unread', () {
     final c = makeContainer();
     addTearDown(c.dispose);
-    c.read(inboxStateProvider.notifier)
-        .setRooms([roomFor('room-a'), roomFor('room-b')]);
+    c.read(inboxStateProvider.notifier).setRooms([
+      roomFor('room-a'),
+      roomFor('room-b'),
+    ]);
     expect(c.read(anyUnreadProvider('room-a')), isFalse);
   });
 
   test('anyUnread is true when another (non-excluded) room is unread', () {
     final c = makeContainer();
     addTearDown(c.dispose);
-    c.read(inboxStateProvider.notifier)
-        .setRooms([roomFor('room-a'), roomFor('room-b')]);
-    c.read(messageStoreProvider('room-b').notifier)
+    c.read(inboxStateProvider.notifier).setRooms([
+      roomFor('room-a'),
+      roomFor('room-b'),
+    ]);
+    c
+        .read(messageStoreProvider('room-b').notifier)
         .add(msg('m1', DateTime.utc(2026, 6, 14, 12)));
     // Excluding the selected room-a, room-b is unread → dot should show.
     expect(c.read(anyUnreadProvider('room-a')), isTrue);
@@ -92,10 +108,13 @@ void main() {
   test('anyUnread ignores unread in the excluded room itself', () {
     final c = makeContainer();
     addTearDown(c.dispose);
-    c.read(inboxStateProvider.notifier)
-        .setRooms([roomFor('room-a'), roomFor('room-b')]);
+    c.read(inboxStateProvider.notifier).setRooms([
+      roomFor('room-a'),
+      roomFor('room-b'),
+    ]);
     // Only the excluded room is unread → nothing "elsewhere".
-    c.read(messageStoreProvider('room-a').notifier)
+    c
+        .read(messageStoreProvider('room-a').notifier)
         .add(msg('m1', DateTime.utc(2026, 6, 14, 12)));
     expect(c.read(anyUnreadProvider('room-a')), isFalse);
   });

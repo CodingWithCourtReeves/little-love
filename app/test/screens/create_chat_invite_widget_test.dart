@@ -83,7 +83,9 @@ void main() {
     final container = ProviderContainer();
     addTearDown(container.dispose);
     container.read(inboxStateProvider.notifier).setRooms([_soloRoom()]);
-    container.read(pendingInvitesProvider.notifier).set(
+    container
+        .read(pendingInvitesProvider.notifier)
+        .set(
           'rNEW',
           PendingInvite(
             code: 'amber-fern-locket-tide',

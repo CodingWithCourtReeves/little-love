@@ -217,8 +217,7 @@ pub async fn run(args: RunArgs) -> Result<()> {
                     // from the summary input but kept in recent turns.
                     let fallback = "(having trouble right now — try again in a moment)";
                     let wire = aead::encrypt_wire(&room_key, fallback.as_bytes())?;
-                    send_message(&mut session, &room.room_id, &room.peer_x25519_pub, &wire)
-                        .await?;
+                    send_message(&mut session, &room.room_id, &room.peer_x25519_pub, &wire).await?;
                     continue;
                 };
                 {

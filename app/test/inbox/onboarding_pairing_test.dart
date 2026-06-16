@@ -12,9 +12,11 @@ void main() {
       x25519PubBase64: 'y',
       createdAt: DateTime.utc(2026, 6, 14),
     );
-    await t.pumpWidget(ProviderScope(
-      child: MaterialApp(home: InboxShell(account: acc)),
-    ));
+    await t.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(home: InboxShell(account: acc)),
+      ),
+    );
     await t.pump();
     expect(find.text('Invite your partner'), findsOneWidget);
   });

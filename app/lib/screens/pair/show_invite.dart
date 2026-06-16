@@ -41,7 +41,8 @@ class _ShowInviteScreenState extends ConsumerState<ShowInviteScreen> {
             }
             if (snap.hasError) {
               final err = snap.error;
-              final isAlreadyPaired = err is PairingTransportException &&
+              final isAlreadyPaired =
+                  err is PairingTransportException &&
                   err.code == 'AlreadyPaired';
               return Padding(
                 padding: const EdgeInsets.all(24),

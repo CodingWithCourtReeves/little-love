@@ -20,21 +20,28 @@ void main() {
   });
 
   testWidgets('typing updates the live #preview', (t) async {
-    await t.pumpWidget(ProviderScope(
-      child: MaterialApp(
-        home: Scaffold(
-          body: Consumer(builder: (context, ref, _) {
-            return TextButton(
-              onPressed: () => showCreateChannelSheet(context, ref),
-              child: const Text('open'),
-            );
-          }),
+    await t.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: Consumer(
+              builder: (context, ref, _) {
+                return TextButton(
+                  onPressed: () => showCreateChannelSheet(context, ref),
+                  child: const Text('open'),
+                );
+              },
+            ),
+          ),
         ),
       ),
-    ));
+    );
     await t.tap(find.text('open'));
     await t.pumpAndSettle();
-    await t.enterText(find.byKey(const Key('channel-name-field')), 'Date Ideas');
+    await t.enterText(
+      find.byKey(const Key('channel-name-field')),
+      'Date Ideas',
+    );
     await t.pump();
     expect(find.text('Preview:  #date-ideas'), findsOneWidget);
     expect(find.text('Create #date-ideas'), findsOneWidget);

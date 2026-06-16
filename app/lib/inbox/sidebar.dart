@@ -96,10 +96,7 @@ class Sidebar extends ConsumerWidget {
             ),
             IconButton(
               key: const Key('sidebar-settings'),
-              icon: const Icon(
-                Icons.settings,
-                color: TwilightColors.textMuted,
-              ),
+              icon: const Icon(Icons.settings, color: TwilightColors.textMuted),
               onPressed: () {},
               tooltip: 'Settings',
             ),

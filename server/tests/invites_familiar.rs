@@ -202,7 +202,10 @@ async fn consume_familiar_invite_rolls_back_flip_on_failure() {
         chrono::Utc::now(),
     )
     .await;
-    assert!(result.is_err(), "expected the transaction to fail, got {result:?}");
+    assert!(
+        result.is_err(),
+        "expected the transaction to fail, got {result:?}"
+    );
 
     // The flip must have rolled back: helper is still a flippable human.
     let (is_bot, owner_id): (bool, Option<i64>) =
@@ -231,7 +234,9 @@ async fn consume_familiar_invite_rolls_back_flip_on_failure() {
 #[file_serial(db)]
 #[tokio::test]
 async fn consume_familiar_invite_rejects_already_consumed_invite() {
-    use littlelove_api::invites::{create_invite_record, default_expiry, generate_invite, InviteKind};
+    use littlelove_api::invites::{
+        create_invite_record, default_expiry, generate_invite, InviteKind,
+    };
     use littlelove_api::rooms::{consume_familiar_invite, FamiliarConsumeError};
 
     let store = fresh_store().await;
@@ -274,13 +279,13 @@ async fn consume_familiar_invite_rejects_already_consumed_invite() {
     .unwrap();
 
     // First consumer wins.
-    let first = consume_familiar_invite(store.pool(), consumer1_id, inviter_id, &token_hash, now)
-        .await;
+    let first =
+        consume_familiar_invite(store.pool(), consumer1_id, inviter_id, &token_hash, now).await;
     assert!(first.is_ok(), "first consume should succeed, got {first:?}");
 
     // Second consumer races on the SAME (now consumed) invite and loses.
-    let second = consume_familiar_invite(store.pool(), consumer2_id, inviter_id, &token_hash, now)
-        .await;
+    let second =
+        consume_familiar_invite(store.pool(), consumer2_id, inviter_id, &token_hash, now).await;
     let err = second.expect_err("second consume must be rejected");
     assert!(
         matches!(err, FamiliarConsumeError::AlreadyConsumed),
@@ -294,8 +299,14 @@ async fn consume_familiar_invite_rejects_already_consumed_invite() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-    assert!(!is_bot2, "second consumer's is_bot flip must have rolled back");
-    assert_eq!(owner2, None, "second consumer's owner must have rolled back");
+    assert!(
+        !is_bot2,
+        "second consumer's is_bot flip must have rolled back"
+    );
+    assert_eq!(
+        owner2, None,
+        "second consumer's owner must have rolled back"
+    );
 
     // Only the first consume's room exists — the loser's room rolled back.
     let (rooms,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM rooms")
@@ -400,11 +411,10 @@ async fn invite_revocation_is_scoped_by_kind() {
     let store = fresh_store().await;
     let court_sk = SigningKey::from_bytes(&[1u8; 32]);
     insert_account(&store, "court", &court_sk.verifying_key()).await;
-    let (court_id,): (i64,) =
-        sqlx::query_as("SELECT id FROM accounts WHERE username = 'court'")
-            .fetch_one(store.pool())
-            .await
-            .unwrap();
+    let (court_id,): (i64,) = sqlx::query_as("SELECT id FROM accounts WHERE username = 'court'")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
     let now = chrono::Utc::now();
 
     // 1. Mint a partner invite.
@@ -433,12 +443,13 @@ async fn invite_revocation_is_scoped_by_kind() {
     .await
     .unwrap();
 
-    let (total,): (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM invites WHERE inviter_id = $1 AND consumed_at IS NULL")
-            .bind(court_id)
-            .fetch_one(store.pool())
-            .await
-            .unwrap();
+    let (total,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE inviter_id = $1 AND consumed_at IS NULL",
+    )
+    .bind(court_id)
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
     assert_eq!(
         total, 2,
         "both partner and familiar invites should remain pending"
@@ -472,7 +483,10 @@ async fn invite_revocation_is_scoped_by_kind() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-    assert_eq!(first_partner_gone, 0, "first partner invite should be revoked");
+    assert_eq!(
+        first_partner_gone, 0,
+        "first partner invite should be revoked"
+    );
 
     let (familiar_alive,): (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM invites WHERE token_hash = $1")
@@ -480,5 +494,8 @@ async fn invite_revocation_is_scoped_by_kind() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-    assert_eq!(familiar_alive, 1, "familiar invite must survive same-kind revoke");
+    assert_eq!(
+        familiar_alive, 1,
+        "familiar invite must survive same-kind revoke"
+    );
 }

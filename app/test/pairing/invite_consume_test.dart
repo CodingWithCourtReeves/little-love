@@ -16,7 +16,8 @@ class _RecordingTransport implements PairingTransport {
   Future<InviteCreatedFrame> createInvite() => throw UnimplementedError();
 
   @override
-  Future<InviteCreatedFrame> createFamiliarInvite() => throw UnimplementedError();
+  Future<InviteCreatedFrame> createFamiliarInvite() =>
+      throw UnimplementedError();
 
   @override
   Future<InviteConsumedFrame> consumeInvite({

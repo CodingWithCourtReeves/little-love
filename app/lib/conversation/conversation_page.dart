@@ -372,12 +372,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     final bubbleColor = mine
         ? TwilightColors.bubbleUserBg
         : (senderIsBot
-            ? TwilightColors.bubbleFamiliarBg
-            : TwilightColors.bubblePartnerBg);
-    final bubbleBorder =
-        senderIsBot && !mine
-            ? TwilightColors.bubbleFamiliarBorder
-            : TwilightColors.borderSoft;
+              ? TwilightColors.bubbleFamiliarBg
+              : TwilightColors.bubblePartnerBg);
+    final bubbleBorder = senderIsBot && !mine
+        ? TwilightColors.bubbleFamiliarBorder
+        : TwilightColors.borderSoft;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Tooltip(

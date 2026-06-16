@@ -7,14 +7,19 @@ import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/wire/frames.dart';
 
 Member m(String u, {bool bot = false, String? owner}) => Member(
-      username: u, ed25519PubBase64: '', x25519PubBase64: '',
-      isBot: bot, ownerUsername: owner,
-    );
+  username: u,
+  ed25519PubBase64: '',
+  x25519PubBase64: '',
+  isBot: bot,
+  ownerUsername: owner,
+);
 
 Room room(String id, List<Member> members, {String name = ''}) => Room(
-      roomId: id, name: name, members: members,
-      createdAt: DateTime.utc(2026, 6, 14),
-    );
+  roomId: id,
+  name: name,
+  members: members,
+  createdAt: DateTime.utc(2026, 6, 14),
+);
 
 Widget harness({required List<Room> rooms, String? selected}) {
   return ProviderScope(
