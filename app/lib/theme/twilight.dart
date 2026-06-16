@@ -14,6 +14,7 @@ class TwilightColors {
   static const accentFamiliar = Color(0xFF4F7A5E);
   static const borderSoft = Color(0xFFD9C7CD);
   static const ruleStrong = Color(0xFF4F7A5E);
+  static const warningTone = Color(0xFFB85C5C);
 
   // Bubble shades used by the conversation view.
   static const bubbleUserBg = Color(0xFFE8C8D2);

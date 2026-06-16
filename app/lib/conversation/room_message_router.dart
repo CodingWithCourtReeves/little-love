@@ -8,6 +8,7 @@ import '../inbox/owned_bots_provider.dart';
 import '../inbox/select_room.dart';
 import '../inbox/pending_invites_provider.dart';
 import '../inbox/room.dart';
+import '../outbox/outbox_store.dart';
 import '../pairing/encryption.dart';
 import '../wire/frames.dart';
 import '../wire/live_connection.dart';
@@ -135,7 +136,11 @@ class RoomMessageRouter {
     final store = ref.read(messageStoreProvider(f.roomId).notifier);
     // Live self-copy of our own message: swap the optimistic echo (keyed by
     // clientMsgId) for this authoritative row instead of appending a duplicate.
+    // The echo also confirms the server durably stored the send, so drop the
+    // persisted outbox row — the drain must not resend it on the next cycle.
     if (f.clientMsgId != null) {
+      final outbox = await ref.read(outboxStoreProvider.future);
+      await outbox.remove(f.clientMsgId!);
       store.reconcile(f.clientMsgId!, msg);
     } else {
       store.add(msg);

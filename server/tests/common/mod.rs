@@ -265,7 +265,11 @@ pub fn sign_invite_consume_b64(sk: &SigningKey, canonical_token: &[u8]) -> Strin
 
 /// Read a single WS text frame as JSON. Panics if the next item is not text.
 pub async fn next_frame(sock: &mut Ws) -> serde_json::Value {
-    let next = sock.next().await.expect("stream open").expect("recv ok");
+    let next = tokio::time::timeout(std::time::Duration::from_secs(10), sock.next())
+        .await
+        .expect("timed out waiting for a frame (10s)")
+        .expect("stream open")
+        .expect("recv ok");
     let text = match next {
         WsMessage::Text(t) => t,
         other => panic!("expected text, got {other:?}"),

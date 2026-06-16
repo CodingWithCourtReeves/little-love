@@ -52,4 +52,32 @@ void main() {
     expect(j.containsKey('replayed'), false);
     expect(j['type'], 'msg');
   });
+
+  test('Msg defaults to SendStatus.sent and null clientMsgId', () {
+    final m = Msg(
+      id: 'x',
+      from: 'a',
+      to: 'r',
+      body: 'b',
+      ts: DateTime.utc(2026, 6, 13),
+    );
+    expect(m.sendStatus, SendStatus.sent);
+    expect(m.clientMsgId, isNull);
+  });
+
+  test('Msg.copyWith updates id and sendStatus, preserves clientMsgId', () {
+    final m = Msg(
+      id: 'cli-1',
+      from: 'a',
+      to: 'r',
+      body: 'b',
+      ts: DateTime.utc(2026, 6, 13),
+      sendStatus: SendStatus.sending,
+      clientMsgId: 'cli-1',
+    );
+    final promoted = m.copyWith(id: 'srv-1', sendStatus: SendStatus.sent);
+    expect(promoted.id, 'srv-1');
+    expect(promoted.sendStatus, SendStatus.sent);
+    expect(promoted.clientMsgId, 'cli-1');
+  });
 }

@@ -7,6 +7,7 @@ import '../../identity/account_local.dart';
 import '../../identity/bip39.dart';
 import '../../identity/keypair.dart';
 import '../../identity/providers.dart';
+import '../../outbox/outbox_rehydrate.dart';
 import '../../theme/twilight.dart';
 import '../../wire/rest_client.dart';
 import '../inbox/inbox_shell.dart';
@@ -31,8 +32,9 @@ class AuthGate extends ConsumerWidget {
           ),
         ),
       ),
-      data: (acc) =>
-          acc == null ? const _ChoiceScreen() : InboxShell(account: acc),
+      data: (acc) => acc == null
+          ? const _ChoiceScreen()
+          : OutboxRehydrateGate(child: InboxShell(account: acc)),
     );
   }
 }

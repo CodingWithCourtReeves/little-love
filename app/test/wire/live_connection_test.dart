@@ -84,6 +84,66 @@ void main() {
     await h.server.close();
   });
 
+  test('closed completes when the socket drops (onDone)', () async {
+    final h = await _openConn();
+    var didClose = false;
+    unawaited(h.conn.closed.then((_) => didClose = true));
+
+    // Server hangs up. _onDone should complete `closed`.
+    await h.server.close();
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    expect(didClose, isTrue);
+
+    await h.conn.close();
+  });
+
+  test(
+    'a socket error closes the connection so later sends are dropped',
+    () async {
+      final h = await _openConn();
+      // Subscribe so the error surfaced on `incoming` isn't an unhandled error.
+      final errors = <Object>[];
+      final sub = h.conn.incoming.listen((_) {}, onError: errors.add);
+      final before = h.sink.writes.length; // just the Identify handshake frame
+
+      var didClose = false;
+      unawaited(h.conn.closed.then((_) => didClose = true));
+
+      h.server.addError(Exception('socket boom'));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(didClose, isTrue);
+
+      // The socket is dead; a send must be a no-op, not a write to a dead sink.
+      h.conn.send(
+        const CreateRoomFrame(
+          botAccountIds: [],
+          inviteHumanPartner: true,
+        ).toJson(),
+      );
+      expect(
+        h.sink.writes.length,
+        before,
+        reason: 'send after a socket error must be dropped',
+      );
+
+      await sub.cancel();
+      await h.conn.close();
+      await h.server.close();
+    },
+  );
+
+  test('closed completes on explicit close()', () async {
+    final h = await _openConn();
+    var didClose = false;
+    unawaited(h.conn.closed.then((_) => didClose = true));
+
+    await h.conn.close();
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    expect(didClose, isTrue);
+
+    await h.server.close();
+  });
+
   test(
     'room-phase frames arriving before first subscriber are buffered (no drop)',
     () async {

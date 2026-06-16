@@ -22,6 +22,7 @@ Future<SendFrame> buildSendFrame({
   required String selfUsername,
   required String plaintext,
   required RoomKeyCache cache,
+  String? clientMsgId,
 }) async {
   final bodies = <String, String>{};
   String? selfX25519;
@@ -48,6 +49,6 @@ Future<SendFrame> buildSendFrame({
   return SendFrame(
     roomId: room.roomId,
     bodies: bodies,
-    clientMsgId: const Uuid().v4(),
+    clientMsgId: clientMsgId ?? const Uuid().v4(),
   );
 }

@@ -13,9 +13,13 @@ import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/owned_bots_provider.dart';
 import 'package:littlelove/inbox/pending_invites_provider.dart';
 import 'package:littlelove/inbox/room.dart';
+import 'package:littlelove/outbox/outbox_store.dart';
 import 'package:littlelove/pairing/encryption.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/live_connection.dart';
+import 'package:littlelove/wire/message.dart';
+
+import '../outbox/memory_outbox_store.dart';
 
 class _FakeConn implements LiveConnection {
   final _ctl = StreamController<RoomServerFrame>.broadcast();
@@ -26,6 +30,8 @@ class _FakeConn implements LiveConnection {
   @override
   void send(Object payload) => sent.add(payload);
   @override
+  Future<void> get closed => Completer<void>().future;
+  @override
   Future<void> close() async => _ctl.close();
 
   void emit(RoomServerFrame f) => _ctl.add(f);
@@ -34,16 +40,19 @@ class _FakeConn implements LiveConnection {
 Future<ProviderContainer> _container({
   required LiveConnection conn,
   required DerivedIdentity me,
+  OutboxStore? outbox,
 }) async {
   final container = ProviderContainer(
     overrides: [
       liveConnectionProvider.overrideWith((_) async => conn),
       currentIdentityProvider.overrideWith((_) async => me),
+      if (outbox != null) outboxStoreProvider.overrideWith((_) async => outbox),
     ],
   );
   addTearDown(container.dispose);
   await container.read(liveConnectionProvider.future);
   await container.read(currentIdentityProvider.future);
+  if (outbox != null) await container.read(outboxStoreProvider.future);
   return container;
 }
 
@@ -254,6 +263,78 @@ void main() {
 
       // Court was the only human → room cascades.
       expect(container.read(inboxStateProvider).rooms, isEmpty);
+    },
+  );
+
+  test(
+    'self-copy with clientMsgId reconciles the echo and drops the outbox row',
+    () async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final conn = _FakeConn();
+      final outbox = MemoryOutboxStore();
+      final selfPub = base64.encode(me.x25519PublicKey);
+      await outbox.enqueue(
+        clientMsgId: 'cli-1',
+        roomId: 'room1',
+        bodies: {selfPub: 'ignored-ciphertext'},
+      );
+      final container = await _container(conn: conn, me: me, outbox: outbox);
+
+      container.read(inboxStateProvider.notifier).setRooms([
+        Room(
+          roomId: 'room1',
+          name: '',
+          members: [_member('court', me), _member('kaitlyn', peer)],
+          createdAt: DateTime.utc(2026, 6, 10),
+        ),
+      ]);
+      // Optimistic echo already on screen, keyed by the clientMsgId.
+      container
+          .read(messageStoreProvider('room1').notifier)
+          .add(
+            Msg(
+              id: 'cli-1',
+              from: 'court',
+              to: 'room1',
+              body: 'hi love',
+              ts: DateTime.utc(2026, 6, 10, 12),
+              clientMsgId: 'cli-1',
+              sendStatus: SendStatus.sending,
+            ),
+          );
+      container.read(roomMessageRouterProvider);
+
+      // The server echoes our own self-copy: encrypted to our own pubkey
+      // (ECDH of our key with itself), tagged with the originating clientMsgId.
+      final key = await deriveRoomKey(
+        me: me,
+        peerX25519Pub: me.x25519PublicKey,
+        roomId: 'room1',
+      );
+      final body = await encryptOutgoing(key, 'hi love');
+
+      conn.emit(
+        MessageFrame(
+          id: 'srv-1',
+          roomId: 'room1',
+          from: 'court',
+          ts: DateTime.utc(2026, 6, 10, 12),
+          body: body,
+          replayed: false,
+          clientMsgId: 'cli-1',
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      // Echo reconciled in place: id swapped to the authoritative server id.
+      final msgs = container.read(messageStoreProvider('room1'));
+      expect(msgs, hasLength(1));
+      expect(msgs.single.id, 'srv-1');
+      expect(msgs.single.body, 'hi love');
+
+      // Outbox row dropped so the drain won't resend it.
+      expect(await outbox.lookup('cli-1'), isNull);
     },
   );
 }

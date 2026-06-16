@@ -35,6 +35,17 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     next[idx] = server;
     state = List.unmodifiable(next);
   }
+
+  /// Flip the [SendStatus] on a row identified by [id]. No-op if not found.
+  /// The outbox send path uses this to mark a row `failed` on error, or to
+  /// reset it to `sending` when the user taps to retry.
+  void updateStatus(String id, SendStatus status) {
+    final idx = state.indexWhere((m) => m.id == id);
+    if (idx < 0) return;
+    final next = [...state];
+    next[idx] = state[idx].copyWith(sendStatus: status);
+    state = next;
+  }
 }
 
 final messageStoreProvider =

@@ -11,9 +11,12 @@ import 'package:littlelove/identity/keypair.dart';
 import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
+import 'package:littlelove/outbox/outbox_store.dart';
 import 'package:littlelove/screens/inbox/inbox_shell.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/live_connection.dart';
+
+import '../outbox/memory_outbox_store.dart';
 
 class _CapturingConn implements LiveConnection {
   final _ctl = StreamController<RoomServerFrame>.broadcast();
@@ -22,6 +25,8 @@ class _CapturingConn implements LiveConnection {
   Stream<RoomServerFrame> get incoming => _ctl.stream;
   @override
   void send(Object payload) => sent.add(payload as Map<String, Object?>);
+  @override
+  Future<void> get closed => Completer<void>().future;
   @override
   Future<void> close() async => _ctl.close();
 }
@@ -36,6 +41,7 @@ void main() {
       final peer = await deriveIdentity(seedB);
       final conn = _CapturingConn();
       addTearDown(conn.close);
+      final store = MemoryOutboxStore();
 
       final acc = LocalAccount(
         username: 'court',
@@ -49,6 +55,7 @@ void main() {
           accountProvider.overrideWith((_) async => acc),
           currentIdentityProvider.overrideWith((_) async => me),
           liveConnectionProvider.overrideWith((_) async => conn),
+          outboxStoreProvider.overrideWith((_) async => store),
         ],
       );
       addTearDown(container.dispose);
@@ -57,6 +64,7 @@ void main() {
       await container.read(accountProvider.future);
       await container.read(currentIdentityProvider.future);
       await container.read(liveConnectionProvider.future);
+      await container.read(outboxStoreProvider.future);
 
       container.read(inboxStateProvider.notifier).setRooms([
         Room(
@@ -94,10 +102,23 @@ void main() {
 
       await tester.enterText(find.byKey(const Key('composer')), 'hello');
       await tester.tap(find.byIcon(Icons.send));
-      // Encrypt path is async — give it time to finish before asserting.
+      // Encrypt + enqueue + drain are async — give them time to finish.
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pumpAndSettle();
 
+      // Plaintext never lands on disk: every persisted body is ciphertext.
+      final pending = await store.pending();
+      expect(pending, hasLength(1));
+      for (final body in pending.single.bodies.values) {
+        expect(
+          body,
+          isNot(contains('hello')),
+          reason: 'plaintext must NOT appear in the persisted outbox',
+        );
+      }
+      expect(pending.single.roomId, 'room1');
+
+      // The drain wrote the row to the wire as a Send frame.
       final sendFrames = conn.sent.where((m) => m['kind'] == 'Send').toList();
       expect(sendFrames, hasLength(1));
       final bodies = sendFrames.single['bodies'] as Map<String, Object?>;
@@ -116,6 +137,8 @@ void main() {
         );
         expect(body.length, greaterThan(0));
       }
+      // What we persisted is exactly what went to the wire.
+      expect(bodies, pending.single.bodies);
       expect(sendFrames.single['room_id'], 'room1');
       // Server types client_msg_id as Uuid; non-UUID strings cause
       // serde_json to silently drop the entire Send frame.
@@ -126,6 +149,11 @@ void main() {
             r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
           ),
         ),
+      );
+      expect(
+        pending.single.clientMsgId,
+        sendFrames.single['client_msg_id'],
+        reason: 'outbox row id must equal the wire client_msg_id',
       );
     },
   );

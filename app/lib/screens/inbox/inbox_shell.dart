@@ -6,6 +6,8 @@ import '../../conversation/message_store.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../conversation/room_message_router.dart';
 import '../../conversation/send_fanout.dart';
+import '../../outbox/outbox_drain.dart';
+import '../../outbox/outbox_store.dart';
 import '../../wire/message.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
@@ -38,11 +40,14 @@ class InboxShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Activate the router for this signed-in session. Reading the provider
-    // is enough — it stays alive while InboxShell is mounted.
-    ref
-        .watch(liveConnectionProvider)
-        .whenData((_) => ref.watch(roomMessageRouterProvider));
+    // Activate the router + outbox drain for this signed-in session. Watching
+    // (not reading) keeps them alive while InboxShell is mounted, so the
+    // drain's constructor re-fires its kick on every WS-data transition —
+    // i.e. the persistent outbox auto-flushes on reconnect.
+    ref.watch(liveConnectionProvider).whenData((_) {
+      ref.watch(roomMessageRouterProvider);
+      ref.watch(outboxDrainProvider);
+    });
 
     final inbox = ref.watch(inboxStateProvider);
     final detail = _detail(context, ref, inbox.selectedRoomId, inbox.rooms);
@@ -155,6 +160,7 @@ class InboxShell extends ConsumerWidget {
       room: room,
       selfUsername: account.username,
       onSend: (text) => _sendEncrypted(ref, room, text),
+      onRetry: (clientMsgId) => _retry(ref, clientMsgId),
       onRename: (newName) {
         final conn = ref.read(liveConnectionProvider).asData?.value;
         conn?.send(
@@ -165,7 +171,14 @@ class InboxShell extends ConsumerWidget {
     );
   }
 
+  /// Route a send through the persistent outbox so it survives a WS reconnect
+  /// (or an app kill) mid-send. We persist the ciphertext envelope, render an
+  /// optimistic in-flight bubble (clock marker) immediately, then kick the
+  /// drain — the row flips to a heart once the server echoes it back (see
+  /// [RoomMessageRouter]).
   Future<void> _sendEncrypted(WidgetRef ref, Room room, String text) async {
+    final clientMsgId = ref.read(outboxIdGenProvider)();
+    var inserted = false;
     try {
       final me = await ref.read(currentIdentityProvider.future);
       final cache = ref.read(roomKeyCacheProvider);
@@ -175,35 +188,56 @@ class InboxShell extends ConsumerWidget {
         selfUsername: account.username,
         plaintext: text,
         cache: cache,
+        clientMsgId: clientMsgId,
       );
-      final conn = ref.read(liveConnectionProvider).requireValue;
-      conn.send(frame.toJson());
-      // v0.3 servers do NOT echo Send back to the sender (the only other
-      // copies live on the recipients' clients). Render the bubble locally
-      // so the user sees their own message immediately. Keyed by the
-      // SendFrame's UUID, which is also what the server will use to dedupe
-      // — so even if a future server emits a SendAck with the same id, the
-      // MessageStore.add() idempotency check de-dupes it.
+      final store = await ref.read(outboxStoreProvider.future);
+      await store.enqueue(
+        clientMsgId: clientMsgId,
+        roomId: room.roomId,
+        bodies: frame.bodies,
+      );
       ref
           .read(messageStoreProvider(room.roomId).notifier)
           .add(
             Msg(
-              id: frame.clientMsgId,
+              id: clientMsgId,
               from: account.username,
-              to: room.members
-                  .firstWhere(
-                    (m) => m.username != account.username,
-                    orElse: () => room.members.first,
-                  )
-                  .username,
+              to: room.roomId,
               body: text,
               ts: DateTime.now().toUtc(),
+              clientMsgId: clientMsgId,
+              sendStatus: SendStatus.sending,
             ),
           );
-    } catch (e, st) {
-      // ignore: avoid_print
-      print('send failed: $e\n$st');
+      inserted = true;
+      await ref.read(outboxDrainProvider).kick();
+    } catch (e) {
+      // If the optimistic bubble made it in, flip it to `failed` so the user
+      // gets a tap-to-retry affordance. If we failed before inserting it,
+      // there is no UI to update — log and move on.
+      if (inserted) {
+        ref
+            .read(messageStoreProvider(room.roomId).notifier)
+            .updateStatus(clientMsgId, SendStatus.failed);
+      } else {
+        debugPrint('outbox enqueue failed before insert: $e');
+      }
     }
+  }
+
+  Future<void> _retry(WidgetRef ref, String clientMsgId) async {
+    final store = await ref.read(outboxStoreProvider.future);
+    final row = await store.lookup(clientMsgId);
+    if (row == null) return;
+    await store.markAttempt(clientMsgId, reset: true);
+    ref
+        .read(messageStoreProvider(row.roomId).notifier)
+        .updateStatus(clientMsgId, SendStatus.sending);
+    final drain = ref.read(outboxDrainProvider);
+    // The drain's per-cycle dedup set still remembers the prior send; clear
+    // just this id so the retry actually re-sends without a WS reconnect.
+    drain.resetCycle(clientMsgId: clientMsgId);
+    await drain.kick();
   }
 }
 
