@@ -23,6 +23,34 @@ To try the app end-to-end with both Court and Kaitlyn on one Mac:
 
 The dev scripts are **worktree-aware**: each `git worktree` you check out runs on its own ports and Postgres volume, derived deterministically from the worktree directory name. Two worktrees can run simultaneously without conflict.
 
+### Testing attachments locally (MinIO)
+
+E2EE attachments upload encrypted blobs to Cloudflare R2 via presigned URLs. To
+exercise the full send → upload → download → decrypt loop offline (no Cloudflare
+account), use the bundled MinIO (an S3-compatible store; R2 presigning is just
+S3 SigV4):
+
+```sh
+./scripts/dev-attachments.sh   # api + postgres + minio, bucket auto-created
+./scripts/demo.sh court        # window 1
+./scripts/demo.sh kaitlyn      # window 2
+```
+
+Pair the two clients, then tap the composer **+** to send a photo. The MinIO
+console is at <http://localhost:9001> (`littlelove` / `devsecret123`).
+
+The server only *signs* URLs (it never connects to the store), so it signs the
+client-facing `http://localhost:9000`; `docker-compose.minio.yml` sets the
+matching `R2_*` env. Sanity-check the server's presigner against MinIO with:
+
+```sh
+cargo test -p littlelove-api --test minio_roundtrip -- --ignored
+```
+
+Caveats: the macOS demo client handles **photos** only — video poster frames
+(`video_thumbnail`) need an iOS device/simulator, and the 500 MiB memory check
+needs a physical device.
+
 ## Releases
 
 Tags matching `v*` (e.g., `v0.1.0-day1a`) trigger `.github/workflows/release.yml`, which builds:

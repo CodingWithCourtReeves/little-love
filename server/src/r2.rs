@@ -16,7 +16,15 @@ pub struct R2Presigner {
 
 impl R2Presigner {
     pub fn new(cfg: &R2Config) -> anyhow::Result<Self> {
-        let endpoint = format!("https://{}.r2.cloudflarestorage.com", cfg.account_id)
+        // Production: derive the canonical R2 host from the account id. Dev:
+        // an explicit `R2_ENDPOINT` (e.g. http://localhost:9000) points the
+        // presigner at a local S3-compatible store like MinIO. Path-style is
+        // required by R2 and supported by MinIO, so it holds for both.
+        let endpoint_url = cfg
+            .endpoint
+            .clone()
+            .unwrap_or_else(|| format!("https://{}.r2.cloudflarestorage.com", cfg.account_id));
+        let endpoint = endpoint_url
             .parse()
             .map_err(|e| anyhow::anyhow!("bad R2 endpoint: {e}"))?;
         // R2 ignores the region but SigV4 requires one; "auto" is conventional.
@@ -51,6 +59,7 @@ mod tests {
             bucket: "littlelove-media".into(),
             access_key_id: "AKIDEXAMPLE".into(),
             secret_access_key: "secretexample".into(),
+            endpoint: None,
         })
         .unwrap()
     }
@@ -68,6 +77,22 @@ mod tests {
     fn get_url_is_signed() {
         let url = presigner().presign_get("01JBLOB", Duration::from_secs(600));
         assert!(url.contains("/littlelove-media/01JBLOB"), "{url}");
+        assert!(url.contains("X-Amz-Signature="), "{url}");
+    }
+
+    #[test]
+    fn custom_endpoint_overrides_r2_host() {
+        let p = R2Presigner::new(&R2Config {
+            account_id: "local".into(),
+            bucket: "littlelove-media".into(),
+            access_key_id: "AKIDEXAMPLE".into(),
+            secret_access_key: "secretexample".into(),
+            endpoint: Some("http://localhost:9000".into()),
+        })
+        .unwrap();
+        let url = p.presign_put("01JBLOB", Duration::from_secs(600));
+        assert!(url.starts_with("http://localhost:9000/littlelove-media/01JBLOB"), "{url}");
+        assert!(!url.contains("r2.cloudflarestorage.com"), "{url}");
         assert!(url.contains("X-Amz-Signature="), "{url}");
     }
 }

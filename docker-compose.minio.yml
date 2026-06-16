@@ -1,0 +1,49 @@
+# Local MinIO override for testing E2EE attachments offline (no Cloudflare R2).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.minio.yml up -d --build
+#   (or just run ./scripts/dev-attachments.sh)
+#
+# MinIO is S3-SigV4 compatible, same as R2. The api never connects to the blob
+# store — it only PRESIGNS URLs offline — so it signs `http://localhost:<port>`,
+# the host the native client reaches MinIO at. The client does the actual
+# upload/download. That's why R2_ENDPOINT here is the client-facing host, not
+# the compose-internal `minio:9000`.
+services:
+  api:
+    environment:
+      R2_ACCOUNT_ID: local
+      R2_BUCKET: littlelove-media
+      R2_ACCESS_KEY_ID: littlelove
+      R2_SECRET_ACCESS_KEY: devsecret123
+      R2_ENDPOINT: http://localhost:${MINIO_PORT:-9000}
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: littlelove
+      MINIO_ROOT_PASSWORD: devsecret123
+    volumes:
+      - miniodata:/data
+
+  # One-shot: wait for MinIO, then create the bucket the presigner targets.
+  # This retry loop (using the `mc` image, which has the client) doubles as the
+  # readiness gate, so the `minio` service needs no healthcheck of its own.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 littlelove devsecret123 2>/dev/null; do
+        echo 'waiting for minio…'; sleep 1;
+      done;
+      mc mb --ignore-existing local/littlelove-media;
+      echo 'bucket littlelove-media ready';
+      "
+
+volumes:
+  miniodata:

@@ -57,6 +57,7 @@ pub fn test_presigner() -> R2Presigner {
         bucket: "littlelove-media".into(),
         access_key_id: "AKIDEXAMPLE".into(),
         secret_access_key: "secretexample".into(),
+        endpoint: None,
     })
     .unwrap()
 }

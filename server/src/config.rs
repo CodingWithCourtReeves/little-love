@@ -6,6 +6,11 @@ pub struct R2Config {
     pub bucket: String,
     pub access_key_id: String,
     pub secret_access_key: String,
+    /// Override for the S3 endpoint base URL. Unset in production → the
+    /// canonical R2 host is derived from `account_id`. Set to e.g.
+    /// `http://localhost:9000` to presign against a local S3-compatible store
+    /// (MinIO) for offline end-to-end testing.
+    pub endpoint: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +42,7 @@ impl ServerConfig {
             bucket: get("R2_BUCKET")?,
             access_key_id: get("R2_ACCESS_KEY_ID")?,
             secret_access_key: get("R2_SECRET_ACCESS_KEY")?,
+            endpoint: get("R2_ENDPOINT"),
         })
     }
 }
