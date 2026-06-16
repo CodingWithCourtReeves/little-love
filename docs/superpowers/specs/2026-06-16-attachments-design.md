@@ -82,6 +82,26 @@ per-recipient encrypted by `encryptOutgoing`:
   `decryptBytes(Uint8List)` alongside the existing string methods.
 - Thumbnail uses the same scheme with its own key/nonce.
 
+**Why this scheme (validated 2026-06-16):** this is the same shape Signal and
+WhatsApp use for attachments — encrypt the file once with an ephemeral random
+key, upload ciphertext to a blob store, and send the key + a pointer inside the
+normal encrypted message. WhatsApp uses AES-CBC + HMAC-SHA256; Matrix uses
+AES-CTR + HMAC. We use XChaCha20-Poly1305, a true AEAD, which is *stronger* than
+Matrix's AES-CTR construction (whose IV is not covered by the integrity hash —
+not IND-CCA2 secure). XChaCha20-Poly1305's 192-bit nonce supports up to ~256 GB
+per message with random nonces and no practical nonce-reuse limit, so a single
+one-shot encryption over a ≤100 MiB file is well within bounds.
+
+**One-shot vs. streaming (deliberate, with a known limit):** for the 100 MiB
+cap we encrypt/decrypt the whole file in one AEAD operation, matching how
+Signal/WhatsApp/Matrix clients historically handled whole attachments. The
+tradeoff is memory: one-shot holds plaintext + ciphertext (+ base64 for
+transport) in RAM, ~2–3× the file size at peak. This is acceptable on modern
+iPhones at a 100 MiB cap and is a primary reason the cap exists. If we later
+raise the cap (long video), switch to a **chunked streaming AEAD** (fixed-size
+blocks, per-chunk nonce) — XChaCha20-Poly1305's nonce space makes that safe.
+Tracked as the upgrade path alongside multipart upload (§10).
+
 ## 5. Server changes (Rust / Axum)
 
 ### 5.1 `attachments` table (new migration, schema-only)
@@ -117,9 +137,20 @@ Defined in `wire.rs`, handled in `ws.rs`:
 
 ### 5.3 R2 presigning
 
-Use `rusty-s3` (lightweight, presign-only; no full AWS SDK). Credentials via
-env / Railway secrets:
-`R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
+Use a lightweight presign-only crate — `rusty-s3` or `s3-presign` (both do
+SigV4 presigning with no IO/SDK weight); `rust-s3` (`presign_put`/`presign_get`,
+ships an R2 example) is the fallback if we want a fuller client. Credentials via
+env / Railway secrets: `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`,
+`R2_SECRET_ACCESS_KEY`.
+
+**Validated 2026-06-16:**
+- R2 presigned URLs are fully S3 SigV4-compatible and support `PUT`, `GET`,
+  `HEAD`, `DELETE`. Signing is done client-side with no round-trip to R2.
+- **R2 requires path-style URLs** (`<account>.r2.cloudflarestorage.com/<bucket>/<key>`),
+  not virtual-host style — set the equivalent of `use_path_style()` on whichever
+  crate we pick. This is the most common R2 presigning gotcha.
+- Max presign TTL is 7 days (604,800 s); our ~10 min upload / download windows
+  are well within range.
 
 ### 5.4 Commit on send
 
@@ -222,3 +253,30 @@ sent media sits in a faint twilight bubble (received on the pale partner
 bubble); time + heart status float as a translucent chip over the bottom-right
 of the media (iMessage-style) rather than below it; videos show a centered play
 overlay + duration chip.
+
+## 12. Architecture validation (sources, 2026-06-16)
+
+The core decisions were checked against current references:
+
+- **Encrypt-once + key-in-message + ciphertext-in-blob-store** is the
+  industry-standard E2EE attachment pattern (WhatsApp/Signal).
+  — WhatsApp Security Whitepaper:
+  https://www.whatsapp.com/security/WhatsApp-Security-Whitepaper.pdf
+  — Matrix encrypted attachments:
+  https://github.com/matrix-org/matrix-encrypt-attachment
+- **XChaCha20-Poly1305 for file bytes** — 192-bit nonce, ~256 GB/message,
+  random-nonce safe; a true AEAD (stronger than Matrix's AES-CTR).
+  — libsodium XChaCha20-Poly1305:
+  https://libsodium.gitbook.io/doc/secret-key_cryptography/aead/chacha20-poly1305/xchacha20-poly1305_construction
+- **R2 presigned URLs** — S3 SigV4, PUT/GET, 7-day max TTL, path-style required.
+  — Cloudflare R2 presigned URLs:
+  https://developers.cloudflare.com/r2/api/s3/presigned-urls/
+- **Rust presigning crates** — `rusty-s3` / `s3-presign` (presign-only),
+  `rust-s3` (has an R2 example).
+  — rust-s3: https://crates.io/crates/rust-s3
+  — s3-presign: https://crates.io/crates/s3-presign
+
+Open follow-up not re-verified via search (transient outage during research):
+current versions of `image_picker` / `video_player` / `video_thumbnail` — these
+are the canonical iOS Flutter packages; confirm exact versions at
+implementation time.
