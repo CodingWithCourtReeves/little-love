@@ -7,11 +7,12 @@ import '../wire/frames.dart';
 import '../wire/live_connection.dart';
 import 'outbox_store.dart';
 
-typedef OutboxSend = void Function(
-  String roomId,
-  Map<String, String> bodies,
-  String clientMsgId,
-);
+typedef OutboxSend =
+    void Function(
+      String roomId,
+      Map<String, String> bodies,
+      String clientMsgId,
+    );
 
 /// Drains the persistent outbox over a live WS connection. Rows are removed
 /// only when their echoed [MessageFrame] arrives (handled by
@@ -146,5 +147,6 @@ class _NoopOutboxStore implements OutboxStore {
 /// UUID helper exposed so [outbox_rehydrate] and the send path agree on
 /// generation. Riverpod-overridable in tests.
 final outboxIdGenProvider = Provider<String Function()>(
-  (_) => () => const Uuid().v4(),
+  (_) =>
+      () => const Uuid().v4(),
 );

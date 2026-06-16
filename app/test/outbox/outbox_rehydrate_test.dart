@@ -18,18 +18,18 @@ void main() {
   final seedB = Uint8List.fromList(List<int>.generate(16, (i) => i + 101));
 
   Member member(String username, DerivedIdentity id) => Member(
-        username: username,
-        ed25519PubBase64: base64.encode(id.ed25519PublicKey),
-        x25519PubBase64: base64.encode(id.x25519PublicKey),
-        isBot: false,
-      );
+    username: username,
+    ed25519PubBase64: base64.encode(id.ed25519PublicKey),
+    x25519PubBase64: base64.encode(id.x25519PublicKey),
+    isBot: false,
+  );
 
   Room mkRoom(String id, DerivedIdentity me, DerivedIdentity peer) => Room(
-        roomId: id,
-        name: '',
-        members: [member('court', me), member('kaitlyn', peer)],
-        createdAt: DateTime.utc(2026, 6, 10),
-      );
+    roomId: id,
+    name: '',
+    members: [member('court', me), member('kaitlyn', peer)],
+    createdAt: DateTime.utc(2026, 6, 10),
+  );
 
   test('rehydrate re-inserts a sending bubble per pending row', () async {
     final me = await deriveIdentity(seedA);
@@ -79,8 +79,11 @@ void main() {
     final r2 = container.read(messageStoreProvider('room2'));
     expect(r2.single.body, 'plain(ct-2)');
 
-    expect(container.read(messageStoreProvider('gone')), isEmpty,
-        reason: 'stale row (room not in inbox) is skipped silently');
+    expect(
+      container.read(messageStoreProvider('gone')),
+      isEmpty,
+      reason: 'stale row (room not in inbox) is skipped silently',
+    );
   });
 
   test('rehydrate marks row failed when decrypt throws', () async {

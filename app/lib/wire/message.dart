@@ -52,10 +52,7 @@ class Msg {
     return m;
   }
 
-  Msg copyWith({
-    String? id,
-    SendStatus? sendStatus,
-  }) {
+  Msg copyWith({String? id, SendStatus? sendStatus}) {
     return Msg(
       id: id ?? this.id,
       from: from,

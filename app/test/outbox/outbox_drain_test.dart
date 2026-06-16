@@ -28,8 +28,10 @@ void main() {
   Future<OutboxStore> freshStore() async {
     final db = await databaseFactory.openDatabase(
       inMemoryDatabasePath,
-      options:
-          OpenDatabaseOptions(version: 1, onCreate: SqliteOutboxStore.onCreate),
+      options: OpenDatabaseOptions(
+        version: 1,
+        onCreate: SqliteOutboxStore.onCreate,
+      ),
     );
     addTearDown(db.close);
     return OutboxStore.test(db);
@@ -58,8 +60,7 @@ void main() {
     expect((await s.pending()).first.attempts, 1);
   });
 
-  test('drain stops at the first send error and records last_error',
-      () async {
+  test('drain stops at the first send error and records last_error', () async {
     final s = await freshStore();
     final sender = _FakeSender()..throwOnNext = true;
     await s.enqueue(
@@ -76,8 +77,7 @@ void main() {
     expect(row.lastError, contains('socket closed'));
   });
 
-  test('resetCycle(clientMsgId) lets a retry re-send the same row',
-      () async {
+  test('resetCycle(clientMsgId) lets a retry re-send the same row', () async {
     final s = await freshStore();
     final sender = _FakeSender();
     await s.enqueue(

@@ -64,26 +64,30 @@ Future<void> rehydrateOutbox({
 
     if (text == null || text == cannotDecryptSentinel) {
       await store.markAttempt(row.clientMsgId, error: 'decrypt-failed');
-      getMessageStore(row.roomId).add(Msg(
-            id: row.clientMsgId,
-            from: me,
-            to: row.roomId,
-            body: '(message could not be decrypted)',
-            ts: row.createdAt,
-            clientMsgId: row.clientMsgId,
-            sendStatus: SendStatus.failed,
-          ));
-      continue;
-    }
-    getMessageStore(row.roomId).add(Msg(
+      getMessageStore(row.roomId).add(
+        Msg(
           id: row.clientMsgId,
           from: me,
           to: row.roomId,
-          body: text,
+          body: '(message could not be decrypted)',
           ts: row.createdAt,
           clientMsgId: row.clientMsgId,
-          sendStatus: SendStatus.sending,
-        ));
+          sendStatus: SendStatus.failed,
+        ),
+      );
+      continue;
+    }
+    getMessageStore(row.roomId).add(
+      Msg(
+        id: row.clientMsgId,
+        from: me,
+        to: row.roomId,
+        body: text,
+        ts: row.createdAt,
+        clientMsgId: row.clientMsgId,
+        sendStatus: SendStatus.sending,
+      ),
+    );
   }
 }
 

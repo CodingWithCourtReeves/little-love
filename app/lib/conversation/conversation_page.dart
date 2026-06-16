@@ -501,7 +501,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     final text = Text(
       m.body,
       style: TextStyle(
-        color: mine ? TwilightColors.bubbleUserText : TwilightColors.textPrimary,
+        color: mine
+            ? TwilightColors.bubbleUserText
+            : TwilightColors.textPrimary,
         fontSize: 16,
       ),
     );

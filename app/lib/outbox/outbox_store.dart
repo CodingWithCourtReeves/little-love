@@ -69,11 +69,7 @@ class SqliteOutboxStore implements OutboxStore {
     final dir = await getApplicationSupportDirectory();
     await dir.create(recursive: true);
     final path = p.join(dir.path, 'outbox.db');
-    final db = await openDatabase(
-      path,
-      version: 1,
-      onCreate: onCreate,
-    );
+    final db = await openDatabase(path, version: 1, onCreate: onCreate);
     return SqliteOutboxStore._(db);
   }
 
@@ -103,18 +99,14 @@ class SqliteOutboxStore implements OutboxStore {
     DateTime? createdAt,
   }) async {
     final ts = (createdAt ?? DateTime.now().toUtc()).millisecondsSinceEpoch;
-    await _db.insert(
-      'outbox',
-      {
-        'client_msg_id': clientMsgId,
-        'room_id': roomId,
-        'bodies_json': jsonEncode(bodies),
-        'created_at': ts,
-        'attempts': 0,
-        'last_error': null,
-      },
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
+    await _db.insert('outbox', {
+      'client_msg_id': clientMsgId,
+      'room_id': roomId,
+      'bodies_json': jsonEncode(bodies),
+      'created_at': ts,
+      'attempts': 0,
+      'last_error': null,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   @override
@@ -168,17 +160,17 @@ class SqliteOutboxStore implements OutboxStore {
   }
 
   OutboxRow _rowFromMap(Map<String, Object?> r) => OutboxRow(
-        clientMsgId: r['client_msg_id'] as String,
-        roomId: r['room_id'] as String,
-        bodies: (jsonDecode(r['bodies_json'] as String) as Map<String, Object?>)
-            .map((k, v) => MapEntry(k, v as String)),
-        createdAt: DateTime.fromMillisecondsSinceEpoch(
-          r['created_at'] as int,
-          isUtc: true,
-        ),
-        attempts: r['attempts'] as int,
-        lastError: r['last_error'] as String?,
-      );
+    clientMsgId: r['client_msg_id'] as String,
+    roomId: r['room_id'] as String,
+    bodies: (jsonDecode(r['bodies_json'] as String) as Map<String, Object?>)
+        .map((k, v) => MapEntry(k, v as String)),
+    createdAt: DateTime.fromMillisecondsSinceEpoch(
+      r['created_at'] as int,
+      isUtc: true,
+    ),
+    attempts: r['attempts'] as int,
+    lastError: r['last_error'] as String?,
+  );
 }
 
 /// Opened lazily on first read. Riverpod overrides in tests can swap in

@@ -93,15 +93,17 @@ void main() {
     final container = ProviderContainer();
     addTearDown(container.dispose);
     final store = container.read(messageStoreProvider('r1').notifier);
-    store.add(Msg(
-      id: 'cli-1',
-      from: 'me',
-      to: 'r1',
-      body: 'hi',
-      ts: DateTime.utc(2026, 6, 13),
-      clientMsgId: 'cli-1',
-      sendStatus: SendStatus.sending,
-    ));
+    store.add(
+      Msg(
+        id: 'cli-1',
+        from: 'me',
+        to: 'r1',
+        body: 'hi',
+        ts: DateTime.utc(2026, 6, 13),
+        clientMsgId: 'cli-1',
+        sendStatus: SendStatus.sending,
+      ),
+    );
     store.updateStatus('cli-1', SendStatus.failed);
     expect(
       container.read(messageStoreProvider('r1')).single.sendStatus,

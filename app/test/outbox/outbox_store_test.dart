@@ -11,8 +11,10 @@ void main() {
   Future<OutboxStore> freshStore() async {
     final db = await databaseFactory.openDatabase(
       inMemoryDatabasePath,
-      options:
-          OpenDatabaseOptions(version: 1, onCreate: SqliteOutboxStore.onCreate),
+      options: OpenDatabaseOptions(
+        version: 1,
+        onCreate: SqliteOutboxStore.onCreate,
+      ),
     );
     addTearDown(db.close);
     return OutboxStore.test(db);
@@ -38,19 +40,21 @@ void main() {
     expect(rows.first.roomId, 'r1');
   });
 
-  test('remove deletes by client_msg_id and returns whether a row was removed',
-      () async {
-    final s = await freshStore();
-    await s.enqueue(
-      clientMsgId: 'a',
-      roomId: 'r1',
-      bodies: {'k': 'ct'},
-      createdAt: DateTime.utc(2026, 6, 13),
-    );
-    expect(await s.remove('a'), isTrue);
-    expect(await s.remove('a'), isFalse);
-    expect((await s.pending()).isEmpty, isTrue);
-  });
+  test(
+    'remove deletes by client_msg_id and returns whether a row was removed',
+    () async {
+      final s = await freshStore();
+      await s.enqueue(
+        clientMsgId: 'a',
+        roomId: 'r1',
+        bodies: {'k': 'ct'},
+        createdAt: DateTime.utc(2026, 6, 13),
+      );
+      expect(await s.remove('a'), isTrue);
+      expect(await s.remove('a'), isFalse);
+      expect((await s.pending()).isEmpty, isTrue);
+    },
+  );
 
   test('markAttempt bumps attempts and stores last_error', () async {
     final s = await freshStore();
@@ -67,21 +71,23 @@ void main() {
     expect(row.lastError, isNull);
   });
 
-  test('markAttempt with reset:true zeroes attempts and clears last_error',
-      () async {
-    final s = await freshStore();
-    await s.enqueue(
-      clientMsgId: 'a',
-      roomId: 'r1',
-      bodies: {'k': 'ct'},
-      createdAt: DateTime.utc(2026, 6, 13),
-    );
-    await s.markAttempt('a', error: 'x');
-    await s.markAttempt('a', reset: true);
-    final row = (await s.pending()).single;
-    expect(row.attempts, 0);
-    expect(row.lastError, isNull);
-  });
+  test(
+    'markAttempt with reset:true zeroes attempts and clears last_error',
+    () async {
+      final s = await freshStore();
+      await s.enqueue(
+        clientMsgId: 'a',
+        roomId: 'r1',
+        bodies: {'k': 'ct'},
+        createdAt: DateTime.utc(2026, 6, 13),
+      );
+      await s.markAttempt('a', error: 'x');
+      await s.markAttempt('a', reset: true);
+      final row = (await s.pending()).single;
+      expect(row.attempts, 0);
+      expect(row.lastError, isNull);
+    },
+  );
 
   test('lookup returns the matching row or null', () async {
     final s = await freshStore();

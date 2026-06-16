@@ -46,8 +46,7 @@ Future<ProviderContainer> _container({
     overrides: [
       liveConnectionProvider.overrideWith((_) async => conn),
       currentIdentityProvider.overrideWith((_) async => me),
-      if (outbox != null)
-        outboxStoreProvider.overrideWith((_) async => outbox),
+      if (outbox != null) outboxStoreProvider.overrideWith((_) async => outbox),
     ],
   );
   addTearDown(container.dispose);
@@ -291,7 +290,9 @@ void main() {
         ),
       ]);
       // Optimistic echo already on screen, keyed by the clientMsgId.
-      container.read(messageStoreProvider('room1').notifier).add(
+      container
+          .read(messageStoreProvider('room1').notifier)
+          .add(
             Msg(
               id: 'cli-1',
               from: 'court',

@@ -119,9 +119,10 @@ async fn send_echoes_client_msg_id_to_sender_only() {
     let kaitlyn_sk = SigningKey::from_bytes(&[2u8; 32]);
     insert_account(&store, "court", &court_sk.verifying_key()).await;
     insert_account(&store, "kaitlyn", &kaitlyn_sk.verifying_key()).await;
-    let addr = spawn_server(Some(store)).await;
+    let addr = spawn_server(Some(store.clone())).await;
 
-    let (mut court, mut kaitlyn, room_id) = paired_pair(addr, &court_sk, &kaitlyn_sk).await;
+    let (mut court, mut kaitlyn, room_id) =
+        paired_pair(&store, addr, &court_sk, &kaitlyn_sk).await;
 
     let client_msg_id = "7c4e1c8a-7e7e-4b7a-9f23-1a0a17070707";
     court
