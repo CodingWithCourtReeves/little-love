@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 use axum::{
     extract::{
@@ -18,6 +19,7 @@ use uuid::Uuid;
 use crate::accounts::{
     lookup_ed25519_pub, lookup_full_account, lookup_full_account_by_id, AccountRecord,
 };
+use crate::attachments::{attachment_room, insert_attachment};
 use crate::invites::{
     create_invite_record, default_expiry, lookup_invite, mark_consumed, qr_png_base64,
     room_for_invite, InviteState,
@@ -227,10 +229,15 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 Ok(RoomClientFrame::LeaveRoom { room_id }) => {
                     handle_leave_room(&state, &me, &room_id, &tx).await;
                 }
-                Ok(RoomClientFrame::RequestUpload { .. })
-                | Ok(RoomClientFrame::RequestDownload { .. }) => {
-                    // Real handlers wired in once AppState.r2 lands.
-                    send_error(&tx, error_codes::R2_UNAVAILABLE, "");
+                Ok(RoomClientFrame::RequestUpload {
+                    request_id,
+                    room_id,
+                    byte_size,
+                }) => {
+                    handle_request_upload(&state, &me, request_id, &room_id, byte_size, &tx).await;
+                }
+                Ok(RoomClientFrame::RequestDownload { blob_key }) => {
+                    handle_request_download(&state, &me, &blob_key, &tx).await;
                 }
                 Err(e) => warn!("invalid frame from {}: {e}", me.username),
             }
@@ -668,6 +675,99 @@ async fn handle_send(
             state.routing.deliver(&me.username, frame).await;
         }
     }
+}
+
+/// Presigned-URL TTL for both upload and download. Long enough for a 500 MiB
+/// upload on a slow mobile link; far under R2's 7-day max.
+const PRESIGN_TTL: Duration = Duration::from_secs(600);
+
+async fn handle_request_upload(
+    state: &AppState,
+    me: &AccountRecord,
+    request_id: Uuid,
+    room_id: &str,
+    byte_size: i64,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let (store, r2) = match (state.store.as_ref(), state.r2.as_ref()) {
+        (Some(s), Some(r)) => (s, r),
+        _ => {
+            send_error(tx, error_codes::R2_UNAVAILABLE, "");
+            return;
+        }
+    };
+    if byte_size <= 0 || byte_size > MAX_ATTACHMENT_BYTES {
+        send_error(tx, error_codes::BLOB_TOO_LARGE, "");
+        return;
+    }
+    match is_member(store.pool(), room_id, me.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            send_error(tx, error_codes::UNKNOWN_ROOM, "");
+            return;
+        }
+        Err(e) => {
+            warn!("is_member (upload): {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+    }
+    let blob_key = Ulid::new().to_string();
+    if let Err(e) = insert_attachment(store.pool(), &blob_key, room_id, me.id, byte_size).await {
+        warn!("insert_attachment: {e}");
+        send_error(tx, "Internal", "");
+        return;
+    }
+    let url = r2.presign_put(&blob_key, PRESIGN_TTL);
+    let _ = tx.send(RoomServerFrame::UploadGranted {
+        request_id,
+        blob_key,
+        url,
+        expires_at: Utc::now() + chrono::Duration::from_std(PRESIGN_TTL).unwrap(),
+    });
+}
+
+async fn handle_request_download(
+    state: &AppState,
+    me: &AccountRecord,
+    blob_key: &str,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let (store, r2) = match (state.store.as_ref(), state.r2.as_ref()) {
+        (Some(s), Some(r)) => (s, r),
+        _ => {
+            send_error(tx, error_codes::R2_UNAVAILABLE, "");
+            return;
+        }
+    };
+    let room_id = match attachment_room(store.pool(), blob_key).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            send_error(tx, error_codes::UNKNOWN_BLOB, "");
+            return;
+        }
+        Err(e) => {
+            warn!("attachment_room: {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+    };
+    // Authorize: requester must be a member of the blob's room. A non-member
+    // gets UNKNOWN_BLOB (not a distinct "forbidden") so blob existence isn't
+    // leaked across rooms.
+    match is_member(store.pool(), &room_id, me.id).await {
+        Ok(true) => {}
+        _ => {
+            send_error(tx, error_codes::UNKNOWN_BLOB, "");
+            return;
+        }
+    }
+    let url = r2.presign_get(blob_key, PRESIGN_TTL);
+    let _ = tx.send(RoomServerFrame::DownloadGranted {
+        blob_key: blob_key.to_string(),
+        url,
+        expires_at: Utc::now() + chrono::Duration::from_std(PRESIGN_TTL).unwrap(),
+    });
 }
 
 async fn handle_create_room(
