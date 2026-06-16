@@ -1,7 +1,15 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../attachment/attachment_descriptor.dart';
+import '../../attachment/attachment_upload.dart';
+import '../../attachment/file_crypto.dart';
+import '../../attachment/thumbnail.dart';
 import '../../conversation/conversation_page.dart';
+import '../../conversation/message_content.dart';
 import '../../conversation/message_store.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../conversation/room_message_router.dart';
@@ -185,7 +193,7 @@ class InboxShell extends ConsumerWidget {
         room: room,
         me: me,
         selfUsername: account.username,
-        plaintext: text,
+        plaintext: TextContent(text).encode(),
         cache: cache,
         clientMsgId: clientMsgId,
       );
@@ -221,6 +229,84 @@ class InboxShell extends ConsumerWidget {
       } else {
         debugPrint('outbox enqueue failed before insert: $e');
       }
+    }
+  }
+
+  /// Encrypt + upload an attachment, then send it as a `kind:"file"` message
+  /// through the same outbox path as text. The optimistic bubble carries the
+  /// locally built descriptor (incl. inline thumb) so the preview shows
+  /// immediately; the authoritative row replaces it on the server echo.
+  Future<void> _sendAttachment(
+    WidgetRef ref,
+    Room room,
+    BuildContext context, {
+    required Uint8List bytes,
+    required String filename,
+    required String mime,
+    String? videoPath,
+  }) async {
+    final clientMsgId = ref.read(outboxIdGenProvider)();
+    final conn = ref.read(liveConnectionProvider).asData?.value;
+    if (conn == null) return;
+    if (bytes.length > 500 * 1024 * 1024) {
+      // Over the 500 MiB cap (spec §4) — surface and bail.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('That file is too large (max 500 MB).')),
+      );
+      return;
+    }
+    try {
+      final thumb = mime.startsWith('video/') && videoPath != null
+          ? await buildVideoThumbnail(videoPath)
+          : await buildImageThumbnail(bytes);
+      final enc = await encryptFileBytes(bytes);
+      final blobKey = await uploadCiphertext(
+        conn: conn, roomId: room.roomId, ciphertext: enc.ciphertext);
+
+      final descriptor = AttachmentDescriptor(
+        blobKey: blobKey,
+        contentKeyB64: base64.encode(enc.key),
+        nonceB64: base64.encode(enc.nonce),
+        mime: mime,
+        filename: filename,
+        size: bytes.length,
+        width: thumb.width,
+        height: thumb.height,
+        durationMs: null, // populated for video in a follow-up if needed
+        thumbB64: await encodeThumb(thumb.jpeg),
+      );
+
+      final me = await ref.read(currentIdentityProvider.future);
+      final frame = await buildSendFrame(
+        room: room,
+        me: me,
+        selfUsername: account.username,
+        plaintext: FileContent(descriptor).encode(),
+        cache: ref.read(roomKeyCacheProvider),
+        clientMsgId: clientMsgId,
+      );
+      final store = await ref.read(outboxStoreProvider.future);
+      await store.enqueue(
+        clientMsgId: clientMsgId, roomId: room.roomId, bodies: frame.bodies);
+      ref.read(messageStoreProvider(room.roomId).notifier).add(
+            Msg(
+              id: clientMsgId,
+              from: account.username,
+              to: room.roomId,
+              body: '',
+              ts: DateTime.now().toUtc(),
+              clientMsgId: clientMsgId,
+              sendStatus: SendStatus.sending,
+              attachment: descriptor,
+            ),
+          );
+      await ref.read(outboxDrainProvider).kick();
+    } catch (e) {
+      debugPrint('attachment send failed: $e');
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not send attachment.')),
+      );
     }
   }
 
