@@ -33,6 +33,7 @@ import '../../inbox/pending_invites_provider.dart';
 import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
 import '../../inbox/sidebar.dart';
+import '../../push/push_bootstrap.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
@@ -62,6 +63,12 @@ class InboxShell extends ConsumerWidget {
     });
 
     final inbox = ref.watch(inboxStateProvider);
+    // Once a partner room exists (i.e. we're paired), bring up push: permission
+    // prompt, token registration, palette key, and notification-tap routing.
+    // The provider caches, so this runs exactly once per session.
+    if (inbox.rooms.isNotEmpty) {
+      ref.watch(pushBootstrapProvider);
+    }
     final detail = _detail(context, ref, inbox.selectedRoomId, inbox.rooms);
 
     return LayoutScaffold(
