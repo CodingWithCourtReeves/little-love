@@ -464,3 +464,31 @@ class RequestDownloadFrame {
     'blob_key': blobKey,
   };
 }
+
+class RegisterPushFrame {
+  const RegisterPushFrame({
+    required this.deviceId,
+    required this.apnsToken,
+    required this.environment,
+  });
+  final String deviceId;
+  final String apnsToken;
+  final String environment;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'RegisterPush',
+    'device_id': deviceId,
+    'apns_token': apnsToken,
+    'environment': environment,
+  };
+}
+
+class UnregisterPushFrame {
+  const UnregisterPushFrame({required this.deviceId});
+  final String deviceId;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'UnregisterPush',
+    'device_id': deviceId,
+  };
+}
