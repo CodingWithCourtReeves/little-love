@@ -696,6 +696,13 @@ async fn handle_request_upload(
             return;
         }
     };
+    // KNOWN GAP: this only rejects an *honestly-declared* oversize. The
+    // rusty-s3 query-signed PUT URL does not pin Content-Length, so a client
+    // can declare a small byte_size here and then PUT an arbitrarily large body
+    // to the presigned URL — R2 stores whatever arrives. A real bound needs a
+    // signed Content-Length condition or a POST policy (awkward with rusty-s3).
+    // Until then MAX_ATTACHMENT_BYTES is advisory, not enforced. Tracked as a
+    // follow-up alongside the orphan reaper / upload quota below.
     if byte_size <= 0 || byte_size > MAX_ATTACHMENT_BYTES {
         send_error(tx, error_codes::BLOB_TOO_LARGE, "");
         return;
@@ -712,6 +719,13 @@ async fn handle_request_upload(
             return;
         }
     }
+    // KNOWN GAP: each RequestUpload inserts an `attachments` row (committed =
+    // false, never flipped yet) and mints a presigned PUT, with no per-
+    // connection rate-limit and no storage quota. The orphan reaper is
+    // deferred, so today nothing bounds a client that loops RequestUpload to
+    // accumulate rows + uploaded objects without ever sending a message.
+    // Blast radius is authenticated couple-room users only. Follow-up: add a
+    // cheap RequestUpload rate-limit and ship the reaper.
     let blob_key = Ulid::new().to_string();
     if let Err(e) = insert_attachment(store.pool(), &blob_key, room_id, me.id, byte_size).await {
         warn!("insert_attachment: {e}");

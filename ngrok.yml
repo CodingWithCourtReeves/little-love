@@ -22,7 +22,9 @@ version: "3"
 # (it stays in your global config so this one is safe to commit).
 #
 # For stable URLs across runs, reserve two domains in the ngrok dashboard and
-# add e.g. `domain: llove-api-court.ngrok.app` under each tunnel.
+# set each tunnel's `domain:` to one of them. The values below are the author's
+# personal reserved domains (`dops-api-court` / `dops-app-court`); swap in your
+# own reserved domains if you're not on that ngrok account.
 tunnels:
   llove-api:
     proto: http
