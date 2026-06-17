@@ -310,10 +310,9 @@ class InboxShell extends ConsumerWidget {
           );
       await ref.read(outboxDrainProvider).kick();
     } catch (e) {
-      debugPrint('attachment send failed: $e');
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not send attachment.')),
+        const SnackBar(content: Text("Couldn't send attachment.")),
       );
     }
   }
@@ -338,24 +337,35 @@ class InboxShell extends ConsumerWidget {
     );
     if (!context.mounted) return;
     if (choice == 'photos') {
-      final picked = await ImagePicker().pickMedia();
-      if (picked == null || !context.mounted) return;
-      final bytes = await picked.readAsBytes();
-      final mime = _mimeFor(picked.name, picked.mimeType);
-      if (!context.mounted) return;
-      await _sendAttachment(ref, room, context,
-          bytes: bytes, filename: picked.name, mime: mime,
-          videoPath: mime.startsWith('video/') ? picked.path : null);
+      // imageQuality forces iOS to re-encode the picked image to JPEG. iOS
+      // Photos delivers HEIC, which the pure-Dart `image` package can't decode
+      // (thumbnail build would throw); JPEG is decodable and universally
+      // viewable. Videos picked here are unaffected by imageQuality.
+      final picked = await ImagePicker().pickMultipleMedia(imageQuality: 90);
+      if (picked.isEmpty || !context.mounted) return;
+      // Send each pick in selection order, sequentially so the optimistic
+      // bubbles and uploads stay ordered.
+      for (final item in picked) {
+        final bytes = await item.readAsBytes();
+        final mime = _mimeFor(item.name, item.mimeType);
+        if (!context.mounted) return;
+        await _sendAttachment(ref, room, context,
+            bytes: bytes, filename: item.name, mime: mime,
+            videoPath: mime.startsWith('video/') ? item.path : null);
+      }
     } else if (choice == 'file') {
-      final res = await FilePicker.pickFiles(withReadStream: false);
-      final f = (res != null && res.files.isNotEmpty) ? res.files.first : null;
-      if (f == null || f.path == null || !context.mounted) return;
-      final bytes = await File(f.path!).readAsBytes();
-      final mime = _mimeFor(f.name, null);
-      if (!context.mounted) return;
-      await _sendAttachment(ref, room, context,
-          bytes: bytes, filename: f.name, mime: mime,
-          videoPath: mime.startsWith('video/') ? f.path : null);
+      final res =
+          await FilePicker.pickFiles(withReadStream: false, allowMultiple: true);
+      if (res == null || res.files.isEmpty || !context.mounted) return;
+      for (final f in res.files) {
+        if (f.path == null) continue;
+        final bytes = await File(f.path!).readAsBytes();
+        final mime = _mimeFor(f.name, null);
+        if (!context.mounted) return;
+        await _sendAttachment(ref, room, context,
+            bytes: bytes, filename: f.name, mime: mime,
+            videoPath: mime.startsWith('video/') ? f.path : null);
+      }
     }
   }
 
@@ -371,14 +381,30 @@ class InboxShell extends ConsumerWidget {
     WidgetRef ref, Room room, BuildContext context, AttachmentDescriptor descriptor) async {
     final conn = ref.read(liveConnectionProvider).asData?.value;
     if (conn == null) return;
+    // A modal barrier does double duty: it blocks repeated taps (which would
+    // each re-download the blob and push another viewer — the bug seen on a
+    // slow video) and shows a spinner so the wait doesn't feel frozen. The
+    // first open downloads + decrypts; later opens are instant (on-disk cache).
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
     try {
       final file = await fetchAndDecrypt(conn: conn, descriptor: descriptor);
       if (!context.mounted) return;
+      Navigator.of(context).pop(); // dismiss the loader
       await Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => AttachmentViewer(file: file, descriptor: descriptor),
       ));
     } catch (e) {
+      if (context.mounted) Navigator.of(context).pop();
       debugPrint('open attachment failed: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open attachment: $e')),
+        );
+      }
     }
   }
 
