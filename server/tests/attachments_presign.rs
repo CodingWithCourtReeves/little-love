@@ -19,9 +19,24 @@ const MALLORY_SEED: [u8; 32] = [9u8; 32];
 /// Returns the shared room_id.
 async fn seed_couple_with_outsider(store: &littlelove_api::store::Store) -> String {
     let pool = store.pool();
-    insert_account(store, "court", &SigningKey::from_bytes(&COURT_SEED).verifying_key()).await;
-    insert_account(store, "kaitlyn", &SigningKey::from_bytes(&KAIT_SEED).verifying_key()).await;
-    insert_account(store, "mallory", &SigningKey::from_bytes(&MALLORY_SEED).verifying_key()).await;
+    insert_account(
+        store,
+        "court",
+        &SigningKey::from_bytes(&COURT_SEED).verifying_key(),
+    )
+    .await;
+    insert_account(
+        store,
+        "kaitlyn",
+        &SigningKey::from_bytes(&KAIT_SEED).verifying_key(),
+    )
+    .await;
+    insert_account(
+        store,
+        "mallory",
+        &SigningKey::from_bytes(&MALLORY_SEED).verifying_key(),
+    )
+    .await;
 
     let (court_id,): (i64,) = sqlx::query_as("SELECT id FROM accounts WHERE username = 'court'")
         .fetch_one(pool)

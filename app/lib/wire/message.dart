@@ -59,7 +59,11 @@ class Msg {
     return m;
   }
 
-  Msg copyWith({String? id, SendStatus? sendStatus, AttachmentDescriptor? attachment}) {
+  Msg copyWith({
+    String? id,
+    SendStatus? sendStatus,
+    AttachmentDescriptor? attachment,
+  }) {
     return Msg(
       id: id ?? this.id,
       from: from,

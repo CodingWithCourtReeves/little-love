@@ -44,12 +44,15 @@ Future<File> fetchAndDecrypt({
   final dir = await getApplicationSupportDirectory();
   final cacheDir = Directory(p.join(dir.path, 'attachments'));
   await cacheDir.create(recursive: true);
-  final cached =
-      File(p.join(cacheDir.path, '${descriptor.blobKey}${_cacheExt(descriptor)}'));
+  final cached = File(
+    p.join(cacheDir.path, '${descriptor.blobKey}${_cacheExt(descriptor)}'),
+  );
   if (await cached.exists()) return cached;
 
   final granted = conn.incoming
-      .where((f) => f is DownloadGrantedFrame && f.blobKey == descriptor.blobKey)
+      .where(
+        (f) => f is DownloadGrantedFrame && f.blobKey == descriptor.blobKey,
+      )
       .cast<DownloadGrantedFrame>()
       .first
       .timeout(timeout);

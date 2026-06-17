@@ -843,7 +843,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 }
 
 class _MediaBubble extends StatelessWidget {
-  const _MediaBubble({required this.msg, required this.isMe, required this.onOpen});
+  const _MediaBubble({
+    required this.msg,
+    required this.isMe,
+    required this.onOpen,
+  });
   final Msg msg;
   final bool isMe;
   final VoidCallback onOpen;
@@ -858,7 +862,9 @@ class _MediaBubble extends StatelessWidget {
         constraints: const BoxConstraints(maxWidth: 240),
         padding: const EdgeInsets.all(4),
         decoration: BoxDecoration(
-          color: isMe ? TwilightColors.bubbleUserBg : TwilightColors.bubblePartnerBg,
+          color: isMe
+              ? TwilightColors.bubbleUserBg
+              : TwilightColors.bubblePartnerBg,
           borderRadius: BorderRadius.circular(18),
         ),
         child: ClipRRect(
@@ -875,7 +881,8 @@ class _MediaBubble extends StatelessWidget {
                     color: const Color(0x57F4EBEC),
                     child: const Center(
                       child: SizedBox(
-                        width: 30, height: 30,
+                        width: 30,
+                        height: 30,
                         child: CircularProgressIndicator(strokeWidth: 3),
                       ),
                     ),
@@ -905,7 +912,11 @@ class _ThumbImageState extends State<_ThumbImage> {
       future: _bytes,
       builder: (_, snap) {
         if (snap.hasData) {
-          return Image.memory(snap.data!, fit: BoxFit.cover, gaplessPlayback: true);
+          return Image.memory(
+            snap.data!,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+          );
         }
         return Container(color: TwilightColors.bgSurfaceAlt);
       },
@@ -917,14 +928,15 @@ class _PlayBadge extends StatelessWidget {
   const _PlayBadge();
   @override
   Widget build(BuildContext context) => Container(
-        width: 52, height: 52,
-        decoration: BoxDecoration(
-          color: const Color(0x6B140C12),
-          shape: BoxShape.circle,
-          border: Border.all(color: const Color(0xBFFFFFFF), width: 1.5),
-        ),
-        child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 30),
-      );
+    width: 52,
+    height: 52,
+    decoration: BoxDecoration(
+      color: const Color(0x6B140C12),
+      shape: BoxShape.circle,
+      border: Border.all(color: const Color(0xBFFFFFFF), width: 1.5),
+    ),
+    child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 30),
+  );
 }
 
 class _E2ESeal extends StatelessWidget {

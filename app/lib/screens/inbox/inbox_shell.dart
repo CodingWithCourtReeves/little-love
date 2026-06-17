@@ -269,7 +269,10 @@ class InboxShell extends ConsumerWidget {
           : await buildImageThumbnail(bytes);
       final enc = await encryptFileBytes(bytes);
       final blobKey = await uploadCiphertext(
-        conn: conn, roomId: room.roomId, ciphertext: enc.ciphertext);
+        conn: conn,
+        roomId: room.roomId,
+        ciphertext: enc.ciphertext,
+      );
 
       final descriptor = AttachmentDescriptor(
         blobKey: blobKey,
@@ -295,8 +298,13 @@ class InboxShell extends ConsumerWidget {
       );
       final store = await ref.read(outboxStoreProvider.future);
       await store.enqueue(
-        clientMsgId: clientMsgId, roomId: room.roomId, bodies: frame.bodies);
-      ref.read(messageStoreProvider(room.roomId).notifier).add(
+        clientMsgId: clientMsgId,
+        roomId: room.roomId,
+        bodies: frame.bodies,
+      );
+      ref
+          .read(messageStoreProvider(room.roomId).notifier)
+          .add(
             Msg(
               id: clientMsgId,
               from: account.username,
@@ -317,22 +325,28 @@ class InboxShell extends ConsumerWidget {
     }
   }
 
-  Future<void> _pickAndSend(WidgetRef ref, Room room, BuildContext context) async {
+  Future<void> _pickAndSend(
+    WidgetRef ref,
+    Room room,
+    BuildContext context,
+  ) async {
     final choice = await showModalBottomSheet<String>(
       context: context,
       builder: (_) => SafeArea(
-        child: Wrap(children: [
-          ListTile(
-            leading: const Icon(Icons.photo_library_outlined),
-            title: const Text('Photo Library'),
-            onTap: () => Navigator.pop(context, 'photos'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.insert_drive_file_outlined),
-            title: const Text('Choose File'),
-            onTap: () => Navigator.pop(context, 'file'),
-          ),
-        ]),
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Photo Library'),
+              onTap: () => Navigator.pop(context, 'photos'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.insert_drive_file_outlined),
+              title: const Text('Choose File'),
+              onTap: () => Navigator.pop(context, 'file'),
+            ),
+          ],
+        ),
       ),
     );
     if (!context.mounted) return;
@@ -349,22 +363,36 @@ class InboxShell extends ConsumerWidget {
         final bytes = await item.readAsBytes();
         final mime = _mimeFor(item.name, item.mimeType);
         if (!context.mounted) return;
-        await _sendAttachment(ref, room, context,
-            bytes: bytes, filename: item.name, mime: mime,
-            videoPath: mime.startsWith('video/') ? item.path : null);
+        await _sendAttachment(
+          ref,
+          room,
+          context,
+          bytes: bytes,
+          filename: item.name,
+          mime: mime,
+          videoPath: mime.startsWith('video/') ? item.path : null,
+        );
       }
     } else if (choice == 'file') {
-      final res =
-          await FilePicker.pickFiles(withReadStream: false, allowMultiple: true);
+      final res = await FilePicker.pickFiles(
+        withReadStream: false,
+        allowMultiple: true,
+      );
       if (res == null || res.files.isEmpty || !context.mounted) return;
       for (final f in res.files) {
         if (f.path == null) continue;
         final bytes = await File(f.path!).readAsBytes();
         final mime = _mimeFor(f.name, null);
         if (!context.mounted) return;
-        await _sendAttachment(ref, room, context,
-            bytes: bytes, filename: f.name, mime: mime,
-            videoPath: mime.startsWith('video/') ? f.path : null);
+        await _sendAttachment(
+          ref,
+          room,
+          context,
+          bytes: bytes,
+          filename: f.name,
+          mime: mime,
+          videoPath: mime.startsWith('video/') ? f.path : null,
+        );
       }
     }
   }
@@ -378,7 +406,11 @@ class InboxShell extends ConsumerWidget {
   }
 
   Future<void> _openAttachment(
-    WidgetRef ref, Room room, BuildContext context, AttachmentDescriptor descriptor) async {
+    WidgetRef ref,
+    Room room,
+    BuildContext context,
+    AttachmentDescriptor descriptor,
+  ) async {
     final conn = ref.read(liveConnectionProvider).asData?.value;
     if (conn == null) return;
     // A modal barrier does double duty: it blocks repeated taps (which would
@@ -394,9 +426,11 @@ class InboxShell extends ConsumerWidget {
       final file = await fetchAndDecrypt(conn: conn, descriptor: descriptor);
       if (!context.mounted) return;
       Navigator.of(context).pop(); // dismiss the loader
-      await Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => AttachmentViewer(file: file, descriptor: descriptor),
-      ));
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => AttachmentViewer(file: file, descriptor: descriptor),
+        ),
+      );
     } catch (e) {
       if (context.mounted) Navigator.of(context).pop();
       debugPrint('open attachment failed: $e');

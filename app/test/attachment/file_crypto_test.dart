@@ -11,7 +11,10 @@ void main() {
     expect(enc.ciphertext.length, greaterThan(plain.length)); // + 16-byte MAC
 
     final out = await decryptFileBytes(
-      key: enc.key, nonce: enc.nonce, ciphertext: enc.ciphertext);
+      key: enc.key,
+      nonce: enc.nonce,
+      ciphertext: enc.ciphertext,
+    );
     expect(out, equals(plain));
   });
 
@@ -20,7 +23,11 @@ void main() {
     final enc = await encryptFileBytes(plain);
     final badKey = Uint8List(32)..[0] = 0xFF;
     expect(
-      () => decryptFileBytes(key: badKey, nonce: enc.nonce, ciphertext: enc.ciphertext),
+      () => decryptFileBytes(
+        key: badKey,
+        nonce: enc.nonce,
+        ciphertext: enc.ciphertext,
+      ),
       throwsA(isA<Exception>()),
     );
   });

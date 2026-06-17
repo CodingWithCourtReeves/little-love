@@ -12,5 +12,9 @@ async fn migration_creates_attachments_table() {
     .fetch_all(store.pool())
     .await
     .unwrap();
-    assert_eq!(cols.len(), 6, "expected all 6 attachments columns, got {cols:?}");
+    assert_eq!(
+        cols.len(),
+        6,
+        "expected all 6 attachments columns, got {cols:?}"
+    );
 }

@@ -28,8 +28,13 @@ impl R2Presigner {
             .parse()
             .map_err(|e| anyhow::anyhow!("bad R2 endpoint: {e}"))?;
         // R2 ignores the region but SigV4 requires one; "auto" is conventional.
-        let bucket = Bucket::new(endpoint, UrlStyle::Path, cfg.bucket.clone(), "auto".to_string())
-            .map_err(|e| anyhow::anyhow!("bad R2 bucket: {e}"))?;
+        let bucket = Bucket::new(
+            endpoint,
+            UrlStyle::Path,
+            cfg.bucket.clone(),
+            "auto".to_string(),
+        )
+        .map_err(|e| anyhow::anyhow!("bad R2 bucket: {e}"))?;
         let creds = Credentials::new(cfg.access_key_id.clone(), cfg.secret_access_key.clone());
         Ok(Self { bucket, creds })
     }
@@ -68,7 +73,10 @@ mod tests {
     fn put_url_is_path_style_signed() {
         let url = presigner().presign_put("01JBLOB", Duration::from_secs(600));
         assert!(url.contains("acct123.r2.cloudflarestorage.com"), "{url}");
-        assert!(url.contains("/littlelove-media/01JBLOB"), "path-style: {url}");
+        assert!(
+            url.contains("/littlelove-media/01JBLOB"),
+            "path-style: {url}"
+        );
         assert!(url.contains("X-Amz-Signature="), "{url}");
         assert!(url.contains("X-Amz-Expires=600"), "{url}");
     }
@@ -91,7 +99,10 @@ mod tests {
         })
         .unwrap();
         let url = p.presign_put("01JBLOB", Duration::from_secs(600));
-        assert!(url.starts_with("http://localhost:9000/littlelove-media/01JBLOB"), "{url}");
+        assert!(
+            url.starts_with("http://localhost:9000/littlelove-media/01JBLOB"),
+            "{url}"
+        );
         assert!(!url.contains("r2.cloudflarestorage.com"), "{url}");
         assert!(url.contains("X-Amz-Signature="), "{url}");
     }

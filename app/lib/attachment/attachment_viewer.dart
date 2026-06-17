@@ -9,7 +9,11 @@ import 'attachment_descriptor.dart';
 /// Full-screen viewer for a decrypted attachment file. Image → InteractiveViewer;
 /// video → video_player. [file] is the decrypted plaintext on local disk.
 class AttachmentViewer extends StatefulWidget {
-  const AttachmentViewer({super.key, required this.file, required this.descriptor});
+  const AttachmentViewer({
+    super.key,
+    required this.file,
+    required this.descriptor,
+  });
   final File file;
   final AttachmentDescriptor descriptor;
   @override
@@ -33,15 +37,15 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
         await Gal.putImage(widget.file.path);
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Saved to Photos')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Saved to Photos')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Couldn't save: $e")),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Couldn't save: $e")));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -53,12 +57,14 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
     super.initState();
     if (widget.descriptor.isVideo) {
       _video = VideoPlayerController.file(widget.file)
-        ..initialize().then((_) {
-          if (mounted) setState(() => _video!..play());
-        }).catchError((Object e) {
-          // Don't spin forever if AVFoundation can't open the file.
-          if (mounted) setState(() => _error = '$e');
-        });
+        ..initialize()
+            .then((_) {
+              if (mounted) setState(() => _video!..play());
+            })
+            .catchError((Object e) {
+              // Don't spin forever if AVFoundation can't open the file.
+              if (mounted) setState(() => _error = '$e');
+            });
     }
   }
 
@@ -76,7 +82,10 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
-        title: Text(widget.descriptor.filename, style: const TextStyle(fontSize: 13)),
+        title: Text(
+          widget.descriptor.filename,
+          style: const TextStyle(fontSize: 13),
+        ),
         actions: [
           IconButton(
             tooltip: 'Save to Photos',
@@ -84,7 +93,10 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
                   )
                 : const Icon(Icons.download_rounded),
             onPressed: _saving ? null : _saveToGallery,
@@ -94,17 +106,20 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
       body: Center(
         child: widget.descriptor.isVideo
             ? (_error != null
-                ? Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      "Can't play this video.\n$_error",
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white70, fontSize: 13),
-                    ),
-                  )
-                : (v != null && v.value.isInitialized
-                    ? _videoView(v)
-                    : const CircularProgressIndicator()))
+                  ? Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        "Can't play this video.\n$_error",
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
+                      ),
+                    )
+                  : (v != null && v.value.isInitialized
+                        ? _videoView(v)
+                        : const CircularProgressIndicator()))
             : InteractiveViewer(child: Image.file(widget.file)),
       ),
     );
@@ -119,9 +134,14 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
       alignment: Alignment.center,
       children: [
         GestureDetector(
-          onTap: () => setState(() => v.value.isPlaying ? v.pause() : _resumeOrRestart(v)),
+          onTap: () => setState(
+            () => v.value.isPlaying ? v.pause() : _resumeOrRestart(v),
+          ),
           child: Center(
-            child: AspectRatio(aspectRatio: v.value.aspectRatio, child: VideoPlayer(v)),
+            child: AspectRatio(
+              aspectRatio: v.value.aspectRatio,
+              child: VideoPlayer(v),
+            ),
           ),
         ),
         ValueListenableBuilder<VideoPlayerValue>(
@@ -137,7 +157,11 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
                   color: Color(0x66000000),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 46),
+                child: const Icon(
+                  Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 46,
+                ),
               ),
             ),
           ),
@@ -160,10 +184,13 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
               builder: (_, val, _) => Row(
                 children: [
                   IconButton(
-                    icon: Icon(val.isPlaying ? Icons.pause : Icons.play_arrow,
-                        color: Colors.white),
-                    onPressed: () =>
-                        setState(() => val.isPlaying ? v.pause() : _resumeOrRestart(v)),
+                    icon: Icon(
+                      val.isPlaying ? Icons.pause : Icons.play_arrow,
+                      color: Colors.white,
+                    ),
+                    onPressed: () => setState(
+                      () => val.isPlaying ? v.pause() : _resumeOrRestart(v),
+                    ),
                   ),
                   Expanded(
                     child: VideoProgressIndicator(
@@ -178,8 +205,10 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  Text('${_fmt(val.position)} / ${_fmt(val.duration)}',
-                      style: const TextStyle(color: Colors.white, fontSize: 11)),
+                  Text(
+                    '${_fmt(val.position)} / ${_fmt(val.duration)}',
+                    style: const TextStyle(color: Colors.white, fontSize: 11),
+                  ),
                 ],
               ),
             ),

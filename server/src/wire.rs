@@ -615,7 +615,9 @@ mod tests {
     fn parses_request_download_frame() {
         let raw = r#"{"kind":"RequestDownload","blob_key":"01JBLOB"}"#;
         let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
-        assert!(matches!(frame, RoomClientFrame::RequestDownload { blob_key } if blob_key == "01JBLOB"));
+        assert!(
+            matches!(frame, RoomClientFrame::RequestDownload { blob_key } if blob_key == "01JBLOB")
+        );
     }
 
     #[test]

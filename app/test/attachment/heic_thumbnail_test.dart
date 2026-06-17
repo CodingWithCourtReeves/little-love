@@ -9,8 +9,11 @@ import 'package:littlelove/attachment/thumbnail.dart';
 void main() {
   test('image package cannot decode a real HEIC (root-cause check)', () {
     final bytes = File('test/fixtures/sample.heic').readAsBytesSync();
-    expect(img.decodeImage(bytes), isNull,
-        reason: 'if this is non-null, the image package CAN decode HEIC');
+    expect(
+      img.decodeImage(bytes),
+      isNull,
+      reason: 'if this is non-null, the image package CAN decode HEIC',
+    );
   });
 
   test('buildImageThumbnail throws on HEIC bytes', () async {

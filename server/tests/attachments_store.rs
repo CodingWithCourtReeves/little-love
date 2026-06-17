@@ -18,5 +18,8 @@ async fn insert_then_lookup_room() {
 
     let found = attachment_room(store.pool(), "01JBLOBKEY").await.unwrap();
     assert_eq!(found.as_deref(), Some(room_id.as_str()));
-    assert!(attachment_room(store.pool(), "missing").await.unwrap().is_none());
+    assert!(attachment_room(store.pool(), "missing")
+        .await
+        .unwrap()
+        .is_none());
 }

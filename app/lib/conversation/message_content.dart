@@ -43,5 +43,6 @@ class FileContent extends MessageContent {
   final AttachmentDescriptor descriptor;
 
   @override
-  String encode() => jsonEncode({'v': 1, 'kind': 'file', ...descriptor.toJson()});
+  String encode() =>
+      jsonEncode({'v': 1, 'kind': 'file', ...descriptor.toJson()});
 }

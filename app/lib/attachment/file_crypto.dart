@@ -7,7 +7,11 @@ import 'package:cryptography/cryptography.dart';
 /// [ciphertext] (which is uploaded raw to R2). XChaCha20-Poly1305 — same AEAD
 /// as text messages (spec §4).
 class EncryptedFile {
-  EncryptedFile({required this.key, required this.nonce, required this.ciphertext});
+  EncryptedFile({
+    required this.key,
+    required this.nonce,
+    required this.ciphertext,
+  });
   final Uint8List key;
   final Uint8List nonce;
   final Uint8List ciphertext;
@@ -22,7 +26,11 @@ Future<EncryptedFile> encryptFileBytes(Uint8List plain) async {
   final keyBytes = Uint8List.fromList(await secret.extractBytes());
   final out = Uint8List(box.cipherText.length + box.mac.bytes.length)
     ..setRange(0, box.cipherText.length, box.cipherText)
-    ..setRange(box.cipherText.length, box.cipherText.length + box.mac.bytes.length, box.mac.bytes);
+    ..setRange(
+      box.cipherText.length,
+      box.cipherText.length + box.mac.bytes.length,
+      box.mac.bytes,
+    );
   return EncryptedFile(
     key: keyBytes,
     nonce: Uint8List.fromList(nonce),

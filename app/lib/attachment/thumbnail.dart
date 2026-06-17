@@ -6,7 +6,11 @@ import 'package:video_thumbnail/video_thumbnail.dart' as vt;
 /// A built thumbnail: a small JPEG plus the ORIGINAL media's pixel dimensions
 /// (used for the descriptor's width/height so the bubble can size its tile).
 class BuiltThumbnail {
-  BuiltThumbnail({required this.jpeg, required this.width, required this.height});
+  BuiltThumbnail({
+    required this.jpeg,
+    required this.width,
+    required this.height,
+  });
   final Uint8List jpeg;
   final int width;
   final int height;
@@ -41,7 +45,9 @@ Future<BuiltThumbnail> buildVideoThumbnail(String path) async {
     maxWidth: _maxEdge,
     quality: _quality,
   );
-  if (jpeg == null) throw const FormatException('could not extract video poster');
+  if (jpeg == null) {
+    throw const FormatException('could not extract video poster');
+  }
   final decoded = img.decodeImage(jpeg);
   return BuiltThumbnail(
     jpeg: jpeg,

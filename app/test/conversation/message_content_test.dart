@@ -12,8 +12,17 @@ void main() {
 
   test('file envelope round-trips', () {
     const d = AttachmentDescriptor(
-      blobKey: 'k', contentKeyB64: 'a', nonceB64: 'b', mime: 'image/jpeg',
-      filename: 'IMG.jpg', size: 1, width: 1, height: 1, durationMs: null, thumbB64: 't');
+      blobKey: 'k',
+      contentKeyB64: 'a',
+      nonceB64: 'b',
+      mime: 'image/jpeg',
+      filename: 'IMG.jpg',
+      size: 1,
+      width: 1,
+      height: 1,
+      durationMs: null,
+      thumbB64: 't',
+    );
     final back = MessageContent.decode(const FileContent(d).encode());
     expect(back, isA<FileContent>());
     expect((back as FileContent).descriptor.blobKey, 'k');

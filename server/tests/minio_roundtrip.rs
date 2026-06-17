@@ -13,7 +13,10 @@ use std::time::Duration;
 use littlelove_api::{config::R2Config, r2::R2Presigner};
 
 fn env_or(key: &str, default: &str) -> String {
-    std::env::var(key).ok().filter(|s| !s.is_empty()).unwrap_or_else(|| default.to_string())
+    std::env::var(key)
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| default.to_string())
 }
 
 #[tokio::test]
@@ -40,11 +43,19 @@ async fn presigned_put_then_get_round_trips_against_minio() {
         .send()
         .await
         .expect("PUT request");
-    assert!(put.status().is_success(), "PUT failed: {} ({put_url})", put.status());
+    assert!(
+        put.status().is_success(),
+        "PUT failed: {} ({put_url})",
+        put.status()
+    );
 
     let get_url = presigner.presign_get(&blob_key, Duration::from_secs(600));
     let got = client.get(&get_url).send().await.expect("GET request");
     assert!(got.status().is_success(), "GET failed: {}", got.status());
     let bytes = got.bytes().await.expect("GET body");
-    assert_eq!(bytes.as_ref(), body.as_slice(), "round-tripped bytes differ");
+    assert_eq!(
+        bytes.as_ref(),
+        body.as_slice(),
+        "round-tripped bytes differ"
+    );
 }

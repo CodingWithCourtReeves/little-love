@@ -34,19 +34,20 @@ class AttachmentDescriptor {
   bool get isVideo => mime.startsWith('video/');
 
   Map<String, Object?> toJson() => {
-        'blob_key': blobKey,
-        'content_key': contentKeyB64,
-        'nonce': nonceB64,
-        'mime': mime,
-        'filename': filename,
-        'size': size,
-        'width': width,
-        'height': height,
-        if (durationMs != null) 'duration_ms': durationMs,
-        'thumb': thumbB64,
-      };
+    'blob_key': blobKey,
+    'content_key': contentKeyB64,
+    'nonce': nonceB64,
+    'mime': mime,
+    'filename': filename,
+    'size': size,
+    'width': width,
+    'height': height,
+    if (durationMs != null) 'duration_ms': durationMs,
+    'thumb': thumbB64,
+  };
 
-  factory AttachmentDescriptor.fromJson(Map<String, Object?> j) => AttachmentDescriptor(
+  factory AttachmentDescriptor.fromJson(Map<String, Object?> j) =>
+      AttachmentDescriptor(
         blobKey: j['blob_key']! as String,
         contentKeyB64: j['content_key']! as String,
         nonceB64: j['nonce']! as String,

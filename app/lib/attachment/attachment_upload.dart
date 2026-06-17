@@ -24,11 +24,13 @@ Future<String> uploadCiphertext({
       .first
       .timeout(timeout);
 
-  conn.send(RequestUploadFrame(
-    requestId: requestId,
-    roomId: roomId,
-    byteSize: ciphertext.length,
-  ).toJson());
+  conn.send(
+    RequestUploadFrame(
+      requestId: requestId,
+      roomId: roomId,
+      byteSize: ciphertext.length,
+    ).toJson(),
+  );
 
   final grant = await granted;
   final client = httpClient ?? http.Client();

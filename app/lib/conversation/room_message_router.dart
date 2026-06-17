@@ -133,13 +133,22 @@ class RoomMessageRouter {
         : MessageContent.decode(plaintext);
     final msg = switch (content) {
       TextContent(:final text) => Msg(
-          id: f.id, from: f.from, to: f.roomId, body: text, ts: f.ts,
-          replayed: f.replayed,
-        ),
+        id: f.id,
+        from: f.from,
+        to: f.roomId,
+        body: text,
+        ts: f.ts,
+        replayed: f.replayed,
+      ),
       FileContent(:final descriptor) => Msg(
-          id: f.id, from: f.from, to: f.roomId, body: '', ts: f.ts,
-          replayed: f.replayed, attachment: descriptor,
-        ),
+        id: f.id,
+        from: f.from,
+        to: f.roomId,
+        body: '',
+        ts: f.ts,
+        replayed: f.replayed,
+        attachment: descriptor,
+      ),
     };
     final store = ref.read(messageStoreProvider(f.roomId).notifier);
     // Live self-copy of our own message: swap the optimistic echo (keyed by
