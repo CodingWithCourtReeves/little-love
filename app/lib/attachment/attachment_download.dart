@@ -9,10 +9,32 @@ import '../wire/live_connection.dart';
 import 'attachment_descriptor.dart';
 import 'file_crypto.dart';
 
+/// File extension for the on-disk cache, derived from the original filename or
+/// the mime type. iOS AVFoundation (video_player) needs a real extension like
+/// `.mp4`/`.mov` to choose a demuxer — a bare blob_key won't play.
+String _cacheExt(AttachmentDescriptor d) {
+  final dot = d.filename.lastIndexOf('.');
+  if (dot != -1 && dot < d.filename.length - 1) {
+    return d.filename.substring(dot).toLowerCase();
+  }
+  switch (d.mime) {
+    case 'video/mp4':
+      return '.mp4';
+    case 'video/quicktime':
+      return '.mov';
+    case 'image/png':
+      return '.png';
+    case 'image/jpeg':
+      return '.jpg';
+    default:
+      return d.mime.startsWith('video/') ? '.mp4' : '';
+  }
+}
+
 /// Fetch + decrypt the full file for [descriptor], returning a local plaintext
-/// file. Cached by `blob_key` under app-support so re-opening is instant. The
-/// content key/nonce come from the (already-decrypted) descriptor; the server
-/// never sees them.
+/// file. Cached by `blob_key` (plus a real extension) under app-support so
+/// re-opening is instant. The content key/nonce come from the (already-
+/// decrypted) descriptor; the server never sees them.
 Future<File> fetchAndDecrypt({
   required LiveConnection conn,
   required AttachmentDescriptor descriptor,
@@ -22,7 +44,8 @@ Future<File> fetchAndDecrypt({
   final dir = await getApplicationSupportDirectory();
   final cacheDir = Directory(p.join(dir.path, 'attachments'));
   await cacheDir.create(recursive: true);
-  final cached = File(p.join(cacheDir.path, descriptor.blobKey));
+  final cached =
+      File(p.join(cacheDir.path, '${descriptor.blobKey}${_cacheExt(descriptor)}'));
   if (await cached.exists()) return cached;
 
   final granted = conn.incoming
