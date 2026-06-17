@@ -58,7 +58,8 @@ or killed app is silent.
   shows the message).
 - **Tap → thread:** tapping the notification opens the **specific room** the
   message came from (a pair can have multiple channels, so "open the app" is not
-  enough). The room opens at its **newest message** by reusing the existing
+  enough), reading the `room_id` from the push's custom data. The room opens at
+  its **newest message** by reusing the existing
   jump-to-bottom on open (`conversation_page.dart` `_jumpToBottom`) — in the
   common one-new-message case the newest message *is* the one that triggered the
   push, so the tap lands on it with no new scroll machinery. Works whether the
@@ -146,9 +147,10 @@ No new server→client frames. No REST endpoints.
   - `APNS_ENV` — `sandbox` | `production`
 - `push::notify(recipient_account_id, room_id)`:
   1. load the recipient's tokens,
-  2. build the payload (generic alert, `thread-id = room_id` — which also
-     carries the room id the tap handler reads, `mutable-content: 1`,
-     `sound: default`),
+  2. build the payload (generic alert, `mutable-content: 1`, `sound: default`,
+     and the room id as **custom data** under a `room_id` key so the tap
+     handler can deep-link; per-room notification grouping via `thread-id` is
+     deferred — the `a2` builder doesn't expose it),
   3. send to each token,
   4. on `410 Unregistered` / `BadDeviceToken`, delete that token row
      (token hygiene).
@@ -166,10 +168,11 @@ No new server→client frames. No REST endpoints.
     Dart over a `MethodChannel` (`little_love/push`).
   - Implement `UNUserNotificationCenterDelegate`; foreground presentation
     returns **no banner** (suppress when active).
-  - `didReceive(_:response:)` (tap) reads `room_id` from the payload and
-    forwards it to Dart over the `little_love/push` channel. If the tap
-    cold-launched the app, the channel **buffers** the `room_id` until Dart asks
-    for a pending launch room on startup.
+  - `didReceive(_:response:)` (tap) reads `room_id` from the payload's custom
+    data (`userInfo["room_id"]`) and forwards it to Dart over the
+    `little_love/push` channel. If the tap cold-launched the app, the channel
+    **buffers** the `room_id` until Dart asks for a pending launch room on
+    startup.
 - **Entitlements**
   - `aps-environment` (sandbox for dev builds, production for release).
   - **App Group** `group.<bundle>.shared`, shared by the app and the extension.
