@@ -2,6 +2,7 @@ pub mod accounts;
 pub mod attachments;
 pub mod config;
 pub mod invites;
+pub mod push_tokens;
 pub mod r2;
 pub mod rooms;
 pub mod routing;
