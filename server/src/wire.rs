@@ -112,6 +112,18 @@ pub enum RoomClientFrame {
         room_id: String,
         up_to_message_id: String,
     },
+    /// Register (or refresh) this device's APNs token for the authenticated
+    /// account. Sent after the OS grants notification permission and on token
+    /// refresh.
+    RegisterPush {
+        device_id: String,
+        apns_token: String,
+        environment: String,
+    },
+    /// Drop this device's APNs token (logout / permission revoked).
+    UnregisterPush {
+        device_id: String,
+    },
 }
 
 /// Post-Authenticated server frames (spec §8.2).
@@ -631,6 +643,33 @@ mod tests {
             }
             _ => panic!("expected MarkRead"),
         }
+    }
+
+    #[test]
+    fn parses_register_push_frame() {
+        let raw = r#"{"kind":"RegisterPush","device_id":"dev-1","apns_token":"abcd","environment":"sandbox"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::RegisterPush {
+                device_id,
+                apns_token,
+                environment,
+            } => {
+                assert_eq!(device_id, "dev-1");
+                assert_eq!(apns_token, "abcd");
+                assert_eq!(environment, "sandbox");
+            }
+            _ => panic!("expected RegisterPush"),
+        }
+    }
+
+    #[test]
+    fn parses_unregister_push_frame() {
+        let raw = r#"{"kind":"UnregisterPush","device_id":"dev-1"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        assert!(
+            matches!(frame, RoomClientFrame::UnregisterPush { device_id } if device_id == "dev-1")
+        );
     }
 
     #[test]

@@ -29,6 +29,7 @@ use crate::rooms::{
     list_rooms_for_account, members_for_room, partner_account_id_for, rename_room, room_detail,
     set_partner_link, CreateRoomError, Member, MonogamyError, PairError,
 };
+use crate::push_tokens::{delete_token, upsert_token};
 use crate::routing::Routing;
 use crate::store::{MessageRow, Store};
 use crate::wire::{
@@ -253,6 +254,27 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 }
                 Ok(RoomClientFrame::RequestDownload { blob_key }) => {
                     handle_request_download(&state, &me, &blob_key, &tx).await;
+                }
+                Ok(RoomClientFrame::RegisterPush {
+                    device_id,
+                    apns_token,
+                    environment,
+                }) => {
+                    if let Some(store) = state.store.as_ref() {
+                        if let Err(e) =
+                            upsert_token(store.pool(), me.id, &device_id, &apns_token, &environment)
+                                .await
+                        {
+                            warn!("RegisterPush upsert failed: {e}");
+                        }
+                    }
+                }
+                Ok(RoomClientFrame::UnregisterPush { device_id }) => {
+                    if let Some(store) = state.store.as_ref() {
+                        if let Err(e) = delete_token(store.pool(), me.id, &device_id).await {
+                            warn!("UnregisterPush delete failed: {e}");
+                        }
+                    }
                 }
                 Err(e) => warn!("invalid frame from {}: {e}", me.username),
             }
