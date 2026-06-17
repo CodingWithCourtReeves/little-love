@@ -5,7 +5,7 @@ Manages DNS, email routing, and the R2 attachment bucket for `littlelove.dev`. S
 ## What this manages
 
 - **`api.littlelove.dev` CNAME** → Railway. Gray cloud (proxy off) — see comment in `dns.tf`. Touching this is non-negotiable; orange-cloud would terminate your E2EE WSS traffic at Cloudflare's edge.
-- **Cloudflare Email Routing** → forwards `hello@littlelove.dev` and `court@littlelove.dev` to the Gmail address in `forward_to_gmail`. The MX / TXT / SPF records that email routing needs are managed by Cloudflare itself (not declared here).
+- **Cloudflare Email Routing** → forwards `privacy@littlelove.dev` to the Gmail address in `forward_to_gmail`. The MX / TXT / SPF records that email routing needs are managed by Cloudflare itself (not declared here).
 - **R2 bucket `littlelove-media`** (`r2.tf`) → stores the E2EE attachment ciphertext. No CORS config (the iOS client uses native HTTP, not a browser origin).
 
 ## What this does NOT touch

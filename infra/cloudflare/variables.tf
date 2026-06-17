@@ -16,6 +16,6 @@ variable "railway_cname_target" {
 
 variable "forward_to_gmail" {
   type        = string
-  description = "Destination Gmail address for `hello@` and `court@` aliases."
+  description = "Destination Gmail address for the `privacy@` alias."
   default     = "codingwithcourt@gmail.com"
 }
