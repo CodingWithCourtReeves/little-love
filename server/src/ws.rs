@@ -24,12 +24,13 @@ use crate::invites::{
     create_invite_record, default_expiry, lookup_invite, mark_consumed, qr_png_base64,
     room_for_invite, InviteState,
 };
+use crate::push::{should_push, PushMessage, PushSender, SendOutcome};
+use crate::push_tokens::{delete_token, delete_token_value, tokens_for_account, upsert_token};
 use crate::rooms::{
     account_id_by_username, create_room_with_members, is_member, leave_room,
     list_rooms_for_account, members_for_room, partner_account_id_for, rename_room, room_detail,
     set_partner_link, CreateRoomError, Member, MonogamyError, PairError,
 };
-use crate::push_tokens::{delete_token, upsert_token};
 use crate::routing::Routing;
 use crate::store::{MessageRow, Store};
 use crate::wire::{
@@ -40,6 +41,7 @@ use littlelove_crypto::invite::{decode_code, generate_invite, sha256};
 use littlelove_crypto::sig::{
     decode_b64, encode_b64, random_nonce, verify_invite_consume_signature, verify_signature,
 };
+use std::sync::Arc;
 
 const MAX_ROOM_NAME_CHARS: usize = 64;
 /// Hard cap on recipients per Send. Rooms with this many addressed peers are
@@ -61,6 +63,7 @@ pub struct AppState {
     pub routing: Routing,
     pub store: Option<Store>,
     pub r2: Option<crate::r2::R2Presigner>,
+    pub push: Option<Arc<dyn PushSender>>,
 }
 
 /// WSS close code for auth failures (spec §3.3 step 6).
@@ -749,7 +752,18 @@ async fn handle_send(
             read: false,
             client_msg_id: None,
         };
-        state.routing.deliver(&m.username, frame).await;
+        let delivered = state.routing.deliver(&m.username, frame).await;
+        // Offline recipient → notify their registered devices. Spawned so the
+        // APNs round-trip never blocks the sender's ack.
+        if should_push(delivered) {
+            if let (Some(sender), Some(store)) = (state.push.clone(), state.store.clone()) {
+                let recipient_id = m.account_id;
+                let room = room_id.to_string();
+                tokio::spawn(async move {
+                    notify_recipient(&sender, &store, recipient_id, &room).await;
+                });
+            }
+        }
     }
     // Echo the self-copy live to every open session for the sender, carrying
     // `client_msg_id` so the originating session can swap its optimistic echo
@@ -1091,6 +1105,37 @@ async fn handle_leave_room(
             continue;
         }
         state.routing.deliver(&m.username, frame.clone()).await;
+    }
+}
+
+/// Fan a single content-free push out to every registered device of an offline
+/// recipient, deleting any token APNs reports as permanently dead.
+async fn notify_recipient(
+    sender: &Arc<dyn PushSender>,
+    store: &Store,
+    recipient_account_id: i64,
+    room_id: &str,
+) {
+    let tokens = match tokens_for_account(store.pool(), recipient_account_id).await {
+        Ok(t) => t,
+        Err(e) => {
+            warn!("push: tokens_for_account failed: {e}");
+            return;
+        }
+    };
+    for t in tokens {
+        let msg = PushMessage {
+            token: t.apns_token.clone(),
+            environment: t.environment,
+            room_id: room_id.to_string(),
+        };
+        if let SendOutcome::DropToken = sender.send(&msg).await {
+            if let Err(e) =
+                delete_token_value(store.pool(), recipient_account_id, &t.apns_token).await
+            {
+                warn!("push: delete_token_value failed: {e}");
+            }
+        }
     }
 }
 

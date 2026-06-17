@@ -40,10 +40,25 @@ async fn main() -> Result<()> {
             None
         }
     };
+    let push: Option<std::sync::Arc<dyn littlelove_api::push::PushSender>> = match cfg.apns.as_ref()
+    {
+        Some(apnscfg) => match littlelove_api::push::ApnsSender::new(apnscfg) {
+            Ok(s) => Some(std::sync::Arc::new(s)),
+            Err(e) => {
+                tracing::warn!("APNs sender init failed; push disabled: {e}");
+                None
+            }
+        },
+        None => {
+            tracing::warn!("APNS_* env unset; push notifications disabled");
+            None
+        }
+    };
     let state = AppState {
         routing: Routing::new(),
         store,
         r2,
+        push,
     };
     let app = Router::new()
         .route("/health", get(health))

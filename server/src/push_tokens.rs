@@ -60,7 +60,10 @@ pub async fn delete_token_value(
 }
 
 /// All registered tokens for an account (across the human's devices).
-pub async fn tokens_for_account(pool: &PgPool, account_id: i64) -> anyhow::Result<Vec<DeviceToken>> {
+pub async fn tokens_for_account(
+    pool: &PgPool,
+    account_id: i64,
+) -> anyhow::Result<Vec<DeviceToken>> {
     let rows = sqlx::query_as::<_, (String, String)>(
         "SELECT apns_token, environment FROM device_push_tokens WHERE account_id = $1",
     )
