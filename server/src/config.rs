@@ -14,10 +14,24 @@ pub struct R2Config {
 }
 
 #[derive(Debug, Clone)]
+pub struct ApnsConfig {
+    /// Contents of the `.p8` APNs auth key (PEM). Provided directly, not a path,
+    /// so it travels as a single deploy secret.
+    pub key_p8: String,
+    pub key_id: String,
+    pub team_id: String,
+    /// APNs topic — the app bundle id.
+    pub topic: String,
+    /// `sandbox` (dev builds) or `production`.
+    pub environment: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct ServerConfig {
     pub port: u16,
     pub database_url: Option<String>,
     pub r2: Option<R2Config>,
+    pub apns: Option<ApnsConfig>,
 }
 
 impl ServerConfig {
@@ -28,11 +42,24 @@ impl ServerConfig {
             .unwrap_or(7707);
         let database_url = env::var("DATABASE_URL").ok().filter(|s| !s.is_empty());
         let r2 = Self::r2_from_env();
+        let apns = Self::apns_from_env();
         Self {
             port,
             database_url,
             r2,
+            apns,
         }
+    }
+
+    fn apns_from_env() -> Option<ApnsConfig> {
+        let get = |k: &str| env::var(k).ok().filter(|s| !s.is_empty());
+        Some(ApnsConfig {
+            key_p8: get("APNS_KEY_P8")?,
+            key_id: get("APNS_KEY_ID")?,
+            team_id: get("APNS_TEAM_ID")?,
+            topic: get("APNS_TOPIC")?,
+            environment: get("APNS_ENV").unwrap_or_else(|| "sandbox".to_string()),
+        })
     }
 
     fn r2_from_env() -> Option<R2Config> {
@@ -94,6 +121,52 @@ mod tests {
         ] {
             std::env::remove_var(k);
         }
+    }
+
+    #[test]
+    #[serial]
+    fn apns_config_present_when_all_vars_set() {
+        for (k, v) in [
+            (
+                "APNS_KEY_P8",
+                "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----",
+            ),
+            ("APNS_KEY_ID", "KEY123"),
+            ("APNS_TEAM_ID", "TEAM456"),
+            ("APNS_TOPIC", "dev.littlelove.littlelove"),
+            ("APNS_ENV", "sandbox"),
+        ] {
+            std::env::set_var(k, v);
+        }
+        let cfg = ServerConfig::from_env();
+        let apns = cfg.apns.expect("apns config Some when all vars set");
+        assert_eq!(apns.key_id, "KEY123");
+        assert_eq!(apns.topic, "dev.littlelove.littlelove");
+        assert_eq!(apns.environment, "sandbox");
+        for k in [
+            "APNS_KEY_P8",
+            "APNS_KEY_ID",
+            "APNS_TEAM_ID",
+            "APNS_TOPIC",
+            "APNS_ENV",
+        ] {
+            std::env::remove_var(k);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn apns_config_absent_when_vars_missing() {
+        for k in [
+            "APNS_KEY_P8",
+            "APNS_KEY_ID",
+            "APNS_TEAM_ID",
+            "APNS_TOPIC",
+            "APNS_ENV",
+        ] {
+            std::env::remove_var(k);
+        }
+        assert!(ServerConfig::from_env().apns.is_none());
     }
 
     #[test]
