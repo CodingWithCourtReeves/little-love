@@ -10,6 +10,12 @@ class TwilightColors {
   static const textPrimary = Color(0xFF2A1F2A);
   static const textMuted = Color(0xFF7C6C78);
   static const accentUser = Color(0xFFA04A6A);
+
+  /// Lightened [accentUser] — the trailing heart of the read (double-heart)
+  /// marker. A theme token so a future palette switcher recolors it alongside
+  /// [accentUser] instead of it being baked into the SVG asset.
+  static const accentUserSoft = Color(0xFFC98EA3);
+
   static const accentPartner = Color(0xFF9C7E94);
 
   /// Sage accent used for section labels, channel chrome, and step markers.

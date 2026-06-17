@@ -1,6 +1,8 @@
 import '../attachment/attachment_descriptor.dart';
 
-enum SendStatus { sent, sending, failed }
+/// `read` means the partner has opened the chat and seen this message (the
+/// double-heart state); it only ever applies to my own outgoing messages.
+enum SendStatus { sent, sending, failed, read }
 
 class Msg {
   Msg({

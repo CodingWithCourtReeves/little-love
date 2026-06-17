@@ -89,6 +89,22 @@ void main() {
     expect(out.single.id, 'ULID-real');
   });
 
+  test('markRead flips matching ids to SendStatus.read, leaves others', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(_msg('m1', 'one'));
+    store.add(_msg('m2', 'two'));
+    store.add(_msg('m3', 'three'));
+
+    store.markRead(['m1', 'm3']);
+
+    final out = container.read(messageStoreProvider('r1'));
+    expect(out.firstWhere((m) => m.id == 'm1').sendStatus, SendStatus.read);
+    expect(out.firstWhere((m) => m.id == 'm3').sendStatus, SendStatus.read);
+    expect(out.firstWhere((m) => m.id == 'm2').sendStatus, SendStatus.sent);
+  });
+
   test('updateStatus changes sendStatus on the matching id', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);

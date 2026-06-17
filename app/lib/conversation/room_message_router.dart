@@ -77,6 +77,9 @@ class RoomMessageRouter {
       case MessageFrame():
         await _ingestMessage(f);
 
+      case ReadFrame(:final roomId, :final messageIds):
+        ref.read(messageStoreProvider(roomId).notifier).markRead(messageIds);
+
       case InviteCreatedFrame():
       case RoomErrorFrame():
       case UploadGrantedFrame():
@@ -131,6 +134,9 @@ class RoomMessageRouter {
     final content = plaintext == cannotDecryptSentinel
         ? const TextContent(cannotDecryptSentinel)
         : MessageContent.decode(plaintext);
+    // `read` is only set on the sender's own self-copy that the partner has
+    // seen; replay it as the double-heart state. Otherwise default sent.
+    final sendStatus = f.read ? SendStatus.read : SendStatus.sent;
     final msg = switch (content) {
       TextContent(:final text) => Msg(
         id: f.id,
@@ -139,6 +145,7 @@ class RoomMessageRouter {
         body: text,
         ts: f.ts,
         replayed: f.replayed,
+        sendStatus: sendStatus,
       ),
       FileContent(:final descriptor) => Msg(
         id: f.id,
@@ -148,6 +155,7 @@ class RoomMessageRouter {
         ts: f.ts,
         replayed: f.replayed,
         attachment: descriptor,
+        sendStatus: sendStatus,
       ),
     };
     final store = ref.read(messageStoreProvider(f.roomId).notifier);
@@ -161,6 +169,17 @@ class RoomMessageRouter {
       store.reconcile(f.clientMsgId!, msg);
     } else {
       store.add(msg);
+      // A live partner message landing in the open room should flip the
+      // sender's bubble to a double heart now, not on the next reopen.
+      // `clientMsgId == null && !replayed` is precisely a live partner message
+      // (my own live self-copy always carries a clientMsgId, handled above;
+      // replays are covered by the open trigger and must not spam a MarkRead
+      // per row). The watermark in sendMarkRead already covers this message
+      // since it's in the store before this runs.
+      if (!f.replayed &&
+          ref.read(inboxStateProvider).selectedRoomId == f.roomId) {
+        sendMarkRead(ref, f.roomId);
+      }
     }
   }
 

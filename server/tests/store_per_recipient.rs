@@ -21,6 +21,7 @@ async fn insert_and_replay_per_recipient() {
                 recipient_account_id: rcpt,
                 body: body.into(),
                 ts,
+                read: false,
             })
             .await
             .unwrap();
@@ -62,6 +63,7 @@ async fn since_message_id_skips_replay_at_or_before() {
                 recipient_account_id: kait,
                 body: body.into(),
                 ts,
+                read: false,
             })
             .await
             .unwrap();

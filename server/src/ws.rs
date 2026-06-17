@@ -232,6 +232,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 Ok(RoomClientFrame::LeaveRoom { room_id }) => {
                     handle_leave_room(&state, &me, &room_id, &tx).await;
                 }
+                Ok(RoomClientFrame::MarkRead {
+                    room_id,
+                    up_to_message_id,
+                }) => {
+                    handle_mark_read(&state, &me, &room_id, &up_to_message_id, &tx).await;
+                }
                 Ok(RoomClientFrame::RequestUpload {
                     request_id,
                     room_id,
@@ -539,8 +545,62 @@ async fn handle_subscribe(
             ts: row.ts,
             body: row.body,
             replayed: true,
+            read: row.read,
             client_msg_id: None,
         });
+    }
+}
+
+async fn handle_mark_read(
+    state: &AppState,
+    me: &AccountRecord,
+    room_id: &str,
+    up_to_message_id: &str,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => {
+            send_error(tx, "Internal", "store unavailable");
+            return;
+        }
+    };
+    match is_member(store.pool(), room_id, me.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            send_error(tx, error_codes::UNKNOWN_ROOM, "");
+            return;
+        }
+        Err(e) => {
+            warn!("is_member failed: {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+    }
+    let flipped = match store.mark_read(room_id, me.id, up_to_message_id).await {
+        Ok(f) => f,
+        Err(e) => {
+            warn!("mark_read failed: {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+    };
+    // Group the just-read ids by sender, then relay one Read frame per sender.
+    let mut by_sender: HashMap<i64, Vec<String>> = HashMap::new();
+    for (id, from_account_id) in flipped {
+        by_sender.entry(from_account_id).or_default().push(id);
+    }
+    for (from_account_id, message_ids) in by_sender {
+        let sender = match lookup_full_account_by_id(store, from_account_id).await {
+            Ok(Some(a)) => a.username,
+            _ => continue,
+        };
+        let frame = RoomServerFrame::Read {
+            room_id: room_id.to_string(),
+            message_ids,
+            reader: me.username.clone(),
+        };
+        state.routing.deliver(&sender, frame).await;
     }
 }
 
@@ -628,6 +688,7 @@ async fn handle_send(
             recipient_account_id: m.account_id,
             body: body.clone(),
             ts,
+            read: false,
         });
     }
     if has_self_copy {
@@ -639,6 +700,7 @@ async fn handle_send(
                 recipient_account_id: me.id,
                 body: body.clone(),
                 ts,
+                read: false,
             });
         }
     }
@@ -662,6 +724,7 @@ async fn handle_send(
             ts,
             body: body.clone(),
             replayed: false,
+            read: false,
             client_msg_id: None,
         };
         state.routing.deliver(&m.username, frame).await;
@@ -679,6 +742,7 @@ async fn handle_send(
                 ts,
                 body: body.clone(),
                 replayed: false,
+                read: false,
                 client_msg_id: Some(client_msg_id),
             };
             state.routing.deliver(&me.username, frame).await;
