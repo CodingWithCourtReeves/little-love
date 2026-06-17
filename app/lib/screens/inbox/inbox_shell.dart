@@ -1,7 +1,20 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
+import '../../attachment/attachment_descriptor.dart';
+import '../../attachment/attachment_download.dart';
+import '../../attachment/attachment_upload.dart';
+import '../../attachment/attachment_viewer.dart';
+import '../../attachment/file_crypto.dart';
+import '../../attachment/thumbnail.dart';
 import '../../conversation/conversation_page.dart';
+import '../../conversation/message_content.dart';
 import '../../conversation/message_store.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../conversation/room_message_router.dart';
@@ -160,6 +173,9 @@ class InboxShell extends ConsumerWidget {
       selfUsername: account.username,
       onSend: (text) => _sendEncrypted(ref, room, text),
       onRetry: (clientMsgId) => _retry(ref, clientMsgId),
+      onAttach: () => _pickAndSend(ref, room, context),
+      onOpenAttachment: (descriptor) =>
+          _openAttachment(ref, room, context, descriptor),
       onRename: (newName) {
         final conn = ref.read(liveConnectionProvider).asData?.value;
         conn?.send(
@@ -185,7 +201,7 @@ class InboxShell extends ConsumerWidget {
         room: room,
         me: me,
         selfUsername: account.username,
-        plaintext: text,
+        plaintext: TextContent(text).encode(),
         cache: cache,
         clientMsgId: clientMsgId,
       );
@@ -220,6 +236,209 @@ class InboxShell extends ConsumerWidget {
             .updateStatus(clientMsgId, SendStatus.failed);
       } else {
         debugPrint('outbox enqueue failed before insert: $e');
+      }
+    }
+  }
+
+  /// Encrypt + upload an attachment, then send it as a `kind:"file"` message
+  /// through the same outbox path as text. The optimistic bubble carries the
+  /// locally built descriptor (incl. inline thumb) so the preview shows
+  /// immediately; the authoritative row replaces it on the server echo.
+  Future<void> _sendAttachment(
+    WidgetRef ref,
+    Room room,
+    BuildContext context, {
+    required Uint8List bytes,
+    required String filename,
+    required String mime,
+    String? videoPath,
+  }) async {
+    final clientMsgId = ref.read(outboxIdGenProvider)();
+    final conn = ref.read(liveConnectionProvider).asData?.value;
+    if (conn == null) return;
+    if (bytes.length > 256 * 1024 * 1024) {
+      // Mirrors the server's MAX_ATTACHMENT_BYTES (spec §4); 256 MiB keeps the
+      // ~2× in-memory decrypt peak clear of iOS jetsam.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('That file is too large (max 256 MB).')),
+      );
+      return;
+    }
+    try {
+      final thumb = mime.startsWith('video/') && videoPath != null
+          ? await buildVideoThumbnail(videoPath)
+          : await buildImageThumbnail(bytes);
+      final enc = await encryptFileBytes(bytes);
+      final blobKey = await uploadCiphertext(
+        conn: conn,
+        roomId: room.roomId,
+        ciphertext: enc.ciphertext,
+      );
+
+      final descriptor = AttachmentDescriptor(
+        blobKey: blobKey,
+        contentKeyB64: base64.encode(enc.key),
+        nonceB64: base64.encode(enc.nonce),
+        mime: mime,
+        filename: filename,
+        size: bytes.length,
+        width: thumb.width,
+        height: thumb.height,
+        durationMs: null, // populated for video in a follow-up if needed
+        thumbB64: await encodeThumb(thumb.jpeg),
+      );
+
+      final me = await ref.read(currentIdentityProvider.future);
+      final frame = await buildSendFrame(
+        room: room,
+        me: me,
+        selfUsername: account.username,
+        plaintext: FileContent(descriptor).encode(),
+        cache: ref.read(roomKeyCacheProvider),
+        clientMsgId: clientMsgId,
+      );
+      final store = await ref.read(outboxStoreProvider.future);
+      await store.enqueue(
+        clientMsgId: clientMsgId,
+        roomId: room.roomId,
+        bodies: frame.bodies,
+      );
+      ref
+          .read(messageStoreProvider(room.roomId).notifier)
+          .add(
+            Msg(
+              id: clientMsgId,
+              from: account.username,
+              to: room.roomId,
+              body: '',
+              ts: DateTime.now().toUtc(),
+              clientMsgId: clientMsgId,
+              sendStatus: SendStatus.sending,
+              attachment: descriptor,
+            ),
+          );
+      await ref.read(outboxDrainProvider).kick();
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't send attachment.")),
+      );
+    }
+  }
+
+  Future<void> _pickAndSend(
+    WidgetRef ref,
+    Room room,
+    BuildContext context,
+  ) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (_) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Photo Library'),
+              onTap: () => Navigator.pop(context, 'photos'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.insert_drive_file_outlined),
+              title: const Text('Choose File'),
+              onTap: () => Navigator.pop(context, 'file'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!context.mounted) return;
+    if (choice == 'photos') {
+      // imageQuality forces iOS to re-encode the picked image to JPEG. iOS
+      // Photos delivers HEIC, which the pure-Dart `image` package can't decode
+      // (thumbnail build would throw); JPEG is decodable and universally
+      // viewable. Videos picked here are unaffected by imageQuality.
+      final picked = await ImagePicker().pickMultipleMedia(imageQuality: 90);
+      if (picked.isEmpty || !context.mounted) return;
+      // Send each pick in selection order, sequentially so the optimistic
+      // bubbles and uploads stay ordered.
+      for (final item in picked) {
+        final bytes = await item.readAsBytes();
+        final mime = _mimeFor(item.name, item.mimeType);
+        if (!context.mounted) return;
+        await _sendAttachment(
+          ref,
+          room,
+          context,
+          bytes: bytes,
+          filename: item.name,
+          mime: mime,
+          videoPath: mime.startsWith('video/') ? item.path : null,
+        );
+      }
+    } else if (choice == 'file') {
+      final res = await FilePicker.pickFiles(
+        withReadStream: false,
+        allowMultiple: true,
+      );
+      if (res == null || res.files.isEmpty || !context.mounted) return;
+      for (final f in res.files) {
+        if (f.path == null) continue;
+        final bytes = await File(f.path!).readAsBytes();
+        final mime = _mimeFor(f.name, null);
+        if (!context.mounted) return;
+        await _sendAttachment(
+          ref,
+          room,
+          context,
+          bytes: bytes,
+          filename: f.name,
+          mime: mime,
+          videoPath: mime.startsWith('video/') ? f.path : null,
+        );
+      }
+    }
+  }
+
+  String _mimeFor(String name, String? hint) {
+    if (hint != null && hint.isNotEmpty) return hint;
+    final lower = name.toLowerCase();
+    if (lower.endsWith('.mp4') || lower.endsWith('.mov')) return 'video/mp4';
+    if (lower.endsWith('.png')) return 'image/png';
+    return 'image/jpeg';
+  }
+
+  Future<void> _openAttachment(
+    WidgetRef ref,
+    Room room,
+    BuildContext context,
+    AttachmentDescriptor descriptor,
+  ) async {
+    final conn = ref.read(liveConnectionProvider).asData?.value;
+    if (conn == null) return;
+    // A modal barrier does double duty: it blocks repeated taps (which would
+    // each re-download the blob and push another viewer — the bug seen on a
+    // slow video) and shows a spinner so the wait doesn't feel frozen. The
+    // first open downloads + decrypts; later opens are instant (on-disk cache).
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      final file = await fetchAndDecrypt(conn: conn, descriptor: descriptor);
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // dismiss the loader
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => AttachmentViewer(file: file, descriptor: descriptor),
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) Navigator.of(context).pop();
+      debugPrint('open attachment failed: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open attachment: $e')),
+        );
       }
     }
   }

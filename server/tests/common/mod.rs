@@ -11,7 +11,9 @@ use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use futures::{SinkExt, StreamExt};
 use littlelove_api::{
     accounts::{create_account, get_account_by_username},
+    config::R2Config,
     invites::preview_invite,
+    r2::R2Presigner,
     routing::Routing,
     store::Store,
     ws::{ws_handler, AppState},
@@ -34,6 +36,7 @@ pub async fn fresh_store() -> Store {
     // Truncate the dependent tables first, then the parents, with CASCADE on
     // accounts and rooms to catch anything we missed.
     for table in [
+        "TRUNCATE TABLE attachments",
         "TRUNCATE TABLE messages",
         "TRUNCATE TABLE room_members",
         "TRUNCATE TABLE rooms CASCADE",
@@ -48,10 +51,22 @@ pub async fn fresh_store() -> Store {
     store
 }
 
+pub fn test_presigner() -> R2Presigner {
+    R2Presigner::new(&R2Config {
+        account_id: "acct123".into(),
+        bucket: "littlelove-media".into(),
+        access_key_id: "AKIDEXAMPLE".into(),
+        secret_access_key: "secretexample".into(),
+        endpoint: None,
+    })
+    .unwrap()
+}
+
 pub fn build_app(store: Option<Store>) -> Router {
     let state = AppState {
         routing: Routing::new(),
         store,
+        r2: Some(test_presigner()),
     };
     Router::new()
         .route("/accounts", post(create_account))

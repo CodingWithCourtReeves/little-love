@@ -98,7 +98,9 @@ class LivePairingTransport implements PairingTransport {
           RoomRenamedFrame() ||
           MemberLeftFrame() ||
           MessageFrame() ||
-          ReadFrame():
+          ReadFrame() ||
+          UploadGrantedFrame() ||
+          DownloadGrantedFrame():
         break;
     }
   }

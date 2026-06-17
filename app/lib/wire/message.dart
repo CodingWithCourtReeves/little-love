@@ -1,3 +1,5 @@
+import '../attachment/attachment_descriptor.dart';
+
 /// `read` means the partner has opened the chat and seen this message (the
 /// double-heart state); it only ever applies to my own outgoing messages.
 enum SendStatus { sent, sending, failed, read }
@@ -12,6 +14,7 @@ class Msg {
     this.replayed = false,
     this.clientMsgId,
     this.sendStatus = SendStatus.sent,
+    this.attachment,
   });
 
   final String id;
@@ -29,6 +32,10 @@ class Msg {
   final String? clientMsgId;
 
   final SendStatus sendStatus;
+
+  /// Present when this message carries a `kind:"file"` attachment instead of
+  /// (or alongside) text. Holds the per-file key + metadata + inline thumb.
+  final AttachmentDescriptor? attachment;
 
   factory Msg.fromJson(Map<String, Object?> json) {
     return Msg(
@@ -54,7 +61,11 @@ class Msg {
     return m;
   }
 
-  Msg copyWith({String? id, SendStatus? sendStatus}) {
+  Msg copyWith({
+    String? id,
+    SendStatus? sendStatus,
+    AttachmentDescriptor? attachment,
+  }) {
     return Msg(
       id: id ?? this.id,
       from: from,
@@ -64,6 +75,7 @@ class Msg {
       replayed: replayed,
       clientMsgId: clientMsgId,
       sendStatus: sendStatus ?? this.sendStatus,
+      attachment: attachment ?? this.attachment,
     );
   }
 }

@@ -192,6 +192,19 @@ sealed class RoomServerFrame {
           messageIds: (json['message_ids']! as List<dynamic>).cast<String>(),
           reader: json['reader']! as String,
         );
+      case 'UploadGranted':
+        return UploadGrantedFrame(
+          requestId: json['request_id']! as String,
+          blobKey: json['blob_key']! as String,
+          url: json['url']! as String,
+          expiresAt: DateTime.parse(json['expires_at']! as String).toUtc(),
+        );
+      case 'DownloadGranted':
+        return DownloadGrantedFrame(
+          blobKey: json['blob_key']! as String,
+          url: json['url']! as String,
+          expiresAt: DateTime.parse(json['expires_at']! as String).toUtc(),
+        );
       case 'Error':
         return RoomErrorFrame(
           code: json['code']! as String,
@@ -306,6 +319,30 @@ class RoomErrorFrame extends RoomServerFrame {
   final String message;
 }
 
+class UploadGrantedFrame extends RoomServerFrame {
+  const UploadGrantedFrame({
+    required this.requestId,
+    required this.blobKey,
+    required this.url,
+    required this.expiresAt,
+  });
+  final String requestId;
+  final String blobKey;
+  final String url;
+  final DateTime expiresAt;
+}
+
+class DownloadGrantedFrame extends RoomServerFrame {
+  const DownloadGrantedFrame({
+    required this.blobKey,
+    required this.url,
+    required this.expiresAt,
+  });
+  final String blobKey;
+  final String url;
+  final DateTime expiresAt;
+}
+
 // ---------- Outbound (client → server) ----------
 
 class ConsumeInviteFrame {
@@ -397,5 +434,33 @@ class LeaveRoomFrame {
   Map<String, Object?> toJson() => <String, Object?>{
     'kind': 'LeaveRoom',
     'room_id': roomId,
+  };
+}
+
+class RequestUploadFrame {
+  const RequestUploadFrame({
+    required this.requestId,
+    required this.roomId,
+    required this.byteSize,
+  });
+  final String requestId;
+  final String roomId;
+  final int byteSize;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'RequestUpload',
+    'request_id': requestId,
+    'room_id': roomId,
+    'byte_size': byteSize,
+  };
+}
+
+class RequestDownloadFrame {
+  const RequestDownloadFrame({required this.blobKey});
+  final String blobKey;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'RequestDownload',
+    'blob_key': blobKey,
   };
 }

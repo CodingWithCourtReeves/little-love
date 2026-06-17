@@ -12,6 +12,7 @@ import '../pairing/encryption.dart';
 import '../wire/frames.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
+import 'message_content.dart';
 import 'message_store.dart';
 import 'room_key_cache.dart';
 
@@ -81,7 +82,9 @@ class RoomMessageRouter {
 
       case InviteCreatedFrame():
       case RoomErrorFrame():
-        // Owned by LivePairingTransport / CreateChat screens.
+      case UploadGrantedFrame():
+      case DownloadGrantedFrame():
+        // Owned by LivePairingTransport / attachment upload+download flows.
         break;
     }
   }
@@ -126,17 +129,35 @@ class RoomMessageRouter {
           me: me,
         );
     final plaintext = await decryptIncoming(key, f.body);
-    final msg = Msg(
-      id: f.id,
-      from: f.from,
-      to: f.roomId,
-      body: plaintext,
-      ts: f.ts,
-      replayed: f.replayed,
-      // `read` is only set on the sender's own self-copy that the partner has
-      // seen; replay it as the double-heart state. Otherwise default sent.
-      sendStatus: f.read ? SendStatus.read : SendStatus.sent,
-    );
+    // A decrypt failure returns the sentinel; render it as text verbatim
+    // rather than trying to parse it as an envelope.
+    final content = plaintext == cannotDecryptSentinel
+        ? const TextContent(cannotDecryptSentinel)
+        : MessageContent.decode(plaintext);
+    // `read` is only set on the sender's own self-copy that the partner has
+    // seen; replay it as the double-heart state. Otherwise default sent.
+    final sendStatus = f.read ? SendStatus.read : SendStatus.sent;
+    final msg = switch (content) {
+      TextContent(:final text) => Msg(
+        id: f.id,
+        from: f.from,
+        to: f.roomId,
+        body: text,
+        ts: f.ts,
+        replayed: f.replayed,
+        sendStatus: sendStatus,
+      ),
+      FileContent(:final descriptor) => Msg(
+        id: f.id,
+        from: f.from,
+        to: f.roomId,
+        body: '',
+        ts: f.ts,
+        replayed: f.replayed,
+        attachment: descriptor,
+        sendStatus: sendStatus,
+      ),
+    };
     final store = ref.read(messageStoreProvider(f.roomId).notifier);
     // Live self-copy of our own message: swap the optimistic echo (keyed by
     // clientMsgId) for this authoritative row instead of appending a duplicate.

@@ -1,6 +1,8 @@
 pub mod accounts;
+pub mod attachments;
 pub mod config;
 pub mod invites;
+pub mod r2;
 pub mod rooms;
 pub mod routing;
 pub mod store;
