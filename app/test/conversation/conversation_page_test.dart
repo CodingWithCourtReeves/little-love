@@ -109,4 +109,49 @@ void main() {
     await tester.pump();
     expect(sent, 'hi');
   });
+
+  testWidgets('typing re-asserts true on a heartbeat, then stops when idle', (
+    tester,
+  ) async {
+    final events = <bool>[];
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildTwilightTheme(),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+            onTyping: events.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Leading edge: first keystroke emits a single `true`.
+    await tester.enterText(find.byKey(const Key('composer')), 'h');
+    await tester.pump();
+    expect(events, [true]);
+
+    // Heartbeat (~3s) re-asserts `true` while still composing — this is the
+    // fix: without it the partner's bubble would expire mid-typing.
+    await tester.pump(const Duration(seconds: 3));
+    expect(events, [true, true]);
+
+    // No further keystrokes: the 4s idle timer fires `false` and cancels the
+    // heartbeat (so no more events accumulate afterwards).
+    await tester.pump(const Duration(seconds: 2));
+    expect(events, [true, true, false]);
+    await tester.pump(const Duration(seconds: 4));
+    expect(events, [true, true, false], reason: 'heartbeat stopped after idle');
+  });
 }

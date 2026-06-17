@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
@@ -48,6 +49,11 @@ class _DayItem extends _Item {
 class _GapItem extends _Item {
   const _GapItem(this.time);
   final DateTime time;
+}
+
+/// Bottom-of-chat placeholder for the partner's live "typing…" bubble.
+class _TypingItem extends _Item {
+  const _TypingItem();
 }
 
 /// Per-message status marker drawn inside my own bubble, Telegram style: a
@@ -124,7 +130,8 @@ class ConversationPage extends ConsumerStatefulWidget {
   ConsumerState<ConversationPage> createState() => _ConversationPageState();
 }
 
-class _ConversationPageState extends ConsumerState<ConversationPage> {
+class _ConversationPageState extends ConsumerState<ConversationPage>
+    with WidgetsBindingObserver {
   final _controller = TextEditingController();
   final _emojiOverlay = OverlayPortalController();
   final _emojiLink = LayerLink();
@@ -142,13 +149,29 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
   /// Whether we've sent `typing:true` and not yet sent the matching `false`.
   bool _typingActive = false;
   Timer? _typingStop;
+  Timer? _typingHeartbeat;
+
+  /// How long after the last keystroke we declare typing stopped.
   static const _typingStopDelay = Duration(seconds: 4);
+
+  /// How often we re-assert `typing:true` while composing. Must stay under the
+  /// receiver's safety timeout (see [TypingNotifier]) so the partner's bubble
+  /// never expires mid-typing, and so a dropped frame / reconnect self-heals.
+  static const _typingHeartbeatInterval = Duration(seconds: 3);
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance.addObserver(this);
     SchedulerBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Backgrounding drops the socket and freezes timers; clear typing so a
+    // stale `_typingActive` flag can't suppress the next `true` on resume.
+    if (state != AppLifecycleState.resumed) _stopTyping();
   }
 
   void _onScroll() {
@@ -179,7 +202,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _controller.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     _typingStop?.cancel();
+    _typingHeartbeat?.cancel();
     // Leaving the room while composing: tell the partner we stopped.
     if (_typingActive) widget.onTyping?.call(false);
     super.dispose();
@@ -225,6 +250,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     if (!_typingActive) {
       _typingActive = true;
       widget.onTyping!(true);
+      // Re-assert `true` on a heartbeat so the partner's bubble doesn't expire
+      // while we keep typing, and so a dropped frame / reconnect re-syncs.
+      _typingHeartbeat = Timer.periodic(_typingHeartbeatInterval, (_) {
+        if (_typingActive) widget.onTyping?.call(true);
+      });
     }
     _typingStop?.cancel();
     _typingStop = Timer(_typingStopDelay, _stopTyping);
@@ -232,6 +262,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
   void _stopTyping() {
     _typingStop?.cancel();
+    _typingHeartbeat?.cancel();
+    _typingHeartbeat = null;
     if (_typingActive) {
       _typingActive = false;
       widget.onTyping?.call(false);
@@ -391,6 +423,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     final sorted = [...messages]..sort((a, b) => a.ts.compareTo(b.ts));
     final status = _statusModel(sorted, me);
     final items = _itemize(sorted).reversed.toList();
+    // The list is reversed, so index 0 is the visual bottom. The typing row
+    // lives there permanently (collapsed to zero height when idle) and animates
+    // its height in/out — keeping it in the list avoids an insert/remove that
+    // would shift every index and make the messages above jump.
+    final partnerTyping = ref.watch(typingProvider(widget.roomId));
+    items.insert(0, const _TypingItem());
     return Scaffold(
       backgroundColor: TwilightColors.bgCanvas,
       appBar: AppBar(
@@ -446,16 +484,35 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
                   itemCount: items.length,
                   itemBuilder: (_, i) {
                     final item = items[i];
-                    return switch (item) {
-                      _BubbleItem(:final msg) => _bubble(
-                        msg,
-                        me,
-                        status.inBubble[msg.id],
-                        status.failedRun[msg.id],
+                    // Stable per-row key: without it, inserting/removing the
+                    // typing row shifts every index and ListView reuses
+                    // elements by position, rebuilding all visible bubbles
+                    // (a visible flash). Keying lets Flutter see the messages
+                    // just moved one slot and mount only the new row.
+                    final (Key key, Widget child) = switch (item) {
+                      _BubbleItem(:final msg) => (
+                        ValueKey('msg-${msg.id}'),
+                        _bubble(
+                          msg,
+                          me,
+                          status.inBubble[msg.id],
+                          status.failedRun[msg.id],
+                        ),
                       ),
-                      _DayItem(:final day) => _daySeparator(day),
-                      _GapItem(:final time) => _gapHeader(time),
+                      _DayItem(:final day) => (
+                        ValueKey('day-${day.toIso8601String()}'),
+                        _daySeparator(day),
+                      ),
+                      _GapItem(:final time) => (
+                        ValueKey('gap-${time.toIso8601String()}'),
+                        _gapHeader(time),
+                      ),
+                      _TypingItem() => (
+                        const ValueKey('typing'),
+                        _TypingBubble(active: partnerTyping),
+                      ),
                     };
+                    return KeyedSubtree(key: key, child: child);
                   },
                 ),
                 Positioned(
@@ -481,8 +538,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
               ],
             ),
           ),
-          if (ref.watch(typingProvider(widget.roomId)))
-            const _TypingIndicator(),
           _composer(),
         ],
       ),
@@ -1096,21 +1151,46 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
   }
 }
 
-/// Telegram-style "typing…" row shown above the composer while the partner is
-/// composing. Three dots pulse in sequence.
-class _TypingIndicator extends StatefulWidget {
-  const _TypingIndicator();
+/// The partner's live "typing…" bubble, rendered in the conversation flow at
+/// the bottom of the list (partner side, like an incoming message). Three dots
+/// rise and fade in a staggered wave. The row is always present but collapses
+/// to zero height when [active] is false; [AnimatedSize] grows/shrinks it so
+/// the messages above slide rather than jump.
+class _TypingBubble extends StatefulWidget {
+  const _TypingBubble({required this.active});
+
+  final bool active;
 
   @override
-  State<_TypingIndicator> createState() => _TypingIndicatorState();
+  State<_TypingBubble> createState() => _TypingBubbleState();
 }
 
-class _TypingIndicatorState extends State<_TypingIndicator>
+class _TypingBubbleState extends State<_TypingBubble>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 1),
-  )..repeat();
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    // Created eagerly here (not lazily) so dispose() never instantiates a
+    // ticker during teardown when the bubble was never active.
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    );
+    if (widget.active) _c.repeat();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TypingBubble oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Only spend animation cycles while the bubble is actually showing.
+    if (widget.active && !_c.isAnimating) {
+      _c.repeat();
+    } else if (!widget.active && _c.isAnimating) {
+      _c.stop();
+    }
+  }
 
   @override
   void dispose() {
@@ -1120,22 +1200,39 @@ class _TypingIndicatorState extends State<_TypingIndicator>
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      key: const Key('typing-indicator'),
-      width: double.infinity,
-      color: TwilightColors.bgSurface,
-      padding: const EdgeInsets.fromLTRB(20, 2, 16, 6),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var i = 0; i < 3; i++) _dot(i),
-          const SizedBox(width: 8),
-          const Text(
-            'typing…',
-            style: TextStyle(color: TwilightColors.textMuted, fontSize: 12),
-          ),
-        ],
-      ),
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      // Grow upward from the bottom so the row expands into the gap above it.
+      alignment: Alignment.bottomLeft,
+      child: widget.active
+          ? Align(
+              key: const Key('typing-indicator'),
+              alignment: Alignment.centerLeft,
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                decoration: BoxDecoration(
+                  color: TwilightColors.bubblePartnerBg,
+                  // A softened bottom-left corner gives the bubble a tail.
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
+                    bottomRight: Radius.circular(16),
+                    bottomLeft: Radius.circular(5),
+                  ),
+                  border: Border.all(color: TwilightColors.borderSoft),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [for (var i = 0; i < 3; i++) _dot(i)],
+                ),
+              ),
+            )
+          : const SizedBox(width: double.infinity),
     );
   }
 
@@ -1143,19 +1240,23 @@ class _TypingIndicatorState extends State<_TypingIndicator>
     return AnimatedBuilder(
       animation: _c,
       builder: (_, _) {
-        // Each dot peaks a third of the cycle apart.
-        final phase = (_c.value - index / 3) % 1.0;
-        final t = (1 - (phase * 2 - 1).abs()).clamp(0.0, 1.0);
+        // sin(phase·π) is a smooth 0→1→0 hump; staggering the phase per dot
+        // makes the three rise in a wave.
+        final phase = (_c.value + index * 0.18) % 1.0;
+        final lift = math.sin(phase * math.pi).clamp(0.0, 1.0);
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 1.5),
-          child: Opacity(
-            opacity: 0.3 + 0.7 * t,
-            child: Container(
-              width: 5,
-              height: 5,
-              decoration: const BoxDecoration(
-                color: TwilightColors.textMuted,
-                shape: BoxShape.circle,
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          child: Transform.translate(
+            offset: Offset(0, -4 * lift),
+            child: Opacity(
+              opacity: 0.4 + 0.6 * lift,
+              child: Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: TwilightColors.accentSage,
+                  shape: BoxShape.circle,
+                ),
               ),
             ),
           ),
