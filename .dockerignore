@@ -1,0 +1,15 @@
+# Server image only needs the Rust workspace (see server/Dockerfile).
+# Everything else — esp. the multi-GB .claude worktrees dir and the Flutter
+# app — must stay out of the build context.
+.git
+.claude
+target
+build
+app
+docs
+mocks
+infra
+scripts
+*.md
+docker-compose*.yml
+ngrok.yml

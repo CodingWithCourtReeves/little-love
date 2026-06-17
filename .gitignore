@@ -22,6 +22,9 @@ Cargo.lock
 # Superpowers brainstorming session content
 .superpowers/
 
+# Claude Code agent state + git worktrees (.claude/worktrees can be many GB)
+.claude/
+
 # Flutter / Dart per-user tool state (created when HOME is rerooted into the repo,
 # e.g. demo.sh sandboxing kaitlyn's identity). Never commit these.
 app/.config/
