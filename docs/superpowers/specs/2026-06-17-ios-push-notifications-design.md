@@ -56,6 +56,9 @@ or killed app is silent.
 - **Foreground:** if a push ever arrives while the app is foreground, the
   `UNUserNotificationCenterDelegate` suppresses the banner (in-app UI already
   shows the message).
+- **Tap → thread:** tapping the notification opens the **specific room** the
+  message came from (a pair can have multiple channels, so "open the app" is not
+  enough). Works whether the app was backgrounded or killed.
 - **Palette:** the Notification Service Extension renders/attaches artwork for
   the **currently selected** palette, read on-device at notification time.
   Ships with exactly one palette (`twilight`). If the extension fails or times
@@ -137,8 +140,9 @@ No new server→client frames. No REST endpoints.
   - `APNS_ENV` — `sandbox` | `production`
 - `push::notify(recipient_account_id, room_id)`:
   1. load the recipient's tokens,
-  2. build the payload (generic alert, `thread-id = room_id`,
-     `mutable-content: 1`, `sound: default`),
+  2. build the payload (generic alert, `thread-id = room_id` — which also
+     carries the room id the tap handler reads, `mutable-content: 1`,
+     `sound: default`),
   3. send to each token,
   4. on `410 Unregistered` / `BadDeviceToken`, delete that token row
      (token hygiene).
@@ -156,6 +160,10 @@ No new server→client frames. No REST endpoints.
     Dart over a `MethodChannel` (`little_love/push`).
   - Implement `UNUserNotificationCenterDelegate`; foreground presentation
     returns **no banner** (suppress when active).
+  - `didReceive(_:response:)` (tap) reads `room_id` from the payload and
+    forwards it to Dart over the `little_love/push` channel. If the tap
+    cold-launched the app, the channel **buffers** the `room_id` until Dart asks
+    for a pending launch room on startup.
 - **Entitlements**
   - `aps-environment` (sandbox for dev builds, production for release).
   - **App Group** `group.<bundle>.shared`, shared by the app and the extension.
@@ -183,6 +191,10 @@ No new server→client frames. No REST endpoints.
   apns_token, environment }` over the live WebSocket. `device_id` is a stable
   per-install id (persisted in secure storage; reused across launches).
 - On logout / permission revocation, send `UnregisterPush { device_id }`.
+- **Open-room handler:** a single function navigates to a room by id. It is
+  driven by two sources that both route through it — a live tap (channel event
+  while running) and a pending launch room (queried once on startup for the
+  cold-launch case, after the inbox is ready). No duplicated navigation logic.
 - No `firebase_messaging`, no `flutter_local_notifications` — the server sends
   real alert pushes; the app only registers tokens and reacts.
 
@@ -220,7 +232,8 @@ changes, zero protocol changes.**
   `UnregisterPush`.
 - **Manual on-device** (via `./scripts/ios-deploy.sh`, sandbox APNs):
   backgrounded partner gets the banner; foregrounded partner does **not**;
-  killed app still receives; tapping opens the right room.
+  killed app still receives; tapping the banner opens the correct room — tested
+  from both a backgrounded app and a fully killed app (cold launch).
 
 ## Out of scope (named to prevent scope creep)
 
