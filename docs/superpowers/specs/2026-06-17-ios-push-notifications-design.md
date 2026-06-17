@@ -58,7 +58,13 @@ or killed app is silent.
   shows the message).
 - **Tap → thread:** tapping the notification opens the **specific room** the
   message came from (a pair can have multiple channels, so "open the app" is not
-  enough). Works whether the app was backgrounded or killed.
+  enough). The room opens at its **newest message** by reusing the existing
+  jump-to-bottom on open (`conversation_page.dart` `_jumpToBottom`) — in the
+  common one-new-message case the newest message *is* the one that triggered the
+  push, so the tap lands on it with no new scroll machinery. Works whether the
+  app was backgrounded or killed. Scrolling to the *first unread* with an unread
+  divider (the multi-unread case) is a deliberate **follow-up**, not part of
+  this spec — see Out of scope.
 - **Palette:** the Notification Service Extension renders/attaches artwork for
   the **currently selected** palette, read on-device at notification time.
   Ships with exactly one palette (`twilight`). If the extension fails or times
@@ -241,6 +247,13 @@ changes, zero protocol changes.**
   is E2EE and the user does not want content shown.
 - **Badge counts** — easy follow-up later (count unread `messages` rows for the
   recipient); not in this spec.
+- **Unread divider / scroll-to-first-unread** — opening a room at the first
+  unread message (Telegram-style "unread messages" divider) instead of the
+  newest. It's a standalone UX feature that also changes normal in-app room
+  opening, and it requires swapping the message list to a position-addressable
+  engine (`scrollable_positioned_list` or `ensureVisible` + keys) plus capturing
+  last-read before mark-read. Tracked as follow-up issue
+  [#23](https://github.com/CodingWithCourtReeves/little-love/issues/23).
 - **VoIP / CallKit calling** — a separate future workstream. This spec
   establishes its prerequisites (APNs auth key, native registration, entitlement
   discipline) but implements none of it.
