@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 use axum::{
     extract::{
@@ -18,6 +19,7 @@ use uuid::Uuid;
 use crate::accounts::{
     lookup_ed25519_pub, lookup_full_account, lookup_full_account_by_id, AccountRecord,
 };
+use crate::attachments::{attachment_room, insert_attachment};
 use crate::invites::{
     create_invite_record, default_expiry, lookup_invite, mark_consumed, qr_png_base64,
     room_for_invite, InviteState,
@@ -43,15 +45,21 @@ const MAX_ROOM_NAME_CHARS: usize = 64;
 /// well past the product target (a couple in a shared room); the cap is a DoS
 /// bound, not a product limit.
 const MAX_SEND_RECIPIENTS: usize = 16;
-/// Hard cap on per-recipient ciphertext (base64). 64 KiB comfortably fits a
-/// long text message plus its envelope; binary attachments aren't in scope
-/// yet.
-const MAX_BODY_BYTES: usize = 65_536;
+/// Hard cap on per-recipient ciphertext (base64). 96 KiB fits a long text
+/// message OR a `kind:"file"` envelope whose inline thumbnail is ~5–15 KB
+/// (base64-expanded). Full file bytes never travel in the body — they go to R2.
+const MAX_BODY_BYTES: usize = 98_304;
+/// Hard cap on a single attachment upload (raw plaintext bytes). 256 MiB,
+/// single presigned PUT, one-shot client-side AEAD (spec §4). Lowered from
+/// 500 MiB: download decrypts in-memory (ciphertext + plaintext both resident,
+/// ~2× file), so 500 MiB risked iOS jetsam; 256 MiB keeps peak ~512 MiB.
+const MAX_ATTACHMENT_BYTES: i64 = 256 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AppState {
     pub routing: Routing,
     pub store: Option<Store>,
+    pub r2: Option<crate::r2::R2Presigner>,
 }
 
 /// WSS close code for auth failures (spec §3.3 step 6).
@@ -186,6 +194,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         }
     });
 
+    let mut upload_rl = UploadRateLimiter::new();
     while let Some(Ok(msg)) = stream.next().await {
         if let Message::Text(text) = msg {
             match serde_json::from_str::<RoomClientFrame>(&text) {
@@ -222,6 +231,22 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 }
                 Ok(RoomClientFrame::LeaveRoom { room_id }) => {
                     handle_leave_room(&state, &me, &room_id, &tx).await;
+                }
+                Ok(RoomClientFrame::RequestUpload {
+                    request_id,
+                    room_id,
+                    byte_size,
+                }) => {
+                    if upload_rl.allow() {
+                        handle_request_upload(&state, &me, request_id, &room_id, byte_size, &tx)
+                            .await;
+                    } else {
+                        warn!("upload rate limit hit for {}", me.username);
+                        send_error(&tx, error_codes::RATE_LIMITED, "");
+                    }
+                }
+                Ok(RoomClientFrame::RequestDownload { blob_key }) => {
+                    handle_request_download(&state, &me, &blob_key, &tx).await;
                 }
                 Err(e) => warn!("invalid frame from {}: {e}", me.username),
             }
@@ -661,6 +686,150 @@ async fn handle_send(
     }
 }
 
+/// Presigned-URL TTL for both upload and download. Long enough for a 256 MiB
+/// upload on a slow mobile link; far under R2's 7-day max.
+const PRESIGN_TTL: Duration = Duration::from_secs(600);
+
+/// Per-connection sliding-window rate limit on `RequestUpload`. Each grant
+/// inserts a row + mints a presigned PUT with no quota and (today) no reaper,
+/// so an unthrottled client could loop the frame to amass rows + uploaded
+/// objects. The WS read loop is sequential per connection, so this needs no
+/// locking. Generous enough that a real multi-file send (the client sends them
+/// sequentially) never trips it.
+const UPLOAD_RL_WINDOW: Duration = Duration::from_secs(60);
+const UPLOAD_RL_MAX: usize = 60;
+
+struct UploadRateLimiter {
+    hits: std::collections::VecDeque<std::time::Instant>,
+}
+
+impl UploadRateLimiter {
+    fn new() -> Self {
+        Self {
+            hits: std::collections::VecDeque::new(),
+        }
+    }
+
+    /// Record an upload attempt; returns false if the window is saturated.
+    fn allow(&mut self) -> bool {
+        let now = std::time::Instant::now();
+        while let Some(front) = self.hits.front() {
+            if now.duration_since(*front) > UPLOAD_RL_WINDOW {
+                self.hits.pop_front();
+            } else {
+                break;
+            }
+        }
+        if self.hits.len() >= UPLOAD_RL_MAX {
+            return false;
+        }
+        self.hits.push_back(now);
+        true
+    }
+}
+
+async fn handle_request_upload(
+    state: &AppState,
+    me: &AccountRecord,
+    request_id: Uuid,
+    room_id: &str,
+    byte_size: i64,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let (store, r2) = match (state.store.as_ref(), state.r2.as_ref()) {
+        (Some(s), Some(r)) => (s, r),
+        _ => {
+            send_error(tx, error_codes::R2_UNAVAILABLE, "");
+            return;
+        }
+    };
+    // KNOWN GAP: this only rejects an *honestly-declared* oversize. The
+    // rusty-s3 query-signed PUT URL does not pin Content-Length, so a client
+    // can declare a small byte_size here and then PUT an arbitrarily large body
+    // to the presigned URL — R2 stores whatever arrives. A real bound needs a
+    // signed Content-Length condition or a POST policy (awkward with rusty-s3).
+    // Until then MAX_ATTACHMENT_BYTES is advisory, not enforced. Tracked as a
+    // follow-up alongside the orphan reaper / upload quota below.
+    if byte_size <= 0 || byte_size > MAX_ATTACHMENT_BYTES {
+        send_error(tx, error_codes::BLOB_TOO_LARGE, "");
+        return;
+    }
+    match is_member(store.pool(), room_id, me.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            send_error(tx, error_codes::UNKNOWN_ROOM, "");
+            return;
+        }
+        Err(e) => {
+            warn!("is_member (upload): {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+    }
+    // KNOWN GAP: each RequestUpload inserts an `attachments` row (committed =
+    // false, never flipped yet) and mints a presigned PUT. The per-connection
+    // UploadRateLimiter (see caller) bounds the rate, but there is still no
+    // storage quota and the orphan reaper is deferred, so uncommitted rows +
+    // uploaded objects accumulate until a reaper exists. Blast radius is
+    // authenticated couple-room users only. Follow-up: ship the reaper.
+    let blob_key = Ulid::new().to_string();
+    if let Err(e) = insert_attachment(store.pool(), &blob_key, room_id, me.id, byte_size).await {
+        warn!("insert_attachment: {e}");
+        send_error(tx, "Internal", "");
+        return;
+    }
+    let url = r2.presign_put(&blob_key, PRESIGN_TTL);
+    let _ = tx.send(RoomServerFrame::UploadGranted {
+        request_id,
+        blob_key,
+        url,
+        expires_at: Utc::now() + chrono::Duration::from_std(PRESIGN_TTL).unwrap(),
+    });
+}
+
+async fn handle_request_download(
+    state: &AppState,
+    me: &AccountRecord,
+    blob_key: &str,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let (store, r2) = match (state.store.as_ref(), state.r2.as_ref()) {
+        (Some(s), Some(r)) => (s, r),
+        _ => {
+            send_error(tx, error_codes::R2_UNAVAILABLE, "");
+            return;
+        }
+    };
+    let room_id = match attachment_room(store.pool(), blob_key).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            send_error(tx, error_codes::UNKNOWN_BLOB, "");
+            return;
+        }
+        Err(e) => {
+            warn!("attachment_room: {e}");
+            send_error(tx, "Internal", "");
+            return;
+        }
+    };
+    // Authorize: requester must be a member of the blob's room. A non-member
+    // gets UNKNOWN_BLOB (not a distinct "forbidden") so blob existence isn't
+    // leaked across rooms.
+    match is_member(store.pool(), &room_id, me.id).await {
+        Ok(true) => {}
+        _ => {
+            send_error(tx, error_codes::UNKNOWN_BLOB, "");
+            return;
+        }
+    }
+    let url = r2.presign_get(blob_key, PRESIGN_TTL);
+    let _ = tx.send(RoomServerFrame::DownloadGranted {
+        blob_key: blob_key.to_string(),
+        url,
+        expires_at: Utc::now() + chrono::Duration::from_std(PRESIGN_TTL).unwrap(),
+    });
+}
+
 async fn handle_create_room(
     state: &AppState,
     me: &AccountRecord,
@@ -843,4 +1012,20 @@ async fn handle_leave_room(
 #[allow(dead_code)]
 fn _ensure_account_id_lookup_is_used() {
     let _ = account_id_by_username;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upload_rate_limiter_saturates_then_blocks() {
+        let mut rl = UploadRateLimiter::new();
+        // The first UPLOAD_RL_MAX attempts in a window are allowed…
+        for i in 0..UPLOAD_RL_MAX {
+            assert!(rl.allow(), "attempt {i} should be allowed");
+        }
+        // …and the next one is rejected (all within the window, no sleep).
+        assert!(!rl.allow(), "attempt past the cap should be blocked");
+    }
 }

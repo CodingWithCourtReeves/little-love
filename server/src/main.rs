@@ -27,9 +27,23 @@ async fn main() -> Result<()> {
             None
         }
     };
+    let r2 = match cfg.r2.as_ref() {
+        Some(r2cfg) => match littlelove_api::r2::R2Presigner::new(r2cfg) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                tracing::warn!("R2 presigner init failed; attachments disabled: {e}");
+                None
+            }
+        },
+        None => {
+            tracing::warn!("R2_* env unset; attachments disabled");
+            None
+        }
+    };
     let state = AppState {
         routing: Routing::new(),
         store,
+        r2,
     };
     let app = Router::new()
         .route("/health", get(health))

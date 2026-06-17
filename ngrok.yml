@@ -1,0 +1,36 @@
+version: "3"
+
+# Local-testing tunnels for little-love. Two https tunnels so physical phones
+# can reach both the API (REST + WSS) and the MinIO blob store (iOS ATS blocks
+# cleartext http, so attachments need the store over https too).
+#
+# Run the backend first:
+#   ./scripts/dev-attachments.sh   # postgres + minio
+#   PORT=7707 DATABASE_URL=postgres://littlelove:dev@localhost:5454/littlelove \
+#     cargo run -p littlelove-api   # (R2_ENDPOINT is set by scripts/dev-phones.sh)
+#
+# Then start the tunnels (authtoken is read from your global ngrok config):
+#   ngrok start llove-api llove-minio \
+#     --config ngrok.yml \
+#     --config "$HOME/Library/Application Support/ngrok/ngrok.yml"
+#
+# Or just run ./scripts/dev-phones.sh, which wires R2_ENDPOINT to the live
+# MinIO tunnel URL automatically and prints the LLOVE_SERVER to build with.
+#
+# Tunnel names are prefixed `llove-` so they don't collide with tunnels in your
+# global config when the two are merged. Do NOT put your authtoken in this file
+# (it stays in your global config so this one is safe to commit).
+#
+# For stable URLs across runs, reserve two domains in the ngrok dashboard and
+# set each tunnel's `domain:` to one of them. The values below are the author's
+# personal reserved domains (`dops-api-court` / `dops-app-court`); swap in your
+# own reserved domains if you're not on that ngrok account.
+tunnels:
+  llove-api:
+    proto: http
+    addr: 7707
+    domain: dops-api-court.ngrok.app
+  llove-minio:
+    proto: http
+    addr: 9000
+    domain: dops-app-court.ngrok.app
