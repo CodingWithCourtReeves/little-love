@@ -227,6 +227,7 @@ pub mod error_codes {
     pub const BLOB_TOO_LARGE: &str = "BlobTooLarge";
     pub const UNKNOWN_BLOB: &str = "UnknownBlob";
     pub const R2_UNAVAILABLE: &str = "R2Unavailable";
+    pub const RATE_LIMITED: &str = "RateLimited";
 }
 
 #[cfg(test)]

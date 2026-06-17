@@ -256,10 +256,11 @@ class InboxShell extends ConsumerWidget {
     final clientMsgId = ref.read(outboxIdGenProvider)();
     final conn = ref.read(liveConnectionProvider).asData?.value;
     if (conn == null) return;
-    if (bytes.length > 500 * 1024 * 1024) {
-      // Over the 500 MiB cap (spec §4) — surface and bail.
+    if (bytes.length > 256 * 1024 * 1024) {
+      // Mirrors the server's MAX_ATTACHMENT_BYTES (spec §4); 256 MiB keeps the
+      // ~2× in-memory decrypt peak clear of iOS jetsam.
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('That file is too large (max 500 MB).')),
+        const SnackBar(content: Text('That file is too large (max 256 MB).')),
       );
       return;
     }

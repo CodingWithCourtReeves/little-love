@@ -97,7 +97,7 @@ async fn oversize_upload_rejected() {
         "kind":"RequestUpload",
         "request_id":"7c4e1c8a-7e7e-4b7a-9f23-1a0a17070707",
         "room_id": room_id,
-        "byte_size": 600i64 * 1024 * 1024, // 600 MiB > 500 cap
+        "byte_size": 600i64 * 1024 * 1024, // 600 MiB > 256 MiB cap
     });
     sock.send(WsMessage::Text(req.to_string())).await.unwrap();
     let v = next_frame(&mut sock).await;

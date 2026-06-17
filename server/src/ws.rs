@@ -49,9 +49,11 @@ const MAX_SEND_RECIPIENTS: usize = 16;
 /// message OR a `kind:"file"` envelope whose inline thumbnail is ~5–15 KB
 /// (base64-expanded). Full file bytes never travel in the body — they go to R2.
 const MAX_BODY_BYTES: usize = 98_304;
-/// Hard cap on a single attachment upload (raw plaintext bytes). 500 MiB,
-/// single presigned PUT, one-shot client-side AEAD (spec §4).
-const MAX_ATTACHMENT_BYTES: i64 = 500 * 1024 * 1024;
+/// Hard cap on a single attachment upload (raw plaintext bytes). 256 MiB,
+/// single presigned PUT, one-shot client-side AEAD (spec §4). Lowered from
+/// 500 MiB: download decrypts in-memory (ciphertext + plaintext both resident,
+/// ~2× file), so 500 MiB risked iOS jetsam; 256 MiB keeps peak ~512 MiB.
+const MAX_ATTACHMENT_BYTES: i64 = 256 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -192,6 +194,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         }
     });
 
+    let mut upload_rl = UploadRateLimiter::new();
     while let Some(Ok(msg)) = stream.next().await {
         if let Message::Text(text) = msg {
             match serde_json::from_str::<RoomClientFrame>(&text) {
@@ -234,7 +237,13 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     room_id,
                     byte_size,
                 }) => {
-                    handle_request_upload(&state, &me, request_id, &room_id, byte_size, &tx).await;
+                    if upload_rl.allow() {
+                        handle_request_upload(&state, &me, request_id, &room_id, byte_size, &tx)
+                            .await;
+                    } else {
+                        warn!("upload rate limit hit for {}", me.username);
+                        send_error(&tx, error_codes::RATE_LIMITED, "");
+                    }
                 }
                 Ok(RoomClientFrame::RequestDownload { blob_key }) => {
                     handle_request_download(&state, &me, &blob_key, &tx).await;
@@ -677,9 +686,47 @@ async fn handle_send(
     }
 }
 
-/// Presigned-URL TTL for both upload and download. Long enough for a 500 MiB
+/// Presigned-URL TTL for both upload and download. Long enough for a 256 MiB
 /// upload on a slow mobile link; far under R2's 7-day max.
 const PRESIGN_TTL: Duration = Duration::from_secs(600);
+
+/// Per-connection sliding-window rate limit on `RequestUpload`. Each grant
+/// inserts a row + mints a presigned PUT with no quota and (today) no reaper,
+/// so an unthrottled client could loop the frame to amass rows + uploaded
+/// objects. The WS read loop is sequential per connection, so this needs no
+/// locking. Generous enough that a real multi-file send (the client sends them
+/// sequentially) never trips it.
+const UPLOAD_RL_WINDOW: Duration = Duration::from_secs(60);
+const UPLOAD_RL_MAX: usize = 60;
+
+struct UploadRateLimiter {
+    hits: std::collections::VecDeque<std::time::Instant>,
+}
+
+impl UploadRateLimiter {
+    fn new() -> Self {
+        Self {
+            hits: std::collections::VecDeque::new(),
+        }
+    }
+
+    /// Record an upload attempt; returns false if the window is saturated.
+    fn allow(&mut self) -> bool {
+        let now = std::time::Instant::now();
+        while let Some(front) = self.hits.front() {
+            if now.duration_since(*front) > UPLOAD_RL_WINDOW {
+                self.hits.pop_front();
+            } else {
+                break;
+            }
+        }
+        if self.hits.len() >= UPLOAD_RL_MAX {
+            return false;
+        }
+        self.hits.push_back(now);
+        true
+    }
+}
 
 async fn handle_request_upload(
     state: &AppState,
@@ -720,12 +767,11 @@ async fn handle_request_upload(
         }
     }
     // KNOWN GAP: each RequestUpload inserts an `attachments` row (committed =
-    // false, never flipped yet) and mints a presigned PUT, with no per-
-    // connection rate-limit and no storage quota. The orphan reaper is
-    // deferred, so today nothing bounds a client that loops RequestUpload to
-    // accumulate rows + uploaded objects without ever sending a message.
-    // Blast radius is authenticated couple-room users only. Follow-up: add a
-    // cheap RequestUpload rate-limit and ship the reaper.
+    // false, never flipped yet) and mints a presigned PUT. The per-connection
+    // UploadRateLimiter (see caller) bounds the rate, but there is still no
+    // storage quota and the orphan reaper is deferred, so uncommitted rows +
+    // uploaded objects accumulate until a reaper exists. Blast radius is
+    // authenticated couple-room users only. Follow-up: ship the reaper.
     let blob_key = Ulid::new().to_string();
     if let Err(e) = insert_attachment(store.pool(), &blob_key, room_id, me.id, byte_size).await {
         warn!("insert_attachment: {e}");
@@ -966,4 +1012,20 @@ async fn handle_leave_room(
 #[allow(dead_code)]
 fn _ensure_account_id_lookup_is_used() {
     let _ = account_id_by_username;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upload_rate_limiter_saturates_then_blocks() {
+        let mut rl = UploadRateLimiter::new();
+        // The first UPLOAD_RL_MAX attempts in a window are allowed…
+        for i in 0..UPLOAD_RL_MAX {
+            assert!(rl.allow(), "attempt {i} should be allowed");
+        }
+        // …and the next one is rejected (all within the window, no sleep).
+        assert!(!rl.allow(), "attempt past the cap should be blocked");
+    }
 }
