@@ -55,6 +55,83 @@ pub fn classify(code: u16, reason: Option<&str>) -> SendOutcome {
     }
 }
 
+use a2::{
+    Client, ClientConfig, DefaultNotificationBuilder, Endpoint, NotificationBuilder,
+    NotificationOptions, PushType,
+};
+use std::sync::Arc;
+use tracing::warn;
+
+/// `a2`-backed APNs transport. Holds one HTTP/2 client per environment so a
+/// couple's mixed sandbox/production tokens both work from a single sender.
+pub struct ApnsSender {
+    sandbox: Arc<Client>,
+    production: Arc<Client>,
+    topic: String,
+}
+
+impl ApnsSender {
+    pub fn new(cfg: &crate::config::ApnsConfig) -> anyhow::Result<Self> {
+        let mk = |endpoint: Endpoint| -> anyhow::Result<Client> {
+            let mut pem = cfg.key_p8.as_bytes();
+            let client = Client::token(
+                &mut pem,
+                &cfg.key_id,
+                &cfg.team_id,
+                ClientConfig::new(endpoint),
+            )?;
+            Ok(client)
+        };
+        Ok(Self {
+            sandbox: Arc::new(mk(Endpoint::Sandbox)?),
+            production: Arc::new(mk(Endpoint::Production)?),
+            topic: cfg.topic.clone(),
+        })
+    }
+
+    fn client_for(&self, environment: &str) -> &Client {
+        if environment == "production" {
+            &self.production
+        } else {
+            &self.sandbox
+        }
+    }
+}
+
+#[async_trait]
+impl PushSender for ApnsSender {
+    async fn send(&self, msg: &PushMessage) -> SendOutcome {
+        let options = NotificationOptions {
+            apns_topic: Some(self.topic.as_str()),
+            apns_push_type: Some(PushType::Alert),
+            ..Default::default()
+        };
+        let mut payload = DefaultNotificationBuilder::new()
+            .set_title(PUSH_TITLE)
+            .set_body(PUSH_BODY)
+            .set_sound("default")
+            .set_mutable_content()
+            .build(msg.token.as_str(), options);
+        // Opaque room id for the tap deep-link. No message content; E2EE intact.
+        if let Err(e) = payload.add_custom_data("room_id", &msg.room_id) {
+            warn!("push: add_custom_data failed: {e}");
+            return SendOutcome::Transient;
+        }
+
+        match self.client_for(&msg.environment).send(payload).await {
+            Ok(resp) => classify(resp.code, None),
+            Err(a2::Error::ResponseError(resp)) => {
+                let reason = resp.error.as_ref().map(|e| format!("{:?}", e.reason));
+                classify(resp.code, reason.as_deref())
+            }
+            Err(e) => {
+                warn!("push: APNs send error: {e}");
+                SendOutcome::Transient
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
