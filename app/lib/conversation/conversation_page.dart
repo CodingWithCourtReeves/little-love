@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -6,17 +8,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../attachment/attachment_descriptor.dart';
+import '../attachment/staged_attachment.dart';
 import '../identity/providers.dart';
 import '../inbox/channel_switcher.dart';
 import '../inbox/room.dart';
 import '../theme/twilight.dart';
 import '../wire/message.dart';
 import 'message_store.dart';
+import 'typing_state.dart';
 
 typedef SendCallback = void Function(String text);
 typedef RenameCallback = void Function(String newName);
 typedef RetryCallback = void Function(String clientMsgId);
 typedef OpenAttachmentCallback = void Function(AttachmentDescriptor descriptor);
+typedef ReactCallback = void Function(String targetMessageId, String emoji);
+
+/// Quick-tap reactions in the long-press bar, Telegram style. The first is the
+/// double-tap default.
+const _quickReactions = ['❤️', '👍', '😂', '😮', '😢', '🙏'];
 
 class _SendIntent extends Intent {
   const _SendIntent();
@@ -73,7 +82,10 @@ class ConversationPage extends ConsumerStatefulWidget {
     this.onRename,
     this.onNewChannel,
     this.onRetry,
-    this.onAttach,
+    this.onPickMedia,
+    this.onSendMedia,
+    this.onReact,
+    this.onTyping,
     this.onOpenAttachment,
   });
 
@@ -84,8 +96,23 @@ class ConversationPage extends ConsumerStatefulWidget {
   final VoidCallback? onNewChannel;
   final RetryCallback? onRetry;
 
-  /// Tapped the composer's attach (+) button. Null disables the affordance.
-  final Future<void> Function()? onAttach;
+  /// Tapped the composer's attach (+) button: pick media to stage on the
+  /// composer (not send yet). Returns the picked items. Null disables the
+  /// affordance.
+  final Future<List<StagedAttachment>> Function()? onPickMedia;
+
+  /// Send the staged media. The caption (composer text, may be empty) attaches
+  /// to the last item so a multi-pick reads as one captioned run.
+  final Future<void> Function(List<StagedAttachment> items, String caption)?
+  onSendMedia;
+
+  /// React to a message (empty emoji = remove my reaction). Null disables the
+  /// long-press bar, double-tap, and reaction pills.
+  final ReactCallback? onReact;
+
+  /// Relay my typing presence (true while composing, false when stopped). Null
+  /// disables sending typing frames.
+  final void Function(bool typing)? onTyping;
 
   /// Tapped a received/sent media tile to open it full-screen.
   final OpenAttachmentCallback? onOpenAttachment;
@@ -107,6 +134,15 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
   static const _stickThreshold = 120.0;
   bool _atBottom = true;
   int _prevMessageCount = 0;
+
+  /// Media picked but not yet sent, shown as a tray above the composer. Send
+  /// flushes these (with the composer text as the last item's caption).
+  final List<StagedAttachment> _staged = [];
+
+  /// Whether we've sent `typing:true` and not yet sent the matching `false`.
+  bool _typingActive = false;
+  Timer? _typingStop;
+  static const _typingStopDelay = Duration(seconds: 4);
 
   @override
   void initState() {
@@ -143,6 +179,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _controller.dispose();
+    _typingStop?.cancel();
+    // Leaving the room while composing: tell the partner we stopped.
+    if (_typingActive) widget.onTyping?.call(false);
     super.dispose();
   }
 
@@ -157,9 +196,127 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
   void _handleSubmit(String value) {
     final text = value.trim();
+    // Staged media takes the composer text as a caption (on the last item) and
+    // flushes through onSendMedia. An empty caption is fine — just send the
+    // media. Text-only sends fall through to onSend below.
+    if (_staged.isNotEmpty) {
+      final items = List<StagedAttachment>.of(_staged);
+      widget.onSendMedia?.call(items, text);
+      setState(() => _staged.clear());
+      _controller.clear();
+      _stopTyping();
+      return;
+    }
     if (text.isEmpty) return;
     widget.onSend(text);
     _controller.clear();
+    _stopTyping();
+  }
+
+  /// Debounced typing presence: the first keystroke after idle emits
+  /// `typing:true`; each subsequent keystroke pushes back a stop timer that
+  /// emits `typing:false` once composing pauses (or the field empties).
+  void _onComposerChanged(String value) {
+    if (widget.onTyping == null) return;
+    if (value.trim().isEmpty) {
+      _stopTyping();
+      return;
+    }
+    if (!_typingActive) {
+      _typingActive = true;
+      widget.onTyping!(true);
+    }
+    _typingStop?.cancel();
+    _typingStop = Timer(_typingStopDelay, _stopTyping);
+  }
+
+  void _stopTyping() {
+    _typingStop?.cancel();
+    if (_typingActive) {
+      _typingActive = false;
+      widget.onTyping?.call(false);
+    }
+  }
+
+  Future<void> _pickMedia() async {
+    final picked = await widget.onPickMedia?.call();
+    if (picked == null || picked.isEmpty || !mounted) return;
+    setState(() => _staged.addAll(picked));
+  }
+
+  void _removeStaged(int index) {
+    setState(() => _staged.removeAt(index));
+  }
+
+  /// Toggle/replace my reaction on [m]: tapping the one I already picked clears
+  /// it; any other emoji replaces it (each person has at most one reaction,
+  /// Telegram style).
+  void _react(Msg m, String emoji) {
+    final mine = m.reactions[widget.selfUsername];
+    widget.onReact?.call(m.id, mine == emoji ? '' : emoji);
+  }
+
+  /// Long-press a bubble → floating quick-reaction bar anchored at the press,
+  /// with a "+" to open the full picker.
+  void _showReactionBar(Offset globalPos, Msg m) {
+    if (widget.onReact == null) return;
+    final overlay = Overlay.of(context);
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => _ReactionBarOverlay(
+        anchor: globalPos,
+        selected: m.reactions[widget.selfUsername],
+        onPick: (emoji) {
+          entry.remove();
+          _react(m, emoji);
+        },
+        onMore: () {
+          entry.remove();
+          _openReactionPicker(m);
+        },
+        onDismiss: entry.remove,
+      ),
+    );
+    overlay.insert(entry);
+  }
+
+  Future<void> _openReactionPicker(Msg m) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: TwilightColors.bgSurface,
+      builder: (ctx) => SizedBox(
+        height: 320,
+        child: EmojiPicker(
+          onEmojiSelected: (category, emoji) {
+            Navigator.pop(ctx);
+            _react(m, emoji.emoji);
+          },
+          config: const Config(
+            height: 320,
+            emojiViewConfig: EmojiViewConfig(
+              backgroundColor: TwilightColors.bgSurface,
+              columns: 7,
+              emojiSizeMax: 32,
+            ),
+            categoryViewConfig: CategoryViewConfig(
+              backgroundColor: TwilightColors.bgSurface,
+              indicatorColor: TwilightColors.accentUser,
+              iconColor: TwilightColors.textMuted,
+              iconColorSelected: TwilightColors.accentUser,
+            ),
+            bottomActionBarConfig: BottomActionBarConfig(
+              backgroundColor: TwilightColors.bgSurface,
+              buttonColor: TwilightColors.bgSurfaceAlt,
+              buttonIconColor: TwilightColors.accentUser,
+            ),
+            searchViewConfig: SearchViewConfig(
+              backgroundColor: TwilightColors.bgSurface,
+              buttonIconColor: TwilightColors.accentUser,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _submitFromIntent() {
@@ -324,6 +481,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
               ],
             ),
           ),
+          if (ref.watch(typingProvider(widget.roomId)))
+            const _TypingIndicator(),
           _composer(),
         ],
       ),
@@ -384,37 +543,84 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
   }
 
   Widget _bubble(Msg m, String me, _Marker? marker, List<String>? failedIds) {
+    final mine = m.from == me;
     // The sent/sending marker (if any) is drawn inside the bubble itself.
-    final content = _bubbleContent(m, me, marker);
-    // A run with no failure renders no caption — just the bubble.
-    if (failedIds == null) return content;
+    Widget content = _bubbleContent(m, me, marker);
+    // Long-press → quick-reaction bar; double-tap → default reaction. Wraps
+    // both text and media bubbles; the media bubble's own tap-to-open still
+    // wins for a plain tap (deferToChild).
+    if (widget.onReact != null) {
+      content = GestureDetector(
+        behavior: HitTestBehavior.deferToChild,
+        onLongPressStart: (d) => _showReactionBar(d.globalPosition, m),
+        onDoubleTap: () => _react(m, _quickReactions.first),
+        child: content,
+      );
+    }
 
-    // Tapping anywhere on the trailing failed bubble retries every failed
-    // message in the run, not just this one.
-    final tappable = widget.onRetry != null
-        ? GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {
-              for (final id in failedIds) {
-                widget.onRetry!(id);
-              }
-            },
-            child: content,
-          )
-        : content;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        tappable,
-        const Padding(
-          padding: EdgeInsets.only(right: 16, top: 2, bottom: 2),
-          child: Text(
-            'failed · tap to retry',
-            style: TextStyle(color: TwilightColors.warningTone, fontSize: 11),
+    // A failed run collapses a "tap to retry" caption under the trailing
+    // bubble; tapping it retries every failed message in the run.
+    Widget result;
+    if (failedIds == null) {
+      result = content;
+    } else {
+      final tappable = widget.onRetry != null
+          ? GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                for (final id in failedIds) {
+                  widget.onRetry!(id);
+                }
+              },
+              child: content,
+            )
+          : content;
+      result = Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          tappable,
+          const Padding(
+            padding: EdgeInsets.only(right: 16, top: 2, bottom: 2),
+            child: Text(
+              'failed · tap to retry',
+              style: TextStyle(color: TwilightColors.warningTone, fontSize: 11),
+            ),
           ),
-        ),
-      ],
+        ],
+      );
+    }
+
+    if (m.reactions.isEmpty) return result;
+    return Column(
+      crossAxisAlignment: mine
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      children: [result, _reactionPills(m, me)],
+    );
+  }
+
+  /// Aggregated reaction pills under a bubble (emoji → count). Mine is
+  /// highlighted; tapping a pill toggles my reaction to that emoji.
+  Widget _reactionPills(Msg m, String me) {
+    final counts = <String, int>{};
+    for (final e in m.reactions.values) {
+      counts[e] = (counts[e] ?? 0) + 1;
+    }
+    final mineEmoji = m.reactions[me];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
+      child: Wrap(
+        spacing: 4,
+        children: [
+          for (final entry in counts.entries)
+            _ReactionPill(
+              emoji: entry.key,
+              count: entry.value,
+              mine: entry.key == mineEmoji,
+              onTap: () => _react(m, entry.key),
+            ),
+        ],
+      ),
     );
   }
 
@@ -771,89 +977,409 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
       child: Container(
         color: TwilightColors.bgSurface,
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            if (widget.onAttach != null)
-              IconButton(
-                key: const Key('composer-attach'),
-                onPressed: () => widget.onAttach!.call(),
-                icon: const Icon(Icons.add, color: TwilightColors.textMuted),
-                tooltip: 'Attach a photo or video',
-              ),
-            CompositedTransformTarget(
-              link: _emojiLink,
-              child: OverlayPortal(
-                controller: _emojiOverlay,
-                overlayChildBuilder: (_) => Positioned(
-                  width: 340,
-                  child: CompositedTransformFollower(
-                    link: _emojiLink,
-                    targetAnchor: Alignment.topLeft,
-                    followerAnchor: Alignment.bottomLeft,
-                    offset: const Offset(0, -8),
-                    child: _emojiPanel(),
-                  ),
-                ),
-                child: TapRegion(
-                  groupId: _emojiTapGroup,
-                  child: IconButton(
-                    key: const Key('emoji-toggle'),
-                    onPressed: _toggleEmojiPicker,
-                    icon: Icon(
-                      _emojiOverlay.isShowing
-                          ? Icons.keyboard_alt_outlined
-                          : Icons.emoji_emotions_outlined,
+            if (_staged.isNotEmpty) _stagingTray(),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (widget.onPickMedia != null)
+                  IconButton(
+                    key: const Key('composer-attach'),
+                    onPressed: _pickMedia,
+                    icon: const Icon(
+                      Icons.add,
                       color: TwilightColors.textMuted,
                     ),
-                    tooltip: _emojiOverlay.isShowing
-                        ? 'Close emoji picker'
-                        : 'Emoji',
+                    tooltip: 'Attach a photo or video',
                   ),
-                ),
-              ),
-            ),
-            Expanded(
-              child: Shortcuts(
-                shortcuts: shortcuts,
-                child: Actions(
-                  actions: {
-                    _SendIntent: CallbackAction<_SendIntent>(
-                      onInvoke: (_) {
-                        _submitFromIntent();
-                        return null;
-                      },
+                CompositedTransformTarget(
+                  link: _emojiLink,
+                  child: OverlayPortal(
+                    controller: _emojiOverlay,
+                    overlayChildBuilder: (_) => Positioned(
+                      width: 340,
+                      child: CompositedTransformFollower(
+                        link: _emojiLink,
+                        targetAnchor: Alignment.topLeft,
+                        followerAnchor: Alignment.bottomLeft,
+                        offset: const Offset(0, -8),
+                        child: _emojiPanel(),
+                      ),
                     ),
-                  },
-                  child: TextField(
-                    key: const Key('composer'),
-                    controller: _controller,
-                    minLines: 1,
-                    maxLines: 8,
-                    keyboardType: TextInputType.multiline,
-                    textInputAction: TextInputAction.newline,
-                    decoration: InputDecoration(
-                      hintText:
-                          'Message ${widget.contactDisplayName}'
-                          '   ·   ⌘↵ to send',
-                      filled: true,
-                      fillColor: TwilightColors.bgSurfaceAlt,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
+                    child: TapRegion(
+                      groupId: _emojiTapGroup,
+                      child: IconButton(
+                        key: const Key('emoji-toggle'),
+                        onPressed: _toggleEmojiPicker,
+                        icon: Icon(
+                          _emojiOverlay.isShowing
+                              ? Icons.keyboard_alt_outlined
+                              : Icons.emoji_emotions_outlined,
+                          color: TwilightColors.textMuted,
+                        ),
+                        tooltip: _emojiOverlay.isShowing
+                            ? 'Close emoji picker'
+                            : 'Emoji',
                       ),
                     ),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            IconButton(
-              onPressed: () => _handleSubmit(_controller.text),
-              icon: const Icon(Icons.send, color: TwilightColors.accentUser),
+                Expanded(
+                  child: Shortcuts(
+                    shortcuts: shortcuts,
+                    child: Actions(
+                      actions: {
+                        _SendIntent: CallbackAction<_SendIntent>(
+                          onInvoke: (_) {
+                            _submitFromIntent();
+                            return null;
+                          },
+                        ),
+                      },
+                      child: TextField(
+                        key: const Key('composer'),
+                        controller: _controller,
+                        onChanged: _onComposerChanged,
+                        minLines: 1,
+                        maxLines: 8,
+                        keyboardType: TextInputType.multiline,
+                        textInputAction: TextInputAction.newline,
+                        decoration: InputDecoration(
+                          hintText:
+                              'Message ${widget.contactDisplayName}'
+                              '   ·   ⌘↵ to send',
+                          filled: true,
+                          fillColor: TwilightColors.bgSurfaceAlt,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                IconButton(
+                  onPressed: () => _handleSubmit(_controller.text),
+                  icon: const Icon(
+                    Icons.send,
+                    color: TwilightColors.accentUser,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Horizontal strip of staged media above the composer. Each chip shows a
+  /// preview (image bytes, or a play badge for video) with a remove button.
+  Widget _stagingTray() {
+    return Container(
+      key: const Key('staging-tray'),
+      height: 76,
+      margin: const EdgeInsets.only(bottom: 8),
+      alignment: Alignment.centerLeft,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _staged.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (_, i) =>
+            _StagedChip(item: _staged[i], onRemove: () => _removeStaged(i)),
+      ),
+    );
+  }
+}
+
+/// Telegram-style "typing…" row shown above the composer while the partner is
+/// composing. Three dots pulse in sequence.
+class _TypingIndicator extends StatefulWidget {
+  const _TypingIndicator();
+
+  @override
+  State<_TypingIndicator> createState() => _TypingIndicatorState();
+}
+
+class _TypingIndicatorState extends State<_TypingIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 1),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('typing-indicator'),
+      width: double.infinity,
+      color: TwilightColors.bgSurface,
+      padding: const EdgeInsets.fromLTRB(20, 2, 16, 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < 3; i++) _dot(i),
+          const SizedBox(width: 8),
+          const Text(
+            'typing…',
+            style: TextStyle(color: TwilightColors.textMuted, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _dot(int index) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, _) {
+        // Each dot peaks a third of the cycle apart.
+        final phase = (_c.value - index / 3) % 1.0;
+        final t = (1 - (phase * 2 - 1).abs()).clamp(0.0, 1.0);
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 1.5),
+          child: Opacity(
+            opacity: 0.3 + 0.7 * t,
+            child: Container(
+              width: 5,
+              height: 5,
+              decoration: const BoxDecoration(
+                color: TwilightColors.textMuted,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// A reaction pill under a bubble: the emoji plus a count when more than one
+/// person reacted with it. Highlighted when it's the viewer's own reaction.
+class _ReactionPill extends StatelessWidget {
+  const _ReactionPill({
+    required this.emoji,
+    required this.count,
+    required this.mine,
+    required this.onTap,
+  });
+  final String emoji;
+  final int count;
+  final bool mine;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: mine
+              ? TwilightColors.accentUser.withValues(alpha: 0.18)
+              : TwilightColors.bgSurfaceAlt,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: mine ? TwilightColors.accentUser : TwilightColors.borderSoft,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(emoji, style: const TextStyle(fontSize: 14)),
+            if (count > 1) ...[
+              const SizedBox(width: 4),
+              Text(
+                '$count',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: TwilightColors.textMuted,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-screen overlay holding the floating quick-reaction bar. A transparent
+/// layer behind it dismisses on tap-outside; the bar scales + fades in from the
+/// anchored bubble, Telegram style.
+class _ReactionBarOverlay extends StatefulWidget {
+  const _ReactionBarOverlay({
+    required this.anchor,
+    required this.selected,
+    required this.onPick,
+    required this.onMore,
+    required this.onDismiss,
+  });
+  final Offset anchor;
+  final String? selected;
+  final void Function(String emoji) onPick;
+  final VoidCallback onMore;
+  final VoidCallback onDismiss;
+
+  @override
+  State<_ReactionBarOverlay> createState() => _ReactionBarOverlayState();
+}
+
+class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 160),
+  )..forward();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final padding = MediaQuery.paddingOf(context);
+    const barWidth = 296.0;
+    const barHeight = 48.0;
+    var left = (widget.anchor.dx - barWidth / 2).clamp(
+      8.0,
+      size.width - barWidth - 8.0,
+    );
+    // Prefer sitting just above the press point; if that would clip the top,
+    // flip below it.
+    var top = widget.anchor.dy - barHeight - 12;
+    if (top < padding.top + 8) top = widget.anchor.dy + 12;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onDismiss,
+          ),
+        ),
+        Positioned(
+          left: left,
+          top: top,
+          child: ScaleTransition(
+            scale: CurvedAnimation(parent: _c, curve: Curves.easeOutBack),
+            alignment: Alignment.bottomCenter,
+            child: FadeTransition(opacity: _c, child: _bar()),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _bar() {
+    return Material(
+      key: const Key('reaction-bar'),
+      elevation: 8,
+      borderRadius: BorderRadius.circular(26),
+      color: TwilightColors.bgSurface,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final e in _quickReactions) _emojiButton(e),
+            _moreButton(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _emojiButton(String emoji) {
+    final isSelected = emoji == widget.selected;
+    return GestureDetector(
+      onTap: () => widget.onPick(emoji),
+      child: Container(
+        width: 40,
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isSelected
+              ? TwilightColors.accentUser.withValues(alpha: 0.18)
+              : Colors.transparent,
+          shape: BoxShape.circle,
+        ),
+        child: Text(emoji, style: const TextStyle(fontSize: 24)),
+      ),
+    );
+  }
+
+  Widget _moreButton() {
+    return GestureDetector(
+      onTap: widget.onMore,
+      child: Container(
+        width: 40,
+        height: 40,
+        alignment: Alignment.center,
+        child: const Icon(Icons.add, color: TwilightColors.textMuted),
+      ),
+    );
+  }
+}
+
+/// A single staged-media chip in the composer tray: a square preview with a
+/// remove (×) button. Images render their bytes inline; videos show a play
+/// badge over a neutral fill (no decode needed for the tray).
+class _StagedChip extends StatelessWidget {
+  const _StagedChip({required this.item, required this.onRemove});
+  final StagedAttachment item;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 64,
+      height: 64,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: SizedBox(
+              width: 64,
+              height: 64,
+              child: item.isVideo
+                  ? Container(
+                      color: TwilightColors.bgSurfaceAlt,
+                      child: const Center(child: _PlayBadge()),
+                    )
+                  : Image.memory(item.bytes, fit: BoxFit.cover),
+            ),
+          ),
+          Positioned(
+            top: -6,
+            right: -6,
+            child: GestureDetector(
+              onTap: onRemove,
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Color(0xCC140C12),
+                  shape: BoxShape.circle,
+                ),
+                padding: const EdgeInsets.all(2),
+                child: const Icon(Icons.close, size: 16, color: Colors.white),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -884,29 +1410,50 @@ class _MediaBubble extends StatelessWidget {
               : TwilightColors.bubblePartnerBg,
           borderRadius: BorderRadius.circular(18),
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: AspectRatio(
-            aspectRatio: aspect.clamp(0.6, 1.9),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                _ThumbImage(thumbB64: d.thumbB64),
-                if (d.isVideo) const Center(child: _PlayBadge()),
-                if (msg.sendStatus == SendStatus.sending)
-                  Container(
-                    color: const Color(0x57F4EBEC),
-                    child: const Center(
-                      child: SizedBox(
-                        width: 30,
-                        height: 30,
-                        child: CircularProgressIndicator(strokeWidth: 3),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: AspectRatio(
+                aspectRatio: aspect.clamp(0.6, 1.9),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _ThumbImage(thumbB64: d.thumbB64),
+                    if (d.isVideo) const Center(child: _PlayBadge()),
+                    if (msg.sendStatus == SendStatus.sending)
+                      Container(
+                        color: const Color(0x57F4EBEC),
+                        child: const Center(
+                          child: SizedBox(
+                            width: 30,
+                            height: 30,
+                            child: CircularProgressIndicator(strokeWidth: 3),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-              ],
+                  ],
+                ),
+              ),
             ),
-          ),
+            // Caption (the message sent with the media) renders under the tile,
+            // keeping the photo + words in one bubble.
+            if (msg.body.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(6, 6, 4, 2),
+                child: Text(
+                  msg.body,
+                  style: TextStyle(
+                    color: isMe
+                        ? TwilightColors.bubbleUserText
+                        : TwilightColors.textPrimary,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

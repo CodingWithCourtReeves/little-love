@@ -12,6 +12,7 @@ import '../../attachment/attachment_download.dart';
 import '../../attachment/attachment_upload.dart';
 import '../../attachment/attachment_viewer.dart';
 import '../../attachment/file_crypto.dart';
+import '../../attachment/staged_attachment.dart';
 import '../../attachment/thumbnail.dart';
 import '../../conversation/conversation_page.dart';
 import '../../conversation/message_content.dart';
@@ -173,7 +174,11 @@ class InboxShell extends ConsumerWidget {
       selfUsername: account.username,
       onSend: (text) => _sendEncrypted(ref, room, text),
       onRetry: (clientMsgId) => _retry(ref, clientMsgId),
-      onAttach: () => _pickAndSend(ref, room, context),
+      onPickMedia: () => _pickMedia(context),
+      onSendMedia: (items, caption) =>
+          _sendStaged(ref, room, context, items, caption),
+      onReact: (targetId, emoji) => _sendReaction(ref, room, targetId, emoji),
+      onTyping: (typing) => _sendTyping(ref, room, typing),
       onOpenAttachment: (descriptor) =>
           _openAttachment(ref, room, context, descriptor),
       onRename: (newName) {
@@ -252,6 +257,7 @@ class InboxShell extends ConsumerWidget {
     required String filename,
     required String mime,
     String? videoPath,
+    String? caption,
   }) async {
     final clientMsgId = ref.read(outboxIdGenProvider)();
     final conn = ref.read(liveConnectionProvider).asData?.value;
@@ -293,7 +299,7 @@ class InboxShell extends ConsumerWidget {
         room: room,
         me: me,
         selfUsername: account.username,
-        plaintext: FileContent(descriptor).encode(),
+        plaintext: FileContent(descriptor, caption: caption).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
       );
@@ -310,7 +316,7 @@ class InboxShell extends ConsumerWidget {
               id: clientMsgId,
               from: account.username,
               to: room.roomId,
-              body: '',
+              body: caption ?? '',
               ts: DateTime.now().toUtc(),
               clientMsgId: clientMsgId,
               sendStatus: SendStatus.sending,
@@ -326,11 +332,10 @@ class InboxShell extends ConsumerWidget {
     }
   }
 
-  Future<void> _pickAndSend(
-    WidgetRef ref,
-    Room room,
-    BuildContext context,
-  ) async {
+  /// Pick photos/videos/files and return them as staged items for the composer
+  /// tray. Picking no longer sends — the user adds a caption and taps send,
+  /// which flushes the tray through [_sendStaged].
+  Future<List<StagedAttachment>> _pickMedia(BuildContext context) async {
     final choice = await showModalBottomSheet<String>(
       context: context,
       builder: (_) => SafeArea(
@@ -350,28 +355,23 @@ class InboxShell extends ConsumerWidget {
         ),
       ),
     );
-    if (!context.mounted) return;
+    final out = <StagedAttachment>[];
     if (choice == 'photos') {
       // imageQuality forces iOS to re-encode the picked image to JPEG. iOS
       // Photos delivers HEIC, which the pure-Dart `image` package can't decode
       // (thumbnail build would throw); JPEG is decodable and universally
       // viewable. Videos picked here are unaffected by imageQuality.
       final picked = await ImagePicker().pickMultipleMedia(imageQuality: 90);
-      if (picked.isEmpty || !context.mounted) return;
-      // Send each pick in selection order, sequentially so the optimistic
-      // bubbles and uploads stay ordered.
       for (final item in picked) {
         final bytes = await item.readAsBytes();
         final mime = _mimeFor(item.name, item.mimeType);
-        if (!context.mounted) return;
-        await _sendAttachment(
-          ref,
-          room,
-          context,
-          bytes: bytes,
-          filename: item.name,
-          mime: mime,
-          videoPath: mime.startsWith('video/') ? item.path : null,
+        out.add(
+          StagedAttachment(
+            bytes: bytes,
+            filename: item.name,
+            mime: mime,
+            videoPath: mime.startsWith('video/') ? item.path : null,
+          ),
         );
       }
     } else if (choice == 'file') {
@@ -379,22 +379,48 @@ class InboxShell extends ConsumerWidget {
         withReadStream: false,
         allowMultiple: true,
       );
-      if (res == null || res.files.isEmpty || !context.mounted) return;
+      if (res == null) return out;
       for (final f in res.files) {
         if (f.path == null) continue;
         final bytes = await File(f.path!).readAsBytes();
         final mime = _mimeFor(f.name, null);
-        if (!context.mounted) return;
-        await _sendAttachment(
-          ref,
-          room,
-          context,
-          bytes: bytes,
-          filename: f.name,
-          mime: mime,
-          videoPath: mime.startsWith('video/') ? f.path : null,
+        out.add(
+          StagedAttachment(
+            bytes: bytes,
+            filename: f.name,
+            mime: mime,
+            videoPath: mime.startsWith('video/') ? f.path : null,
+          ),
         );
       }
+    }
+    return out;
+  }
+
+  /// Flush the composer's staged media. Items send in tray order; the caption
+  /// (composer text) rides on the last item so a multi-pick reads as one
+  /// captioned run, mirroring iMessage/Telegram.
+  Future<void> _sendStaged(
+    WidgetRef ref,
+    Room room,
+    BuildContext context,
+    List<StagedAttachment> items,
+    String caption,
+  ) async {
+    for (var i = 0; i < items.length; i++) {
+      final item = items[i];
+      final isLast = i == items.length - 1;
+      if (!context.mounted) return;
+      await _sendAttachment(
+        ref,
+        room,
+        context,
+        bytes: item.bytes,
+        filename: item.filename,
+        mime: item.mime,
+        videoPath: item.videoPath,
+        caption: isLast && caption.isNotEmpty ? caption : null,
+      );
     }
   }
 
@@ -441,6 +467,49 @@ class InboxShell extends ConsumerWidget {
         );
       }
     }
+  }
+
+  /// Send (or toggle off) a reaction to [targetId]. Applies optimistically to
+  /// the local store, then fans the `kind:"reaction"` message out through the
+  /// same persistent outbox as a normal send (no optimistic bubble — reactions
+  /// aren't timeline rows). An empty [emoji] removes my reaction.
+  Future<void> _sendReaction(
+    WidgetRef ref,
+    Room room,
+    String targetId,
+    String emoji,
+  ) async {
+    ref
+        .read(messageStoreProvider(room.roomId).notifier)
+        .applyReaction(targetId, account.username, emoji);
+    final clientMsgId = ref.read(outboxIdGenProvider)();
+    try {
+      final me = await ref.read(currentIdentityProvider.future);
+      final frame = await buildSendFrame(
+        room: room,
+        me: me,
+        selfUsername: account.username,
+        plaintext: ReactionContent(targetId: targetId, emoji: emoji).encode(),
+        cache: ref.read(roomKeyCacheProvider),
+        clientMsgId: clientMsgId,
+      );
+      final store = await ref.read(outboxStoreProvider.future);
+      await store.enqueue(
+        clientMsgId: clientMsgId,
+        roomId: room.roomId,
+        bodies: frame.bodies,
+      );
+      await ref.read(outboxDrainProvider).kick();
+    } catch (e) {
+      debugPrint('reaction send failed: $e');
+    }
+  }
+
+  /// Relay transient typing presence. Fire-and-forget: if the socket is down
+  /// the frame is simply dropped (the receiver times its indicator out).
+  void _sendTyping(WidgetRef ref, Room room, bool typing) {
+    final conn = ref.read(liveConnectionProvider).asData?.value;
+    conn?.send(TypingClientFrame(roomId: room.roomId, typing: typing).toJson());
   }
 
   Future<void> _retry(WidgetRef ref, String clientMsgId) async {

@@ -47,6 +47,29 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     state = next;
   }
 
+  /// Apply a reaction onto the target message: set [username] → [emoji], or
+  /// remove that user's reaction when [emoji] is empty (toggle off). No-op if
+  /// the target isn't in the buffer (e.g. a reaction whose target hasn't
+  /// replayed yet — targets always precede their reactions, so this is rare).
+  /// Idempotent: re-applying the same value is a cheap rewrite, so the optimi-
+  /// stic local apply and the server echo converge.
+  void applyReaction(String targetId, String username, String emoji) {
+    final idx = state.indexWhere((m) => m.id == targetId);
+    if (idx < 0) return;
+    final current = state[idx].reactions;
+    if (emoji.isEmpty && !current.containsKey(username)) return;
+    if (current[username] == emoji && emoji.isNotEmpty) return;
+    final next = Map<String, String>.from(current);
+    if (emoji.isEmpty) {
+      next.remove(username);
+    } else {
+      next[username] = emoji;
+    }
+    final list = [...state];
+    list[idx] = state[idx].copyWith(reactions: next);
+    state = list;
+  }
+
   /// Mark the given message ids as read (the partner has seen them → double
   /// heart). Ids not in the buffer are ignored. Driven by an inbound
   /// `ReadFrame` relayed from the server.

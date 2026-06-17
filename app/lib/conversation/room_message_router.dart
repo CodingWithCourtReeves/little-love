@@ -15,6 +15,7 @@ import '../wire/message.dart';
 import 'message_content.dart';
 import 'message_store.dart';
 import 'room_key_cache.dart';
+import 'typing_state.dart';
 
 /// Listens to the live WSS connection and dispatches v0.3 room-phase frames
 /// into the inbox + per-room message stores. Auto-subscribes to each room as
@@ -80,6 +81,11 @@ class RoomMessageRouter {
       case ReadFrame(:final roomId, :final messageIds):
         ref.read(messageStoreProvider(roomId).notifier).markRead(messageIds);
 
+      case TypingFrame(:final roomId, :final typing):
+        // 1:1 rooms: the only other member is the partner, so a relayed Typing
+        // frame is always "the partner is typing" in this room.
+        ref.read(typingProvider(roomId).notifier).setTyping(typing);
+
       case InviteCreatedFrame():
       case RoomErrorFrame():
       case UploadGrantedFrame():
@@ -134,6 +140,18 @@ class RoomMessageRouter {
     final content = plaintext == cannotDecryptSentinel
         ? const TextContent(cannotDecryptSentinel)
         : MessageContent.decode(plaintext);
+    final store = ref.read(messageStoreProvider(f.roomId).notifier);
+    // A reaction isn't a timeline bubble: apply it onto its target and stop.
+    // The sender's own self-copy still rides the outbox, so drop that row on
+    // echo just like a normal send (otherwise the drain resends it).
+    if (content is ReactionContent) {
+      store.applyReaction(content.targetId, f.from, content.emoji);
+      if (f.clientMsgId != null) {
+        final outbox = await ref.read(outboxStoreProvider.future);
+        await outbox.remove(f.clientMsgId!);
+      }
+      return;
+    }
     // `read` is only set on the sender's own self-copy that the partner has
     // seen; replay it as the double-heart state. Otherwise default sent.
     final sendStatus = f.read ? SendStatus.read : SendStatus.sent;
@@ -147,18 +165,19 @@ class RoomMessageRouter {
         replayed: f.replayed,
         sendStatus: sendStatus,
       ),
-      FileContent(:final descriptor) => Msg(
+      FileContent(:final descriptor, :final caption) => Msg(
         id: f.id,
         from: f.from,
         to: f.roomId,
-        body: '',
+        body: caption ?? '',
         ts: f.ts,
         replayed: f.replayed,
         attachment: descriptor,
         sendStatus: sendStatus,
       ),
+      // Handled by the early return above; here only to satisfy exhaustiveness.
+      ReactionContent() => throw StateError('reaction handled above'),
     };
-    final store = ref.read(messageStoreProvider(f.roomId).notifier);
     // Live self-copy of our own message: swap the optimistic echo (keyed by
     // clientMsgId) for this authoritative row instead of appending a duplicate.
     // The echo also confirms the server durably stored the send, so drop the

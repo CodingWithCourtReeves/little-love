@@ -105,6 +105,55 @@ void main() {
     expect(out.firstWhere((m) => m.id == 'm2').sendStatus, SendStatus.sent);
   });
 
+  test('applyReaction sets, replaces, and toggles off a reaction', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(_msg('m1', 'one'));
+
+    store.applyReaction('m1', 'kaitlyn', '❤️');
+    expect(
+      container.read(messageStoreProvider('r1')).single.reactions,
+      {'kaitlyn': '❤️'},
+    );
+
+    // Same user reacting with a different emoji replaces (max one per person).
+    store.applyReaction('m1', 'kaitlyn', '😂');
+    expect(
+      container.read(messageStoreProvider('r1')).single.reactions,
+      {'kaitlyn': '😂'},
+    );
+
+    // Empty emoji removes that user's reaction.
+    store.applyReaction('m1', 'kaitlyn', '');
+    expect(
+      container.read(messageStoreProvider('r1')).single.reactions,
+      isEmpty,
+    );
+  });
+
+  test('applyReaction keeps reactions from different users distinct', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(_msg('m1', 'one'));
+    store.applyReaction('m1', 'court', '❤️');
+    store.applyReaction('m1', 'kaitlyn', '❤️');
+    expect(container.read(messageStoreProvider('r1')).single.reactions, {
+      'court': '❤️',
+      'kaitlyn': '❤️',
+    });
+  });
+
+  test('applyReaction is a no-op when the target is absent', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(_msg('m1', 'one'));
+    store.applyReaction('missing', 'court', '❤️');
+    expect(container.read(messageStoreProvider('r1')).single.reactions, isEmpty);
+  });
+
   test('updateStatus changes sendStatus on the matching id', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);

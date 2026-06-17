@@ -4,8 +4,10 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/conversation/message_content.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/conversation/room_message_router.dart';
+import 'package:littlelove/conversation/typing_state.dart';
 import 'package:littlelove/crypto/ecdh.dart';
 import 'package:littlelove/identity/current_identity.dart';
 import 'package:littlelove/identity/keypair.dart';
@@ -461,6 +463,84 @@ void main() {
     final msgs = container.read(messageStoreProvider('room1'));
     expect(msgs, hasLength(1));
     expect(msgs.single.sendStatus, SendStatus.read);
+  });
+
+  test('an inbound Typing frame flips the room typing flag', () async {
+    final me = await deriveIdentity(seedA);
+    final conn = _FakeConn();
+    final container = await _container(conn: conn, me: me);
+    container.read(roomMessageRouterProvider);
+
+    expect(container.read(typingProvider('room1')), isFalse);
+
+    conn.emit(
+      const TypingFrame(roomId: 'room1', from: 'kaitlyn', typing: true),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(container.read(typingProvider('room1')), isTrue);
+
+    conn.emit(
+      const TypingFrame(roomId: 'room1', from: 'kaitlyn', typing: false),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(container.read(typingProvider('room1')), isFalse);
+  });
+
+  test('an inbound reaction applies onto its target, not as a bubble', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final container = await _container(conn: conn, me: me);
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        name: '',
+        members: [_member('court', me), _member('kaitlyn', peer)],
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
+    // A target message already in the timeline.
+    container
+        .read(messageStoreProvider('room1').notifier)
+        .add(
+          Msg(
+            id: 'target-1',
+            from: 'court',
+            to: 'room1',
+            body: 'hi love',
+            ts: DateTime.utc(2026, 6, 10, 12),
+          ),
+        );
+    container.read(roomMessageRouterProvider);
+
+    final key = await deriveRoomKey(
+      me: peer,
+      peerX25519Pub: me.x25519PublicKey,
+      roomId: 'room1',
+    );
+    final body = await encryptOutgoing(
+      key,
+      const ReactionContent(targetId: 'target-1', emoji: '❤️').encode(),
+    );
+
+    conn.emit(
+      MessageFrame(
+        id: 'reaction-1',
+        roomId: 'room1',
+        from: 'kaitlyn',
+        ts: DateTime.utc(2026, 6, 10, 12, 1),
+        body: body,
+        replayed: false,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    final msgs = container.read(messageStoreProvider('room1'));
+    // No new bubble — still just the target, now carrying the reaction.
+    expect(msgs, hasLength(1));
+    expect(msgs.single.id, 'target-1');
+    expect(msgs.single.reactions, {'kaitlyn': '❤️'});
   });
 
   test(

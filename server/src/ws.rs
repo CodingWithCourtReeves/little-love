@@ -238,6 +238,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 }) => {
                     handle_mark_read(&state, &me, &room_id, &up_to_message_id, &tx).await;
                 }
+                Ok(RoomClientFrame::Typing { room_id, typing }) => {
+                    handle_typing(&state, &me, &room_id, typing).await;
+                }
                 Ok(RoomClientFrame::RequestUpload {
                     request_id,
                     room_id,
@@ -601,6 +604,36 @@ async fn handle_mark_read(
             reader: me.username.clone(),
         };
         state.routing.deliver(&sender, frame).await;
+    }
+}
+
+/// Relay transient typing presence to the other room member(s). Best-effort:
+/// no persistence, and membership/lookup failures are silently ignored (a lost
+/// typing frame is harmless — the client times the indicator out anyway).
+async fn handle_typing(state: &AppState, me: &AccountRecord, room_id: &str, typing: bool) {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return,
+    };
+    if !is_member(store.pool(), room_id, me.id)
+        .await
+        .unwrap_or(false)
+    {
+        return;
+    }
+    let members = members_for_room(store.pool(), room_id)
+        .await
+        .unwrap_or_default();
+    let frame = RoomServerFrame::Typing {
+        room_id: room_id.to_string(),
+        from: me.username.clone(),
+        typing,
+    };
+    for m in &members {
+        if m.account_id == me.id {
+            continue;
+        }
+        state.routing.deliver(&m.username, frame.clone()).await;
     }
 }
 

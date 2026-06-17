@@ -18,7 +18,16 @@ sealed class MessageContent {
       if (j is Map<String, Object?> && j['v'] == 1) {
         switch (j['kind']) {
           case 'file':
-            return FileContent(AttachmentDescriptor.fromJson(j));
+            final cap = j['caption'] as String?;
+            return FileContent(
+              AttachmentDescriptor.fromJson(j),
+              caption: (cap == null || cap.isEmpty) ? null : cap,
+            );
+          case 'reaction':
+            return ReactionContent(
+              targetId: (j['target'] as String?) ?? '',
+              emoji: (j['emoji'] as String?) ?? '',
+            );
           case 'text':
             return TextContent((j['text'] as String?) ?? '');
         }
@@ -38,11 +47,38 @@ class TextContent extends MessageContent {
   String encode() => jsonEncode({'v': 1, 'kind': 'text', 'text': text});
 }
 
-class FileContent extends MessageContent {
-  const FileContent(this.descriptor);
-  final AttachmentDescriptor descriptor;
+/// A reaction to another message in the room. It is delivered as an ordinary
+/// E2EE message (fanned out per recipient) referencing the target's server
+/// message id; the receiver applies it onto the target instead of rendering a
+/// bubble, so reactions never appear in the timeline or bump unread state. An
+/// empty [emoji] removes this sender's reaction (toggle off).
+class ReactionContent extends MessageContent {
+  const ReactionContent({required this.targetId, required this.emoji});
+  final String targetId;
+  final String emoji;
 
   @override
-  String encode() =>
-      jsonEncode({'v': 1, 'kind': 'file', ...descriptor.toJson()});
+  String encode() => jsonEncode({
+    'v': 1,
+    'kind': 'reaction',
+    'target': targetId,
+    'emoji': emoji,
+  });
+}
+
+class FileContent extends MessageContent {
+  const FileContent(this.descriptor, {this.caption});
+  final AttachmentDescriptor descriptor;
+
+  /// Optional text sent alongside the file, rendered as a caption under the
+  /// media tile (one bubble). Null/empty when the attachment has no caption.
+  final String? caption;
+
+  @override
+  String encode() => jsonEncode({
+    'v': 1,
+    'kind': 'file',
+    if (caption != null && caption!.isNotEmpty) 'caption': caption,
+    ...descriptor.toJson(),
+  });
 }

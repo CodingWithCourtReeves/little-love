@@ -15,6 +15,7 @@ class Msg {
     this.clientMsgId,
     this.sendStatus = SendStatus.sent,
     this.attachment,
+    this.reactions = const {},
   });
 
   final String id;
@@ -36,6 +37,12 @@ class Msg {
   /// Present when this message carries a `kind:"file"` attachment instead of
   /// (or alongside) text. Holds the per-file key + metadata + inline thumb.
   final AttachmentDescriptor? attachment;
+
+  /// Reactions on this message, keyed by reactor username → emoji. Applied from
+  /// inbound `kind:"reaction"` messages (see [MessageStore.applyReaction]); not
+  /// part of the wire/persisted form of this message — reactions replay as
+  /// their own messages.
+  final Map<String, String> reactions;
 
   factory Msg.fromJson(Map<String, Object?> json) {
     return Msg(
@@ -65,6 +72,7 @@ class Msg {
     String? id,
     SendStatus? sendStatus,
     AttachmentDescriptor? attachment,
+    Map<String, String>? reactions,
   }) {
     return Msg(
       id: id ?? this.id,
@@ -76,6 +84,7 @@ class Msg {
       clientMsgId: clientMsgId,
       sendStatus: sendStatus ?? this.sendStatus,
       attachment: attachment ?? this.attachment,
+      reactions: reactions ?? this.reactions,
     );
   }
 }
