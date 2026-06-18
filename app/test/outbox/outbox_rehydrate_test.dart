@@ -150,8 +150,10 @@ void main() {
       bodies: {selfPub: 'ct-react'},
       createdAt: DateTime.utc(2026, 6, 13, 9, 0),
     );
-    final envelope =
-        const ReactionContent(targetId: 'msg-9', emoji: '❤️').encode();
+    final envelope = const ReactionContent(
+      targetId: 'msg-9',
+      emoji: '❤️',
+    ).encode();
 
     final container = ProviderContainer();
     addTearDown(container.dispose);
@@ -173,6 +175,53 @@ void main() {
       reason: 'a pending reaction drains silently; never a bubble',
     );
   });
+
+  test(
+    'rehydrate applies a pending delete as a tombstone, no bubble',
+    () async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final selfPub = base64.encode(me.x25519PublicKey);
+      final store = MemoryOutboxStore();
+      await store.enqueue(
+        clientMsgId: 'cli-del',
+        roomId: 'room1',
+        bodies: {selfPub: 'ct-del'},
+        createdAt: DateTime.utc(2026, 6, 13, 9, 0),
+      );
+      final envelope = const DeleteContent(targetId: 'target-1').encode();
+
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      // Seed the soon-to-be-deleted target as if replay already added it.
+      container
+          .read(messageStoreProvider('room1').notifier)
+          .add(
+            Msg(
+              id: 'target-1',
+              from: 'court',
+              to: 'room1',
+              body: 'oops',
+              ts: DateTime.utc(2026, 6, 13, 8),
+            ),
+          );
+
+      await rehydrateOutbox(
+        store: store,
+        me: 'court',
+        identity: me,
+        keyCache: container.read(roomKeyCacheProvider),
+        rooms: [mkRoom('room1', me, peer)],
+        getMessageStore: (rid) =>
+            container.read(messageStoreProvider(rid).notifier),
+        decrypt: (room, cipher) async => envelope,
+      );
+
+      // The delete is not a bubble, and its target is tombstoned (removed).
+      expect(container.read(messageStoreProvider('room1')), isEmpty);
+    },
+  );
 
   test('rehydrate marks row failed when decrypt throws', () async {
     final me = await deriveIdentity(seedA);

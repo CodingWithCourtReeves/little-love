@@ -69,6 +69,29 @@ void main() {
     expect(out.length, 2);
   });
 
+  test('reconcile keeps the clientMsgId for a stable list key', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('roomA').notifier);
+    store.add(
+      Msg(
+        id: 'cli-echo',
+        from: 'court',
+        to: 'kaitlyn',
+        body: 'hi',
+        ts: DateTime.utc(2026, 6, 9, 17),
+        clientMsgId: 'cli-echo',
+        sendStatus: SendStatus.sending,
+      ),
+    );
+    store.reconcile('cli-echo', _msg('ULID-real', 'hi'));
+    final out = container.read(messageStoreProvider('roomA')).single;
+    // id swaps to the authoritative server id, but the clientMsgId survives so
+    // the bubble's ValueKey ('clientMsgId ?? id') doesn't change → no remount.
+    expect(out.id, 'ULID-real');
+    expect(out.clientMsgId, 'cli-echo');
+  });
+
   test('reconcile is idempotent once the server id is present', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);
@@ -112,17 +135,15 @@ void main() {
     store.add(_msg('m1', 'one'));
 
     store.applyReaction('m1', 'kaitlyn', '❤️');
-    expect(
-      container.read(messageStoreProvider('r1')).single.reactions,
-      {'kaitlyn': '❤️'},
-    );
+    expect(container.read(messageStoreProvider('r1')).single.reactions, {
+      'kaitlyn': '❤️',
+    });
 
     // Same user reacting with a different emoji replaces (max one per person).
     store.applyReaction('m1', 'kaitlyn', '😂');
-    expect(
-      container.read(messageStoreProvider('r1')).single.reactions,
-      {'kaitlyn': '😂'},
-    );
+    expect(container.read(messageStoreProvider('r1')).single.reactions, {
+      'kaitlyn': '😂',
+    });
 
     // Empty emoji removes that user's reaction.
     store.applyReaction('m1', 'kaitlyn', '');
@@ -151,7 +172,79 @@ void main() {
     final store = container.read(messageStoreProvider('r1').notifier);
     store.add(_msg('m1', 'one'));
     store.applyReaction('missing', 'court', '❤️');
-    expect(container.read(messageStoreProvider('r1')).single.reactions, isEmpty);
+    expect(
+      container.read(messageStoreProvider('r1')).single.reactions,
+      isEmpty,
+    );
+  });
+
+  test('applyDelete removes the target message from the buffer', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(_msg('m1', 'one'));
+    store.add(_msg('m2', 'two'));
+
+    store.applyDelete('m1');
+
+    expect(
+      container.read(messageStoreProvider('r1')).map((m) => m.id).toList(),
+      ['m2'],
+    );
+  });
+
+  test('a tombstoned id can never be re-added (delete wins over replay)', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+
+    // Delete arrives before its target (live reorder, or target replays after
+    // the delete on reconnect): record the tombstone with nothing to remove...
+    store.applyDelete('m1');
+    expect(container.read(messageStoreProvider('r1')), isEmpty);
+
+    // ...then a later add of that id is dropped on the spot.
+    store.add(_msg('m1', 'one'));
+    expect(container.read(messageStoreProvider('r1')), isEmpty);
+  });
+
+  test('setAll filters out tombstoned ids', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.applyDelete('m2');
+    store.setAll([_msg('m1', 'one'), _msg('m2', 'two'), _msg('m3', 'three')]);
+    expect(
+      container.read(messageStoreProvider('r1')).map((m) => m.id).toList(),
+      ['m1', 'm3'],
+    );
+  });
+
+  test(
+    'reconcile drops the optimistic echo when the server id is tombstoned',
+    () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final store = container.read(messageStoreProvider('r1').notifier);
+      store.add(_msg('uuid-echo', 'gone soon'));
+      store.applyDelete('ULID-real');
+      store.reconcile('uuid-echo', _msg('ULID-real', 'gone soon'));
+      expect(container.read(messageStoreProvider('r1')), isEmpty);
+    },
+  );
+
+  test('remove drops a row without tombstoning (unlike applyDelete)', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(_msg('cli-1', 'stuck'));
+
+    store.remove('cli-1');
+    expect(container.read(messageStoreProvider('r1')), isEmpty);
+
+    // Not tombstoned: the same id may legitimately be added again later.
+    store.add(_msg('cli-1', 'reused'));
+    expect(container.read(messageStoreProvider('r1')).single.body, 'reused');
   });
 
   test('updateStatus changes sendStatus on the matching id', () {

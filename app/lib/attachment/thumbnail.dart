@@ -31,26 +31,37 @@ const _maxThumbBytes = 44 * 1024;
 // lowest step always fits at this resolution, so a thumb is always produced.
 const _qualitySteps = [82, 72, 62, 52, 42, 32];
 
-/// Encode [image] as the highest-quality JPEG that fits the wire budget.
-Uint8List _encodeUnderBudget(img.Image image) {
+/// Encode [image] as the highest-quality JPEG that fits [maxBytes].
+Uint8List _encodeUnderBudget(img.Image image, [int maxBytes = _maxThumbBytes]) {
   late Uint8List out;
   for (final q in _qualitySteps) {
     out = Uint8List.fromList(img.encodeJpg(image, quality: q));
-    if (out.length <= _maxThumbBytes) break;
+    if (out.length <= maxBytes) break;
   }
   return out;
 }
 
-/// Downscale image [bytes] to a <=360px-long-edge JPEG (quality fitted to the
-/// wire budget). Returns the original dimensions alongside the thumbnail.
-Future<BuiltThumbnail> buildImageThumbnail(Uint8List bytes) async {
+/// Downscale image [bytes] to a JPEG no wider/taller than [maxEdge] and no
+/// larger than [maxThumbBytes] (quality fitted to the budget). Returns the
+/// original dimensions alongside the thumbnail. Defaults suit inline message
+/// thumbnails; link-preview images pass a smaller budget to stay well under
+/// the per-recipient body cap.
+Future<BuiltThumbnail> buildImageThumbnail(
+  Uint8List bytes, {
+  int maxEdge = _maxEdge,
+  int maxThumbBytes = _maxThumbBytes,
+}) async {
   final decoded = img.decodeImage(bytes);
   if (decoded == null) throw const FormatException('undecodable image');
   final w = decoded.width, h = decoded.height;
   final thumb = w >= h
-      ? img.copyResize(decoded, width: _maxEdge)
-      : img.copyResize(decoded, height: _maxEdge);
-  return BuiltThumbnail(jpeg: _encodeUnderBudget(thumb), width: w, height: h);
+      ? img.copyResize(decoded, width: maxEdge)
+      : img.copyResize(decoded, height: maxEdge);
+  return BuiltThumbnail(
+    jpeg: _encodeUnderBudget(thumb, maxThumbBytes),
+    width: w,
+    height: h,
+  );
 }
 
 /// Extract a poster frame from a video file at [path] and downscale it.

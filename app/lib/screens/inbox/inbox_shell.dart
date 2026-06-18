@@ -15,6 +15,7 @@ import '../../attachment/file_crypto.dart';
 import '../../attachment/staged_attachment.dart';
 import '../../attachment/thumbnail.dart';
 import '../../conversation/conversation_page.dart';
+import '../../conversation/link_preview.dart';
 import '../../conversation/message_content.dart';
 import '../../conversation/message_store.dart';
 import '../../conversation/room_key_cache.dart';
@@ -178,6 +179,8 @@ class InboxShell extends ConsumerWidget {
       onSendMedia: (items, caption) =>
           _sendStaged(ref, room, context, items, caption),
       onReact: (targetId, emoji) => _sendReaction(ref, room, targetId, emoji),
+      onDelete: (targetId) => _sendDelete(ref, room, targetId),
+      onCancelSend: (clientMsgId) => _cancelSend(ref, room, clientMsgId),
       onTyping: (typing) => _sendTyping(ref, room, typing),
       onOpenAttachment: (descriptor) =>
           _openAttachment(ref, room, context, descriptor),
@@ -198,16 +201,39 @@ class InboxShell extends ConsumerWidget {
   /// [RoomMessageRouter]).
   Future<void> _sendEncrypted(WidgetRef ref, Room room, String text) async {
     final clientMsgId = ref.read(outboxIdGenProvider)();
-    var inserted = false;
+    final msgs = ref.read(messageStoreProvider(room.roomId).notifier);
+    // Optimistic bubble immediately so the chat feels instant even when a link
+    // preview fetch is in flight; the preview pops in when the server echoes
+    // the stored message back.
+    msgs.add(
+      Msg(
+        id: clientMsgId,
+        from: account.username,
+        to: room.roomId,
+        body: text,
+        ts: DateTime.now().toUtc(),
+        clientMsgId: clientMsgId,
+        sendStatus: SendStatus.sending,
+      ),
+    );
     try {
+      // Sender-side link preview (best-effort, bounded): the fetched title/
+      // image ride inside the encrypted body, so the recipient never hits the
+      // network. A slow or failing site just yields no preview.
+      LinkPreview? preview;
+      final url = firstUrl(text);
+      if (url != null) {
+        preview = await fetchLinkPreview(url)
+            .timeout(const Duration(seconds: 7), onTimeout: () => null)
+            .catchError((Object _) => null);
+      }
       final me = await ref.read(currentIdentityProvider.future);
-      final cache = ref.read(roomKeyCacheProvider);
       final frame = await buildSendFrame(
         room: room,
         me: me,
         selfUsername: account.username,
-        plaintext: TextContent(text).encode(),
-        cache: cache,
+        plaintext: TextContent(text, preview: preview).encode(),
+        cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
       );
       final store = await ref.read(outboxStoreProvider.future);
@@ -216,32 +242,19 @@ class InboxShell extends ConsumerWidget {
         roomId: room.roomId,
         bodies: frame.bodies,
       );
-      ref
-          .read(messageStoreProvider(room.roomId).notifier)
-          .add(
-            Msg(
-              id: clientMsgId,
-              from: account.username,
-              to: room.roomId,
-              body: text,
-              ts: DateTime.now().toUtc(),
-              clientMsgId: clientMsgId,
-              sendStatus: SendStatus.sending,
-            ),
-          );
-      inserted = true;
+    } catch (e) {
+      // Nothing was durably enqueued, so there's no outbox row to retry from —
+      // drop the optimistic bubble rather than leaving an un-retryable failure.
+      msgs.remove(clientMsgId);
+      debugPrint('send failed before enqueue: $e');
+      return;
+    }
+    // Durably enqueued. A kick failure leaves the row for the drain to retry,
+    // so surface a tap-to-retry affordance.
+    try {
       await ref.read(outboxDrainProvider).kick();
     } catch (e) {
-      // If the optimistic bubble made it in, flip it to `failed` so the user
-      // gets a tap-to-retry affordance. If we failed before inserting it,
-      // there is no UI to update — log and move on.
-      if (inserted) {
-        ref
-            .read(messageStoreProvider(room.roomId).notifier)
-            .updateStatus(clientMsgId, SendStatus.failed);
-      } else {
-        debugPrint('outbox enqueue failed before insert: $e');
-      }
+      msgs.updateStatus(clientMsgId, SendStatus.failed);
     }
   }
 
@@ -502,6 +515,49 @@ class InboxShell extends ConsumerWidget {
       await ref.read(outboxDrainProvider).kick();
     } catch (e) {
       debugPrint('reaction send failed: $e');
+    }
+  }
+
+  /// Unsend a message for everyone. Optimistically tombstone it locally, then
+  /// fan out a `kind:"delete"` control message through the same outbox path as
+  /// a reaction. The partner applies the tombstone on receipt; both sides
+  /// re-apply it on every reconnect (the delete replays after its target).
+  Future<void> _sendDelete(WidgetRef ref, Room room, String targetId) async {
+    ref.read(messageStoreProvider(room.roomId).notifier).applyDelete(targetId);
+    final clientMsgId = ref.read(outboxIdGenProvider)();
+    try {
+      final me = await ref.read(currentIdentityProvider.future);
+      final frame = await buildSendFrame(
+        room: room,
+        me: me,
+        selfUsername: account.username,
+        plaintext: DeleteContent(targetId: targetId).encode(),
+        cache: ref.read(roomKeyCacheProvider),
+        clientMsgId: clientMsgId,
+      );
+      final store = await ref.read(outboxStoreProvider.future);
+      await store.enqueue(
+        clientMsgId: clientMsgId,
+        roomId: room.roomId,
+        bodies: frame.bodies,
+      );
+      await ref.read(outboxDrainProvider).kick();
+    } catch (e) {
+      debugPrint('delete send failed: $e');
+    }
+  }
+
+  /// Cancel an unconfirmed outgoing send (a stuck "sending" or failed bubble).
+  /// Its id is the clientMsgId, so drop both the optimistic bubble and the
+  /// outbox row — the server never durably stored it, so nothing replays it.
+  /// (Any already-uploaded blob is left orphaned in the store; harmless.)
+  Future<void> _cancelSend(WidgetRef ref, Room room, String clientMsgId) async {
+    ref.read(messageStoreProvider(room.roomId).notifier).remove(clientMsgId);
+    try {
+      final store = await ref.read(outboxStoreProvider.future);
+      await store.remove(clientMsgId);
+    } catch (e) {
+      debugPrint('cancel send: outbox remove failed: $e');
     }
   }
 

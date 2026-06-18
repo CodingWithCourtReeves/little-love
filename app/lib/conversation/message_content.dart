@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../attachment/attachment_descriptor.dart';
+import 'link_preview.dart';
 
 /// The decrypted plaintext layer of a message (spec §3). Versioned so future
 /// kinds can be added. Text and file are the only kinds in this iteration.
@@ -28,8 +29,16 @@ sealed class MessageContent {
               targetId: (j['target'] as String?) ?? '',
               emoji: (j['emoji'] as String?) ?? '',
             );
+          case 'delete':
+            return DeleteContent(targetId: (j['target'] as String?) ?? '');
           case 'text':
-            return TextContent((j['text'] as String?) ?? '');
+            final p = j['preview'];
+            return TextContent(
+              (j['text'] as String?) ?? '',
+              preview: p is Map
+                  ? LinkPreview.fromJson(Map<String, Object?>.from(p))
+                  : null,
+            );
         }
       }
     } catch (_) {
@@ -40,11 +49,21 @@ sealed class MessageContent {
 }
 
 class TextContent extends MessageContent {
-  const TextContent(this.text);
+  const TextContent(this.text, {this.preview});
   final String text;
 
+  /// Optional link preview fetched by the sender for the first URL in [text]
+  /// and carried inside the encrypted body (see [LinkPreview]). Null when there
+  /// is no link, or the fetch found nothing usable.
+  final LinkPreview? preview;
+
   @override
-  String encode() => jsonEncode({'v': 1, 'kind': 'text', 'text': text});
+  String encode() => jsonEncode({
+    'v': 1,
+    'kind': 'text',
+    'text': text,
+    if (preview != null) 'preview': preview!.toJson(),
+  });
 }
 
 /// A reaction to another message in the room. It is delivered as an ordinary
@@ -64,6 +83,21 @@ class ReactionContent extends MessageContent {
     'target': targetId,
     'emoji': emoji,
   });
+}
+
+/// An unsend ("delete for everyone"): removes the message identified by
+/// [targetId] from every member's timeline. Delivered as an ordinary E2EE
+/// message (fanned out per recipient) referencing the target's server message
+/// id; the receiver applies it as a tombstone instead of rendering a bubble,
+/// so it never appears in the timeline. The server keeps the original row, but
+/// it replays after the target, so each side re-applies the tombstone on
+/// reconnect — no separate persistence needed.
+class DeleteContent extends MessageContent {
+  const DeleteContent({required this.targetId});
+  final String targetId;
+
+  @override
+  String encode() => jsonEncode({'v': 1, 'kind': 'delete', 'target': targetId});
 }
 
 class FileContent extends MessageContent {

@@ -1,21 +1,29 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../attachment/attachment_descriptor.dart';
+import '../attachment/attachment_download.dart';
 import '../attachment/staged_attachment.dart';
 import '../attachment/thumbnail.dart';
 import '../identity/providers.dart';
 import '../inbox/channel_switcher.dart';
 import '../inbox/room.dart';
+import '../theme/love_toast.dart';
 import '../theme/twilight.dart';
+import '../wire/live_connection.dart';
 import '../wire/message.dart';
+import 'link_preview.dart';
 import 'message_store.dart';
 import 'typing_state.dart';
 
@@ -50,11 +58,6 @@ class _DayItem extends _Item {
 class _GapItem extends _Item {
   const _GapItem(this.time);
   final DateTime time;
-}
-
-/// Bottom-of-chat placeholder for the partner's live "typing…" bubble.
-class _TypingItem extends _Item {
-  const _TypingItem();
 }
 
 /// Per-message status marker drawn inside my own bubble, Telegram style: a
@@ -92,6 +95,8 @@ class ConversationPage extends ConsumerStatefulWidget {
     this.onPickMedia,
     this.onSendMedia,
     this.onReact,
+    this.onDelete,
+    this.onCancelSend,
     this.onTyping,
     this.onOpenAttachment,
   });
@@ -117,6 +122,15 @@ class ConversationPage extends ConsumerStatefulWidget {
   /// long-press bar, double-tap, and reaction pills.
   final ReactCallback? onReact;
 
+  /// Unsend a confirmed message for everyone, by message id. Null hides the
+  /// Delete action on confirmed messages.
+  final void Function(String targetId)? onDelete;
+
+  /// Cancel an unconfirmed (still sending / failed) outgoing send, by its
+  /// clientMsgId: drops the optimistic bubble and its outbox row. Null hides
+  /// the Delete action on unconfirmed messages.
+  final void Function(String clientMsgId)? onCancelSend;
+
   /// Relay my typing presence (true while composing, false when stopped). Null
   /// disables sending typing frames.
   final void Function(bool typing)? onTyping;
@@ -125,7 +139,6 @@ class ConversationPage extends ConsumerStatefulWidget {
   final OpenAttachmentCallback? onOpenAttachment;
 
   String get roomId => room.roomId;
-  String get contactDisplayName => room.displayName(selfUsername);
 
   @override
   ConsumerState<ConversationPage> createState() => _ConversationPageState();
@@ -134,14 +147,17 @@ class ConversationPage extends ConsumerStatefulWidget {
 class _ConversationPageState extends ConsumerState<ConversationPage>
     with WidgetsBindingObserver {
   final _controller = TextEditingController();
-  final _emojiOverlay = OverlayPortalController();
-  final _emojiLink = LayerLink();
   final _scrollController = ScrollController();
 
   /// Distance (in logical px) from the bottom that still counts as "at bottom".
   static const _stickThreshold = 120.0;
   bool _atBottom = true;
   int _prevMessageCount = 0;
+
+  /// Guards against stacking multiple post-frame scroll callbacks when a send
+  /// triggers several rebuilds in quick succession (optimistic add → echo
+  /// reconcile), which is what made the auto-scroll stutter.
+  bool _scrollScheduled = false;
 
   /// Media picked but not yet sent, shown as a tray above the composer. Send
   /// flushes these (with the composer text as the last item's caption).
@@ -193,9 +209,25 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     if (!_scrollController.hasClients) return;
     _scrollController.animateTo(
       0,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOut,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
     );
+  }
+
+  /// Stick to the newest message after a rebuild adds one. Coalesced to a
+  /// single post-frame callback. When already pinned to the bottom, the
+  /// reverse list reveals the new bubble on its own — replaying an animation
+  /// over it is exactly what felt choppy — so only animate when we were
+  /// genuinely scrolled away from the bottom.
+  void _scheduleStickToBottom() {
+    if (_scrollScheduled) return;
+    _scrollScheduled = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _scrollScheduled = false;
+      if (!_scrollController.hasClients) return;
+      if (_scrollController.position.pixels <= 4) return;
+      _animateToBottom();
+    });
   }
 
   @override
@@ -211,21 +243,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     super.dispose();
   }
 
-  void _toggleEmojiPicker() {
-    if (_emojiOverlay.isShowing) {
-      _emojiOverlay.hide();
-    } else {
-      _emojiOverlay.show();
-    }
-    setState(() {});
-  }
-
   void _handleSubmit(String value) {
     final text = value.trim();
     // Staged media takes the composer text as a caption (on the last item) and
     // flushes through onSendMedia. An empty caption is fine — just send the
     // media. Text-only sends fall through to onSend below.
     if (_staged.isNotEmpty) {
+      HapticFeedback.lightImpact();
       final items = List<StagedAttachment>.of(_staged);
       widget.onSendMedia?.call(items, text);
       setState(() => _staged.clear());
@@ -234,6 +258,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       return;
     }
     if (text.isEmpty) return;
+    HapticFeedback.lightImpact();
     widget.onSend(text);
     _controller.clear();
     _stopTyping();
@@ -289,16 +314,54 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     widget.onReact?.call(m.id, mine == emoji ? '' : emoji);
   }
 
-  /// Long-press a bubble → floating quick-reaction bar anchored at the press,
-  /// with a "+" to open the full picker.
+  /// A message carries copyable text when its body is non-empty (plain text,
+  /// or a media caption).
+  bool _canCopy(Msg m) => m.body.trim().isNotEmpty;
+
+  /// The Delete action for [m], or null if it can't be deleted. Two behaviors,
+  /// both only on my own messages, keyed on send state (not clientMsgId, which
+  /// a reconciled row now retains for stable list keys):
+  ///  - confirmed (sent/read, so a server id both sides know): unsend for
+  ///    everyone via [onDelete];
+  ///  - still in-flight or failed (no shared server id): cancel the send
+  ///    locally via [onCancelSend] — discards the bubble and drops the outbox
+  ///    row. This is what clears a stuck "sending" bubble.
+  VoidCallback? _deleteAction(Msg m, bool mine) {
+    if (!mine) return null;
+    switch (m.sendStatus) {
+      case SendStatus.sent:
+      case SendStatus.read:
+        return widget.onDelete == null ? null : () => widget.onDelete!(m.id);
+      case SendStatus.sending:
+      case SendStatus.failed:
+        final cid = m.clientMsgId;
+        return (widget.onCancelSend == null || cid == null)
+            ? null
+            : () => widget.onCancelSend!(cid);
+    }
+  }
+
+  void _copy(Msg m) {
+    Clipboard.setData(ClipboardData(text: m.body));
+    if (!mounted) return;
+    showLoveToast(context, 'Copied', icon: Icons.check);
+  }
+
+  /// Long-press a bubble → floating context menu anchored at the press: a
+  /// quick-reaction bar (when reactions are enabled) plus Copy/Delete actions.
   void _showReactionBar(Offset globalPos, Msg m) {
-    if (widget.onReact == null) return;
+    final mine = m.from == widget.selfUsername;
+    final canCopy = _canCopy(m);
+    final delete = _deleteAction(m, mine);
+    if (widget.onReact == null && !canCopy && delete == null) return;
+    HapticFeedback.mediumImpact();
     final overlay = Overlay.of(context);
     late OverlayEntry entry;
     entry = OverlayEntry(
       builder: (_) => _ReactionBarOverlay(
         anchor: globalPos,
         selected: m.reactions[widget.selfUsername],
+        showReactions: widget.onReact != null,
         onPick: (emoji) {
           entry.remove();
           _react(m, emoji);
@@ -307,6 +370,18 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           entry.remove();
           _openReactionPicker(m);
         },
+        onCopy: canCopy
+            ? () {
+                entry.remove();
+                _copy(m);
+              }
+            : null,
+        onDelete: delete == null
+            ? null
+            : () {
+                entry.remove();
+                delete();
+              },
         onDismiss: entry.remove,
       ),
     );
@@ -385,6 +460,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     widget.onRename?.call(newName);
   }
 
+  /// Stable identity string for a list row, used for both its [ValueKey] and
+  /// [SliverChildBuilderDelegate.findChildIndexCallback]. The latter is what
+  /// lets the builder relocate an existing keyed element when a new message
+  /// shifts every index — without it the delegate rebuilds the visible
+  /// children on each insert (the whole list flashes on receive).
+  static String _rowKey(_Item item) => switch (item) {
+    _BubbleItem(:final msg) => 'msg-${msg.clientMsgId ?? msg.id}',
+    _DayItem(:final day) => 'day-${day.toIso8601String()}',
+    _GapItem(:final time) => 'gap-${time.toIso8601String()}',
+  };
+
   Color _senderColor(String username) {
     if (username == widget.selfUsername) return TwilightColors.accentUser;
     // Stable hash → one of three accents per spec §7.5 (sage / mauve / wine).
@@ -405,31 +491,31 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final messages = ref.watch(messageStoreProvider(widget.roomId));
     final me = ref.watch(accountProvider).valueOrNull?.username ?? '';
 
-    // React to new messages: if I sent the newest, or I was already at the
-    // bottom, animate down.
+    // The reverse list keeps the newest message pinned on its own whenever
+    // we're already at the bottom, so the only case that needs a programmatic
+    // scroll is sending a message while scrolled away from the bottom (jump
+    // down to it). Forcing a scroll while already at the bottom is what caused
+    // the pull-up-then-jump-down on send — the post-send composer reflow makes
+    // the position read as briefly off, triggering a needless animate.
     if (messages.length > _prevMessageCount) {
       final newest = messages.fold<Msg?>(
         null,
         (acc, m) => acc == null || m.ts.isAfter(acc.ts) ? m : acc,
       );
       final mine = newest?.from == me;
-      if (mine || _atBottom) {
-        SchedulerBinding.instance.addPostFrameCallback(
-          (_) => _animateToBottom(),
-        );
+      if (mine && !_atBottom) {
+        _scheduleStickToBottom();
       }
     }
     _prevMessageCount = messages.length;
 
     final sorted = [...messages]..sort((a, b) => a.ts.compareTo(b.ts));
     final status = _statusModel(sorted, me);
+    // Reversed, so index 0 is the visual bottom — i.e. the newest message is
+    // the true leading edge, which is what lets a reverse list pin to the
+    // bottom on its own. The partner's "typing…" indicator deliberately lives
+    // in the app bar (not as a bottom row) so it never reflows this list.
     final items = _itemize(sorted).reversed.toList();
-    // The list is reversed, so index 0 is the visual bottom. The typing row
-    // lives there permanently (collapsed to zero height when idle) and animates
-    // its height in/out — keeping it in the list avoids an insert/remove that
-    // would shift every index and make the messages above jump.
-    final partnerTyping = ref.watch(typingProvider(widget.roomId));
-    items.insert(0, const _TypingItem());
     return Scaffold(
       backgroundColor: TwilightColors.bgCanvas,
       appBar: AppBar(
@@ -443,9 +529,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           onNewChannel: widget.onNewChannel,
         ),
         actions: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: _E2ESeal(),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: _TopStatus(roomId: widget.roomId),
           ),
           if (widget.onRename != null)
             PopupMenuButton<String>(
@@ -483,37 +569,30 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                     vertical: 12,
                   ),
                   itemCount: items.length,
+                  // Relocate existing keyed rows by identity when an insert
+                  // shifts indices, so the delegate reuses them instead of
+                  // rebuilding the visible list (the receive-time flash).
+                  findChildIndexCallback: (key) {
+                    final value = (key as ValueKey<String>).value;
+                    final idx = items.indexWhere((it) => _rowKey(it) == value);
+                    return idx < 0 ? null : idx;
+                  },
                   itemBuilder: (_, i) {
                     final item = items[i];
-                    // Stable per-row key: without it, inserting/removing the
-                    // typing row shifts every index and ListView reuses
-                    // elements by position, rebuilding all visible bubbles
-                    // (a visible flash). Keying lets Flutter see the messages
-                    // just moved one slot and mount only the new row.
-                    final (Key key, Widget child) = switch (item) {
-                      _BubbleItem(:final msg) => (
-                        ValueKey('msg-${msg.id}'),
-                        _bubble(
-                          msg,
-                          me,
-                          status.inBubble[msg.id],
-                          status.failedRun[msg.id],
-                        ),
+                    final child = switch (item) {
+                      _BubbleItem(:final msg) => _bubble(
+                        msg,
+                        me,
+                        status.inBubble[msg.id],
+                        status.failedRun[msg.id],
                       ),
-                      _DayItem(:final day) => (
-                        ValueKey('day-${day.toIso8601String()}'),
-                        _daySeparator(day),
-                      ),
-                      _GapItem(:final time) => (
-                        ValueKey('gap-${time.toIso8601String()}'),
-                        _gapHeader(time),
-                      ),
-                      _TypingItem() => (
-                        const ValueKey('typing'),
-                        _TypingBubble(active: partnerTyping),
-                      ),
+                      _DayItem(:final day) => _daySeparator(day),
+                      _GapItem(:final time) => _gapHeader(time),
                     };
-                    return KeyedSubtree(key: key, child: child);
+                    return KeyedSubtree(
+                      key: ValueKey(_rowKey(item)),
+                      child: child,
+                    );
                   },
                 ),
                 Positioned(
@@ -545,71 +624,22 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  static const _emojiTapGroup = 'llove.emoji';
-
-  Widget _emojiPanel() {
-    return TapRegion(
-      groupId: _emojiTapGroup,
-      onTapOutside: (_) {
-        if (_emojiOverlay.isShowing) {
-          _emojiOverlay.hide();
-          setState(() {});
-        }
-      },
-      child: SizedBox(
-        key: const Key('emoji-panel'),
-        width: 340,
-        height: 320,
-        child: Material(
-          elevation: 12,
-          borderRadius: BorderRadius.circular(12),
-          color: TwilightColors.bgSurface,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: EmojiPicker(
-              textEditingController: _controller,
-              config: Config(
-                height: 320,
-                emojiViewConfig: EmojiViewConfig(
-                  backgroundColor: TwilightColors.bgSurface,
-                  columns: 7,
-                  emojiSizeMax: 32,
-                ),
-                categoryViewConfig: CategoryViewConfig(
-                  backgroundColor: TwilightColors.bgSurface,
-                  indicatorColor: TwilightColors.accentUser,
-                  iconColor: TwilightColors.textMuted,
-                  iconColorSelected: TwilightColors.accentUser,
-                ),
-                bottomActionBarConfig: BottomActionBarConfig(
-                  backgroundColor: TwilightColors.bgSurface,
-                  buttonColor: TwilightColors.bgSurfaceAlt,
-                  buttonIconColor: TwilightColors.accentUser,
-                ),
-                searchViewConfig: SearchViewConfig(
-                  backgroundColor: TwilightColors.bgSurface,
-                  buttonIconColor: TwilightColors.accentUser,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _bubble(Msg m, String me, _Marker? marker, List<String>? failedIds) {
     final mine = m.from == me;
     // The sent/sending marker (if any) is drawn inside the bubble itself.
     Widget content = _bubbleContent(m, me, marker);
-    // Long-press → quick-reaction bar; double-tap → default reaction. Wraps
-    // both text and media bubbles; the media bubble's own tap-to-open still
-    // wins for a plain tap (deferToChild).
-    if (widget.onReact != null) {
+    // Long-press → context menu (reactions + Copy/Delete); double-tap →
+    // default reaction. Wraps both text and media bubbles; the media bubble's
+    // own tap-to-open still wins for a plain tap (deferToChild).
+    final canLongPress =
+        widget.onReact != null || _canCopy(m) || _deleteAction(m, mine) != null;
+    if (canLongPress) {
       content = GestureDetector(
         behavior: HitTestBehavior.deferToChild,
         onLongPressStart: (d) => _showReactionBar(d.globalPosition, m),
-        onDoubleTap: () => _react(m, _quickReactions.first),
+        onDoubleTap: widget.onReact != null
+            ? () => _react(m, _quickReactions.first)
+            : null,
         child: content,
       );
     }
@@ -795,14 +825,25 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
   Widget _bubbleBody(Msg m, bool mine, _Marker? marker) {
-    final text = Text(
-      m.body,
-      style: TextStyle(
-        color: mine
-            ? TwilightColors.bubbleUserText
-            : TwilightColors.textPrimary,
-        fontSize: 16,
+    final textColor = mine
+        ? TwilightColors.bubbleUserText
+        : TwilightColors.textPrimary;
+    final text = Linkify(
+      text: m.body,
+      onOpen: (link) => _openUrl(link.url),
+      options: const LinkifyOptions(humanize: false, looseUrl: true),
+      style: TextStyle(color: textColor, fontSize: 16),
+      linkStyle: TextStyle(
+        color: textColor,
+        decoration: TextDecoration.underline,
+        decorationColor: textColor.withValues(alpha: 0.6),
       ),
     );
     // Every bubble carries an hh:mm timestamp bottom-right; my bubbles add the
@@ -825,6 +866,26 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         ],
       ],
     );
+
+    final preview = m.linkPreview;
+    if (preview != null && preview.hasContent) {
+      // Text, then the link-preview card, then the meta tucked bottom-right.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (m.body.trim().isNotEmpty) text,
+          if (m.body.trim().isNotEmpty) const SizedBox(height: 8),
+          _LinkPreviewCard(
+            preview: preview,
+            onOpen: () => _openUrl(preview.url),
+          ),
+          const SizedBox(height: 4),
+          Align(alignment: Alignment.centerRight, child: meta),
+        ],
+      );
+    }
+
     // Let the meta flow right after the text: it tucks onto the same line for
     // short messages and drops to the bottom-right for ones that wrap — no
     // fixed gutter carving an empty column down the side.
@@ -1054,38 +1115,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                     ),
                     tooltip: 'Attach a photo or video',
                   ),
-                CompositedTransformTarget(
-                  link: _emojiLink,
-                  child: OverlayPortal(
-                    controller: _emojiOverlay,
-                    overlayChildBuilder: (_) => Positioned(
-                      width: 340,
-                      child: CompositedTransformFollower(
-                        link: _emojiLink,
-                        targetAnchor: Alignment.topLeft,
-                        followerAnchor: Alignment.bottomLeft,
-                        offset: const Offset(0, -8),
-                        child: _emojiPanel(),
-                      ),
-                    ),
-                    child: TapRegion(
-                      groupId: _emojiTapGroup,
-                      child: IconButton(
-                        key: const Key('emoji-toggle'),
-                        onPressed: _toggleEmojiPicker,
-                        icon: Icon(
-                          _emojiOverlay.isShowing
-                              ? Icons.keyboard_alt_outlined
-                              : Icons.emoji_emotions_outlined,
-                          color: TwilightColors.textMuted,
-                        ),
-                        tooltip: _emojiOverlay.isShowing
-                            ? 'Close emoji picker'
-                            : 'Emoji',
-                      ),
-                    ),
-                  ),
-                ),
                 Expanded(
                   child: Shortcuts(
                     shortcuts: shortcuts,
@@ -1107,9 +1136,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                         keyboardType: TextInputType.multiline,
                         textInputAction: TextInputAction.newline,
                         decoration: InputDecoration(
-                          hintText:
-                              'Message ${widget.contactDisplayName}'
-                              '   ·   ⌘↵ to send',
                           filled: true,
                           fillColor: TwilightColors.bgSurfaceAlt,
                           border: OutlineInputBorder(
@@ -1121,19 +1147,42 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                IconButton(
-                  onPressed: () => _handleSubmit(_controller.text),
-                  icon: const Icon(
-                    Icons.send,
-                    color: TwilightColors.accentUser,
-                  ),
-                ),
+                _sendButton(),
               ],
             ),
           ],
         ),
       ),
+    );
+  }
+
+  /// Filled circular send. Hidden until there's something to send (composer
+  /// text or staged media), iMessage-style, so the field stretches to fill the
+  /// bar when the chat is idle.
+  Widget _sendButton() {
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _controller,
+      builder: (context, value, _) {
+        final hasContent = value.text.trim().isNotEmpty || _staged.isNotEmpty;
+        if (!hasContent) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(left: 12),
+          child: Material(
+            color: TwilightColors.accentUser,
+            shape: const CircleBorder(),
+            child: InkWell(
+              key: const Key('composer-send'),
+              customBorder: const CircleBorder(),
+              onTap: () => _handleSubmit(_controller.text),
+              child: const SizedBox(
+                width: 44,
+                height: 44,
+                child: Icon(Icons.arrow_upward, color: Colors.white, size: 22),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1156,46 +1205,53 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   }
 }
 
-/// The partner's live "typing…" bubble, rendered in the conversation flow at
-/// the bottom of the list (partner side, like an incoming message). Three dots
-/// rise and fade in a staggered wave. The row is always present but collapses
-/// to zero height when [active] is false; [AnimatedSize] grows/shrinks it so
-/// the messages above slide rather than jump.
-class _TypingBubble extends StatefulWidget {
-  const _TypingBubble({required this.active});
-
-  final bool active;
+/// Top-bar status for the conversation: the partner's "Typing…" with gently
+/// pulsing dots while they compose, and nothing when idle. Living in the app
+/// bar (not as a list row) keeps the partner's typing state from reflowing the
+/// message list — which otherwise nudged the list on send.
+class _TopStatus extends ConsumerWidget {
+  const _TopStatus({required this.roomId});
+  final String roomId;
 
   @override
-  State<_TypingBubble> createState() => _TypingBubbleState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final typing = ref.watch(typingProvider(roomId));
+    if (!typing) return const SizedBox.shrink();
+    return Row(
+      key: const Key('typing-indicator'),
+      mainAxisSize: MainAxisSize.min,
+      children: const [
+        Text(
+          'Typing',
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 11,
+            letterSpacing: 0.4,
+            fontWeight: FontWeight.w500,
+            color: TwilightColors.accentSage,
+          ),
+        ),
+        SizedBox(width: 6),
+        _PulsingDots(),
+      ],
+    );
+  }
 }
 
-class _TypingBubbleState extends State<_TypingBubble>
+/// Three sage dots whose opacity pulses in a gentle staggered wave (no bounce).
+class _PulsingDots extends StatefulWidget {
+  const _PulsingDots();
+
+  @override
+  State<_PulsingDots> createState() => _PulsingDotsState();
+}
+
+class _PulsingDotsState extends State<_PulsingDots>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c;
-
-  @override
-  void initState() {
-    super.initState();
-    // Created eagerly here (not lazily) so dispose() never instantiates a
-    // ticker during teardown when the bubble was never active.
-    _c = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1100),
-    );
-    if (widget.active) _c.repeat();
-  }
-
-  @override
-  void didUpdateWidget(covariant _TypingBubble oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Only spend animation cycles while the bubble is actually showing.
-    if (widget.active && !_c.isAnimating) {
-      _c.repeat();
-    } else if (!widget.active && _c.isAnimating) {
-      _c.stop();
-    }
-  }
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat();
 
   @override
   void dispose() {
@@ -1205,68 +1261,176 @@ class _TypingBubbleState extends State<_TypingBubble>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-      // Grow upward from the bottom so the row expands into the gap above it.
-      alignment: Alignment.bottomLeft,
-      child: widget.active
-          ? Align(
-              key: const Key('typing-indicator'),
-              alignment: Alignment.centerLeft,
-              child: Container(
-                margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-                decoration: BoxDecoration(
-                  color: TwilightColors.bubblePartnerBg,
-                  // A softened bottom-left corner gives the bubble a tail.
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(16),
-                    topRight: Radius.circular(16),
-                    bottomRight: Radius.circular(16),
-                    bottomLeft: Radius.circular(5),
-                  ),
-                  border: Border.all(color: TwilightColors.borderSoft),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [for (var i = 0; i < 3; i++) _dot(i)],
-                ),
-              ),
-            )
-          : const SizedBox(width: double.infinity),
-    );
-  }
-
-  Widget _dot(int index) {
     return AnimatedBuilder(
       animation: _c,
       builder: (_, _) {
-        // sin(phase·π) is a smooth 0→1→0 hump; staggering the phase per dot
-        // makes the three rise in a wave.
-        final phase = (_c.value + index * 0.18) % 1.0;
-        final lift = math.sin(phase * math.pi).clamp(0.0, 1.0);
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 2),
-          child: Transform.translate(
-            offset: Offset(0, -4 * lift),
-            child: Opacity(
-              opacity: 0.4 + 0.6 * lift,
-              child: Container(
-                width: 7,
-                height: 7,
-                decoration: BoxDecoration(
-                  color: TwilightColors.accentSage,
-                  shape: BoxShape.circle,
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < 3; i++)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                child: Opacity(
+                  // Staggered sine pulse: each dot fades out of phase, 0.25→1.
+                  opacity:
+                      (0.25 +
+                              0.75 *
+                                  math.sin(
+                                    ((_c.value + i * 0.2) % 1.0) * math.pi,
+                                  ))
+                          .clamp(0.0, 1.0),
+                  child: Container(
+                    width: 5,
+                    height: 5,
+                    decoration: const BoxDecoration(
+                      color: TwilightColors.accentSage,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
+          ],
         );
       },
+    );
+  }
+}
+
+/// A tappable link-preview card under a message: optional banner image, then
+/// site name, title, and a short description — Telegram-style, with a sage
+/// accent bar down the left. All data is embedded in the message (see
+/// [LinkPreview]); tapping opens the URL in the browser.
+class _LinkPreviewCard extends StatefulWidget {
+  const _LinkPreviewCard({required this.preview, required this.onOpen});
+  final LinkPreview preview;
+  final VoidCallback onOpen;
+
+  @override
+  State<_LinkPreviewCard> createState() => _LinkPreviewCardState();
+}
+
+class _LinkPreviewCardState extends State<_LinkPreviewCard> {
+  // Decode the embedded image once and hold the same bytes instance: decoding
+  // in build would hand Image.memory a fresh Uint8List each frame, missing the
+  // image cache and re-decoding on every scroll tick (a visible flash).
+  Uint8List? _imageBytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _decode();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LinkPreviewCard old) {
+    super.didUpdateWidget(old);
+    if (old.preview.imageB64 != widget.preview.imageB64) _decode();
+  }
+
+  void _decode() {
+    final b64 = widget.preview.imageB64;
+    _imageBytes = (b64 == null || b64.isEmpty) ? null : base64.decode(b64);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = widget.preview;
+    final bytes = _imageBytes;
+    return GestureDetector(
+      onTap: widget.onOpen,
+      child: Container(
+        key: const Key('link-preview-card'),
+        constraints: const BoxConstraints(maxWidth: 300),
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: TwilightColors.bgSurfaceAlt.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(10),
+          border: const Border(
+            left: BorderSide(color: TwilightColors.accentSage, width: 3),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (bytes != null)
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  // Show the whole image at its real aspect ratio (Telegram-
+                  // style dynamic height) instead of cropping to a fixed band.
+                  // Clamp only the extremes so a very tall image can't make a
+                  // giant card.
+                  final w = constraints.maxWidth.isFinite
+                      ? constraints.maxWidth
+                      : 300.0;
+                  final iw = preview.imageWidth, ih = preview.imageHeight;
+                  final aspect = (iw != null && ih != null && iw > 0 && ih > 0)
+                      ? iw / ih
+                      : 1.91; // OG default banner ratio
+                  final h = (w / aspect).clamp(120.0, 360.0);
+                  return Image.memory(
+                    bytes,
+                    width: w,
+                    height: h,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.medium,
+                    gaplessPlayback: true,
+                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                  );
+                },
+              ),
+            Padding(
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (preview.siteName != null && preview.siteName!.isNotEmpty)
+                    Text(
+                      preview.siteName!.toUpperCase(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        letterSpacing: 0.8,
+                        fontWeight: FontWeight.w600,
+                        color: TwilightColors.accentSage,
+                      ),
+                    ),
+                  if (preview.title != null && preview.title!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        preview.title!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: TwilightColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                  if (preview.description != null &&
+                      preview.description!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 3),
+                      child: Text(
+                        preview.description!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: TwilightColors.textMuted,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1338,14 +1502,20 @@ class _ReactionBarOverlay extends StatefulWidget {
   const _ReactionBarOverlay({
     required this.anchor,
     required this.selected,
+    required this.showReactions,
     required this.onPick,
     required this.onMore,
+    required this.onCopy,
+    required this.onDelete,
     required this.onDismiss,
   });
   final Offset anchor;
   final String? selected;
+  final bool showReactions;
   final void Function(String emoji) onPick;
   final VoidCallback onMore;
+  final VoidCallback? onCopy;
+  final VoidCallback? onDelete;
   final VoidCallback onDismiss;
 
   @override
@@ -1369,16 +1539,28 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final padding = MediaQuery.paddingOf(context);
-    const barWidth = 296.0;
-    const barHeight = 48.0;
-    var left = (widget.anchor.dx - barWidth / 2).clamp(
+    const menuWidth = 296.0;
+    const reactionRow = 48.0 + 8.0; // bar + gap below it
+    final actionCount =
+        (widget.onCopy != null ? 1 : 0) + (widget.onDelete != null ? 1 : 0);
+    final actionsHeight = actionCount == 0 ? 0.0 : actionCount * 44.0 + 8.0;
+    final totalHeight =
+        (widget.showReactions ? reactionRow : 0.0) + actionsHeight;
+    final left = (widget.anchor.dx - menuWidth / 2).clamp(
       8.0,
-      size.width - barWidth - 8.0,
+      size.width - menuWidth - 8.0,
     );
     // Prefer sitting just above the press point; if that would clip the top,
-    // flip below it.
-    var top = widget.anchor.dy - barHeight - 12;
+    // flip below it. Then clamp so a tall menu never runs off either edge.
+    var top = widget.anchor.dy - totalHeight - 12;
     if (top < padding.top + 8) top = widget.anchor.dy + 12;
+    top = top.clamp(
+      padding.top + 8,
+      (size.height - totalHeight - padding.bottom - 8).clamp(
+        padding.top + 8,
+        double.infinity,
+      ),
+    );
     return Stack(
       children: [
         Positioned.fill(
@@ -1392,8 +1574,24 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
           top: top,
           child: ScaleTransition(
             scale: CurvedAnimation(parent: _c, curve: Curves.easeOutBack),
-            alignment: Alignment.bottomCenter,
-            child: FadeTransition(opacity: _c, child: _bar()),
+            alignment: Alignment.topCenter,
+            child: FadeTransition(
+              opacity: _c,
+              child: SizedBox(
+                width: menuWidth,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (widget.showReactions) _bar(),
+                    if (actionCount > 0) ...[
+                      const SizedBox(height: 8),
+                      _actions(),
+                    ],
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ],
@@ -1413,6 +1611,64 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
           children: [
             for (final e in _quickReactions) _emojiButton(e),
             _moreButton(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _actions() {
+    return Material(
+      key: const Key('message-actions'),
+      elevation: 8,
+      borderRadius: BorderRadius.circular(14),
+      color: TwilightColors.bgSurface,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (widget.onCopy != null)
+              _actionItem(
+                key: 'action-copy',
+                icon: Icons.copy_outlined,
+                label: 'Copy',
+                onTap: widget.onCopy!,
+              ),
+            if (widget.onDelete != null)
+              _actionItem(
+                key: 'action-delete',
+                icon: Icons.delete_outline,
+                label: 'Delete',
+                color: TwilightColors.warningTone,
+                onTap: widget.onDelete!,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _actionItem({
+    required String key,
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    final c = color ?? TwilightColors.textPrimary;
+    return InkWell(
+      key: Key(key),
+      onTap: onTap,
+      child: Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(label, style: TextStyle(fontSize: 16, color: c)),
+            ),
+            Icon(icon, size: 20, color: c),
           ],
         ),
       ),
@@ -1582,7 +1838,12 @@ class _MediaBubble extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    _ThumbImage(thumbB64: d.thumbB64),
+                    // Video keeps its poster thumb; a photo loads the full
+                    // decrypted image (thumb shown until it arrives) so the
+                    // tile is sharp rather than an upscaled thumbnail.
+                    d.isVideo
+                        ? _ThumbImage(thumbB64: d.thumbB64)
+                        : _MediaImage(descriptor: d),
                     if (d.isVideo) const Center(child: _PlayBadge()),
                     if (sending)
                       Container(
@@ -1694,6 +1955,76 @@ class _ThumbImageState extends State<_ThumbImage> {
   }
 }
 
+/// A photo tile: shows the tiny inline thumb instantly as a placeholder, then
+/// fetches + decrypts the full image (disk-cached by [fetchAndDecrypt]) and
+/// cross-fades it in so the tile is crisp instead of an upscaled thumbnail —
+/// the same placeholder-then-full pattern WhatsApp/Telegram use. The full
+/// bytes never leave E2EE: they're pulled from the blob store with the
+/// per-file key already in the (decrypted) descriptor.
+class _MediaImage extends ConsumerStatefulWidget {
+  const _MediaImage({required this.descriptor});
+  final AttachmentDescriptor descriptor;
+  @override
+  ConsumerState<_MediaImage> createState() => _MediaImageState();
+}
+
+class _MediaImageState extends ConsumerState<_MediaImage> {
+  // Decrypted full-res files, cached across rebuilds/scroll by blob key so a
+  // tile that scrolls off and back doesn't re-read from disk.
+  static final Map<String, File> _fileCache = {};
+  File? _file;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _file = _fileCache[widget.descriptor.blobKey];
+  }
+
+  Future<void> _load(LiveConnection conn) async {
+    try {
+      final file = await fetchAndDecrypt(
+        conn: conn,
+        descriptor: widget.descriptor,
+      );
+      _fileCache[widget.descriptor.blobKey] = file;
+      if (mounted) setState(() => _file = file);
+    } catch (_) {
+      // Allow a later rebuild to retry; leave the thumb placeholder for now.
+      _loading = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Watch the socket so the fetch fires as soon as it's ready — reading it
+    // once in initState raced the connection and could strand the tile on the
+    // low-res thumb forever.
+    if (_file == null && !_loading) {
+      final conn = ref.watch(liveConnectionProvider).asData?.value;
+      if (conn != null) {
+        _loading = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) => _load(conn));
+      }
+    }
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      child: _file == null
+          ? _ThumbImage(thumbB64: widget.descriptor.thumbB64)
+          : Image.file(
+              _file!,
+              key: ValueKey(widget.descriptor.blobKey),
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              filterQuality: FilterQuality.medium,
+              // Cap the decoded bitmap; the tile is small, so 1080px wide is
+              // plenty sharp without holding a full-resolution image in memory.
+              cacheWidth: 1080,
+            ),
+    );
+  }
+}
+
 class _PlayBadge extends StatelessWidget {
   const _PlayBadge({this.size = 52});
   final double size;
@@ -1712,33 +2043,4 @@ class _PlayBadge extends StatelessWidget {
       size: size * 0.58,
     ),
   );
-}
-
-class _E2ESeal extends StatelessWidget {
-  const _E2ESeal();
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: const [
-        Icon(
-          Icons.lock_outline,
-          size: 14,
-          color: TwilightColors.accentSage,
-          semanticLabel: 'End-to-end encrypted',
-        ),
-        SizedBox(width: 8),
-        Text(
-          'END-TO-END',
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 10,
-            letterSpacing: 2.2,
-            fontWeight: FontWeight.w500,
-            color: TwilightColors.textMuted,
-          ),
-        ),
-      ],
-    );
-  }
 }

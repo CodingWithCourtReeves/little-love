@@ -152,11 +152,21 @@ class RoomMessageRouter {
       }
       return;
     }
+    // An unsend isn't a timeline bubble either: tombstone its target and stop.
+    // Same outbox cleanup on the sender's self-copy echo as a reaction.
+    if (content is DeleteContent) {
+      store.applyDelete(content.targetId);
+      if (f.clientMsgId != null) {
+        final outbox = await ref.read(outboxStoreProvider.future);
+        await outbox.remove(f.clientMsgId!);
+      }
+      return;
+    }
     // `read` is only set on the sender's own self-copy that the partner has
     // seen; replay it as the double-heart state. Otherwise default sent.
     final sendStatus = f.read ? SendStatus.read : SendStatus.sent;
     final msg = switch (content) {
-      TextContent(:final text) => Msg(
+      TextContent(:final text, :final preview) => Msg(
         id: f.id,
         from: f.from,
         to: f.roomId,
@@ -164,6 +174,7 @@ class RoomMessageRouter {
         ts: f.ts,
         replayed: f.replayed,
         sendStatus: sendStatus,
+        linkPreview: preview,
       ),
       FileContent(:final descriptor, :final caption) => Msg(
         id: f.id,
@@ -175,8 +186,9 @@ class RoomMessageRouter {
         attachment: descriptor,
         sendStatus: sendStatus,
       ),
-      // Handled by the early return above; here only to satisfy exhaustiveness.
+      // Handled by the early returns above; here only for exhaustiveness.
       ReactionContent() => throw StateError('reaction handled above'),
+      DeleteContent() => throw StateError('delete handled above'),
     };
     // Live self-copy of our own message: swap the optimistic echo (keyed by
     // clientMsgId) for this authoritative row instead of appending a duplicate.
@@ -187,6 +199,11 @@ class RoomMessageRouter {
       await outbox.remove(f.clientMsgId!);
       store.reconcile(f.clientMsgId!, msg);
     } else {
+      // Sending ends typing: clear the partner's typing flag in the same
+      // update that adds their message, so the typing bubble collapses and the
+      // new bubble appears in one layout pass instead of two (the second being
+      // a separately-timed Typing:false frame) — which read as a flash.
+      ref.read(typingProvider(f.roomId).notifier).setTyping(false);
       store.add(msg);
       // A live partner message landing in the open room should flip the
       // sender's bubble to a double heart now, not on the next reopen.

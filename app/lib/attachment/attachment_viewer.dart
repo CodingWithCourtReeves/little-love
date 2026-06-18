@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
 import 'package:video_player/video_player.dart';
 
+import '../theme/love_toast.dart';
 import 'attachment_descriptor.dart';
 
 /// Full-screen viewer for a decrypted attachment file. Image → InteractiveViewer;
@@ -37,9 +38,7 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
         await Gal.putImage(widget.file.path);
       }
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Saved to Photos')));
+        showLoveToast(context, 'Saved to Photos', icon: Icons.check);
       }
     } catch (e) {
       if (mounted) {

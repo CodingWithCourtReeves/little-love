@@ -1,4 +1,5 @@
 import '../attachment/attachment_descriptor.dart';
+import '../conversation/link_preview.dart';
 
 /// `read` means the partner has opened the chat and seen this message (the
 /// double-heart state); it only ever applies to my own outgoing messages.
@@ -15,6 +16,7 @@ class Msg {
     this.clientMsgId,
     this.sendStatus = SendStatus.sent,
     this.attachment,
+    this.linkPreview,
     this.reactions = const {},
   });
 
@@ -37,6 +39,10 @@ class Msg {
   /// Present when this message carries a `kind:"file"` attachment instead of
   /// (or alongside) text. Holds the per-file key + metadata + inline thumb.
   final AttachmentDescriptor? attachment;
+
+  /// Present when a text message carried a link preview (see [LinkPreview]).
+  /// Rides inside the encrypted body, like [attachment].
+  final LinkPreview? linkPreview;
 
   /// Reactions on this message, keyed by reactor username → emoji. Applied from
   /// inbound `kind:"reaction"` messages (see [MessageStore.applyReaction]); not
@@ -70,8 +76,10 @@ class Msg {
 
   Msg copyWith({
     String? id,
+    String? clientMsgId,
     SendStatus? sendStatus,
     AttachmentDescriptor? attachment,
+    LinkPreview? linkPreview,
     Map<String, String>? reactions,
   }) {
     return Msg(
@@ -81,9 +89,10 @@ class Msg {
       body: body,
       ts: ts,
       replayed: replayed,
-      clientMsgId: clientMsgId,
+      clientMsgId: clientMsgId ?? this.clientMsgId,
       sendStatus: sendStatus ?? this.sendStatus,
       attachment: attachment ?? this.attachment,
+      linkPreview: linkPreview ?? this.linkPreview,
       reactions: reactions ?? this.reactions,
     );
   }

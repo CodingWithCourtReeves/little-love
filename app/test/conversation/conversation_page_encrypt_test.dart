@@ -99,7 +99,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byKey(const Key('composer')), 'hello');
-      await tester.tap(find.byIcon(Icons.send));
+      await tester.pump(); // send button appears once there's text
+      await tester.tap(find.byKey(const Key('composer-send')));
       // Encrypt + enqueue + drain are async — give them time to finish.
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pumpAndSettle();

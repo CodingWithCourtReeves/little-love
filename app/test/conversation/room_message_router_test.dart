@@ -486,7 +486,7 @@ void main() {
     expect(container.read(typingProvider('room1')), isFalse);
   });
 
-  test('an inbound reaction applies onto its target, not as a bubble', () async {
+  test('a live partner message clears the typing flag atomically', () async {
     final me = await deriveIdentity(seedA);
     final peer = await deriveIdentity(seedB);
     final conn = _FakeConn();
@@ -500,15 +500,121 @@ void main() {
         createdAt: DateTime.utc(2026, 6, 10),
       ),
     ]);
-    // A target message already in the timeline.
+    container.read(roomMessageRouterProvider);
+
+    // Partner is typing.
+    conn.emit(
+      const TypingFrame(roomId: 'room1', from: 'kaitlyn', typing: true),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(container.read(typingProvider('room1')), isTrue);
+
+    // Their message lands: typing must clear in the same pass, without waiting
+    // on a separate Typing:false frame (which is what caused a double layout
+    // change / flash).
+    final key = await deriveRoomKey(
+      me: peer,
+      peerX25519Pub: me.x25519PublicKey,
+      roomId: 'room1',
+    );
+    conn.emit(
+      MessageFrame(
+        id: 'm-1',
+        roomId: 'room1',
+        from: 'kaitlyn',
+        ts: DateTime.utc(2026, 6, 10, 12),
+        body: await encryptOutgoing(key, const TextContent('hi').encode()),
+        replayed: false,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    expect(container.read(typingProvider('room1')), isFalse);
+    expect(container.read(messageStoreProvider('room1')).single.body, 'hi');
+  });
+
+  test(
+    'an inbound reaction applies onto its target, not as a bubble',
+    () async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final conn = _FakeConn();
+      final container = await _container(conn: conn, me: me);
+
+      container.read(inboxStateProvider.notifier).setRooms([
+        Room(
+          roomId: 'room1',
+          name: '',
+          members: [_member('court', me), _member('kaitlyn', peer)],
+          createdAt: DateTime.utc(2026, 6, 10),
+        ),
+      ]);
+      // A target message already in the timeline.
+      container
+          .read(messageStoreProvider('room1').notifier)
+          .add(
+            Msg(
+              id: 'target-1',
+              from: 'court',
+              to: 'room1',
+              body: 'hi love',
+              ts: DateTime.utc(2026, 6, 10, 12),
+            ),
+          );
+      container.read(roomMessageRouterProvider);
+
+      final key = await deriveRoomKey(
+        me: peer,
+        peerX25519Pub: me.x25519PublicKey,
+        roomId: 'room1',
+      );
+      final body = await encryptOutgoing(
+        key,
+        const ReactionContent(targetId: 'target-1', emoji: '❤️').encode(),
+      );
+
+      conn.emit(
+        MessageFrame(
+          id: 'reaction-1',
+          roomId: 'room1',
+          from: 'kaitlyn',
+          ts: DateTime.utc(2026, 6, 10, 12, 1),
+          body: body,
+          replayed: false,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      final msgs = container.read(messageStoreProvider('room1'));
+      // No new bubble — still just the target, now carrying the reaction.
+      expect(msgs, hasLength(1));
+      expect(msgs.single.id, 'target-1');
+      expect(msgs.single.reactions, {'kaitlyn': '❤️'});
+    },
+  );
+
+  test('an inbound delete removes its target from the timeline', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final container = await _container(conn: conn, me: me);
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        name: '',
+        members: [_member('court', me), _member('kaitlyn', peer)],
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
     container
         .read(messageStoreProvider('room1').notifier)
         .add(
           Msg(
             id: 'target-1',
-            from: 'court',
+            from: 'kaitlyn',
             to: 'room1',
-            body: 'hi love',
+            body: 'oops',
             ts: DateTime.utc(2026, 6, 10, 12),
           ),
         );
@@ -521,12 +627,12 @@ void main() {
     );
     final body = await encryptOutgoing(
       key,
-      const ReactionContent(targetId: 'target-1', emoji: '❤️').encode(),
+      const DeleteContent(targetId: 'target-1').encode(),
     );
 
     conn.emit(
       MessageFrame(
-        id: 'reaction-1',
+        id: 'delete-1',
         roomId: 'room1',
         from: 'kaitlyn',
         ts: DateTime.utc(2026, 6, 10, 12, 1),
@@ -536,12 +642,66 @@ void main() {
     );
     await Future<void>.delayed(const Duration(milliseconds: 100));
 
-    final msgs = container.read(messageStoreProvider('room1'));
-    // No new bubble — still just the target, now carrying the reaction.
-    expect(msgs, hasLength(1));
-    expect(msgs.single.id, 'target-1');
-    expect(msgs.single.reactions, {'kaitlyn': '❤️'});
+    // Target gone, and the delete itself produced no bubble.
+    expect(container.read(messageStoreProvider('room1')), isEmpty);
   });
+
+  test(
+    'a delete that replays before its target keeps the target hidden',
+    () async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final conn = _FakeConn();
+      final container = await _container(conn: conn, me: me);
+
+      container.read(inboxStateProvider.notifier).setRooms([
+        Room(
+          roomId: 'room1',
+          name: '',
+          members: [_member('court', me), _member('kaitlyn', peer)],
+          createdAt: DateTime.utc(2026, 6, 10),
+        ),
+      ]);
+      container.read(roomMessageRouterProvider);
+
+      final peerKey = await deriveRoomKey(
+        me: peer,
+        peerX25519Pub: me.x25519PublicKey,
+        roomId: 'room1',
+      );
+      // Delete arrives first (target not yet in the buffer).
+      conn.emit(
+        MessageFrame(
+          id: 'delete-1',
+          roomId: 'room1',
+          from: 'kaitlyn',
+          ts: DateTime.utc(2026, 6, 10, 12, 1),
+          body: await encryptOutgoing(
+            peerKey,
+            const DeleteContent(targetId: 'target-1').encode(),
+          ),
+          replayed: false,
+        ),
+      );
+      // Then the target itself lands — it must stay hidden.
+      conn.emit(
+        MessageFrame(
+          id: 'target-1',
+          roomId: 'room1',
+          from: 'kaitlyn',
+          ts: DateTime.utc(2026, 6, 10, 12),
+          body: await encryptOutgoing(
+            peerKey,
+            const TextContent('oops').encode(),
+          ),
+          replayed: false,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(container.read(messageStoreProvider('room1')), isEmpty);
+    },
+  );
 
   test(
     'self-copy with clientMsgId reconciles the echo and drops the outbox row',

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/attachment/attachment_descriptor.dart';
+import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_content.dart';
 
 void main() {
@@ -81,6 +82,42 @@ void main() {
     final back = MessageContent.decode(enc) as ReactionContent;
     expect(back.targetId, 'msg-1');
     expect(back.emoji, isEmpty);
+  });
+
+  test('text envelope carries a link preview through encode/decode', () {
+    const preview = LinkPreview(
+      url: 'https://example.com/a',
+      title: 'A Title',
+      description: 'A description',
+      siteName: 'Example',
+      imageB64: 'QUJD',
+      imageWidth: 640,
+      imageHeight: 360,
+    );
+    final enc = const TextContent(
+      'look https://example.com/a',
+      preview: preview,
+    ).encode();
+    final back = MessageContent.decode(enc) as TextContent;
+    expect(back.text, 'look https://example.com/a');
+    expect(back.preview, isNotNull);
+    expect(back.preview!.title, 'A Title');
+    expect(back.preview!.siteName, 'Example');
+    expect(back.preview!.imageB64, 'QUJD');
+    expect(back.preview!.imageWidth, 640);
+    expect(back.preview!.imageHeight, 360);
+  });
+
+  test('plain text decodes with a null preview', () {
+    final back = MessageContent.decode(const TextContent('hi').encode());
+    expect((back as TextContent).preview, isNull);
+  });
+
+  test('delete envelope round-trips (target id)', () {
+    final enc = const DeleteContent(targetId: 'msg-7').encode();
+    final back = MessageContent.decode(enc);
+    expect(back, isA<DeleteContent>());
+    expect((back as DeleteContent).targetId, 'msg-7');
   });
 
   test('legacy bare string decodes as text (back-compat)', () {

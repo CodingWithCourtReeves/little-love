@@ -3,19 +3,44 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../wire/message.dart';
 
 class MessageStore extends FamilyNotifier<List<Msg>, String> {
+  /// Ids of messages unsent ("deleted for everyone") this session. The buffer
+  /// never re-adds a tombstoned id, which keeps a delete sticky even if its
+  /// target replays/arrives afterward (e.g. a delete that races ahead of its
+  /// target on a live connection). Not persisted: the server replays the
+  /// target before its delete on reconnect, so the tombstone re-applies itself.
+  final Set<String> _deleted = {};
+
   @override
   List<Msg> build(String roomId) => const [];
 
   /// Append a message. Idempotent on `Msg.id` — re-applying replays from the
-  /// server won't double-up the buffer.
+  /// server won't double-up the buffer. A tombstoned id is dropped on the spot.
   void add(Msg msg) {
+    if (_deleted.contains(msg.id)) return;
     if (state.any((m) => m.id == msg.id)) return;
     state = [...state, msg];
   }
 
-  /// Replace the buffer wholesale (e.g. on initial replay).
+  /// Replace the buffer wholesale (e.g. on initial replay). Tombstoned ids are
+  /// filtered out so a wholesale reset can't resurrect a deleted message.
   void setAll(List<Msg> messages) {
-    state = List.unmodifiable(messages);
+    state = List.unmodifiable(
+      _deleted.isEmpty
+          ? messages
+          : messages.where((m) => !_deleted.contains(m.id)),
+    );
+  }
+
+  /// Apply an unsend onto [targetId]: record the tombstone and drop the message
+  /// if it's currently in the buffer. Idempotent. Recording the id even when
+  /// the target isn't present yet means a later [add] of that id is a no-op, so
+  /// a delete that arrives before its target still wins.
+  void applyDelete(String targetId) {
+    _deleted.add(targetId);
+    final idx = state.indexWhere((m) => m.id == targetId);
+    if (idx < 0) return;
+    final next = [...state]..removeAt(idx);
+    state = next;
   }
 
   /// Swap an optimistic local echo (keyed by `clientMsgId`) for the
@@ -25,6 +50,13 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   /// echo with `clientMsgId` exists (e.g. it was never rendered), fall back to
   /// a plain idempotent append.
   void reconcile(String clientMsgId, Msg server) {
+    if (_deleted.contains(server.id)) {
+      // The authoritative id was already unsent; drop the optimistic echo
+      // instead of swapping in a row we'd only have to remove.
+      final idx = state.indexWhere((m) => m.id == clientMsgId);
+      if (idx >= 0) state = [...state]..removeAt(idx);
+      return;
+    }
     if (state.any((m) => m.id == server.id)) return;
     final idx = state.indexWhere((m) => m.id == clientMsgId);
     if (idx == -1) {
@@ -32,7 +64,11 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
       return;
     }
     final next = [...state];
-    next[idx] = server;
+    // Keep the originating clientMsgId on the reconciled row so the list can
+    // key bubbles by a stable identity across the optimistic→server id swap.
+    // Without this the row's key flips on echo, remounting the bubble (and
+    // re-decoding a media thumbnail) — a visible flash on send.
+    next[idx] = server.copyWith(clientMsgId: clientMsgId);
     state = List.unmodifiable(next);
   }
 
@@ -68,6 +104,17 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     final list = [...state];
     list[idx] = state[idx].copyWith(reactions: next);
     state = list;
+  }
+
+  /// Remove a message by id without tombstoning it. Used to cancel an
+  /// unconfirmed outgoing send (its id is the clientMsgId): the row is dropped
+  /// from the buffer and its outbox row separately, so it neither resends nor
+  /// re-appears — and since the server never durably stored it, replay can't
+  /// bring it back either. No-op if not present.
+  void remove(String id) {
+    final idx = state.indexWhere((m) => m.id == id);
+    if (idx < 0) return;
+    state = [...state]..removeAt(idx);
   }
 
   /// Mark the given message ids as read (the partner has seen them → double

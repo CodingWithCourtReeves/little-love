@@ -85,13 +85,21 @@ Future<void> rehydrateOutbox({
     // A pending reaction is not a timeline bubble; it applies onto its target
     // when it drains. Leave the row to drain and render nothing here.
     if (content is ReactionContent) continue;
-    final (body, attachment) = switch (content) {
-      TextContent(:final text) => (text, null),
+    // A pending unsend: tombstone its target now (so a replay of the target
+    // can't out-race the still-draining delete) and render no bubble.
+    if (content is DeleteContent) {
+      getMessageStore(row.roomId).applyDelete(content.targetId);
+      continue;
+    }
+    final (body, attachment, preview) = switch (content) {
+      TextContent(:final text, :final preview) => (text, null, preview),
       FileContent(:final descriptor, :final caption) => (
         caption ?? '',
         descriptor,
+        null,
       ),
-      ReactionContent() => ('', null), // handled by the continue above
+      ReactionContent() => ('', null, null), // handled by the continue above
+      DeleteContent() => ('', null, null), // handled by the continue above
     };
     getMessageStore(row.roomId).add(
       Msg(
@@ -103,6 +111,7 @@ Future<void> rehydrateOutbox({
         clientMsgId: row.clientMsgId,
         sendStatus: SendStatus.sending,
         attachment: attachment,
+        linkPreview: preview,
       ),
     );
   }
