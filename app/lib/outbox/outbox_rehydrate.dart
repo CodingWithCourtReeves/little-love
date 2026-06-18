@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../conversation/message_content.dart';
 import '../conversation/message_store.dart';
 import '../conversation/room_key_cache.dart';
 import '../identity/current_identity.dart';
@@ -77,15 +78,44 @@ Future<void> rehydrateOutbox({
       );
       continue;
     }
+    // The decrypted plaintext is an encoded envelope, not display text. Decode
+    // it the same way the inbound router does so a file rehydrates as a media
+    // bubble instead of dumping its raw descriptor JSON into the timeline.
+    final content = MessageContent.decode(text);
+    // A pending reaction is not a timeline bubble; it applies onto its target
+    // when it drains. Leave the row to drain and render nothing here.
+    if (content is ReactionContent) continue;
+    // A pending unsend: tombstone its target now (so a replay of the target
+    // can't out-race the still-draining delete) and render no bubble. The row
+    // is our own outbox, so the deleter is us — only our own messages can be in
+    // here to unsend (the UX only exposes delete on your own bubbles).
+    if (content is DeleteContent) {
+      getMessageStore(
+        row.roomId,
+      ).applyDelete(content.targetId, requestedBy: me);
+      continue;
+    }
+    final (body, attachment, preview) = switch (content) {
+      TextContent(:final text, :final preview) => (text, null, preview),
+      FileContent(:final descriptor, :final caption) => (
+        caption ?? '',
+        descriptor,
+        null,
+      ),
+      ReactionContent() => ('', null, null), // handled by the continue above
+      DeleteContent() => ('', null, null), // handled by the continue above
+    };
     getMessageStore(row.roomId).add(
       Msg(
         id: row.clientMsgId,
         from: me,
         to: row.roomId,
-        body: text,
+        body: body,
         ts: row.createdAt,
         clientMsgId: row.clientMsgId,
         sendStatus: SendStatus.sending,
+        attachment: attachment,
+        linkPreview: preview,
       ),
     );
   }

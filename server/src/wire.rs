@@ -112,6 +112,14 @@ pub enum RoomClientFrame {
         room_id: String,
         up_to_message_id: String,
     },
+    /// Transient typing presence. Relayed to the other room member(s) and
+    /// never stored. The client sends `typing:true` while composing and
+    /// `typing:false` when it stops (or on send); a short client-side timeout
+    /// covers a dropped `typing:false`.
+    Typing {
+        room_id: String,
+        typing: bool,
+    },
 }
 
 /// Post-Authenticated server frames (spec §8.2).
@@ -179,6 +187,14 @@ pub enum RoomServerFrame {
         room_id: String,
         message_ids: Vec<String>,
         reader: String,
+    },
+
+    /// Relayed presence: `from` is composing (or stopped) in `room_id`. Not
+    /// persisted — a fresh subscriber never replays it.
+    Typing {
+        room_id: String,
+        from: String,
+        typing: bool,
     },
 
     UploadGranted {
@@ -691,6 +707,32 @@ mod tests {
         };
         let s = serde_json::to_string(&f).unwrap();
         assert!(!s.contains("read"), "false read should be omitted: {s}");
+    }
+
+    #[test]
+    fn parses_typing_frame() {
+        let raw = r#"{"kind":"Typing","room_id":"01J","typing":true}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::Typing { room_id, typing } => {
+                assert_eq!(room_id, "01J");
+                assert!(typing);
+            }
+            _ => panic!("expected Typing"),
+        }
+    }
+
+    #[test]
+    fn serializes_typing_server_frame() {
+        let f = RoomServerFrame::Typing {
+            room_id: "01J".into(),
+            from: "court".into(),
+            typing: false,
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"Typing""#));
+        assert!(s.contains(r#""from":"court""#));
+        assert!(s.contains(r#""typing":false"#));
     }
 
     #[test]

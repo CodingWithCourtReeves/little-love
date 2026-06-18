@@ -192,6 +192,12 @@ sealed class RoomServerFrame {
           messageIds: (json['message_ids']! as List<dynamic>).cast<String>(),
           reader: json['reader']! as String,
         );
+      case 'Typing':
+        return TypingFrame(
+          roomId: json['room_id']! as String,
+          from: json['from']! as String,
+          typing: (json['typing'] as bool?) ?? false,
+        );
       case 'UploadGranted':
         return UploadGrantedFrame(
           requestId: json['request_id']! as String,
@@ -317,6 +323,19 @@ class RoomErrorFrame extends RoomServerFrame {
   const RoomErrorFrame({required this.code, required this.message});
   final String code;
   final String message;
+}
+
+/// Relayed presence: [from] is composing (or stopped) in [roomId]. Transient —
+/// never persisted, never replayed on subscribe.
+class TypingFrame extends RoomServerFrame {
+  const TypingFrame({
+    required this.roomId,
+    required this.from,
+    required this.typing,
+  });
+  final String roomId;
+  final String from;
+  final bool typing;
 }
 
 class UploadGrantedFrame extends RoomServerFrame {
@@ -462,5 +481,20 @@ class RequestDownloadFrame {
   Map<String, Object?> toJson() => <String, Object?>{
     'kind': 'RequestDownload',
     'blob_key': blobKey,
+  };
+}
+
+/// Transient typing presence sent while composing. `typing:false` is sent when
+/// the user stops, sends, or clears the field; a short client timeout covers a
+/// dropped stop frame on the receiver.
+class TypingClientFrame {
+  const TypingClientFrame({required this.roomId, required this.typing});
+  final String roomId;
+  final bool typing;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'Typing',
+    'room_id': roomId,
+    'typing': typing,
   };
 }
