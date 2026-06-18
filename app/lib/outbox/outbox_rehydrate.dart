@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../conversation/message_content.dart';
 import '../conversation/message_store.dart';
 import '../conversation/room_key_cache.dart';
 import '../identity/current_identity.dart';
@@ -77,15 +78,31 @@ Future<void> rehydrateOutbox({
       );
       continue;
     }
+    // The decrypted plaintext is an encoded envelope, not display text. Decode
+    // it the same way the inbound router does so a file rehydrates as a media
+    // bubble instead of dumping its raw descriptor JSON into the timeline.
+    final content = MessageContent.decode(text);
+    // A pending reaction is not a timeline bubble; it applies onto its target
+    // when it drains. Leave the row to drain and render nothing here.
+    if (content is ReactionContent) continue;
+    final (body, attachment) = switch (content) {
+      TextContent(:final text) => (text, null),
+      FileContent(:final descriptor, :final caption) => (
+        caption ?? '',
+        descriptor,
+      ),
+      ReactionContent() => ('', null), // handled by the continue above
+    };
     getMessageStore(row.roomId).add(
       Msg(
         id: row.clientMsgId,
         from: me,
         to: row.roomId,
-        body: text,
+        body: body,
         ts: row.createdAt,
         clientMsgId: row.clientMsgId,
         sendStatus: SendStatus.sending,
+        attachment: attachment,
       ),
     );
   }

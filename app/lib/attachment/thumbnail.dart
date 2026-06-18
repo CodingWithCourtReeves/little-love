@@ -16,11 +16,33 @@ class BuiltThumbnail {
   final int height;
 }
 
-const _maxEdge = 180;
-const _quality = 50;
+// Long edge of the inline preview. The tile renders at ~240pt (≈720px on a 3×
+// screen), so a larger thumb than the old 180px reads much sharper.
+const _maxEdge = 360;
 
-/// Downscale image [bytes] to a <=180px-long-edge JPEG. Returns the original
-/// dimensions alongside the thumbnail.
+// Hard cap on the encoded thumbnail (raw JPEG bytes). The thumb is base64'd
+// into the descriptor AND the whole envelope is base64'd again when encrypted,
+// so a jpeg of N bytes costs ~N·1.88 in the wire body. The server caps each
+// body at 96 KiB (MAX_BODY_BYTES), so keeping the jpeg ≤44 KiB leaves the body
+// near ~85 KiB with headroom for the key/metadata fields.
+const _maxThumbBytes = 44 * 1024;
+
+// Tried high → low; the first encoding that fits [_maxThumbBytes] wins. The
+// lowest step always fits at this resolution, so a thumb is always produced.
+const _qualitySteps = [82, 72, 62, 52, 42, 32];
+
+/// Encode [image] as the highest-quality JPEG that fits the wire budget.
+Uint8List _encodeUnderBudget(img.Image image) {
+  late Uint8List out;
+  for (final q in _qualitySteps) {
+    out = Uint8List.fromList(img.encodeJpg(image, quality: q));
+    if (out.length <= _maxThumbBytes) break;
+  }
+  return out;
+}
+
+/// Downscale image [bytes] to a <=360px-long-edge JPEG (quality fitted to the
+/// wire budget). Returns the original dimensions alongside the thumbnail.
 Future<BuiltThumbnail> buildImageThumbnail(Uint8List bytes) async {
   final decoded = img.decodeImage(bytes);
   if (decoded == null) throw const FormatException('undecodable image');
@@ -28,11 +50,7 @@ Future<BuiltThumbnail> buildImageThumbnail(Uint8List bytes) async {
   final thumb = w >= h
       ? img.copyResize(decoded, width: _maxEdge)
       : img.copyResize(decoded, height: _maxEdge);
-  return BuiltThumbnail(
-    jpeg: Uint8List.fromList(img.encodeJpg(thumb, quality: _quality)),
-    width: w,
-    height: h,
-  );
+  return BuiltThumbnail(jpeg: _encodeUnderBudget(thumb), width: w, height: h);
 }
 
 /// Extract a poster frame from a video file at [path] and downscale it.
@@ -43,15 +61,20 @@ Future<BuiltThumbnail> buildVideoThumbnail(String path) async {
     video: path,
     imageFormat: vt.ImageFormat.JPEG,
     maxWidth: _maxEdge,
-    quality: _quality,
+    // Request near-lossless from the extractor, then re-encode to fit budget.
+    quality: 90,
   );
   if (jpeg == null) {
     throw const FormatException('could not extract video poster');
   }
   final decoded = img.decodeImage(jpeg);
+  if (decoded == null) {
+    // Can't re-encode; ship the extractor's JPEG as-is.
+    return BuiltThumbnail(jpeg: jpeg, width: 0, height: 0);
+  }
   return BuiltThumbnail(
-    jpeg: jpeg,
-    width: decoded?.width ?? 0,
-    height: decoded?.height ?? 0,
+    jpeg: _encodeUnderBudget(decoded),
+    width: decoded.width,
+    height: decoded.height,
   );
 }

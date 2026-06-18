@@ -10,6 +10,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../attachment/attachment_descriptor.dart';
 import '../attachment/staged_attachment.dart';
+import '../attachment/thumbnail.dart';
 import '../identity/providers.dart';
 import '../inbox/channel_switcher.dart';
 import '../inbox/room.dart';
@@ -650,20 +651,23 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       crossAxisAlignment: mine
           ? CrossAxisAlignment.end
           : CrossAxisAlignment.start,
-      children: [result, _reactionPills(m, me)],
+      children: [result, _reactionPills(m, me, mine)],
     );
   }
 
   /// Aggregated reaction pills under a bubble (emoji → count). Mine is
-  /// highlighted; tapping a pill toggles my reaction to that emoji.
-  Widget _reactionPills(Msg m, String me) {
+  /// highlighted; tapping a pill toggles my reaction to that emoji. Pills hug
+  /// the message side (flush with the bubble's edge) rather than sitting inset.
+  Widget _reactionPills(Msg m, String me, bool mine) {
     final counts = <String, int>{};
     for (final e in m.reactions.values) {
       counts[e] = (counts[e] ?? 0) + 1;
     }
     final mineEmoji = m.reactions[me];
     return Padding(
-      padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
+      padding: mine
+          ? const EdgeInsets.only(left: 8, right: 2, top: 2, bottom: 2)
+          : const EdgeInsets.only(left: 2, right: 8, top: 2, bottom: 2),
       child: Wrap(
         spacing: 4,
         children: [
@@ -725,6 +729,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           child: _MediaBubble(
             msg: m,
             isMe: mine,
+            marker: marker,
             onOpen: () => widget.onOpenAttachment?.call(m.attachment!),
           ),
         ),
@@ -1298,7 +1303,17 @@ class _ReactionPill extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(emoji, style: const TextStyle(fontSize: 14)),
+            Text(
+              emoji,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 15,
+                height: 1.0,
+                // Split the line's leading evenly so the glyph sits centered
+                // rather than baseline-low (emoji metrics are top-heavy).
+                leadingDistribution: TextLeadingDistribution.even,
+              ),
+            ),
             if (count > 1) ...[
               const SizedBox(width: 4),
               Text(
@@ -1418,7 +1433,15 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
               : Colors.transparent,
           shape: BoxShape.circle,
         ),
-        child: Text(emoji, style: const TextStyle(fontSize: 24)),
+        child: Text(
+          emoji,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 24,
+            height: 1.0,
+            leadingDistribution: TextLeadingDistribution.even,
+          ),
+        ),
       ),
     );
   }
@@ -1437,12 +1460,37 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
 }
 
 /// A single staged-media chip in the composer tray: a square preview with a
-/// remove (×) button. Images render their bytes inline; videos show a play
-/// badge over a neutral fill (no decode needed for the tray).
-class _StagedChip extends StatelessWidget {
+/// remove (×) button. Images render their bytes inline; videos extract a poster
+/// frame (async) and overlay a play badge, falling back to a neutral fill while
+/// the frame is being decoded.
+class _StagedChip extends StatefulWidget {
   const _StagedChip({required this.item, required this.onRemove});
   final StagedAttachment item;
   final VoidCallback onRemove;
+
+  @override
+  State<_StagedChip> createState() => _StagedChipState();
+}
+
+class _StagedChipState extends State<_StagedChip> {
+  Future<Uint8List?>? _poster;
+
+  @override
+  void initState() {
+    super.initState();
+    final path = widget.item.videoPath;
+    if (widget.item.isVideo && path != null) {
+      _poster = _buildPoster(path);
+    }
+  }
+
+  Future<Uint8List?> _buildPoster(String path) async {
+    try {
+      return (await buildVideoThumbnail(path)).jpeg;
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1454,22 +1502,13 @@ class _StagedChip extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
-            child: SizedBox(
-              width: 64,
-              height: 64,
-              child: item.isVideo
-                  ? Container(
-                      color: TwilightColors.bgSurfaceAlt,
-                      child: const Center(child: _PlayBadge()),
-                    )
-                  : Image.memory(item.bytes, fit: BoxFit.cover),
-            ),
+            child: SizedBox(width: 64, height: 64, child: _preview()),
           ),
           Positioned(
             top: -6,
             right: -6,
             child: GestureDetector(
-              onTap: onRemove,
+              onTap: widget.onRemove,
               child: Container(
                 decoration: const BoxDecoration(
                   color: Color(0xCC140C12),
@@ -1484,22 +1523,43 @@ class _StagedChip extends StatelessWidget {
       ),
     );
   }
+
+  Widget _preview() {
+    if (!widget.item.isVideo) {
+      return Image.memory(widget.item.bytes, fit: BoxFit.cover);
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        FutureBuilder<Uint8List?>(
+          future: _poster,
+          builder: (_, snap) => snap.data != null
+              ? Image.memory(snap.data!, fit: BoxFit.cover)
+              : Container(color: TwilightColors.bgSurfaceAlt),
+        ),
+        const Center(child: _PlayBadge(size: 26)),
+      ],
+    );
+  }
 }
 
 class _MediaBubble extends StatelessWidget {
   const _MediaBubble({
     required this.msg,
     required this.isMe,
+    required this.marker,
     required this.onOpen,
   });
   final Msg msg;
   final bool isMe;
+  final _Marker? marker;
   final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
     final d = msg.attachment!;
     final aspect = (d.width > 0 && d.height > 0) ? d.width / d.height : 4 / 3;
+    final sending = msg.sendStatus == SendStatus.sending;
     return GestureDetector(
       onTap: onOpen,
       child: Container(
@@ -1524,7 +1584,7 @@ class _MediaBubble extends StatelessWidget {
                   children: [
                     _ThumbImage(thumbB64: d.thumbB64),
                     if (d.isVideo) const Center(child: _PlayBadge()),
-                    if (msg.sendStatus == SendStatus.sending)
+                    if (sending)
                       Container(
                         color: const Color(0x57F4EBEC),
                         child: const Center(
@@ -1533,6 +1593,19 @@ class _MediaBubble extends StatelessWidget {
                             height: 30,
                             child: CircularProgressIndicator(strokeWidth: 3),
                           ),
+                        ),
+                      ),
+                    // Time + read marker, on a scrim over the image bottom-right
+                    // (the spinner already conveys the in-flight state).
+                    if (!sending)
+                      Positioned(
+                        right: 6,
+                        bottom: 6,
+                        child: _MediaMeta(
+                          time: _ConversationPageState._formatHm(
+                            msg.ts.toLocal(),
+                          ),
+                          marker: marker,
                         ),
                       ),
                   ],
@@ -1561,6 +1634,35 @@ class _MediaBubble extends StatelessWidget {
   }
 }
 
+/// A small time + read-marker chip on a dark scrim, sat over a media tile's
+/// bottom-right corner so the timestamp and hearts read against any image.
+class _MediaMeta extends StatelessWidget {
+  const _MediaMeta({required this.time, required this.marker});
+  final String time;
+  final _Marker? marker;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0x73000000),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(time, style: const TextStyle(fontSize: 10, color: Colors.white)),
+          if (marker != null) ...[
+            const SizedBox(width: 4),
+            _ConversationPageState._markerWidget(marker!),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 /// Decodes + decrypts the inline thumb (FutureBuilder; tiny, fast).
 class _ThumbImage extends StatefulWidget {
   const _ThumbImage({required this.thumbB64});
@@ -1581,6 +1683,9 @@ class _ThumbImageState extends State<_ThumbImage> {
             snap.data!,
             fit: BoxFit.cover,
             gaplessPlayback: true,
+            // The thumb is still upscaled into the tile; medium filtering
+            // smooths that far better than the default (nearest-ish).
+            filterQuality: FilterQuality.medium,
           );
         }
         return Container(color: TwilightColors.bgSurfaceAlt);
@@ -1590,17 +1695,22 @@ class _ThumbImageState extends State<_ThumbImage> {
 }
 
 class _PlayBadge extends StatelessWidget {
-  const _PlayBadge();
+  const _PlayBadge({this.size = 52});
+  final double size;
   @override
   Widget build(BuildContext context) => Container(
-    width: 52,
-    height: 52,
+    width: size,
+    height: size,
     decoration: BoxDecoration(
       color: const Color(0x6B140C12),
       shape: BoxShape.circle,
       border: Border.all(color: const Color(0xBFFFFFFF), width: 1.5),
     ),
-    child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 30),
+    child: Icon(
+      Icons.play_arrow_rounded,
+      color: Colors.white,
+      size: size * 0.58,
+    ),
   );
 }
 
