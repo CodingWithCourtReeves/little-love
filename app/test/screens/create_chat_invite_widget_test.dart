@@ -112,6 +112,49 @@ void main() {
     expect(doneCalls, 1);
   });
 
+  testWidgets('offers the enter-code escape only when selfUsername is set', (
+    tester,
+  ) async {
+    PendingInvite invite() => PendingInvite(
+      code: 'amber-fern-locket-tide',
+      qrPngBase64: '',
+      expiresAt: DateTime.utc(2026, 6, 10, 19),
+    );
+
+    // Without selfUsername (e.g. isolated render): no escape button.
+    final c1 = ProviderContainer();
+    addTearDown(c1.dispose);
+    c1.read(inboxStateProvider.notifier).setRooms([_soloRoom()]);
+    c1.read(pendingInvitesProvider.notifier).set('rNEW', invite());
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: c1,
+        child: const MaterialApp(home: CreateChatInviteScreen(roomId: 'rNEW')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('have-partner-code-button')), findsNothing);
+
+    // With selfUsername: the escape into the enter-code flow is present.
+    final c2 = ProviderContainer();
+    addTearDown(c2.dispose);
+    c2.read(inboxStateProvider.notifier).setRooms([_soloRoom()]);
+    c2.read(pendingInvitesProvider.notifier).set('rNEW', invite());
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: c2,
+        child: const MaterialApp(
+          home: CreateChatInviteScreen(roomId: 'rNEW', selfUsername: 'court'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('have-partner-code-button')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('shows waiting placeholder when no pending invite is known', (
     tester,
   ) async {

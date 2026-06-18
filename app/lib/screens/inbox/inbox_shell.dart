@@ -26,7 +26,6 @@ import '../../outbox/outbox_store.dart';
 import '../../wire/message.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
-import '../../identity/keypair.dart';
 import '../../inbox/drawer.dart';
 import '../../inbox/inbox_state.dart';
 import '../../inbox/layout_scaffold.dart';
@@ -167,6 +166,7 @@ class InboxShell extends ConsumerWidget {
         !dismissed.contains(room.roomId)) {
       return CreateChatInviteScreen(
         roomId: room.roomId,
+        selfUsername: account.username,
         onDone: () =>
             ref.read(dismissedInvitesProvider.notifier).dismiss(room.roomId),
       );
@@ -652,27 +652,8 @@ class PairCard extends ConsumerWidget {
     );
   }
 
-  Future<void> _openEnterCode(BuildContext context, WidgetRef ref) async {
-    final DerivedIdentity identity;
-    try {
-      identity = await ref.read(currentIdentityProvider.future);
-    } on StateError {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not unlock identity — please sign in again.'),
-        ),
-      );
-      return;
-    }
-    if (!context.mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            EnterCodeScreen(identity: identity, selfUsername: account.username),
-      ),
-    );
-  }
+  Future<void> _openEnterCode(BuildContext context, WidgetRef ref) =>
+      openEnterCodeScreen(context, ref, account.username);
 }
 
 class _PairOption extends StatelessWidget {

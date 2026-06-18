@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../identity/current_identity.dart';
 import '../../identity/keypair.dart';
 import '../../identity/providers.dart';
 import '../../inbox/inbox_state.dart';
@@ -11,6 +12,37 @@ import '../../pairing/pairing_transport.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/rest_client.dart';
+
+/// Open the receiver-side [EnterCodeScreen]. Reads the signed-in identity;
+/// if it can't be unlocked, shows a snackbar and bails. Shared by the pair card
+/// and the invite screens, so a partner who already started an invite can still
+/// pivot to entering the *other* partner's code (otherwise, once a solo room
+/// exists, there's no route back to "accept an invite").
+Future<void> openEnterCodeScreen(
+  BuildContext context,
+  WidgetRef ref,
+  String selfUsername,
+) async {
+  final DerivedIdentity identity;
+  try {
+    identity = await ref.read(currentIdentityProvider.future);
+  } on StateError {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Could not unlock identity — please sign in again.'),
+      ),
+    );
+    return;
+  }
+  if (!context.mounted) return;
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) =>
+          EnterCodeScreen(identity: identity, selfUsername: selfUsername),
+    ),
+  );
+}
 
 /// Receiver-side pairing screen: code → preview (full v0.3 roster) → confirm
 /// → consume → add Room.
