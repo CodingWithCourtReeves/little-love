@@ -3,41 +3,65 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../wire/message.dart';
 
 class MessageStore extends FamilyNotifier<List<Msg>, String> {
-  /// Ids of messages unsent ("deleted for everyone") this session. The buffer
-  /// never re-adds a tombstoned id, which keeps a delete sticky even if its
-  /// target replays/arrives afterward (e.g. a delete that races ahead of its
-  /// target on a live connection). Not persisted: the server replays the
-  /// target before its delete on reconnect, so the tombstone re-applies itself.
-  final Set<String> _deleted = {};
+  /// Tombstones for messages unsent ("deleted for everyone") this session,
+  /// mapped `targetId → username that requested the delete`. The buffer never
+  /// re-adds a *validly* tombstoned id (one whose author matches the deleter),
+  /// which keeps a delete sticky even if its target replays/arrives afterward
+  /// (e.g. a delete that races ahead of its target on a live connection). Not
+  /// persisted: the server replays the target before its delete on reconnect,
+  /// so the tombstone re-applies itself.
+  ///
+  /// Storing the deleter (not just the id) lets us enforce the unsend invariant
+  /// on the apply path: only the author of a message may unsend it. Both
+  /// partners share the room key, so either side can craft a valid encrypted
+  /// `kind:"delete"` naming *any* id; without this check a partner could
+  /// tombstone the other's messages.
+  final Map<String, String> _deleted = {};
+
+  /// Per-session ids of sends the user cancelled before the server confirmed
+  /// them. A late self-copy echo for one of these must not resurrect the
+  /// bubble (see [reconcile]).
+  final Set<String> _cancelled = {};
+
+  /// True when [id] carries a tombstone authored by [from] — i.e. the delete
+  /// targeting it came from the same user who wrote it. A tombstone recorded by
+  /// a *different* user (a spoofed delete that raced ahead of its target) does
+  /// not match, so the message survives.
+  bool _validlyTombstoned(String id, String from) => _deleted[id] == from;
 
   @override
   List<Msg> build(String roomId) => const [];
 
   /// Append a message. Idempotent on `Msg.id` — re-applying replays from the
-  /// server won't double-up the buffer. A tombstoned id is dropped on the spot.
+  /// server won't double-up the buffer. A validly-tombstoned id is dropped on
+  /// the spot (a spoofed delete that raced ahead does not suppress it).
   void add(Msg msg) {
-    if (_deleted.contains(msg.id)) return;
+    if (_validlyTombstoned(msg.id, msg.from)) return;
     if (state.any((m) => m.id == msg.id)) return;
     state = [...state, msg];
   }
 
-  /// Replace the buffer wholesale (e.g. on initial replay). Tombstoned ids are
-  /// filtered out so a wholesale reset can't resurrect a deleted message.
+  /// Replace the buffer wholesale (e.g. on initial replay). Validly-tombstoned
+  /// ids are filtered out so a wholesale reset can't resurrect a deleted
+  /// message.
   void setAll(List<Msg> messages) {
     state = List.unmodifiable(
       _deleted.isEmpty
           ? messages
-          : messages.where((m) => !_deleted.contains(m.id)),
+          : messages.where((m) => !_validlyTombstoned(m.id, m.from)),
     );
   }
 
-  /// Apply an unsend onto [targetId]: record the tombstone and drop the message
-  /// if it's currently in the buffer. Idempotent. Recording the id even when
-  /// the target isn't present yet means a later [add] of that id is a no-op, so
-  /// a delete that arrives before its target still wins.
-  void applyDelete(String targetId) {
-    _deleted.add(targetId);
+  /// Apply an unsend onto [targetId], requested by [requestedBy]. Only the
+  /// author of a message may unsend it: if the target is present and was
+  /// written by someone else, this is a spoofed delete — drop it on the floor
+  /// (no tombstone, no removal). Otherwise record the tombstone (so a later
+  /// [add] of that id is validated against [requestedBy]) and remove the
+  /// message if it's already in the buffer. Idempotent.
+  void applyDelete(String targetId, {required String requestedBy}) {
     final idx = state.indexWhere((m) => m.id == targetId);
+    if (idx >= 0 && state[idx].from != requestedBy) return; // spoofed delete
+    _deleted[targetId] = requestedBy;
     if (idx < 0) return;
     final next = [...state]..removeAt(idx);
     state = next;
@@ -50,7 +74,7 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   /// echo with `clientMsgId` exists (e.g. it was never rendered), fall back to
   /// a plain idempotent append.
   void reconcile(String clientMsgId, Msg server) {
-    if (_deleted.contains(server.id)) {
+    if (_validlyTombstoned(server.id, server.from)) {
       // The authoritative id was already unsent; drop the optimistic echo
       // instead of swapping in a row we'd only have to remove.
       final idx = state.indexWhere((m) => m.id == clientMsgId);
@@ -60,6 +84,9 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     if (state.any((m) => m.id == server.id)) return;
     final idx = state.indexWhere((m) => m.id == clientMsgId);
     if (idx == -1) {
+      // No optimistic row to swap. If the user cancelled this send while it was
+      // in flight, a late echo must not re-add it — drop the orphan echo.
+      if (_cancelled.contains(clientMsgId)) return;
       add(server);
       return;
     }
@@ -112,6 +139,9 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   /// re-appears — and since the server never durably stored it, replay can't
   /// bring it back either. No-op if not present.
   void remove(String id) {
+    // Remember the cancellation so a late server echo (the send may already
+    // have reached the server) can't resurrect the bubble in [reconcile].
+    _cancelled.add(id);
     final idx = state.indexWhere((m) => m.id == id);
     if (idx < 0) return;
     state = [...state]..removeAt(idx);

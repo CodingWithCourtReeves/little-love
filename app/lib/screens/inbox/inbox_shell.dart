@@ -523,7 +523,9 @@ class InboxShell extends ConsumerWidget {
   /// a reaction. The partner applies the tombstone on receipt; both sides
   /// re-apply it on every reconnect (the delete replays after its target).
   Future<void> _sendDelete(WidgetRef ref, Room room, String targetId) async {
-    ref.read(messageStoreProvider(room.roomId).notifier).applyDelete(targetId);
+    ref
+        .read(messageStoreProvider(room.roomId).notifier)
+        .applyDelete(targetId, requestedBy: account.username);
     final clientMsgId = ref.read(outboxIdGenProvider)();
     try {
       final me = await ref.read(currentIdentityProvider.future);

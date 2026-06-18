@@ -163,6 +163,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// flushes these (with the composer text as the last item's caption).
   final List<StagedAttachment> _staged = [];
 
+  /// The live long-press reaction/actions overlay, if one is showing. Tracked
+  /// so it can be torn down in [dispose] — otherwise popping the page mid-
+  /// display (back-swipe, room switch) leaves the entry mounted against a
+  /// disposed state, with its animation controller still ticking.
+  OverlayEntry? _reactionEntry;
+
   /// Whether we've sent `typing:true` and not yet sent the matching `false`.
   bool _typingActive = false;
   Timer? _typingStop;
@@ -232,6 +238,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   @override
   void dispose() {
+    _dismissReactionBar();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _controller.dispose();
@@ -356,36 +363,43 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     if (widget.onReact == null && !canCopy && delete == null) return;
     HapticFeedback.mediumImpact();
     final overlay = Overlay.of(context);
-    late OverlayEntry entry;
-    entry = OverlayEntry(
+    final entry = OverlayEntry(
       builder: (_) => _ReactionBarOverlay(
         anchor: globalPos,
         selected: m.reactions[widget.selfUsername],
         showReactions: widget.onReact != null,
         onPick: (emoji) {
-          entry.remove();
+          _dismissReactionBar();
           _react(m, emoji);
         },
         onMore: () {
-          entry.remove();
+          _dismissReactionBar();
           _openReactionPicker(m);
         },
         onCopy: canCopy
             ? () {
-                entry.remove();
+                _dismissReactionBar();
                 _copy(m);
               }
             : null,
         onDelete: delete == null
             ? null
             : () {
-                entry.remove();
+                _dismissReactionBar();
                 delete();
               },
-        onDismiss: entry.remove,
+        onDismiss: _dismissReactionBar,
       ),
     );
+    _reactionEntry = entry;
     overlay.insert(entry);
+  }
+
+  /// Tear down the long-press overlay if one is up. Safe to call repeatedly and
+  /// from [dispose].
+  void _dismissReactionBar() {
+    _reactionEntry?.remove();
+    _reactionEntry = null;
   }
 
   Future<void> _openReactionPicker(Msg m) async {
@@ -1782,7 +1796,16 @@ class _StagedChipState extends State<_StagedChip> {
 
   Widget _preview() {
     if (!widget.item.isVideo) {
-      return Image.memory(widget.item.bytes, fit: BoxFit.cover);
+      // Decode at tile resolution, not full-res: the chip is 64pt (~192px on a
+      // 3× screen), so cap the decoded bitmap at 256px. Without this a multi-
+      // pick of large photos decodes each one to a full-resolution RGBA bitmap
+      // (tens of MB apiece) just to paint a thumbnail — a real jetsam path on a
+      // 3 GB iPhone. The raw bytes still ride on the item for send/encrypt.
+      return Image.memory(
+        widget.item.bytes,
+        fit: BoxFit.cover,
+        cacheWidth: 256,
+      );
     }
     return Stack(
       fit: StackFit.expand,
@@ -1790,7 +1813,7 @@ class _StagedChipState extends State<_StagedChip> {
         FutureBuilder<Uint8List?>(
           future: _poster,
           builder: (_, snap) => snap.data != null
-              ? Image.memory(snap.data!, fit: BoxFit.cover)
+              ? Image.memory(snap.data!, fit: BoxFit.cover, cacheWidth: 256)
               : Container(color: TwilightColors.bgSurfaceAlt),
         ),
         const Center(child: _PlayBadge(size: 26)),
@@ -1975,6 +1998,12 @@ class _MediaImageState extends ConsumerState<_MediaImage> {
   File? _file;
   bool _loading = false;
 
+  // A fetch failed and we've stopped auto-retrying. Without this, every
+  // `liveConnectionProvider` rebuild after a failure re-issued a network +
+  // decrypt for the tile, hammering a flaky connection. Cleared only by an
+  // explicit tap (see [_retry]).
+  bool _failed = false;
+
   @override
   void initState() {
     super.initState();
@@ -1990,17 +2019,28 @@ class _MediaImageState extends ConsumerState<_MediaImage> {
       _fileCache[widget.descriptor.blobKey] = file;
       if (mounted) setState(() => _file = file);
     } catch (_) {
-      // Allow a later rebuild to retry; leave the thumb placeholder for now.
+      // Stop the auto-retry loop: leave the thumb placeholder and wait for an
+      // explicit tap rather than re-fetching on every rebuild.
+      if (mounted) setState(() => _failed = true);
       _loading = false;
     }
+  }
+
+  void _retry() {
+    if (_file != null) return;
+    setState(() {
+      _failed = false;
+      _loading = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     // Watch the socket so the fetch fires as soon as it's ready — reading it
     // once in initState raced the connection and could strand the tile on the
-    // low-res thumb forever.
-    if (_file == null && !_loading) {
+    // low-res thumb forever. A prior failure pins us on the placeholder until
+    // the user taps to retry.
+    if (_file == null && !_loading && !_failed) {
       final conn = ref.watch(liveConnectionProvider).asData?.value;
       if (conn != null) {
         _loading = true;
@@ -2010,7 +2050,26 @@ class _MediaImageState extends ConsumerState<_MediaImage> {
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 200),
       child: _file == null
-          ? _ThumbImage(thumbB64: widget.descriptor.thumbB64)
+          ? GestureDetector(
+              onTap: _failed ? _retry : null,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _ThumbImage(thumbB64: widget.descriptor.thumbB64),
+                  if (_failed)
+                    const ColoredBox(
+                      color: Color(0x40000000),
+                      child: Center(
+                        child: Icon(
+                          Icons.refresh,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            )
           : Image.file(
               _file!,
               key: ValueKey(widget.descriptor.blobKey),

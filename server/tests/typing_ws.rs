@@ -2,7 +2,7 @@
 //! transient Typing frame (carrying the sender's username), and never stored.
 
 use ed25519_dalek::SigningKey;
-use futures::SinkExt;
+use futures::{SinkExt, StreamExt};
 use serial_test::file_serial;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
@@ -148,5 +148,14 @@ async fn typing_for_non_member_room_is_ignored() {
     assert_eq!(
         frame["room_id"], room_id,
         "the bogus non-member frame must have been dropped, not relayed"
+    );
+
+    // Absence, not just ordering: prove the bogus frame was dropped rather than
+    // merely arriving after the valid one. Give the relay ample time to deliver
+    // a (wrongly relayed) second frame; assert none ever does.
+    let extra = tokio::time::timeout(std::time::Duration::from_millis(500), kaitlyn.next()).await;
+    assert!(
+        extra.is_err(),
+        "no second Typing frame should arrive — the non-member frame must be dropped, got {extra:?}"
     );
 }

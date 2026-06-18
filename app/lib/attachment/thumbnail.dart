@@ -27,18 +27,39 @@ const _maxEdge = 360;
 // near ~85 KiB with headroom for the key/metadata fields.
 const _maxThumbBytes = 44 * 1024;
 
-// Tried high → low; the first encoding that fits [_maxThumbBytes] wins. The
-// lowest step always fits at this resolution, so a thumb is always produced.
+// Tried high → low; the first encoding that fits [_maxThumbBytes] wins.
 const _qualitySteps = [82, 72, 62, 52, 42, 32];
 
-/// Encode [image] as the highest-quality JPEG that fits [maxBytes].
+// Smallest long edge we'll shrink to while chasing the byte budget. A thumb
+// this small (a busy 200px JPEG at q32 is only a few KiB) reliably fits any
+// sane budget, so the loop always terminates with a result under cap.
+const _minBudgetEdge = 200;
+
+/// Encode [image] as the highest-quality JPEG that fits [maxBytes]. Tries the
+/// quality ladder at full size first; if even the lowest quality overflows
+/// (a complex image can), downscales ~15% and retries, repeating down to
+/// [_minBudgetEdge]. Guarantees the result is ≤ [maxBytes] (the only way it
+/// returns over budget is if a [_minBudgetEdge]-wide image at q32 still doesn't
+/// fit, which doesn't happen for the budgets we use) so an oversized thumb can
+/// never push the encrypted body past the server's per-recipient cap.
 Uint8List _encodeUnderBudget(img.Image image, [int maxBytes = _maxThumbBytes]) {
+  var current = image;
   late Uint8List out;
-  for (final q in _qualitySteps) {
-    out = Uint8List.fromList(img.encodeJpg(image, quality: q));
-    if (out.length <= maxBytes) break;
+  while (true) {
+    for (final q in _qualitySteps) {
+      out = Uint8List.fromList(img.encodeJpg(current, quality: q));
+      if (out.length <= maxBytes) return out;
+    }
+    // Lowest quality still overflowed: shrink and try the ladder again.
+    final longEdge = current.width >= current.height
+        ? current.width
+        : current.height;
+    if (longEdge <= _minBudgetEdge) return out; // best effort; floor reached
+    final nextEdge = (longEdge * 85 ~/ 100).clamp(_minBudgetEdge, longEdge - 1);
+    current = current.width >= current.height
+        ? img.copyResize(current, width: nextEdge)
+        : img.copyResize(current, height: nextEdge);
   }
-  return out;
 }
 
 /// Downscale image [bytes] to a JPEG no wider/taller than [maxEdge] and no

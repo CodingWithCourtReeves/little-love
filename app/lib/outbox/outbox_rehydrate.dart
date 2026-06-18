@@ -86,9 +86,13 @@ Future<void> rehydrateOutbox({
     // when it drains. Leave the row to drain and render nothing here.
     if (content is ReactionContent) continue;
     // A pending unsend: tombstone its target now (so a replay of the target
-    // can't out-race the still-draining delete) and render no bubble.
+    // can't out-race the still-draining delete) and render no bubble. The row
+    // is our own outbox, so the deleter is us — only our own messages can be in
+    // here to unsend (the UX only exposes delete on your own bubbles).
     if (content is DeleteContent) {
-      getMessageStore(row.roomId).applyDelete(content.targetId);
+      getMessageStore(
+        row.roomId,
+      ).applyDelete(content.targetId, requestedBy: me);
       continue;
     }
     final (body, attachment, preview) = switch (content) {

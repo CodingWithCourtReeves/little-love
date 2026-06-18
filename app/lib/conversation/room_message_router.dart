@@ -153,9 +153,12 @@ class RoomMessageRouter {
       return;
     }
     // An unsend isn't a timeline bubble either: tombstone its target and stop.
-    // Same outbox cleanup on the sender's self-copy echo as a reaction.
+    // Only the message's author may unsend it — `applyDelete` drops a delete
+    // whose `requestedBy` doesn't match the target's author (a spoofed delete,
+    // possible because both partners share the room key). Same outbox cleanup
+    // on the sender's self-copy echo as a reaction.
     if (content is DeleteContent) {
-      store.applyDelete(content.targetId);
+      store.applyDelete(content.targetId, requestedBy: f.from);
       if (f.clientMsgId != null) {
         final outbox = await ref.read(outboxStoreProvider.future);
         await outbox.remove(f.clientMsgId!);

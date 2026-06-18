@@ -185,11 +185,43 @@ void main() {
     store.add(_msg('m1', 'one'));
     store.add(_msg('m2', 'two'));
 
-    store.applyDelete('m1');
+    store.applyDelete('m1', requestedBy: 'court');
 
     expect(
       container.read(messageStoreProvider('r1')).map((m) => m.id).toList(),
       ['m2'],
+    );
+  });
+
+  test('applyDelete from a non-author is ignored (no spoofed unsend)', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    // court authored m1 (see _msg). kaitlyn must not be able to unsend it.
+    store.add(_msg('m1', 'mine'));
+
+    store.applyDelete('m1', requestedBy: 'kaitlyn');
+
+    expect(
+      container.read(messageStoreProvider('r1')).map((m) => m.id).toList(),
+      ['m1'],
+      reason: 'a delete from someone who did not author the target is dropped',
+    );
+  });
+
+  test('a spoofed delete that races ahead does not suppress the target', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+
+    // Delete arrives before its target and names the wrong author. The
+    // tombstone is recorded, but when the (court-authored) target lands it is
+    // validated against the recorded deleter and survives.
+    store.applyDelete('m1', requestedBy: 'kaitlyn');
+    store.add(_msg('m1', 'one'));
+    expect(
+      container.read(messageStoreProvider('r1')).map((m) => m.id).toList(),
+      ['m1'],
     );
   });
 
@@ -200,10 +232,10 @@ void main() {
 
     // Delete arrives before its target (live reorder, or target replays after
     // the delete on reconnect): record the tombstone with nothing to remove...
-    store.applyDelete('m1');
+    store.applyDelete('m1', requestedBy: 'court');
     expect(container.read(messageStoreProvider('r1')), isEmpty);
 
-    // ...then a later add of that id is dropped on the spot.
+    // ...then a later add of that id (by the same author) is dropped on the spot.
     store.add(_msg('m1', 'one'));
     expect(container.read(messageStoreProvider('r1')), isEmpty);
   });
@@ -212,7 +244,7 @@ void main() {
     final container = ProviderContainer();
     addTearDown(container.dispose);
     final store = container.read(messageStoreProvider('r1').notifier);
-    store.applyDelete('m2');
+    store.applyDelete('m2', requestedBy: 'court');
     store.setAll([_msg('m1', 'one'), _msg('m2', 'two'), _msg('m3', 'three')]);
     expect(
       container.read(messageStoreProvider('r1')).map((m) => m.id).toList(),
@@ -227,11 +259,39 @@ void main() {
       addTearDown(container.dispose);
       final store = container.read(messageStoreProvider('r1').notifier);
       store.add(_msg('uuid-echo', 'gone soon'));
-      store.applyDelete('ULID-real');
+      store.applyDelete('ULID-real', requestedBy: 'court');
       store.reconcile('uuid-echo', _msg('ULID-real', 'gone soon'));
       expect(container.read(messageStoreProvider('r1')), isEmpty);
     },
   );
+
+  test('a cancelled send is not resurrected by a late echo', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(
+      Msg(
+        id: 'cli-1',
+        from: 'court',
+        to: 'r1',
+        body: 'oops',
+        ts: DateTime.utc(2026, 6, 13),
+        clientMsgId: 'cli-1',
+        sendStatus: SendStatus.sending,
+      ),
+    );
+
+    // User cancels while in flight; the send had already reached the server, so
+    // a self-copy echo arrives afterward with no optimistic row to swap.
+    store.remove('cli-1');
+    store.reconcile('cli-1', _msg('ULID-real', 'oops'));
+
+    expect(
+      container.read(messageStoreProvider('r1')),
+      isEmpty,
+      reason: 'the late echo must not re-add a cancelled send',
+    );
+  });
 
   test('remove drops a row without tombstoning (unlike applyDelete)', () {
     final container = ProviderContainer();
