@@ -36,6 +36,11 @@ import UserNotifications
             .set(key, forKey: "selected_palette")
         }
         result(nil)
+      case "setBadge":
+        if let n = call.arguments as? Int {
+          UIApplication.shared.applicationIconBadgeNumber = n
+        }
+        result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }

@@ -35,6 +35,7 @@ import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
 import '../../inbox/sidebar.dart';
 import '../../push/push_bootstrap.dart';
+import '../../push/push_registration.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
@@ -70,6 +71,12 @@ class InboxShell extends ConsumerWidget {
     if (inbox.rooms.isNotEmpty) {
       ref.watch(pushBootstrapProvider);
     }
+    // Keep the app-icon badge in sync with unread as the user reads. Pushes set
+    // the badge for the background/quit case; this clears/decrements it live.
+    // Idempotent, so setting it on every rebuild is harmless.
+    ref
+        .read(pushServiceProvider)
+        .setBadge(ref.watch(totalUnreadProvider(account.username)));
     final detail = _detail(context, ref, inbox.selectedRoomId, inbox.rooms);
 
     return LayoutScaffold(

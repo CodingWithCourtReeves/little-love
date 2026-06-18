@@ -66,3 +66,21 @@ final anyUnreadProvider = Provider.family<bool, String>((ref, excludeRoomId) {
   }
   return false;
 });
+
+/// Total unread incoming messages across all rooms — drives the app-icon badge.
+/// Counts messages newer than each room's last-read marker, excluding the
+/// user's own ([selfUsername]) messages. Keyed by username so the family caches
+/// correctly.
+final totalUnreadProvider = Provider.family<int, String>((ref, selfUsername) {
+  final rooms = ref.watch(inboxStateProvider).rooms;
+  final lastRead = ref.watch(readStateProvider);
+  var total = 0;
+  for (final r in rooms) {
+    final marker = lastRead[r.roomId];
+    for (final m in ref.watch(messageStoreProvider(r.roomId))) {
+      if (m.from == selfUsername) continue;
+      if (marker == null || m.ts.isAfter(marker)) total++;
+    }
+  }
+  return total;
+});

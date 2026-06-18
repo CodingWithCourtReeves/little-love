@@ -30,6 +30,11 @@ class PushService {
   Future<void> setPalette(String key) =>
       _channel.invokeMethod<void>('setPalette', key);
 
+  /// Set the app-icon badge to the current unread count. Pushes set it for the
+  /// background/quit case; this clears/decrements it as the user reads.
+  Future<void> setBadge(int count) =>
+      _channel.invokeMethod<void>('setBadge', count);
+
   /// Register a callback for APNs token delivery / refresh. The environment
   /// (`sandbox` / `production`) is resolved natively from the signing profile.
   void onToken(void Function(String hexToken, String environment) cb) =>

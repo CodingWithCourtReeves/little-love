@@ -1182,11 +1182,19 @@ async fn notify_recipient(
             return;
         }
     };
+    // Total unread → the app-icon badge. Best-effort: a count error shouldn't
+    // block the notification, so fall back to 0.
+    let badge = store
+        .unread_count(recipient_account_id)
+        .await
+        .unwrap_or(0)
+        .max(0) as u32;
     for t in tokens {
         let msg = PushMessage {
             token: t.apns_token.clone(),
             environment: t.environment,
             room_id: room_id.to_string(),
+            badge,
         };
         if let SendOutcome::DropToken = sender.send(&msg).await {
             if let Err(e) =

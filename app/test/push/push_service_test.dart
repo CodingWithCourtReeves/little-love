@@ -72,4 +72,15 @@ void main() {
     expect(sent, 'twilight');
     messenger.setMockMethodCallHandler(channel, null);
   });
+
+  test('setBadge sends the count to native', () async {
+    Object? sent;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'setBadge') sent = call.arguments;
+      return null;
+    });
+    await PushService().setBadge(3);
+    expect(sent, 3);
+    messenger.setMockMethodCallHandler(channel, null);
+  });
 }

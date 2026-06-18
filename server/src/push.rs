@@ -16,6 +16,8 @@ pub struct PushMessage {
     pub token: String,
     pub environment: String,
     pub room_id: String,
+    /// Recipient's total unread count → the app-icon badge.
+    pub badge: u32,
 }
 
 /// What to do after a single send attempt.
@@ -104,6 +106,7 @@ impl PushSender for ApnsSender {
             .set_title(PUSH_TITLE)
             .set_body(PUSH_BODY)
             .set_sound("default")
+            .set_badge(msg.badge)
             .set_mutable_content()
             .build(msg.token.as_str(), options);
         // Opaque room id for the tap deep-link. No message content; E2EE intact.

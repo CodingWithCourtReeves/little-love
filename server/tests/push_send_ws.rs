@@ -113,6 +113,7 @@ async fn push_fires_whether_or_not_recipient_online() {
     assert_eq!(got.token, "kaitTOKEN");
     assert_eq!(got.room_id, room_id);
     assert_eq!(got.environment, "sandbox");
+    assert_eq!(got.badge, 1, "one unread → badge 1");
 
     // Now kaitlyn comes ONLINE; a second send must STILL push. A live WS session
     // no longer means "actively looking" — a backgrounded app keeps its socket
@@ -132,4 +133,5 @@ async fn push_fires_whether_or_not_recipient_online() {
         .unwrap();
     assert_eq!(got2.token, "kaitTOKEN");
     assert_eq!(got2.room_id, room_id);
+    assert_eq!(got2.badge, 2, "two unread (kaitlyn never read) → badge 2");
 }
