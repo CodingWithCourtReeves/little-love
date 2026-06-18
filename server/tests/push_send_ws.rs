@@ -1,5 +1,6 @@
-//! End-to-end: a content-free push fires for the recipient only when they have
-//! no live WS session. Uses a fake PushSender (no network).
+//! End-to-end: a content-free push fires for the recipient on every message
+//! (online or not). The app suppresses the banner itself when foreground.
+//! Uses a fake PushSender (no network).
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use ed25519_dalek::SigningKey;
@@ -63,7 +64,7 @@ async fn court_sends(court: &mut Ws, room_id: &str) {
 
 #[file_serial(db)]
 #[tokio::test]
-async fn push_fires_when_recipient_offline_not_when_online() {
+async fn push_fires_whether_or_not_recipient_online() {
     let store = fresh_store().await;
     let court_sk = SigningKey::from_bytes(&[1u8; 32]);
     let kait_sk = SigningKey::from_bytes(&[2u8; 32]);
@@ -113,17 +114,22 @@ async fn push_fires_when_recipient_offline_not_when_online() {
     assert_eq!(got.room_id, room_id);
     assert_eq!(got.environment, "sandbox");
 
-    // Now kaitlyn comes ONLINE; a second send must NOT push (she's a live
-    // session, so routing.deliver reaches her in-app).
+    // Now kaitlyn comes ONLINE; a second send must STILL push. A live WS session
+    // no longer means "actively looking" — a backgrounded app keeps its socket
+    // alive, so the server pushes regardless and the app suppresses the banner
+    // itself when foreground.
     let mut kaitlyn = handshake_as(addr, "kaitlyn", &kait_sk).await;
     drain_rooms(&mut kaitlyn).await;
 
     court_sends(&mut court, &room_id).await;
-    // kaitlyn receives the message live.
+    // kaitlyn receives the message live AND a push still fires for her device.
     let to_kait = next_frame(&mut kaitlyn).await;
     assert_eq!(to_kait["body"], "ct_for_kait", "{to_kait}");
 
-    // No push within a short window.
-    let none = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv()).await;
-    assert!(none.is_err(), "online recipient must not get a push");
+    let got2 = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("a push should fire even when the recipient has a live session")
+        .unwrap();
+    assert_eq!(got2.token, "kaitTOKEN");
+    assert_eq!(got2.room_id, room_id);
 }

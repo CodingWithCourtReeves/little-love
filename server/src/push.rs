@@ -35,12 +35,6 @@ pub trait PushSender: Send + Sync {
     async fn send(&self, msg: &PushMessage) -> SendOutcome;
 }
 
-/// We push only when the live fan-out reached zero sessions: an online partner
-/// already got the message in-app and must not get a redundant banner.
-pub fn should_push(delivered_sessions: usize) -> bool {
-    delivered_sessions == 0
-}
-
 /// Map an APNs HTTP status + reason string to an action. 410 Unregistered and
 /// the 400 "bad/foreign token" reasons mean the token is dead; everything else
 /// non-2xx is transient.
@@ -135,13 +129,6 @@ impl PushSender for ApnsSender {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn pushes_only_when_no_live_session() {
-        assert!(should_push(0));
-        assert!(!should_push(1));
-        assert!(!should_push(3));
-    }
 
     #[test]
     fn classify_410_drops_the_token() {

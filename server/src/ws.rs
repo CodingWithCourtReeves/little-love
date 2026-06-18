@@ -24,7 +24,7 @@ use crate::invites::{
     create_invite_record, default_expiry, lookup_invite, mark_consumed, qr_png_base64,
     room_for_invite, InviteState,
 };
-use crate::push::{should_push, PushMessage, PushSender, SendOutcome};
+use crate::push::{PushMessage, PushSender, SendOutcome};
 use crate::push_tokens::{delete_token, delete_token_value, tokens_for_account, upsert_token};
 use crate::rooms::{
     account_id_by_username, create_room_with_members, is_member, leave_room,
@@ -793,17 +793,20 @@ async fn handle_send(
             read: false,
             client_msg_id: None,
         };
-        let delivered = state.routing.deliver(&m.username, frame).await;
-        // Offline recipient → notify their registered devices. Spawned so the
-        // APNs round-trip never blocks the sender's ack.
-        if should_push(delivered) {
-            if let (Some(sender), Some(store)) = (state.push.clone(), state.store.clone()) {
-                let recipient_id = m.account_id;
-                let room = room_id.to_string();
-                tokio::spawn(async move {
-                    notify_recipient(&sender, &store, recipient_id, &room).await;
-                });
-            }
+        state.routing.deliver(&m.username, frame).await;
+        // Always notify the recipient's registered devices. The app itself
+        // suppresses the banner when it's in the foreground (UNUserNotification
+        // willPresent → []), so a backgrounded or quit app gets a banner while an
+        // actively-open one stays silent. Gating on "no live WS session" missed
+        // the backgrounded case — iOS keeps the socket alive briefly, so the
+        // server saw a live session and skipped the push. Spawned so the APNs
+        // round-trip never blocks the sender's ack.
+        if let (Some(sender), Some(store)) = (state.push.clone(), state.store.clone()) {
+            let recipient_id = m.account_id;
+            let room = room_id.to_string();
+            tokio::spawn(async move {
+                notify_recipient(&sender, &store, recipient_id, &room).await;
+            });
         }
     }
     // Echo the self-copy live to every open session for the sender, carrying
