@@ -19,6 +19,9 @@ Cargo.lock
 # Dev scripts (per-worktree, generated)
 .dev.env
 
+# Local dev secrets sourced by dev-phones.sh (APNs key path/id, etc.). Never commit.
+.secrets.env
+
 # Superpowers brainstorming session content
 .superpowers/
 

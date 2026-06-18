@@ -20,6 +20,15 @@ cd "$ROOT_DIR"
 # shellcheck source=dev-env.sh
 source "$SCRIPT_DIR/dev-env.sh"
 
+# Optional local secrets (APNs push key, etc.) — gitignored, loaded if present.
+# Absent → server runs with push disabled, exactly as before.
+if [[ -f "$ROOT_DIR/.secrets.env" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$ROOT_DIR/.secrets.env"
+  set +a
+fi
+
 GLOBAL_NGROK="$HOME/Library/Application Support/ngrok/ngrok.yml"
 API_LOCAL_PORT=7707
 RUN_DIR="$ROOT_DIR/.dev"
@@ -70,6 +79,12 @@ if [[ -z "$API_URL" || -z "$MINIO_URL" ]]; then
 fi
 echo "   api   → $API_URL"
 echo "   minio → $MINIO_URL"
+
+if [[ -n "${APNS_KEY_P8:-}" ]]; then
+  echo "   APNs push: configured (key ${APNS_KEY_ID:-?}, ${APNS_ENV:-sandbox})"
+else
+  echo "   APNs push: disabled (no .secrets.env / APNS_* unset)"
+fi
 
 echo "▶ 3/4 api server (cargo run, R2_ENDPOINT=$MINIO_URL)…"
 PORT="$API_LOCAL_PORT" \

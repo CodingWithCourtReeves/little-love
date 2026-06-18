@@ -37,6 +37,25 @@ tokens both work from a single configured key.
 When configured correctly, the boot log will **not** contain "APNS_* env
 unset"; an init failure logs `APNs sender init failed; push disabled: <err>`.
 
+### Local dev: `.secrets.env`
+
+For on-device testing you don't export these by hand each run. `scripts/dev-phones.sh`
+auto-sources a gitignored `.secrets.env` at the repo root if present. Copy the
+committed example values into it once:
+
+```bash
+# .secrets.env (gitignored — never committed)
+export APNS_KEY_P8="$(cat "$HOME/.little-love-secrets/AuthKey_XXXXXXXXXX.p8")"
+export APNS_KEY_ID="XXXXXXXXXX"
+export APNS_TEAM_ID="9PVUX2535W"
+export APNS_TOPIC="dev.littlelove.littlelove"
+export APNS_ENV="sandbox"
+```
+
+Keep the `.p8` itself outside the repo (e.g. `~/.little-love-secrets/`); the file
+only reads its contents. `dev-phones.sh` prints `APNs push: configured …` on
+startup when it loaded successfully. Absent file → push simply stays disabled.
+
 ## Token hygiene
 
 APNs reports a permanently-dead token via a 410 `Unregistered`, or a 400
