@@ -19,7 +19,7 @@ import UserNotifications
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    let messenger = engineBridge.pluginRegistry.messenger()
+    let messenger = engineBridge.applicationRegistrar.messenger()
     let channel = FlutterMethodChannel(name: "little_love/push", binaryMessenger: messenger)
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self = self else { return }
