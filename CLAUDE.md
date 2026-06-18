@@ -34,7 +34,12 @@ side by side without colliding. `source scripts/dev-env.sh` to load them.
 
 - `./scripts/dev-up.sh` — `docker compose up` for postgres + minio, writes
   the computed ports to `.dev.env`.
-- `./scripts/dev-down.sh` — tear the containers down.
+- `./scripts/dev-down.sh` — tear the containers down. Note it runs plain
+  `docker compose down` (no `-v`, and it omits the minio compose file), so
+  it leaves named volumes + the minio container behind. To fully clean a
+  **retired** worktree's stack before removing it:
+  `docker compose -f docker-compose.yml -f docker-compose.minio.yml down -v
+  --remove-orphans`, then `docker image rm <COMPOSE_PROJECT_NAME>-api`.
 
 MinIO is the local S3-compatible blob store. The API server signs presigned
 URLs but never connects to the blob store itself; point it at MinIO with
@@ -68,4 +73,41 @@ not raw `flutter run --release`.** Two reasons:
    forcing a re-signup.
 
 The `devicectl` "Failed to load provisioning paramter list … No provider
-was found" line is a non-fatal warning — the install still succeeds.
+was found" line is a non-fatal warning — the install still succeeds. Same
+for transient "Connection reset by peer" / `installcoordination_proxy`
+errors that `ios-deploy.sh` retries through: trust the final "App
+installed" line. An **unchanged `databaseUUID`** across installs confirms
+app data + keychain were preserved (no forced re-signup).
+
+#### Target devices
+
+Always deploy on-device tests to **both** physical phones, never to
+Kaitlyn's:
+
+- **Court's iPhone 17 Pro Max** — `0DC6E4DC-B58D-509A-A5B8-FD316A255D89`
+- **iPhone 13 Pro Max** — `F031FD6D-9E3D-5005-918D-BB860CE37C26`
+- Kaitlyn's iPhone 16 Pro Max — do **not** install here.
+
+Pass `--device <udid>` to target each. The phones are network-paired, so
+use `xcrun devicectl list devices` (not `flutter devices`) to confirm
+UDIDs. Build them **one at a time**: `ios-deploy.sh` rewrites the shared
+`app/ios/Flutter/Release.xcconfig` for the duration of a build, so two
+release builds in parallel clobber each other.
+
+## E2EE message semantics
+
+**Authorize body-borne actions at the apply layer, not just in the UX.**
+Both partners share the room key, so either side can craft a valid
+encrypted frame — an unsend (`kind:"delete"`), a reaction, a future edit —
+naming *any* message id. The receiving store must enforce the real
+invariant (e.g. only a message's author may unsend it; `applyDelete` takes
+the requester and drops a delete whose target it didn't author). A UX that
+only exposes "Delete" on your own bubbles is not enforcement.
+
+**Per-message status must survive the optimistic→server-id reconcile.** A
+read receipt (or any status update) can arrive *before* the self-copy echo
+that swaps an optimistic `clientMsgId` row for its authoritative server id
+— routinely so for a link-preview send, which is delayed by the sender's
+Open Graph fetch. Record such state in a set (see `_read` / `_deleted` /
+`_cancelled` in `MessageStore`) and re-apply it in `add`/`reconcile`; never
+just flip rows that happen to be present, or the update is lost for good.
