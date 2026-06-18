@@ -35,21 +35,12 @@ Future<String> stableDeviceId(DeviceIdStore store) async {
   return fresh;
 }
 
-/// Sandbox for debug/profile builds, production for release. APNs tokens are
-/// environment-specific, so we tell the server which to send through.
-String currentApnsEnvironment() {
-  // Release (no asserts) → production; debug/profile → sandbox.
-  var inDebug = false;
-  assert(() {
-    inDebug = true;
-    return true;
-  }());
-  return inDebug ? 'sandbox' : 'production';
-}
-
 /// Wires the native token stream to the live socket: when a token arrives,
 /// send a RegisterPush over the current connection. No-op while offline; the
-/// next token delivery (or app resume) re-sends.
+/// next token delivery (or app resume) re-sends. The APNs environment is
+/// resolved natively from the signing profile (see `AppDelegate.apnsEnvironment`)
+/// and carried alongside the token, so the server routes to the right Apple
+/// endpoint regardless of Debug/Release build config.
 class PushRegistration {
   PushRegistration(this._ref, this._push, this._deviceIdStore);
 
@@ -57,15 +48,17 @@ class PushRegistration {
   final PushService _push;
   final DeviceIdStore _deviceIdStore;
   String? _lastToken;
+  String? _lastEnvironment;
 
   void start() {
-    _push.onToken((hexToken) {
+    _push.onToken((hexToken, environment) {
       _lastToken = hexToken;
-      _sendRegister(hexToken);
+      _lastEnvironment = environment;
+      _sendRegister(hexToken, environment);
     });
   }
 
-  Future<void> _sendRegister(String hexToken) async {
+  Future<void> _sendRegister(String hexToken, String environment) async {
     final conn = _ref.read(liveConnectionProvider).valueOrNull;
     if (conn == null) return;
     final deviceId = await stableDeviceId(_deviceIdStore);
@@ -73,7 +66,7 @@ class PushRegistration {
       RegisterPushFrame(
         deviceId: deviceId,
         apnsToken: hexToken,
-        environment: currentApnsEnvironment(),
+        environment: environment,
       ).toJson(),
     );
   }
@@ -81,7 +74,8 @@ class PushRegistration {
   /// Re-send the last known token (call on reconnect / app resume).
   Future<void> resend() async {
     final t = _lastToken;
-    if (t != null) await _sendRegister(t);
+    final env = _lastEnvironment;
+    if (t != null && env != null) await _sendRegister(t, env);
   }
 
   Future<void> unregister() async {

@@ -28,16 +28,26 @@ void main() {
     messenger.setMockMethodCallHandler(channel, null);
   });
 
-  test('onToken fires when native invokes onToken', () async {
+  test('onToken fires with token and native environment', () async {
     final svc = PushService();
-    String? got;
-    svc.onToken((t) => got = t);
+    String? gotToken;
+    String? gotEnv;
+    svc.onToken((t, env) {
+      gotToken = t;
+      gotEnv = env;
+    });
     await messenger.handlePlatformMessage(
       channel.name,
-      channel.codec.encodeMethodCall(const MethodCall('onToken', 'deadbeef')),
+      channel.codec.encodeMethodCall(
+        const MethodCall('onToken', {
+          'token': 'deadbeef',
+          'environment': 'sandbox',
+        }),
+      ),
       (_) {},
     );
-    expect(got, 'deadbeef');
+    expect(gotToken, 'deadbeef');
+    expect(gotEnv, 'sandbox');
   });
 
   test('onTap fires when native invokes onTap', () async {

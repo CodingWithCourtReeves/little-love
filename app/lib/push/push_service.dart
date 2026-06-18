@@ -10,7 +10,7 @@ class PushService {
   }
 
   final MethodChannel _channel;
-  void Function(String hexToken)? _onToken;
+  void Function(String hexToken, String environment)? _onToken;
   void Function(String roomId)? _onTap;
 
   /// Ask the OS for notification permission. Returns whether it was granted.
@@ -30,8 +30,10 @@ class PushService {
   Future<void> setPalette(String key) =>
       _channel.invokeMethod<void>('setPalette', key);
 
-  /// Register a callback for APNs token delivery / refresh.
-  void onToken(void Function(String hexToken) cb) => _onToken = cb;
+  /// Register a callback for APNs token delivery / refresh. The environment
+  /// (`sandbox` / `production`) is resolved natively from the signing profile.
+  void onToken(void Function(String hexToken, String environment) cb) =>
+      _onToken = cb;
 
   /// Register a callback for a live notification tap (app already running).
   void onTap(void Function(String roomId) cb) => _onTap = cb;
@@ -39,8 +41,10 @@ class PushService {
   Future<Object?> _onCall(MethodCall call) async {
     switch (call.method) {
       case 'onToken':
-        final t = call.arguments as String?;
-        if (t != null) _onToken?.call(t);
+        final args = call.arguments as Map?;
+        final t = args?['token'] as String?;
+        final env = args?['environment'] as String? ?? 'sandbox';
+        if (t != null) _onToken?.call(t, env);
         return null;
       case 'onTap':
         final r = call.arguments as String?;

@@ -58,7 +58,33 @@ import UserNotifications
     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
   ) {
     let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
-    pushChannel?.invokeMethod("onToken", arguments: hex)
+    pushChannel?.invokeMethod(
+      "onToken",
+      arguments: ["token": hex, "environment": Self.apnsEnvironment()])
+  }
+
+  /// The APNs environment this build's token belongs to, read from the embedded
+  /// provisioning profile's `aps-environment` entitlement — NOT the Debug/Release
+  /// build config (a Release build signed with a development profile still mints
+  /// sandbox tokens). `development` → sandbox, `production` → production. An App
+  /// Store build has no embedded profile, so we default to production.
+  private static func apnsEnvironment() -> String {
+    guard
+      let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+      let data = try? Data(contentsOf: url),
+      let raw = String(data: data, encoding: .ascii),
+      let start = raw.range(of: "<plist"),
+      let end = raw.range(of: "</plist>")
+    else { return "production" }
+    let plist = String(raw[start.lowerBound..<end.upperBound])
+    guard
+      let plistData = plist.data(using: .utf8),
+      let parsed = try? PropertyListSerialization.propertyList(from: plistData, options: [], format: nil),
+      let dict = parsed as? [String: Any],
+      let entitlements = dict["Entitlements"] as? [String: Any],
+      let aps = entitlements["aps-environment"] as? String
+    else { return "production" }
+    return aps == "development" ? "sandbox" : "production"
   }
 
   override func application(
