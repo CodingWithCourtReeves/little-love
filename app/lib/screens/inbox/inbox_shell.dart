@@ -35,7 +35,6 @@ import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
 import '../../inbox/sidebar.dart';
 import '../../push/push_bootstrap.dart';
-import '../../push/push_registration.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
@@ -71,12 +70,10 @@ class InboxShell extends ConsumerWidget {
     if (inbox.rooms.isNotEmpty) {
       ref.watch(pushBootstrapProvider);
     }
-    // Keep the app-icon badge in sync with unread as the user reads. Pushes set
-    // the badge for the background/quit case; this updates it only when the
-    // count actually changes (not a channel call per rebuild).
-    ref.listen(totalUnreadProvider(account.username), (_, count) {
-      ref.read(pushServiceProvider).setBadge(count);
-    });
+    // Keep the app-icon badge in sync with unread. The side-effect provider sets
+    // it once on first watch (reconciling a stale badge from a background push)
+    // and again whenever the count changes — not on every rebuild.
+    ref.watch(badgeSyncProvider(account.username));
     final detail = _detail(context, ref, inbox.selectedRoomId, inbox.rooms);
 
     return LayoutScaffold(
