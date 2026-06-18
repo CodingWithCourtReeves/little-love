@@ -100,6 +100,11 @@ impl PushSender for ApnsSender {
         let options = NotificationOptions {
             apns_topic: Some(self.topic.as_str()),
             apns_push_type: Some(PushType::Alert),
+            // Coalesce a burst in the same room into one banner (the badge still
+            // climbs) instead of stacking N identical "your partner sent…" rows.
+            // room_id is a 26-char ULID, well under the 64-byte limit, so new()
+            // always succeeds; .ok() degrades gracefully if that ever changes.
+            apns_collapse_id: a2::CollapseId::new(msg.room_id.as_str()).ok(),
             ..Default::default()
         };
         let mut payload = DefaultNotificationBuilder::new()

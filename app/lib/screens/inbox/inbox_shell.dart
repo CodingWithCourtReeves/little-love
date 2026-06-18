@@ -72,11 +72,11 @@ class InboxShell extends ConsumerWidget {
       ref.watch(pushBootstrapProvider);
     }
     // Keep the app-icon badge in sync with unread as the user reads. Pushes set
-    // the badge for the background/quit case; this clears/decrements it live.
-    // Idempotent, so setting it on every rebuild is harmless.
-    ref
-        .read(pushServiceProvider)
-        .setBadge(ref.watch(totalUnreadProvider(account.username)));
+    // the badge for the background/quit case; this updates it only when the
+    // count actually changes (not a channel call per rebuild).
+    ref.listen(totalUnreadProvider(account.username), (_, count) {
+      ref.read(pushServiceProvider).setBadge(count);
+    });
     final detail = _detail(context, ref, inbox.selectedRoomId, inbox.rooms);
 
     return LayoutScaffold(
