@@ -72,7 +72,10 @@ import UserNotifications
     guard
       let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
       let data = try? Data(contentsOf: url),
-      let raw = String(data: data, encoding: .ascii),
+      // .isoLatin1 maps every byte 0–255 to a scalar (never nil); the profile is
+      // a binary CMS blob, so .ascii/.utf8 would fail on the signature bytes and
+      // drop us to the production fallback — registering sandbox tokens as prod.
+      let raw = String(data: data, encoding: .isoLatin1),
       let start = raw.range(of: "<plist"),
       let end = raw.range(of: "</plist>")
     else { return "production" }
