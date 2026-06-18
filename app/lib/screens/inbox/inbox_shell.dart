@@ -12,8 +12,10 @@ import '../../attachment/attachment_download.dart';
 import '../../attachment/attachment_upload.dart';
 import '../../attachment/attachment_viewer.dart';
 import '../../attachment/file_crypto.dart';
+import '../../attachment/staged_attachment.dart';
 import '../../attachment/thumbnail.dart';
 import '../../conversation/conversation_page.dart';
+import '../../conversation/link_preview.dart';
 import '../../conversation/message_content.dart';
 import '../../conversation/message_store.dart';
 import '../../conversation/room_key_cache.dart';
@@ -180,7 +182,13 @@ class InboxShell extends ConsumerWidget {
       selfUsername: account.username,
       onSend: (text) => _sendEncrypted(ref, room, text),
       onRetry: (clientMsgId) => _retry(ref, clientMsgId),
-      onAttach: () => _pickAndSend(ref, room, context),
+      onPickMedia: () => _pickMedia(context),
+      onSendMedia: (items, caption) =>
+          _sendStaged(ref, room, context, items, caption),
+      onReact: (targetId, emoji) => _sendReaction(ref, room, targetId, emoji),
+      onDelete: (targetId) => _sendDelete(ref, room, targetId),
+      onCancelSend: (clientMsgId) => _cancelSend(ref, room, clientMsgId),
+      onTyping: (typing) => _sendTyping(ref, room, typing),
       onOpenAttachment: (descriptor) =>
           _openAttachment(ref, room, context, descriptor),
       onRename: (newName) {
@@ -200,16 +208,39 @@ class InboxShell extends ConsumerWidget {
   /// [RoomMessageRouter]).
   Future<void> _sendEncrypted(WidgetRef ref, Room room, String text) async {
     final clientMsgId = ref.read(outboxIdGenProvider)();
-    var inserted = false;
+    final msgs = ref.read(messageStoreProvider(room.roomId).notifier);
+    // Optimistic bubble immediately so the chat feels instant even when a link
+    // preview fetch is in flight; the preview pops in when the server echoes
+    // the stored message back.
+    msgs.add(
+      Msg(
+        id: clientMsgId,
+        from: account.username,
+        to: room.roomId,
+        body: text,
+        ts: DateTime.now().toUtc(),
+        clientMsgId: clientMsgId,
+        sendStatus: SendStatus.sending,
+      ),
+    );
     try {
+      // Sender-side link preview (best-effort, bounded): the fetched title/
+      // image ride inside the encrypted body, so the recipient never hits the
+      // network. A slow or failing site just yields no preview.
+      LinkPreview? preview;
+      final url = firstUrl(text);
+      if (url != null) {
+        preview = await fetchLinkPreview(url)
+            .timeout(const Duration(seconds: 7), onTimeout: () => null)
+            .catchError((Object _) => null);
+      }
       final me = await ref.read(currentIdentityProvider.future);
-      final cache = ref.read(roomKeyCacheProvider);
       final frame = await buildSendFrame(
         room: room,
         me: me,
         selfUsername: account.username,
-        plaintext: TextContent(text).encode(),
-        cache: cache,
+        plaintext: TextContent(text, preview: preview).encode(),
+        cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
       );
       final store = await ref.read(outboxStoreProvider.future);
@@ -218,32 +249,19 @@ class InboxShell extends ConsumerWidget {
         roomId: room.roomId,
         bodies: frame.bodies,
       );
-      ref
-          .read(messageStoreProvider(room.roomId).notifier)
-          .add(
-            Msg(
-              id: clientMsgId,
-              from: account.username,
-              to: room.roomId,
-              body: text,
-              ts: DateTime.now().toUtc(),
-              clientMsgId: clientMsgId,
-              sendStatus: SendStatus.sending,
-            ),
-          );
-      inserted = true;
+    } catch (e) {
+      // Nothing was durably enqueued, so there's no outbox row to retry from —
+      // drop the optimistic bubble rather than leaving an un-retryable failure.
+      msgs.remove(clientMsgId);
+      debugPrint('send failed before enqueue: $e');
+      return;
+    }
+    // Durably enqueued. A kick failure leaves the row for the drain to retry,
+    // so surface a tap-to-retry affordance.
+    try {
       await ref.read(outboxDrainProvider).kick();
     } catch (e) {
-      // If the optimistic bubble made it in, flip it to `failed` so the user
-      // gets a tap-to-retry affordance. If we failed before inserting it,
-      // there is no UI to update — log and move on.
-      if (inserted) {
-        ref
-            .read(messageStoreProvider(room.roomId).notifier)
-            .updateStatus(clientMsgId, SendStatus.failed);
-      } else {
-        debugPrint('outbox enqueue failed before insert: $e');
-      }
+      msgs.updateStatus(clientMsgId, SendStatus.failed);
     }
   }
 
@@ -259,6 +277,7 @@ class InboxShell extends ConsumerWidget {
     required String filename,
     required String mime,
     String? videoPath,
+    String? caption,
   }) async {
     final clientMsgId = ref.read(outboxIdGenProvider)();
     final conn = ref.read(liveConnectionProvider).asData?.value;
@@ -300,7 +319,7 @@ class InboxShell extends ConsumerWidget {
         room: room,
         me: me,
         selfUsername: account.username,
-        plaintext: FileContent(descriptor).encode(),
+        plaintext: FileContent(descriptor, caption: caption).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
       );
@@ -317,7 +336,7 @@ class InboxShell extends ConsumerWidget {
               id: clientMsgId,
               from: account.username,
               to: room.roomId,
-              body: '',
+              body: caption ?? '',
               ts: DateTime.now().toUtc(),
               clientMsgId: clientMsgId,
               sendStatus: SendStatus.sending,
@@ -333,11 +352,10 @@ class InboxShell extends ConsumerWidget {
     }
   }
 
-  Future<void> _pickAndSend(
-    WidgetRef ref,
-    Room room,
-    BuildContext context,
-  ) async {
+  /// Pick photos/videos/files and return them as staged items for the composer
+  /// tray. Picking no longer sends — the user adds a caption and taps send,
+  /// which flushes the tray through [_sendStaged].
+  Future<List<StagedAttachment>> _pickMedia(BuildContext context) async {
     final choice = await showModalBottomSheet<String>(
       context: context,
       builder: (_) => SafeArea(
@@ -357,28 +375,23 @@ class InboxShell extends ConsumerWidget {
         ),
       ),
     );
-    if (!context.mounted) return;
+    final out = <StagedAttachment>[];
     if (choice == 'photos') {
       // imageQuality forces iOS to re-encode the picked image to JPEG. iOS
       // Photos delivers HEIC, which the pure-Dart `image` package can't decode
       // (thumbnail build would throw); JPEG is decodable and universally
       // viewable. Videos picked here are unaffected by imageQuality.
       final picked = await ImagePicker().pickMultipleMedia(imageQuality: 90);
-      if (picked.isEmpty || !context.mounted) return;
-      // Send each pick in selection order, sequentially so the optimistic
-      // bubbles and uploads stay ordered.
       for (final item in picked) {
         final bytes = await item.readAsBytes();
         final mime = _mimeFor(item.name, item.mimeType);
-        if (!context.mounted) return;
-        await _sendAttachment(
-          ref,
-          room,
-          context,
-          bytes: bytes,
-          filename: item.name,
-          mime: mime,
-          videoPath: mime.startsWith('video/') ? item.path : null,
+        out.add(
+          StagedAttachment(
+            bytes: bytes,
+            filename: item.name,
+            mime: mime,
+            videoPath: mime.startsWith('video/') ? item.path : null,
+          ),
         );
       }
     } else if (choice == 'file') {
@@ -386,22 +399,48 @@ class InboxShell extends ConsumerWidget {
         withReadStream: false,
         allowMultiple: true,
       );
-      if (res == null || res.files.isEmpty || !context.mounted) return;
+      if (res == null) return out;
       for (final f in res.files) {
         if (f.path == null) continue;
         final bytes = await File(f.path!).readAsBytes();
         final mime = _mimeFor(f.name, null);
-        if (!context.mounted) return;
-        await _sendAttachment(
-          ref,
-          room,
-          context,
-          bytes: bytes,
-          filename: f.name,
-          mime: mime,
-          videoPath: mime.startsWith('video/') ? f.path : null,
+        out.add(
+          StagedAttachment(
+            bytes: bytes,
+            filename: f.name,
+            mime: mime,
+            videoPath: mime.startsWith('video/') ? f.path : null,
+          ),
         );
       }
+    }
+    return out;
+  }
+
+  /// Flush the composer's staged media. Items send in tray order; the caption
+  /// (composer text) rides on the last item so a multi-pick reads as one
+  /// captioned run, mirroring iMessage/Telegram.
+  Future<void> _sendStaged(
+    WidgetRef ref,
+    Room room,
+    BuildContext context,
+    List<StagedAttachment> items,
+    String caption,
+  ) async {
+    for (var i = 0; i < items.length; i++) {
+      final item = items[i];
+      final isLast = i == items.length - 1;
+      if (!context.mounted) return;
+      await _sendAttachment(
+        ref,
+        room,
+        context,
+        bytes: item.bytes,
+        filename: item.filename,
+        mime: item.mime,
+        videoPath: item.videoPath,
+        caption: isLast && caption.isNotEmpty ? caption : null,
+      );
     }
   }
 
@@ -448,6 +487,94 @@ class InboxShell extends ConsumerWidget {
         );
       }
     }
+  }
+
+  /// Send (or toggle off) a reaction to [targetId]. Applies optimistically to
+  /// the local store, then fans the `kind:"reaction"` message out through the
+  /// same persistent outbox as a normal send (no optimistic bubble — reactions
+  /// aren't timeline rows). An empty [emoji] removes my reaction.
+  Future<void> _sendReaction(
+    WidgetRef ref,
+    Room room,
+    String targetId,
+    String emoji,
+  ) async {
+    ref
+        .read(messageStoreProvider(room.roomId).notifier)
+        .applyReaction(targetId, account.username, emoji);
+    final clientMsgId = ref.read(outboxIdGenProvider)();
+    try {
+      final me = await ref.read(currentIdentityProvider.future);
+      final frame = await buildSendFrame(
+        room: room,
+        me: me,
+        selfUsername: account.username,
+        plaintext: ReactionContent(targetId: targetId, emoji: emoji).encode(),
+        cache: ref.read(roomKeyCacheProvider),
+        clientMsgId: clientMsgId,
+      );
+      final store = await ref.read(outboxStoreProvider.future);
+      await store.enqueue(
+        clientMsgId: clientMsgId,
+        roomId: room.roomId,
+        bodies: frame.bodies,
+      );
+      await ref.read(outboxDrainProvider).kick();
+    } catch (e) {
+      debugPrint('reaction send failed: $e');
+    }
+  }
+
+  /// Unsend a message for everyone. Optimistically tombstone it locally, then
+  /// fan out a `kind:"delete"` control message through the same outbox path as
+  /// a reaction. The partner applies the tombstone on receipt; both sides
+  /// re-apply it on every reconnect (the delete replays after its target).
+  Future<void> _sendDelete(WidgetRef ref, Room room, String targetId) async {
+    ref
+        .read(messageStoreProvider(room.roomId).notifier)
+        .applyDelete(targetId, requestedBy: account.username);
+    final clientMsgId = ref.read(outboxIdGenProvider)();
+    try {
+      final me = await ref.read(currentIdentityProvider.future);
+      final frame = await buildSendFrame(
+        room: room,
+        me: me,
+        selfUsername: account.username,
+        plaintext: DeleteContent(targetId: targetId).encode(),
+        cache: ref.read(roomKeyCacheProvider),
+        clientMsgId: clientMsgId,
+      );
+      final store = await ref.read(outboxStoreProvider.future);
+      await store.enqueue(
+        clientMsgId: clientMsgId,
+        roomId: room.roomId,
+        bodies: frame.bodies,
+      );
+      await ref.read(outboxDrainProvider).kick();
+    } catch (e) {
+      debugPrint('delete send failed: $e');
+    }
+  }
+
+  /// Cancel an unconfirmed outgoing send (a stuck "sending" or failed bubble).
+  /// Its id is the clientMsgId, so drop both the optimistic bubble and the
+  /// outbox row — the server never durably stored it, so nothing replays it.
+  /// (Any already-uploaded blob is left orphaned in the store; harmless.)
+  Future<void> _cancelSend(WidgetRef ref, Room room, String clientMsgId) async {
+    ref.read(messageStoreProvider(room.roomId).notifier).remove(clientMsgId);
+    try {
+      final store = await ref.read(outboxStoreProvider.future);
+      await store.remove(clientMsgId);
+    } catch (e) {
+      debugPrint('cancel send: outbox remove failed: $e');
+    }
+  }
+
+  /// Relay transient typing presence. Fire-and-forget: if the socket is down
+  /// the frame is simply dropped (the receiver times its indicator out).
+  void _sendTyping(WidgetRef ref, Room room, bool typing) {
+    final conn = ref.read(liveConnectionProvider).asData?.value;
+    conn?.send(TypingClientFrame(roomId: room.roomId, typing: typing).toJson());
   }
 
   Future<void> _retry(WidgetRef ref, String clientMsgId) async {

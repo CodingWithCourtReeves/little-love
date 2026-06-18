@@ -198,7 +198,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         }
     });
 
-    let mut upload_rl = UploadRateLimiter::new();
+    let mut upload_rl = WindowRateLimiter::new(UPLOAD_RL_WINDOW, UPLOAD_RL_MAX);
+    let mut typing_rl = WindowRateLimiter::new(TYPING_RL_WINDOW, TYPING_RL_MAX);
     while let Some(Ok(msg)) = stream.next().await {
         if let Message::Text(text) = msg {
             match serde_json::from_str::<RoomClientFrame>(&text) {
@@ -241,6 +242,16 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     up_to_message_id,
                 }) => {
                     handle_mark_read(&state, &me, &room_id, &up_to_message_id, &tx).await;
+                }
+                Ok(RoomClientFrame::Typing { room_id, typing }) => {
+                    // Best-effort presence: silently drop a flood rather than
+                    // erroring back (the client doesn't surface typing errors,
+                    // and the indicator self-expires on the receiver).
+                    if typing_rl.allow() {
+                        handle_typing(&state, &me, &room_id, typing).await;
+                    } else {
+                        warn!("typing rate limit hit for {}", me.username);
+                    }
                 }
                 Ok(RoomClientFrame::RequestUpload {
                     request_id,
@@ -629,6 +640,36 @@ async fn handle_mark_read(
     }
 }
 
+/// Relay transient typing presence to the other room member(s). Best-effort:
+/// no persistence, and membership/lookup failures are silently ignored (a lost
+/// typing frame is harmless — the client times the indicator out anyway).
+async fn handle_typing(state: &AppState, me: &AccountRecord, room_id: &str, typing: bool) {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return,
+    };
+    if !is_member(store.pool(), room_id, me.id)
+        .await
+        .unwrap_or(false)
+    {
+        return;
+    }
+    let members = members_for_room(store.pool(), room_id)
+        .await
+        .unwrap_or_default();
+    let frame = RoomServerFrame::Typing {
+        room_id: room_id.to_string(),
+        from: me.username.clone(),
+        typing,
+    };
+    for m in &members {
+        if m.account_id == me.id {
+            continue;
+        }
+        state.routing.deliver(&m.username, frame.clone()).await;
+    }
+}
+
 async fn handle_send(
     state: &AppState,
     me: &AccountRecord,
@@ -799,28 +840,43 @@ const PRESIGN_TTL: Duration = Duration::from_secs(600);
 const UPLOAD_RL_WINDOW: Duration = Duration::from_secs(60);
 const UPLOAD_RL_MAX: usize = 60;
 
-struct UploadRateLimiter {
+// Typing presence is chatty by design: the client re-asserts `typing:true` on a
+// ~3s heartbeat while composing, plus start/stop toggles, so a real user emits
+// only a handful of frames per 10s. This cap leaves generous headroom for that
+// while bounding a misbehaving client to 4 frames/s — each frame costs two DB
+// reads + a fan-out, so an unbounded stream is the thing worth capping. Blast
+// radius is limited to the authenticated partner either way.
+const TYPING_RL_WINDOW: Duration = Duration::from_secs(10);
+const TYPING_RL_MAX: usize = 40;
+
+/// Per-connection sliding-window rate limiter: at most `max` calls per `window`.
+struct WindowRateLimiter {
     hits: std::collections::VecDeque<std::time::Instant>,
+    window: Duration,
+    max: usize,
 }
 
-impl UploadRateLimiter {
-    fn new() -> Self {
+impl WindowRateLimiter {
+    fn new(window: Duration, max: usize) -> Self {
         Self {
             hits: std::collections::VecDeque::new(),
+            window,
+            max,
         }
     }
 
-    /// Record an upload attempt; returns false if the window is saturated.
+    /// Record an attempt; returns false (without recording) if the window is
+    /// already saturated.
     fn allow(&mut self) -> bool {
         let now = std::time::Instant::now();
         while let Some(front) = self.hits.front() {
-            if now.duration_since(*front) > UPLOAD_RL_WINDOW {
+            if now.duration_since(*front) > self.window {
                 self.hits.pop_front();
             } else {
                 break;
             }
         }
-        if self.hits.len() >= UPLOAD_RL_MAX {
+        if self.hits.len() >= self.max {
             return false;
         }
         self.hits.push_back(now);
@@ -1151,12 +1207,21 @@ mod tests {
 
     #[test]
     fn upload_rate_limiter_saturates_then_blocks() {
-        let mut rl = UploadRateLimiter::new();
+        let mut rl = WindowRateLimiter::new(UPLOAD_RL_WINDOW, UPLOAD_RL_MAX);
         // The first UPLOAD_RL_MAX attempts in a window are allowed…
         for i in 0..UPLOAD_RL_MAX {
             assert!(rl.allow(), "attempt {i} should be allowed");
         }
         // …and the next one is rejected (all within the window, no sleep).
         assert!(!rl.allow(), "attempt past the cap should be blocked");
+    }
+
+    #[test]
+    fn typing_rate_limiter_saturates_then_blocks() {
+        let mut rl = WindowRateLimiter::new(TYPING_RL_WINDOW, TYPING_RL_MAX);
+        for i in 0..TYPING_RL_MAX {
+            assert!(rl.allow(), "typing frame {i} should be allowed");
+        }
+        assert!(!rl.allow(), "typing frame past the cap should be blocked");
     }
 }
