@@ -83,7 +83,7 @@ echo "   minio → $MINIO_URL"
 if [[ -n "${APNS_KEY_P8:-}" ]]; then
   echo "   APNs push: configured (key ${APNS_KEY_ID:-?}, ${APNS_ENV:-sandbox})"
 else
-  echo "   APNs push: disabled (no .secrets.env / APNS_* unset)"
+  echo "   APNs push: disabled — to enable, cp .secrets.env.example .secrets.env and fill it in"
 fi
 
 echo "▶ 3/4 api server (cargo run, R2_ENDPOINT=$MINIO_URL)…"
