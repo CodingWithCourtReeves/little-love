@@ -128,6 +128,53 @@ void main() {
     expect(out.firstWhere((m) => m.id == 'm2').sendStatus, SendStatus.sent);
   });
 
+  test('markRead before the row lands still flips it on reconcile', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    // Optimistic echo for a (preview) send still in flight.
+    store.add(
+      Msg(
+        id: 'cli-1',
+        from: 'court',
+        to: 'r1',
+        body: 'see https://x.com',
+        ts: DateTime.utc(2026, 6, 13),
+        clientMsgId: 'cli-1',
+        sendStatus: SendStatus.sending,
+      ),
+    );
+
+    // The partner's read receipt for the server id arrives *before* the
+    // self-copy echo that reconciles the optimistic row to that id.
+    store.markRead(['ULID-real']);
+    expect(
+      container.read(messageStoreProvider('r1')).single.sendStatus,
+      SendStatus.sending,
+      reason: 'nothing to flip yet — the row is still under its clientMsgId',
+    );
+
+    store.reconcile('cli-1', _msg('ULID-real', 'see https://x.com'));
+
+    expect(
+      container.read(messageStoreProvider('r1')).single.sendStatus,
+      SendStatus.read,
+      reason: 'the recorded read applies when the server row reconciles in',
+    );
+  });
+
+  test('markRead before a plain add still flips it on arrival', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.markRead(['ULID-real']);
+    store.add(_msg('ULID-real', 'hi'));
+    expect(
+      container.read(messageStoreProvider('r1')).single.sendStatus,
+      SendStatus.read,
+    );
+  });
+
   test('applyReaction sets, replaces, and toggles off a reaction', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);

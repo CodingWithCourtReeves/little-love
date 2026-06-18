@@ -23,6 +23,14 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   /// bubble (see [reconcile]).
   final Set<String> _cancelled = {};
 
+  /// Server ids the partner has read (→ double heart). A `ReadFrame` can arrive
+  /// before the row it refers to is in the buffer — notably for a link-preview
+  /// message, whose send is delayed by the sender's OG fetch, so the partner's
+  /// read receipt can beat the self-copy echo that reconciles the optimistic
+  /// row to its server id. Recording the read here lets [add]/[reconcile] apply
+  /// it when the row finally lands, instead of dropping it on the floor.
+  final Set<String> _read = {};
+
   /// True when [id] carries a tombstone authored by [from] — i.e. the delete
   /// targeting it came from the same user who wrote it. A tombstone recorded by
   /// a *different* user (a spoofed delete that raced ahead of its target) does
@@ -38,8 +46,15 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   void add(Msg msg) {
     if (_validlyTombstoned(msg.id, msg.from)) return;
     if (state.any((m) => m.id == msg.id)) return;
-    state = [...state, msg];
+    // A read receipt for this id may have arrived before the row did; apply it
+    // now rather than leaving the bubble stuck at "sent".
+    state = [...state, _read.contains(msg.id) ? _markedRead(msg) : msg];
   }
+
+  /// [msg] with its send status promoted to read, unless it's already read.
+  static Msg _markedRead(Msg msg) => msg.sendStatus == SendStatus.read
+      ? msg
+      : msg.copyWith(sendStatus: SendStatus.read);
 
   /// Replace the buffer wholesale (e.g. on initial replay). Validly-tombstoned
   /// ids are filtered out so a wholesale reset can't resurrect a deleted
@@ -95,7 +110,12 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     // key bubbles by a stable identity across the optimistic→server id swap.
     // Without this the row's key flips on echo, remounting the bubble (and
     // re-decoding a media thumbnail) — a visible flash on send.
-    next[idx] = server.copyWith(clientMsgId: clientMsgId);
+    //
+    // If a read receipt for this server id already arrived (it can beat the
+    // echo for a preview message), promote the swapped-in row to read now —
+    // the echo itself always carries read:false.
+    final swapped = server.copyWith(clientMsgId: clientMsgId);
+    next[idx] = _read.contains(server.id) ? _markedRead(swapped) : swapped;
     state = List.unmodifiable(next);
   }
 
@@ -148,11 +168,14 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   }
 
   /// Mark the given message ids as read (the partner has seen them → double
-  /// heart). Ids not in the buffer are ignored. Driven by an inbound
-  /// `ReadFrame` relayed from the server.
+  /// heart). Records the ids so a row that lands *after* its receipt (a
+  /// preview message whose echo trails the read) still becomes read via
+  /// [add]/[reconcile]. Driven by an inbound `ReadFrame` relayed from the
+  /// server.
   void markRead(List<String> ids) {
     final wanted = ids.toSet();
     if (wanted.isEmpty) return;
+    _read.addAll(wanted);
     var changed = false;
     final next = [
       for (final m in state)
