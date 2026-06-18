@@ -484,6 +484,34 @@ class RequestDownloadFrame {
   };
 }
 
+class RegisterPushFrame {
+  const RegisterPushFrame({
+    required this.deviceId,
+    required this.apnsToken,
+    required this.environment,
+  });
+  final String deviceId;
+  final String apnsToken;
+  final String environment;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'RegisterPush',
+    'device_id': deviceId,
+    'apns_token': apnsToken,
+    'environment': environment,
+  };
+}
+
+class UnregisterPushFrame {
+  const UnregisterPushFrame({required this.deviceId});
+  final String deviceId;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'UnregisterPush',
+    'device_id': deviceId,
+  };
+}
+
 /// Transient typing presence sent while composing. `typing:false` is sent when
 /// the user stops, sends, or clears the field; a short client timeout covers a
 /// dropped stop frame on the receiver.

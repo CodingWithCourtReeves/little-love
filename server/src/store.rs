@@ -174,4 +174,19 @@ impl Store {
         .await?;
         Ok(rows)
     }
+
+    /// Total unread incoming messages for an account, across all its rooms —
+    /// drives the app-icon badge. Excludes the account's own self-copies.
+    pub async fn unread_count(&self, account_id: i64) -> anyhow::Result<i64> {
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM messages
+             WHERE recipient_account_id = $1
+               AND from_account_id <> $1
+               AND read_at IS NULL",
+        )
+        .bind(account_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(n)
+    }
 }

@@ -62,11 +62,15 @@ pub fn test_presigner() -> R2Presigner {
     .unwrap()
 }
 
-pub fn build_app(store: Option<Store>) -> Router {
+pub fn build_app_with_push(
+    store: Option<Store>,
+    push: Option<std::sync::Arc<dyn littlelove_api::push::PushSender>>,
+) -> Router {
     let state = AppState {
         routing: Routing::new(),
         store,
         r2: Some(test_presigner()),
+        push,
     };
     Router::new()
         .route("/accounts", post(create_account))
@@ -79,14 +83,25 @@ pub fn build_app(store: Option<Store>) -> Router {
         .with_state(state)
 }
 
-pub async fn spawn_server(store: Option<Store>) -> SocketAddr {
-    let app = build_app(store);
+pub fn build_app(store: Option<Store>) -> Router {
+    build_app_with_push(store, None)
+}
+
+pub async fn spawn_server_with_push(
+    store: Option<Store>,
+    push: Option<std::sync::Arc<dyn littlelove_api::push::PushSender>>,
+) -> SocketAddr {
+    let app = build_app_with_push(store, push);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
     addr
+}
+
+pub async fn spawn_server(store: Option<Store>) -> SocketAddr {
+    spawn_server_with_push(store, None).await
 }
 
 pub fn signing_key_from_seed(seed: [u8; 32]) -> SigningKey {

@@ -9,6 +9,7 @@ import '../../inbox/pending_invites_provider.dart';
 import '../../inbox/room.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
+import '../pair/enter_code.dart';
 
 /// Step 2 of 2 — show the 4-word code + QR + roster after `CreateRoom`.
 ///
@@ -16,10 +17,20 @@ import '../../wire/frames.dart';
 /// pending invite from `pendingInvitesProvider`; if none exists yet (no
 /// `RoomCreated` round-trip), it shows a "waiting" placeholder.
 class CreateChatInviteScreen extends ConsumerWidget {
-  const CreateChatInviteScreen({super.key, this.roomId, this.onDone});
+  const CreateChatInviteScreen({
+    super.key,
+    this.roomId,
+    this.selfUsername,
+    this.onDone,
+  });
 
   /// When null, picks the room with the most recent pending invite.
   final String? roomId;
+
+  /// The signed-in user's username. When provided, the screen offers an
+  /// "I have my partner's code instead" escape into the enter-code flow — the
+  /// only way back to accepting an invite once this solo room exists.
+  final String? selfUsername;
 
   /// Invoked when the user taps "Done". This screen is rendered inline as the
   /// inbox detail pane (not a pushed route), so it must NOT pop the navigator —
@@ -28,6 +39,7 @@ class CreateChatInviteScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final username = selfUsername;
     final pending = ref.watch(pendingInvitesProvider);
     final inbox = ref.watch(inboxStateProvider);
 
@@ -108,6 +120,12 @@ class CreateChatInviteScreen extends ConsumerWidget {
               onPressed: onDone,
               child: const Text('Done'),
             ),
+            if (username != null)
+              TextButton(
+                key: const Key('have-partner-code-button'),
+                onPressed: () => openEnterCodeScreen(context, ref, username),
+                child: const Text("I have my partner's code instead"),
+              ),
           ],
         ),
       ),

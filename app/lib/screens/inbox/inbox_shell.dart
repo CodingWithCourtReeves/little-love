@@ -26,7 +26,6 @@ import '../../outbox/outbox_store.dart';
 import '../../wire/message.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
-import '../../identity/keypair.dart';
 import '../../inbox/drawer.dart';
 import '../../inbox/inbox_state.dart';
 import '../../inbox/layout_scaffold.dart';
@@ -35,6 +34,7 @@ import '../../inbox/pending_invites_provider.dart';
 import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
 import '../../inbox/sidebar.dart';
+import '../../push/push_bootstrap.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
@@ -64,6 +64,16 @@ class InboxShell extends ConsumerWidget {
     });
 
     final inbox = ref.watch(inboxStateProvider);
+    // Once a partner room exists (i.e. we're paired), bring up push: permission
+    // prompt, token registration, palette key, and notification-tap routing.
+    // The provider caches, so this runs exactly once per session.
+    if (inbox.rooms.isNotEmpty) {
+      ref.watch(pushBootstrapProvider);
+    }
+    // Keep the app-icon badge in sync with unread. The side-effect provider sets
+    // it once on first watch (reconciling a stale badge from a background push)
+    // and again whenever the count changes — not on every rebuild.
+    ref.watch(badgeSyncProvider(account.username));
     final detail = _detail(context, ref, inbox.selectedRoomId, inbox.rooms);
 
     return LayoutScaffold(
@@ -160,6 +170,7 @@ class InboxShell extends ConsumerWidget {
         !dismissed.contains(room.roomId)) {
       return CreateChatInviteScreen(
         roomId: room.roomId,
+        selfUsername: account.username,
         onDone: () =>
             ref.read(dismissedInvitesProvider.notifier).dismiss(room.roomId),
       );
@@ -645,27 +656,8 @@ class PairCard extends ConsumerWidget {
     );
   }
 
-  Future<void> _openEnterCode(BuildContext context, WidgetRef ref) async {
-    final DerivedIdentity identity;
-    try {
-      identity = await ref.read(currentIdentityProvider.future);
-    } on StateError {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not unlock identity — please sign in again.'),
-        ),
-      );
-      return;
-    }
-    if (!context.mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            EnterCodeScreen(identity: identity, selfUsername: account.username),
-      ),
-    );
-  }
+  Future<void> _openEnterCode(BuildContext context, WidgetRef ref) =>
+      openEnterCodeScreen(context, ref, account.username);
 }
 
 class _PairOption extends StatelessWidget {
