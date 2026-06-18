@@ -149,10 +149,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(
-      find.byKey(const Key('have-partner-code-button')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('have-partner-code-button')), findsOneWidget);
   });
 
   testWidgets('shows waiting placeholder when no pending invite is known', (
