@@ -395,7 +395,7 @@ void main() {
         createdAt: DateTime.utc(2026, 6, 10),
       ),
     ]);
-    container.read(inboxStateProvider.notifier).select('room1');
+    container.read(activeRoomProvider.notifier).state = 'room1';
     container.read(roomMessageRouterProvider);
 
     final key = await deriveRoomKey(

@@ -10,7 +10,7 @@ import '../../identity/providers.dart';
 import '../../outbox/outbox_rehydrate.dart';
 import '../../theme/twilight.dart';
 import '../../wire/rest_client.dart';
-import '../inbox/inbox_shell.dart';
+import '../inbox/home_screen.dart';
 import 'recovery_confirm.dart';
 import 'signin.dart';
 import 'signup.dart';
@@ -34,7 +34,7 @@ class AuthGate extends ConsumerWidget {
       ),
       data: (acc) => acc == null
           ? const _ChoiceScreen()
-          : OutboxRehydrateGate(child: InboxShell(account: acc)),
+          : OutboxRehydrateGate(child: HomeScreen(account: acc)),
     );
   }
 }

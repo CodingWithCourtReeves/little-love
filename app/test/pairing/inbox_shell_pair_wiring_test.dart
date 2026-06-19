@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/pairing/pairing_transport.dart';
-import 'package:littlelove/screens/inbox/inbox_shell.dart';
+import 'package:littlelove/screens/inbox/home_screen.dart';
 import 'package:littlelove/screens/pair/show_invite.dart';
 import 'package:littlelove/wire/frames.dart';
 
@@ -41,7 +41,7 @@ void main() {
         overrides: [
           pairingTransportProvider.overrideWithValue(_StubTransport()),
         ],
-        child: MaterialApp(home: InboxShell(account: acc)),
+        child: MaterialApp(home: HomeScreen(account: acc)),
       ),
     );
     await tester.pumpAndSettle();

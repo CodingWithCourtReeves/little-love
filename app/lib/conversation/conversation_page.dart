@@ -18,7 +18,6 @@ import '../attachment/staged_attachment.dart';
 import '../attachment/thumbnail.dart';
 import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
-import '../inbox/channel_switcher.dart';
 import '../inbox/room.dart';
 import '../inbox/select_room.dart';
 import '../theme/love_toast.dart';
@@ -92,7 +91,6 @@ class ConversationPage extends ConsumerStatefulWidget {
     required this.selfUsername,
     required this.onSend,
     this.onRename,
-    this.onNewChannel,
     this.onRetry,
     this.onPickMedia,
     this.onSendMedia,
@@ -107,7 +105,6 @@ class ConversationPage extends ConsumerStatefulWidget {
   final String selfUsername;
   final SendCallback onSend;
   final RenameCallback? onRename;
-  final VoidCallback? onNewChannel;
   final RetryCallback? onRetry;
 
   /// Tapped the composer's attach (+) button: pick media to stage on the
@@ -564,10 +561,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
-        titleSpacing: 8,
-        title: ChannelSwitcher(
-          selfUsername: widget.selfUsername,
-          onNewChannel: widget.onNewChannel,
+        title: Text(
+          widget.room.displayName(widget.selfUsername),
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+            color: TwilightColors.textPrimary,
+          ),
         ),
         actions: [
           Padding(

@@ -21,189 +21,208 @@ import '../../conversation/message_store.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../conversation/room_message_router.dart';
 import '../../conversation/send_fanout.dart';
-import '../../outbox/outbox_drain.dart';
-import '../../outbox/outbox_store.dart';
-import '../../wire/message.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
-import '../../inbox/drawer.dart';
+import '../../inbox/conversation_list_item.dart';
 import '../../inbox/inbox_state.dart';
-import '../../inbox/layout_scaffold.dart';
-import '../../inbox/navigation_rail.dart';
-import '../../inbox/pending_invites_provider.dart';
-import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
-import '../../inbox/sidebar.dart';
+import '../../outbox/outbox_drain.dart';
+import '../../outbox/outbox_store.dart';
 import '../../push/push_bootstrap.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
-import '../create_chat/create_channel_sheet.dart';
-import '../create_chat/create_chat_invite_screen.dart';
-import '../create_chat/create_chat_pick_screen.dart';
-import '../pair/enter_code.dart';
-import '../pair/show_invite.dart';
+import '../../wire/message.dart';
+import 'new_chat_screen.dart';
+import 'pair_card.dart';
 
-/// Top-level inbox screen for a signed-in user. Wraps `LayoutScaffold` and
-/// supplies sidebar / rail / drawer chrome around a `ConversationPage` keyed
-/// by the currently selected `roomId`.
-class InboxShell extends ConsumerWidget {
-  const InboxShell({super.key, required this.account});
+/// Signed-in root: the conversation list is home. Tapping a room pushes a
+/// [ConversationPage]; back pops here. When there are no rooms, the body is the
+/// pairing affordance. Keeps the room message router + outbox drain alive while
+/// mounted (was InboxShell's job).
+class HomeScreen extends ConsumerStatefulWidget {
+  const HomeScreen({super.key, required this.account});
 
   final LocalAccount account;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Activate the router + outbox drain for this signed-in session. Watching
-    // (not reading) keeps them alive while InboxShell is mounted, so the
-    // drain's constructor re-fires its kick on every WS-data transition —
-    // i.e. the persistent outbox auto-flushes on reconnect.
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  /// Guards single-room auto-open so it fires at most once per mount.
+  bool _autoOpened = false;
+
+  /// True while a ConversationPage route is on top of Home, so the auto-open
+  /// listener never double-pushes.
+  bool _chatOnStack = false;
+
+  String get _me => widget.account.username;
+
+  @override
+  Widget build(BuildContext context) {
+    // Activate router + outbox drain for this session (was InboxShell.build).
     ref.watch(liveConnectionProvider).whenData((_) {
       ref.watch(roomMessageRouterProvider);
       ref.watch(outboxDrainProvider);
     });
 
     final inbox = ref.watch(inboxStateProvider);
-    // Once a partner room exists (i.e. we're paired), bring up push: permission
-    // prompt, token registration, palette key, and notification-tap routing.
-    // The provider caches, so this runs exactly once per session.
     if (inbox.rooms.isNotEmpty) {
       ref.watch(pushBootstrapProvider);
     }
-    // Keep the app-icon badge in sync with unread. The side-effect provider sets
-    // it once on first watch (reconciling a stale badge from a background push)
-    // and again whenever the count changes — not on every rebuild.
-    ref.watch(badgeSyncProvider(account.username));
-    final detail = _detail(context, ref, inbox.selectedRoomId, inbox.rooms);
+    ref.watch(badgeSyncProvider(_me));
 
-    return LayoutScaffold(
-      sidebar: Sidebar(username: account.username),
-      rail: NavigationRailChrome(username: account.username),
-      drawer: DrawerContent(username: account.username),
-      detail: detail,
-    );
-  }
+    // Single-room auto-open: exactly one room → push straight into it, so the
+    // couples-app "into the chat" feel survives without abandoning the list.
+    if (!_autoOpened && !_chatOnStack && inbox.rooms.length == 1) {
+      _autoOpened = true;
+      final only = inbox.rooms.single;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openRoom(only));
+    }
 
-  Widget _detail(
-    BuildContext context,
-    WidgetRef ref,
-    String? selectedId,
-    List<Room> rooms,
-  ) {
-    if (rooms.isEmpty) {
-      return Scaffold(
-        backgroundColor: TwilightColors.bgCanvas,
-        body: Center(
-          child: SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'STEP 4 OF 4 · PAIR',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 11,
-                        letterSpacing: 2.4,
-                        fontWeight: FontWeight.w500,
-                        color: TwilightColors.accentSage,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    const Text(
-                      'Invite your partner',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 28,
-                        fontWeight: FontWeight.w500,
-                        height: 1.14,
-                        letterSpacing: -0.6,
-                        color: TwilightColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'A pairing handshake exchanges public keys directly '
-                      'between your two devices. Until that happens, there is '
-                      'nothing for the server to deliver.',
-                      style: TwilightType.lede,
-                    ),
-                    const SizedBox(height: 28),
-                    PairCard(account: account),
-                  ],
+    return Scaffold(
+      backgroundColor: TwilightColors.bgCanvas,
+      appBar: AppBar(
+        backgroundColor: TwilightColors.bgSurface,
+        elevation: 0,
+        title: Text('@$_me'),
+        actions: [
+          if (inbox.rooms.isNotEmpty)
+            IconButton(
+              key: const Key('home-new-chat'),
+              icon: const Icon(Icons.add),
+              tooltip: 'New chat',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => NewChatScreen(account: widget.account),
                 ),
               ),
             ),
-          ),
-        ),
-      );
-    }
-    if (selectedId == null) {
-      final home = defaultHomeRoomId(rooms, account.username);
-      if (home != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref.read(inboxStateProvider.notifier).select(home);
-          ref.read(readStateProvider.notifier).markRead(home);
-        });
-        // One frame of empty canvas before selection lands.
-        return const Scaffold(backgroundColor: TwilightColors.bgCanvas);
-      }
-      // No rooms case is handled above; this is a defensive fallback.
-      return const Scaffold(backgroundColor: TwilightColors.bgCanvas);
-    }
-    final room = rooms.firstWhere((r) => r.roomId == selectedId);
-    // A "solo" room is one where Court is the only member AND a pending invite
-    // exists for it — the user got here by tapping "Invite them with a code",
-    // creating the room, then leaving the show-invite screen. Route them back
-    // to the invite code instead of an empty conversation.
-    final pending = ref.watch(pendingInvitesProvider);
-    final dismissed = ref.watch(dismissedInvitesProvider);
-    final isSolo =
-        room.members.length == 1 &&
-        room.members.first.username == account.username;
-    if (isSolo &&
-        pending.containsKey(room.roomId) &&
-        !dismissed.contains(room.roomId)) {
-      return CreateChatInviteScreen(
-        roomId: room.roomId,
-        selfUsername: account.username,
-        onDone: () =>
-            ref.read(dismissedInvitesProvider.notifier).dismiss(room.roomId),
-      );
-    }
-    // Viewing a room marks it read. Done post-frame to avoid mutating a
-    // provider during build.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(readStateProvider.notifier).markRead(room.roomId);
-    });
-    return ConversationPage(
-      key: ValueKey(selectedId),
-      room: room,
-      selfUsername: account.username,
-      onSend: (text) => _sendEncrypted(ref, room, text),
-      onRetry: (clientMsgId) => _retry(ref, clientMsgId),
-      onPickMedia: () => _pickMedia(context),
-      onSendMedia: (items, caption) =>
-          _sendStaged(ref, room, context, items, caption),
-      onReact: (targetId, emoji) => _sendReaction(ref, room, targetId, emoji),
-      onDelete: (targetId) => _sendDelete(ref, room, targetId),
-      onCancelSend: (clientMsgId) => _cancelSend(ref, room, clientMsgId),
-      onTyping: (typing) => _sendTyping(ref, room, typing),
-      onOpenAttachment: (descriptor) =>
-          _openAttachment(ref, room, context, descriptor),
-      onRename: (newName) {
-        final conn = ref.read(liveConnectionProvider).asData?.value;
-        conn?.send(
-          RenameRoomFrame(roomId: room.roomId, name: newName).toJson(),
-        );
-      },
-      onNewChannel: () => showCreateChannelSheet(context, ref),
+        ],
+      ),
+      body: inbox.rooms.isEmpty ? _emptyState() : _roomList(inbox.rooms),
     );
   }
+
+  Widget _emptyState() {
+    return Center(
+      child: SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'STEP 4 OF 4 · PAIR',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 11,
+                    letterSpacing: 2.4,
+                    fontWeight: FontWeight.w500,
+                    color: TwilightColors.accentSage,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Invite your partner',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 28,
+                    fontWeight: FontWeight.w500,
+                    height: 1.14,
+                    letterSpacing: -0.6,
+                    color: TwilightColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'A pairing handshake exchanges public keys directly between '
+                  'your two devices. Until that happens, there is nothing for '
+                  'the server to deliver.',
+                  style: TwilightType.lede,
+                ),
+                const SizedBox(height: 28),
+                PairCard(account: widget.account),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _roomList(List<Room> rooms) {
+    List<Room> bucket(RoomShape shape) =>
+        rooms.where((r) => r.shape(_me) == shape).toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final partners = bucket(RoomShape.partner);
+    final chats = bucket(RoomShape.chat);
+
+    Widget header(String label) => Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: TwilightColors.textMuted,
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
+
+    Widget item(Room r) => ConversationListItem(
+      key: Key('home-room-${r.roomId}'),
+      label: r.displayName(_me),
+      selected: false,
+      onTap: () => _openRoom(r),
+    );
+
+    return ListView(
+      children: [
+        if (partners.isNotEmpty) header('PARTNER'),
+        ...partners.map(item),
+        if (chats.isNotEmpty) ...[const SizedBox(height: 16), header('CHATS')],
+        ...chats.map(item),
+      ],
+    );
+  }
+
+  Future<void> _openRoom(Room room) async {
+    _chatOnStack = true;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ConversationPage(
+          key: ValueKey(room.roomId),
+          room: room,
+          selfUsername: _me,
+          onSend: (text) => _sendEncrypted(ref, room, text),
+          onRetry: (clientMsgId) => _retry(ref, clientMsgId),
+          onPickMedia: () => _pickMedia(context),
+          onSendMedia: (items, caption) =>
+              _sendStaged(ref, room, context, items, caption),
+          onReact: (targetId, emoji) =>
+              _sendReaction(ref, room, targetId, emoji),
+          onDelete: (targetId) => _sendDelete(ref, room, targetId),
+          onCancelSend: (clientMsgId) => _cancelSend(ref, room, clientMsgId),
+          onTyping: (typing) => _sendTyping(ref, room, typing),
+          onOpenAttachment: (descriptor) =>
+              _openAttachment(ref, room, context, descriptor),
+          onRename: (newName) {
+            final conn = ref.read(liveConnectionProvider).asData?.value;
+            conn?.send(
+              RenameRoomFrame(roomId: room.roomId, name: newName).toJson(),
+            );
+          },
+        ),
+      ),
+    );
+    _chatOnStack = false;
+  }
+
+  // ---- send/retry/media wiring moved verbatim from inbox_shell.dart ----
 
   /// Route a send through the persistent outbox so it survives a WS reconnect
   /// (or an app kill) mid-send. We persist the ciphertext envelope, render an
@@ -219,7 +238,7 @@ class InboxShell extends ConsumerWidget {
     msgs.add(
       Msg(
         id: clientMsgId,
-        from: account.username,
+        from: _me,
         to: room.roomId,
         body: text,
         ts: DateTime.now().toUtc(),
@@ -242,7 +261,7 @@ class InboxShell extends ConsumerWidget {
       final frame = await buildSendFrame(
         room: room,
         me: me,
-        selfUsername: account.username,
+        selfUsername: _me,
         plaintext: TextContent(text, preview: preview).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
@@ -322,7 +341,7 @@ class InboxShell extends ConsumerWidget {
       final frame = await buildSendFrame(
         room: room,
         me: me,
-        selfUsername: account.username,
+        selfUsername: _me,
         plaintext: FileContent(descriptor, caption: caption).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
@@ -338,7 +357,7 @@ class InboxShell extends ConsumerWidget {
           .add(
             Msg(
               id: clientMsgId,
-              from: account.username,
+              from: _me,
               to: room.roomId,
               body: caption ?? '',
               ts: DateTime.now().toUtc(),
@@ -505,14 +524,14 @@ class InboxShell extends ConsumerWidget {
   ) async {
     ref
         .read(messageStoreProvider(room.roomId).notifier)
-        .applyReaction(targetId, account.username, emoji);
+        .applyReaction(targetId, _me, emoji);
     final clientMsgId = ref.read(outboxIdGenProvider)();
     try {
       final me = await ref.read(currentIdentityProvider.future);
       final frame = await buildSendFrame(
         room: room,
         me: me,
-        selfUsername: account.username,
+        selfUsername: _me,
         plaintext: ReactionContent(targetId: targetId, emoji: emoji).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
@@ -536,14 +555,14 @@ class InboxShell extends ConsumerWidget {
   Future<void> _sendDelete(WidgetRef ref, Room room, String targetId) async {
     ref
         .read(messageStoreProvider(room.roomId).notifier)
-        .applyDelete(targetId, requestedBy: account.username);
+        .applyDelete(targetId, requestedBy: _me);
     final clientMsgId = ref.read(outboxIdGenProvider)();
     try {
       final me = await ref.read(currentIdentityProvider.future);
       final frame = await buildSendFrame(
         room: room,
         me: me,
-        selfUsername: account.username,
+        selfUsername: _me,
         plaintext: DeleteContent(targetId: targetId).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
@@ -594,142 +613,5 @@ class InboxShell extends ConsumerWidget {
     // just this id so the retry actually re-sends without a WS reconnect.
     drain.resetCycle(clientMsgId: clientMsgId);
     await drain.kick();
-  }
-}
-
-class PairCard extends ConsumerWidget {
-  const PairCard({super.key, required this.account});
-  final LocalAccount account;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Material(
-      color: TwilightColors.bubblePartnerBg,
-      shape: const RoundedRectangleBorder(
-        side: BorderSide(color: TwilightColors.borderSoft),
-        borderRadius: BorderRadius.all(Radius.circular(2)),
-      ),
-      elevation: 0,
-      child: Column(
-        children: [
-          _PairOption(
-            glyph: '+',
-            title: 'Invite them with a code',
-            detail: 'Generates a one-time code they enter on their device.',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const ShowInviteScreen()),
-            ),
-          ),
-          const Divider(
-            height: 1,
-            thickness: 1,
-            color: TwilightColors.borderSoft,
-            indent: 18,
-            endIndent: 18,
-          ),
-          _PairOption(
-            glyph: '⌗',
-            title: 'I have an invite code',
-            detail: 'Enter a code your partner sent you.',
-            onTap: () => _openEnterCode(context, ref),
-          ),
-          const Divider(
-            height: 1,
-            thickness: 1,
-            color: TwilightColors.borderSoft,
-            indent: 18,
-            endIndent: 18,
-          ),
-          _PairOption(
-            glyph: '✦',
-            title: 'Create a chat',
-            detail: 'Pick your partner, then send the invite.',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) =>
-                    CreateChatPickScreen(selfUsername: account.username),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _openEnterCode(BuildContext context, WidgetRef ref) =>
-      openEnterCodeScreen(context, ref, account.username);
-}
-
-class _PairOption extends StatelessWidget {
-  const _PairOption({
-    required this.glyph,
-    required this.title,
-    required this.detail,
-    required this.onTap,
-  });
-  final String glyph;
-  final String title;
-  final String detail;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 16, 14, 16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                border: Border.all(color: TwilightColors.accentSage),
-                borderRadius: BorderRadius.circular(2),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                glyph,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: TwilightColors.accentSage,
-                ),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: TwilightColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(detail, style: TwilightType.lede),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              '→',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 18,
-                color: TwilightColors.textMuted,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

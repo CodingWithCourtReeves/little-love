@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../identity/account_local.dart';
 import '../../theme/twilight.dart';
-import 'inbox_shell.dart' show PairCard;
+import 'pair_card.dart' show PairCard;
 
 /// Dedicated screen hosting the three pair / new-chat CTAs. Pushed from the
 /// sidebar's "+" button on wide layouts and the drawer's "New chat" entry on

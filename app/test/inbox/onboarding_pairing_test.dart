@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:littlelove/identity/account_local.dart';
-import 'package:littlelove/screens/inbox/inbox_shell.dart';
+import 'package:littlelove/screens/inbox/home_screen.dart';
 
 void main() {
   testWidgets('unpaired user sees the pairing onboarding step', (t) async {
@@ -14,7 +14,7 @@ void main() {
     );
     await t.pumpWidget(
       ProviderScope(
-        child: MaterialApp(home: InboxShell(account: acc)),
+        child: MaterialApp(home: HomeScreen(account: acc)),
       ),
     );
     await t.pump();
