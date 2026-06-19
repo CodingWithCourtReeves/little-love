@@ -8,6 +8,7 @@ pub mod r2;
 pub mod rooms;
 pub mod routing;
 pub mod store;
+pub mod well_known;
 pub mod wire;
 pub mod ws;
 
