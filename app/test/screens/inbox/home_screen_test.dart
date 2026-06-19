@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,10 +11,24 @@ import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/active_room_provider.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
+import 'package:littlelove/pairing/pairing_transport.dart';
 import 'package:littlelove/screens/inbox/home_screen.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/live_connection.dart';
 import 'package:littlelove/wire/message.dart';
+
+/// A pairing transport whose calls never resolve — enough for the empty-state
+/// (PairingScreen) to mount and show its spinner without a real socket.
+class _PendingTransport implements PairingTransport {
+  @override
+  Future<InviteCreatedFrame> createInvite() =>
+      Completer<InviteCreatedFrame>().future;
+  @override
+  Future<InviteConsumedFrame> consumeInvite({
+    required String code,
+    required Uint8List signature,
+  }) => Completer<InviteConsumedFrame>().future;
+}
 
 LocalAccount _acct() => LocalAccount(
   username: 'court',
@@ -58,6 +73,9 @@ ProviderContainer _container() {
         (_) => Completer<LiveConnection>().future,
       ),
       accountProvider.overrideWith((_) async => _acct()),
+      // PairingScreen (the empty state) reads this in initState; the live
+      // connection is held pending so the real provider would throw.
+      pairingTransportProvider.overrideWithValue(_PendingTransport()),
     ],
   );
   addTearDown(c.dispose);
@@ -72,7 +90,7 @@ void main() {
     c.read(inboxSyncedProvider.notifier).state = true;
     await tester.pumpWidget(_app(c, _acct()));
     await tester.pump();
-    expect(find.text('Invite your partner'), findsOneWidget);
+    expect(find.text('PAIR WITH YOUR PARTNER'), findsOneWidget);
     expect(find.byType(ConversationPage), findsNothing);
   });
 
@@ -83,7 +101,7 @@ void main() {
     await tester.pumpWidget(_app(c, _acct()));
     await tester.pump();
     // Blank canvas while the room list is still in flight — no pairing screen.
-    expect(find.text('Invite your partner'), findsNothing);
+    expect(find.text('PAIR WITH YOUR PARTNER'), findsNothing);
     expect(find.byType(ConversationPage), findsNothing);
   });
 

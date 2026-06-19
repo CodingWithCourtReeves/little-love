@@ -37,8 +37,8 @@ import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
 import '../../wire/message.dart';
 import '../create_chat/create_channel_sheet.dart';
+import '../pair/pairing_screen.dart';
 import 'new_chat_screen.dart';
-import 'pair_card.dart';
 
 /// Signed-in root: the conversation list is home. Tapping a room pushes a
 /// [ConversationPage]; back pops here. When there are no rooms, the body is the
@@ -183,53 +183,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _emptyState() {
-    return Center(
-      child: SingleChildScrollView(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 440),
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'STEP 4 OF 4 · PAIR',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 11,
-                    letterSpacing: 2.4,
-                    fontWeight: FontWeight.w500,
-                    color: TwilightColors.accentSage,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                const Text(
-                  'Invite your partner',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 28,
-                    fontWeight: FontWeight.w500,
-                    height: 1.14,
-                    letterSpacing: -0.6,
-                    color: TwilightColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'A pairing handshake exchanges public keys directly between '
-                  'your two devices. Until that happens, there is nothing for '
-                  'the server to deliver.',
-                  style: TwilightType.lede,
-                ),
-                const SizedBox(height: 28),
-                PairCard(account: widget.account),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    return PairingScreen(selfUsername: _me);
   }
 
   Widget _roomList(List<Room> rooms) {
