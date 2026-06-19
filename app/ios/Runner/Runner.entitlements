@@ -12,9 +12,11 @@
 	<array>
 		<string>applinks:littlelove.dev</string>
 		<!-- Dev: the reserved ngrok API tunnel (see ngrok.yml) serves the same
-		     host-independent AASA, so on-device dev builds get universal links
-		     too. Harmless in prod (the host just never produces a link there). -->
-		<string>applinks:dops-api-court.ngrok.app</string>
+		     host-independent AASA. `?mode=developer` makes the device fetch the
+		     AASA directly from the domain instead of via Apple's CDN (which
+		     won't crawl an ngrok URL); it requires Settings > Developer >
+		     Associated Domains Development to be ON. Harmless in prod. -->
+		<string>applinks:dops-api-court.ngrok.app?mode=developer</string>
 	</array>
 </dict>
 </plist>
