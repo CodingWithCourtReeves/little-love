@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../identity/current_identity.dart';
 import '../../pairing/bip39_invite.dart';
+import '../../pairing/deep_link.dart';
 import '../../pairing/invite_consume.dart';
 import '../../pairing/invite_create.dart';
 import '../../pairing/invite_link.dart';
@@ -36,6 +37,15 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
   void initState() {
     super.initState();
     _myInvite = createInvite(ref.read(pairingTransportProvider));
+    // A pair link may have arrived (cold start) before this screen mounted.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final pending = ref.read(pendingPairCodeProvider);
+      if (pending != null && mounted && !_joining) {
+        ref.read(pendingPairCodeProvider.notifier).state = null;
+        _enter.text = pending;
+        _join();
+      }
+    });
   }
 
   @override
@@ -83,6 +93,18 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // A pair link arrived while this screen is on stage: prefill and auto-join.
+    ref.listen<String?>(pendingPairCodeProvider, (_, code) {
+      if (code == null) return;
+      // Reset the one-shot command after this frame (Riverpod forbids mutating
+      // a provider inside a listener that runs during build).
+      Future.microtask(
+        () => ref.read(pendingPairCodeProvider.notifier).state = null,
+      );
+      if (_joining) return;
+      _enter.text = code;
+      _join();
+    });
     return Center(
       child: SingleChildScrollView(
         child: ConstrainedBox(
