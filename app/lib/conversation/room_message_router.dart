@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../identity/current_identity.dart';
+import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/select_room.dart';
 import '../inbox/pending_invites_provider.dart';
@@ -59,10 +60,6 @@ class RoomMessageRouter {
         if (pendingInvite != null) {
           ref.read(pendingInvitesProvider.notifier).set(roomId, pendingInvite);
         }
-        // The creator just made this room — drop them into it and mark read.
-        // For a pending-invite room this routes to the invite-code screen via
-        // inbox_shell; otherwise straight into the conversation.
-        selectAndMarkRead(ref, roomId);
 
       case InviteConsumedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
@@ -215,8 +212,7 @@ class RoomMessageRouter {
       // replays are covered by the open trigger and must not spam a MarkRead
       // per row). The watermark in sendMarkRead already covers this message
       // since it's in the store before this runs.
-      if (!f.replayed &&
-          ref.read(inboxStateProvider).selectedRoomId == f.roomId) {
+      if (!f.replayed && ref.read(activeRoomProvider) == f.roomId) {
         sendMarkRead(ref, f.roomId);
       }
     }
