@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/conversation/conversation_page.dart';
+import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/active_room_provider.dart';
@@ -12,6 +13,7 @@ import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/screens/inbox/home_screen.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/live_connection.dart';
+import 'package:littlelove/wire/message.dart';
 
 LocalAccount _acct() => LocalAccount(
   username: 'court',
@@ -63,12 +65,97 @@ ProviderContainer _container() {
 }
 
 void main() {
-  testWidgets('empty inbox shows the pairing affordance', (tester) async {
+  testWidgets('empty inbox, once synced, shows the pairing affordance', (
+    tester,
+  ) async {
     final c = _container();
+    c.read(inboxSyncedProvider.notifier).state = true;
     await tester.pumpWidget(_app(c, _acct()));
     await tester.pump();
     expect(find.text('Invite your partner'), findsOneWidget);
     expect(find.byType(ConversationPage), findsNothing);
+  });
+
+  testWidgets('empty inbox before first sync shows no pairing flash', (
+    tester,
+  ) async {
+    final c = _container(); // not synced; live connection held pending
+    await tester.pumpWidget(_app(c, _acct()));
+    await tester.pump();
+    // Blank canvas while the room list is still in flight — no pairing screen.
+    expect(find.text('Invite your partner'), findsNothing);
+    expect(find.byType(ConversationPage), findsNothing);
+  });
+
+  testWidgets('a room with an unread partner message shows an unread dot', (
+    tester,
+  ) async {
+    final c = _container();
+    c.read(inboxStateProvider.notifier).setRooms([
+      _partnerRoom('room1'),
+      Room(
+        roomId: 'room2',
+        name: 'Travel',
+        members: _partnerRoom('room2').members,
+        createdAt: DateTime.utc(2026, 6, 11),
+      ),
+    ]);
+    // An incoming message in room2, none in room1.
+    c
+        .read(messageStoreProvider('room2').notifier)
+        .add(
+          Msg(
+            id: '1',
+            from: 'kaitlyn',
+            to: 'room2',
+            body: 'miss you',
+            ts: DateTime.utc(2026, 6, 12),
+          ),
+        );
+    await tester.pumpWidget(_app(c, _acct()));
+    await tester.pump();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('home-room-room2')),
+        matching: find.byKey(const Key('unread-dot')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('home-room-room1')),
+        matching: find.byKey(const Key('unread-dot')),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('my own message does not mark a room unread', (tester) async {
+    final c = _container();
+    c.read(inboxStateProvider.notifier).setRooms([
+      _partnerRoom('room1'),
+      Room(
+        roomId: 'room2',
+        name: 'Travel',
+        members: _partnerRoom('room2').members,
+        createdAt: DateTime.utc(2026, 6, 11),
+      ),
+    ]);
+    c
+        .read(messageStoreProvider('room2').notifier)
+        .add(
+          Msg(
+            id: '1',
+            from: 'court',
+            to: 'room2',
+            body: 'hey',
+            ts: DateTime.utc(2026, 6, 12),
+          ),
+        );
+    await tester.pumpWidget(_app(c, _acct()));
+    await tester.pump();
+    expect(find.byKey(const Key('unread-dot')), findsNothing);
   });
 
   testWidgets(

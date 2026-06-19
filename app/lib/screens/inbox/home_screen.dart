@@ -26,6 +26,7 @@ import '../../identity/current_identity.dart';
 import '../../inbox/active_room_provider.dart';
 import '../../inbox/conversation_list_item.dart';
 import '../../inbox/inbox_state.dart';
+import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
 import '../../outbox/outbox_drain.dart';
 import '../../outbox/outbox_store.dart';
@@ -143,8 +144,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
         ],
       ),
-      body: inbox.rooms.isEmpty ? _emptyState() : _roomList(inbox.rooms),
+      body: _body(inbox.rooms),
     );
+  }
+
+  Widget _body(List<Room> rooms) {
+    if (rooms.isNotEmpty) return _roomList(rooms);
+    // Empty inbox: distinguish "still syncing" from "genuinely unpaired" so we
+    // don't flash the pairing screen on launch before the room list arrives.
+    final synced = ref.watch(inboxSyncedProvider);
+    final connFailed = ref.watch(liveConnectionProvider).hasError;
+    if (synced || connFailed) return _emptyState();
+    // First sync in flight — a blank canvas (no flash).
+    return const SizedBox.expand();
+  }
+
+  /// True iff [roomId] has an incoming (partner) message past its read marker.
+  bool _roomUnread(String roomId, Map<String, DateTime> markers) {
+    final marker = markers[roomId];
+    for (final m in ref.watch(messageStoreProvider(roomId))) {
+      if (m.from == _me) continue;
+      if (marker == null || m.ts.isAfter(marker)) return true;
+    }
+    return false;
   }
 
   Widget _emptyState() {
@@ -198,6 +220,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _roomList(List<Room> rooms) {
+    final markers = ref.watch(readStateProvider);
     List<Room> bucket(RoomShape shape) =>
         rooms.where((r) => r.shape(_me) == shape).toList()
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -219,6 +242,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       key: Key('home-room-${r.roomId}'),
       label: r.displayName(_me),
       selected: false,
+      unread: _roomUnread(r.roomId, markers),
       onTap: () => _openRoom(r),
     );
 

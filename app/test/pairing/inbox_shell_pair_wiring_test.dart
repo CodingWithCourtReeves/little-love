@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/identity/account_local.dart';
+import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/pairing/pairing_transport.dart';
 import 'package:littlelove/screens/inbox/home_screen.dart';
 import 'package:littlelove/screens/pair/show_invite.dart';
@@ -40,6 +41,7 @@ void main() {
       ProviderScope(
         overrides: [
           pairingTransportProvider.overrideWithValue(_StubTransport()),
+          inboxSyncedProvider.overrideWith((ref) => true),
         ],
         child: MaterialApp(home: HomeScreen(account: acc)),
       ),

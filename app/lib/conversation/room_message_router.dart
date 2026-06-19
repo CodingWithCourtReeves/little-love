@@ -45,6 +45,9 @@ class RoomMessageRouter {
             )
             .toList(growable: false);
         ref.read(inboxStateProvider.notifier).setRooms(mapped);
+        // The authoritative room list has landed — the inbox is now synced, so
+        // an empty list reads as "unpaired" rather than "still loading".
+        ref.read(inboxSyncedProvider.notifier).state = true;
         for (final r in mapped) {
           _subscribe(r.roomId);
         }
@@ -213,7 +216,10 @@ class RoomMessageRouter {
       // per row). The watermark in sendMarkRead already covers this message
       // since it's in the store before this runs.
       if (!f.replayed && ref.read(activeRoomProvider) == f.roomId) {
-        sendMarkRead(ref, f.roomId);
+        // The chat is on screen, so this message is read: tell the server AND
+        // advance our local read marker, so leaving the room doesn't leave a
+        // phantom unread dot for a message we just watched arrive.
+        markRoomRead(ref, f.roomId);
       }
     }
   }

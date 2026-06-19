@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:littlelove/identity/account_local.dart';
+import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/screens/inbox/home_screen.dart';
 
 void main() {
@@ -14,6 +15,7 @@ void main() {
     );
     await t.pumpWidget(
       ProviderScope(
+        overrides: [inboxSyncedProvider.overrideWith((ref) => true)],
         child: MaterialApp(home: HomeScreen(account: acc)),
       ),
     );

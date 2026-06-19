@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
+import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/screens/auth/auth_gate.dart';
 
 class _StubStore implements AccountLocalStore {
@@ -47,14 +48,16 @@ void main() {
       ProviderScope(
         overrides: [
           accountLocalStoreProvider.overrideWithValue(_StubStore(acc)),
+          // Pretend the room list has synced so HomeScreen shows the empty
+          // pairing state rather than the "still syncing" blank canvas.
+          inboxSyncedProvider.overrideWith((ref) => true),
         ],
         child: const MaterialApp(home: AuthGate()),
       ),
     );
     await tester.pumpAndSettle();
-    // InboxShell renders the empty-rooms placeholder when no rooms are
-    // registered (the default state until WT-D or the demo fixtures wire
-    // rooms in).
+    // HomeScreen renders the empty-rooms pairing placeholder when no rooms are
+    // registered.
     expect(find.textContaining('Invite your partner'), findsOneWidget);
   });
 }
