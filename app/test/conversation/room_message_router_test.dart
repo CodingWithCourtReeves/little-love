@@ -13,7 +13,6 @@ import 'package:littlelove/identity/current_identity.dart';
 import 'package:littlelove/identity/keypair.dart';
 import 'package:littlelove/inbox/active_room_provider.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
-import 'package:littlelove/inbox/pending_invites_provider.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/outbox/outbox_store.dart';
 import 'package:littlelove/pairing/encryption.dart';
@@ -179,7 +178,7 @@ void main() {
     expect(msgs.single.body, cannotDecryptSentinel);
   });
 
-  test('RoomCreated appends, surfaces pendingInvite, and subscribes', () async {
+  test('RoomCreated appends and subscribes', () async {
     final me = await deriveIdentity(seedA);
     final conn = _FakeConn();
     final container = await _container(conn: conn, me: me);
@@ -190,20 +189,12 @@ void main() {
         roomId: 'room2',
         name: 'Travel',
         members: [_member('court', me)],
-        pendingInvite: PendingInvite(
-          code: 'amber-fern-locket-tide',
-          qrPngBase64: '',
-          expiresAt: DateTime.utc(2026, 6, 10, 19),
-        ),
+        pendingInvite: null,
       ),
     );
     await Future<void>.delayed(const Duration(milliseconds: 20));
 
     expect(container.read(inboxStateProvider).rooms, hasLength(1));
-    expect(
-      container.read(pendingInvitesProvider)['room2']?.code,
-      'amber-fern-locket-tide',
-    );
     final subs = conn.sent
         .cast<Map<String, Object?>>()
         .where((m) => m['kind'] == 'Subscribe')

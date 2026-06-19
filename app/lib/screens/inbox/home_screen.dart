@@ -38,7 +38,6 @@ import '../../wire/live_connection.dart';
 import '../../wire/message.dart';
 import '../create_chat/create_channel_sheet.dart';
 import '../pair/pairing_screen.dart';
-import 'new_chat_screen.dart';
 
 /// Signed-in root: the conversation list is home. Tapping a room pushes a
 /// [ConversationPage]; back pops here. When there are no rooms, the body is the
@@ -62,11 +61,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _chatOnStack = false;
 
   String get _me => widget.account.username;
-
-  /// Paired once any room actually contains the partner. A room you're the only
-  /// member of is a not-yet-consumed invite, not a pairing.
-  bool _isPaired(List<Room> rooms) =>
-      rooms.any((r) => r.members.any((m) => m.username != _me));
 
   @override
   Widget build(BuildContext context) {
@@ -127,21 +121,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             IconButton(
               key: const Key('home-new-chat'),
               icon: const Icon(Icons.add),
-              tooltip: 'New chat',
-              onPressed: () {
-                // Paired → a topical channel with your partner. Not yet paired
-                // → keep offering the pairing options so a mid-pairing user can
-                // still reach their invite code.
-                if (_isPaired(inbox.rooms)) {
-                  showCreateChannelSheet(context, ref);
-                } else {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => NewChatScreen(account: widget.account),
-                    ),
-                  );
-                }
-              },
+              tooltip: 'New channel',
+              // Any room in the inbox implies a partner (roomless invites mean
+              // no solo room ever exists), so [+] always opens a topical
+              // channel with that partner. Pre-pairing lives in the empty
+              // state's PairingScreen, never behind [+].
+              onPressed: () => showCreateChannelSheet(context, ref),
             ),
           PopupMenuButton<String>(
             key: const Key('home-menu'),

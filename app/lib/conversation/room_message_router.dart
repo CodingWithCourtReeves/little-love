@@ -6,7 +6,6 @@ import '../identity/current_identity.dart';
 import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/select_room.dart';
-import '../inbox/pending_invites_provider.dart';
 import '../inbox/room.dart';
 import '../outbox/outbox_store.dart';
 import '../pairing/encryption.dart';
@@ -52,17 +51,9 @@ class RoomMessageRouter {
           _subscribe(r.roomId);
         }
 
-      case RoomCreatedFrame(
-        :final roomId,
-        :final name,
-        :final members,
-        :final pendingInvite,
-      ):
+      case RoomCreatedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
         _subscribe(roomId);
-        if (pendingInvite != null) {
-          ref.read(pendingInvitesProvider.notifier).set(roomId, pendingInvite);
-        }
 
       case InviteConsumedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);

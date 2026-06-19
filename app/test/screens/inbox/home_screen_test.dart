@@ -269,19 +269,6 @@ void main() {
     },
   );
 
-  testWidgets('when not yet paired, [+] still offers the pairing options', (
-    tester,
-  ) async {
-    final c = _container();
-    c.read(inboxStateProvider.notifier).setRooms([_soloRoom('room1')]);
-    await tester.pumpWidget(_app(c, _acct()));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const Key('home-new-chat')));
-    await tester.pumpAndSettle();
-    expect(find.text('Invite them with a code'), findsOneWidget);
-  });
-
   testWidgets('single room auto-opens into the conversation', (tester) async {
     final c = _container();
     c.read(inboxStateProvider.notifier).setRooms([_partnerRoom('room1')]);
