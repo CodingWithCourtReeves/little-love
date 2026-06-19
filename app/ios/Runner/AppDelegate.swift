@@ -8,6 +8,12 @@ import UserNotifications
   /// A room id captured from a notification tap that cold-launched the app,
   /// held until Dart asks for it once the inbox is ready.
   private var pendingLaunchRoomId: String?
+  /// A universal-link URL captured when it cold-launched the app. On cold start
+  /// plugins (incl. app_links) register only in `didInitializeImplicitFlutterEngine`,
+  /// which runs *after* the link is delivered — so app_links' `getInitialLink()`
+  /// misses it. We capture it natively here and Dart pulls it via
+  /// `takePendingLaunchLink`. (Warm links still flow through app_links.)
+  private var pendingLaunchLink: String?
 
   override func application(
     _ application: UIApplication,
@@ -15,6 +21,24 @@ import UserNotifications
   ) -> Bool {
     UNUserNotificationCenter.current().delegate = self
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  /// Universal link (`https://…/pair/<code>`). iOS calls this on both cold and
+  /// warm launches. We buffer it for Dart to pull via `takePendingLaunchLink`
+  /// (covers the cold-start case app_links misses); `super` still forwards to
+  /// app_links, which handles the warm case (app already running).
+  override func application(
+    _ application: UIApplication,
+    continue userActivity: NSUserActivity,
+    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+  ) -> Bool {
+    if userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+      let url = userActivity.webpageURL
+    {
+      pendingLaunchLink = url.absoluteString
+    }
+    return super.application(
+      application, continue: userActivity, restorationHandler: restorationHandler)
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
@@ -30,6 +54,10 @@ import UserNotifications
         let room = self.pendingLaunchRoomId
         self.pendingLaunchRoomId = nil
         result(room)
+      case "takePendingLaunchLink":
+        let link = self.pendingLaunchLink
+        self.pendingLaunchLink = nil
+        result(link)
       case "setPalette":
         if let key = call.arguments as? String {
           UserDefaults(suiteName: "group.dev.littlelove.littlelove")?

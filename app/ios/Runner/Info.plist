@@ -4,6 +4,13 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Let the app_links plugin own universal-link handling via the native
+	     NSUserActivity path. Flutter's built-in deep-link handler (default ON)
+	     finds no matching route in this router-less app and reports the link
+	     unhandled, so iOS bounces it to Safari — the "app opens for a beat then
+	     the browser opens" symptom. Disabling it hands the link to app_links. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

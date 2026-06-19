@@ -54,4 +54,11 @@ class ReadStateStore {
     final raw = state.map((k, v) => MapEntry(k, v.toUtc().toIso8601String()));
     await f.writeAsString(jsonEncode(raw));
   }
+
+  /// Drop all saved read markers (used on sign-out so a new account on this
+  /// device doesn't inherit the previous user's read state).
+  Future<void> clear() async {
+    final f = _file;
+    if (await f.exists()) await f.delete();
+  }
 }

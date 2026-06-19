@@ -4,15 +4,13 @@ import '../conversation/message_store.dart';
 import '../wire/frames.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
-import 'inbox_state.dart';
 import 'read_state_provider.dart';
 
-/// Select [roomId] as the active room and mark it read in one step. Use this
-/// everywhere a room is opened (switcher tap, sidebar tap, auto-select on
-/// create) so unread state stays consistent. Accepts any Riverpod reader
-/// ([WidgetRef], [Ref], or [ProviderContainer]).
-void selectAndMarkRead(dynamic reader, String roomId) {
-  reader.read(inboxStateProvider.notifier).select(roomId);
+/// Mark [roomId] read locally and tell the server, without changing any
+/// selection. Called from [ConversationPage] on mount: opening a chat clears
+/// its unread badge and flips the partner's bubbles to a double heart.
+/// Accepts any Riverpod reader ([WidgetRef], [Ref], or [ProviderContainer]).
+void markRoomRead(dynamic reader, String roomId) {
   reader.read(readStateProvider.notifier).markRead(roomId);
   sendMarkRead(reader, roomId);
 }

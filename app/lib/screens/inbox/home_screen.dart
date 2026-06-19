@@ -21,196 +21,251 @@ import '../../conversation/message_store.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../conversation/room_message_router.dart';
 import '../../conversation/send_fanout.dart';
-import '../../outbox/outbox_drain.dart';
-import '../../outbox/outbox_store.dart';
-import '../../wire/message.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
-import '../../inbox/drawer.dart';
+import '../../identity/sign_out.dart';
+import '../../inbox/active_room_provider.dart';
+import '../../inbox/conversation_list_item.dart';
 import '../../inbox/inbox_state.dart';
-import '../../inbox/layout_scaffold.dart';
-import '../../inbox/navigation_rail.dart';
-import '../../inbox/pending_invites_provider.dart';
 import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
-import '../../inbox/select_room.dart';
-import '../../inbox/sidebar.dart';
+import '../../outbox/outbox_drain.dart';
+import '../../outbox/outbox_store.dart';
 import '../../push/push_bootstrap.dart';
-import '../../push/push_registration.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
+import '../../wire/message.dart';
 import '../create_chat/create_channel_sheet.dart';
-import '../create_chat/create_chat_invite_screen.dart';
-import '../create_chat/create_chat_pick_screen.dart';
-import '../pair/enter_code.dart';
-import '../pair/show_invite.dart';
+import '../pair/pairing_screen.dart';
 
-/// Top-level inbox screen for a signed-in user. Wraps `LayoutScaffold` and
-/// supplies sidebar / rail / drawer chrome around a `ConversationPage` keyed
-/// by the currently selected `roomId`.
-class InboxShell extends ConsumerWidget {
-  const InboxShell({super.key, required this.account});
+/// Signed-in root: the conversation list is home. Tapping a room pushes a
+/// [ConversationPage]; back pops here. When there are no rooms, the body is the
+/// pairing affordance. Keeps the room message router + outbox drain alive while
+/// mounted (was InboxShell's job).
+class HomeScreen extends ConsumerStatefulWidget {
+  const HomeScreen({super.key, required this.account});
 
   final LocalAccount account;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Activate the router + outbox drain for this signed-in session. Watching
-    // (not reading) keeps them alive while InboxShell is mounted, so the
-    // drain's constructor re-fires its kick on every WS-data transition —
-    // i.e. the persistent outbox auto-flushes on reconnect.
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  /// Guards single-room auto-open so it fires at most once per mount.
+  bool _autoOpened = false;
+
+  /// True while a ConversationPage route is on top of Home, so the auto-open
+  /// listener never double-pushes.
+  bool _chatOnStack = false;
+
+  String get _me => widget.account.username;
+
+  @override
+  Widget build(BuildContext context) {
+    // Activate router + outbox drain for this session (was InboxShell.build).
     ref.watch(liveConnectionProvider).whenData((_) {
       ref.watch(roomMessageRouterProvider);
       ref.watch(outboxDrainProvider);
     });
 
     final inbox = ref.watch(inboxStateProvider);
-    // Once a partner room exists (i.e. we're paired), bring up push: permission
-    // prompt, token registration, palette key, and notification-tap routing.
-    // The provider caches, so this runs exactly once per session.
     if (inbox.rooms.isNotEmpty) {
       ref.watch(pushBootstrapProvider);
     }
-    final detail = _detail(context, ref, inbox.selectedRoomId, inbox.rooms);
+    ref.watch(badgeSyncProvider(_me));
 
-    // Keep the app-icon badge in sync with unread. _BadgeSyncScope re-asserts the
-    // count on every occasion the displayed badge can drift from what the user
-    // has actually seen — see its doc comment.
-    return _BadgeSyncScope(
-      selfUsername: account.username,
-      child: LayoutScaffold(
-        sidebar: Sidebar(username: account.username),
-        rail: NavigationRailChrome(username: account.username),
-        drawer: DrawerContent(username: account.username),
-        detail: detail,
+    // A notification tap (or any out-of-tree caller) requests a room by id.
+    // Consume the command and push its conversation, unless it's already on
+    // screen. Resetting the signal must be deferred — Riverpod forbids mutating
+    // a provider inside a listener that runs during build.
+    ref.listen<String?>(requestedRoomProvider, (_, roomId) {
+      if (roomId == null) return;
+      Room? target;
+      for (final r in inbox.rooms) {
+        if (r.roomId == roomId) {
+          target = r;
+          break;
+        }
+      }
+      Future.microtask(
+        () => ref.read(requestedRoomProvider.notifier).state = null,
+      );
+      if (target == null) return;
+      if (ref.read(activeRoomProvider) == roomId) return; // already open
+      _openRoom(target);
+    });
+
+    // Single-room auto-open: exactly one *partner* room → push straight into
+    // it, so the couples-app "into the chat" feel survives without abandoning
+    // the list. A lone solo room (a freshly created invite, no partner yet)
+    // must NOT auto-open, or creating an invite dumps you into an empty chat.
+    if (!_autoOpened &&
+        !_chatOnStack &&
+        inbox.rooms.length == 1 &&
+        inbox.rooms.single.shape(_me) == RoomShape.partner) {
+      _autoOpened = true;
+      final only = inbox.rooms.single;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openRoom(only));
+    }
+
+    return Scaffold(
+      backgroundColor: TwilightColors.bgCanvas,
+      appBar: AppBar(
+        backgroundColor: TwilightColors.bgSurface,
+        elevation: 0,
+        title: Text('@$_me'),
+        actions: [
+          if (inbox.rooms.isNotEmpty)
+            IconButton(
+              key: const Key('home-new-chat'),
+              icon: const Icon(Icons.add),
+              tooltip: 'New channel',
+              // Any room in the inbox implies a partner (roomless invites mean
+              // no solo room ever exists), so [+] always opens a topical
+              // channel with that partner. Pre-pairing lives in the empty
+              // state's PairingScreen, never behind [+].
+              onPressed: () => showCreateChannelSheet(context, ref),
+            ),
+          PopupMenuButton<String>(
+            key: const Key('home-menu'),
+            onSelected: (value) {
+              if (value == 'signout') _confirmSignOut();
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem<String>(
+                value: 'signout',
+                child: Text('Sign out'),
+              ),
+            ],
+          ),
+        ],
+      ),
+      body: _body(inbox.rooms),
+    );
+  }
+
+  Widget _body(List<Room> rooms) {
+    if (rooms.isNotEmpty) return _roomList(rooms);
+    // Empty inbox: distinguish "still syncing" from "genuinely unpaired" so we
+    // don't flash the pairing screen on launch before the room list arrives.
+    final synced = ref.watch(inboxSyncedProvider);
+    final connFailed = ref.watch(liveConnectionProvider).hasError;
+    if (synced || connFailed) return _emptyState();
+    // First sync in flight — a blank canvas (no flash).
+    return const SizedBox.expand();
+  }
+
+  /// True iff [roomId] has an incoming (partner) message past its read marker.
+  bool _roomUnread(String roomId, Map<String, DateTime> markers) {
+    final marker = markers[roomId];
+    for (final m in ref.watch(messageStoreProvider(roomId))) {
+      if (m.from == _me) continue;
+      if (marker == null || m.ts.isAfter(marker)) return true;
+    }
+    return false;
+  }
+
+  Widget _emptyState() {
+    return PairingScreen(selfUsername: _me);
+  }
+
+  Widget _roomList(List<Room> rooms) {
+    final markers = ref.watch(readStateProvider);
+    List<Room> bucket(RoomShape shape) =>
+        rooms.where((r) => r.shape(_me) == shape).toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final partners = bucket(RoomShape.partner);
+    final chats = bucket(RoomShape.chat);
+
+    Widget header(String label) => Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: TwilightColors.textMuted,
+          letterSpacing: 1.2,
+        ),
       ),
     );
-  }
 
-  Widget _detail(
-    BuildContext context,
-    WidgetRef ref,
-    String? selectedId,
-    List<Room> rooms,
-  ) {
-    if (rooms.isEmpty) {
-      return Scaffold(
-        backgroundColor: TwilightColors.bgCanvas,
-        body: Center(
-          child: SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'STEP 4 OF 4 · PAIR',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 11,
-                        letterSpacing: 2.4,
-                        fontWeight: FontWeight.w500,
-                        color: TwilightColors.accentSage,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    const Text(
-                      'Invite your partner',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 28,
-                        fontWeight: FontWeight.w500,
-                        height: 1.14,
-                        letterSpacing: -0.6,
-                        color: TwilightColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'A pairing handshake exchanges public keys directly '
-                      'between your two devices. Until that happens, there is '
-                      'nothing for the server to deliver.',
-                      style: TwilightType.lede,
-                    ),
-                    const SizedBox(height: 28),
-                    PairCard(account: account),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-    if (selectedId == null) {
-      final home = defaultHomeRoomId(rooms, account.username);
-      if (home != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          // selectAndMarkRead (not a bare local markRead) so opening the
-          // auto-selected room also tells the server we've read up to the
-          // latest message it holds — otherwise read_at stays NULL for messages
-          // hydrated from disk and the server-driven badge never clears.
-          selectAndMarkRead(ref, home);
-        });
-        // One frame of empty canvas before selection lands.
-        return const Scaffold(backgroundColor: TwilightColors.bgCanvas);
-      }
-      // No rooms case is handled above; this is a defensive fallback.
-      return const Scaffold(backgroundColor: TwilightColors.bgCanvas);
-    }
-    final room = rooms.firstWhere((r) => r.roomId == selectedId);
-    // A "solo" room is one where Court is the only member AND a pending invite
-    // exists for it — the user got here by tapping "Invite them with a code",
-    // creating the room, then leaving the show-invite screen. Route them back
-    // to the invite code instead of an empty conversation.
-    final pending = ref.watch(pendingInvitesProvider);
-    final dismissed = ref.watch(dismissedInvitesProvider);
-    final isSolo =
-        room.members.length == 1 &&
-        room.members.first.username == account.username;
-    if (isSolo &&
-        pending.containsKey(room.roomId) &&
-        !dismissed.contains(room.roomId)) {
-      return CreateChatInviteScreen(
-        roomId: room.roomId,
-        selfUsername: account.username,
-        onDone: () =>
-            ref.read(dismissedInvitesProvider.notifier).dismiss(room.roomId),
-      );
-    }
-    // Viewing a room marks it read. Done post-frame to avoid mutating a
-    // provider during build.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(readStateProvider.notifier).markRead(room.roomId);
-    });
-    return ConversationPage(
-      key: ValueKey(selectedId),
-      room: room,
-      selfUsername: account.username,
-      onSend: (text) => _sendEncrypted(ref, room, text),
-      onRetry: (clientMsgId) => _retry(ref, clientMsgId),
-      onPickMedia: () => _pickMedia(context),
-      onSendMedia: (items, caption) =>
-          _sendStaged(ref, room, context, items, caption),
-      onReact: (targetId, emoji) => _sendReaction(ref, room, targetId, emoji),
-      onDelete: (targetId) => _sendDelete(ref, room, targetId),
-      onCancelSend: (clientMsgId) => _cancelSend(ref, room, clientMsgId),
-      onTyping: (typing) => _sendTyping(ref, room, typing),
-      onOpenAttachment: (descriptor) =>
-          _openAttachment(ref, room, context, descriptor),
-      onRename: (newName) {
-        final conn = ref.read(liveConnectionProvider).asData?.value;
-        conn?.send(
-          RenameRoomFrame(roomId: room.roomId, name: newName).toJson(),
-        );
-      },
-      onNewChannel: () => showCreateChannelSheet(context, ref),
+    Widget item(Room r) => ConversationListItem(
+      key: Key('home-room-${r.roomId}'),
+      label: r.displayName(_me),
+      selected: false,
+      unread: _roomUnread(r.roomId, markers),
+      onTap: () => _openRoom(r),
+    );
+
+    return ListView(
+      children: [
+        if (partners.isNotEmpty) header('PARTNER'),
+        ...partners.map(item),
+        if (chats.isNotEmpty) ...[const SizedBox(height: 16), header('CHATS')],
+        ...chats.map(item),
+      ],
     );
   }
+
+  Future<void> _openRoom(Room room) async {
+    _chatOnStack = true;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ConversationPage(
+          key: ValueKey(room.roomId),
+          room: room,
+          selfUsername: _me,
+          onSend: (text) => _sendEncrypted(ref, room, text),
+          onRetry: (clientMsgId) => _retry(ref, clientMsgId),
+          onPickMedia: () => _pickMedia(context),
+          onSendMedia: (items, caption) =>
+              _sendStaged(ref, room, context, items, caption),
+          onReact: (targetId, emoji) =>
+              _sendReaction(ref, room, targetId, emoji),
+          onDelete: (targetId) => _sendDelete(ref, room, targetId),
+          onCancelSend: (clientMsgId) => _cancelSend(ref, room, clientMsgId),
+          onTyping: (typing) => _sendTyping(ref, room, typing),
+          onOpenAttachment: (descriptor) =>
+              _openAttachment(ref, room, context, descriptor),
+          onRename: (newName) {
+            final conn = ref.read(liveConnectionProvider).asData?.value;
+            conn?.send(
+              RenameRoomFrame(roomId: room.roomId, name: newName).toJson(),
+            );
+          },
+        ),
+      ),
+    );
+    _chatOnStack = false;
+  }
+
+  Future<void> _confirmSignOut() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Sign out?'),
+        content: const Text(
+          'This removes this account and its messages from this device. You '
+          'can sign back in with your recovery phrase.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            key: const Key('confirm-signout'),
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await signOut(ref);
+  }
+
+  // ---- send/retry/media wiring moved verbatim from inbox_shell.dart ----
 
   /// Route a send through the persistent outbox so it survives a WS reconnect
   /// (or an app kill) mid-send. We persist the ciphertext envelope, render an
@@ -226,7 +281,7 @@ class InboxShell extends ConsumerWidget {
     msgs.add(
       Msg(
         id: clientMsgId,
-        from: account.username,
+        from: _me,
         to: room.roomId,
         body: text,
         ts: DateTime.now().toUtc(),
@@ -249,7 +304,7 @@ class InboxShell extends ConsumerWidget {
       final frame = await buildSendFrame(
         room: room,
         me: me,
-        selfUsername: account.username,
+        selfUsername: _me,
         plaintext: TextContent(text, preview: preview).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
@@ -329,7 +384,7 @@ class InboxShell extends ConsumerWidget {
       final frame = await buildSendFrame(
         room: room,
         me: me,
-        selfUsername: account.username,
+        selfUsername: _me,
         plaintext: FileContent(descriptor, caption: caption).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
@@ -345,7 +400,7 @@ class InboxShell extends ConsumerWidget {
           .add(
             Msg(
               id: clientMsgId,
-              from: account.username,
+              from: _me,
               to: room.roomId,
               body: caption ?? '',
               ts: DateTime.now().toUtc(),
@@ -512,14 +567,14 @@ class InboxShell extends ConsumerWidget {
   ) async {
     ref
         .read(messageStoreProvider(room.roomId).notifier)
-        .applyReaction(targetId, account.username, emoji);
+        .applyReaction(targetId, _me, emoji);
     final clientMsgId = ref.read(outboxIdGenProvider)();
     try {
       final me = await ref.read(currentIdentityProvider.future);
       final frame = await buildSendFrame(
         room: room,
         me: me,
-        selfUsername: account.username,
+        selfUsername: _me,
         plaintext: ReactionContent(targetId: targetId, emoji: emoji).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
@@ -543,14 +598,14 @@ class InboxShell extends ConsumerWidget {
   Future<void> _sendDelete(WidgetRef ref, Room room, String targetId) async {
     ref
         .read(messageStoreProvider(room.roomId).notifier)
-        .applyDelete(targetId, requestedBy: account.username);
+        .applyDelete(targetId, requestedBy: _me);
     final clientMsgId = ref.read(outboxIdGenProvider)();
     try {
       final me = await ref.read(currentIdentityProvider.future);
       final frame = await buildSendFrame(
         room: room,
         me: me,
-        selfUsername: account.username,
+        selfUsername: _me,
         plaintext: DeleteContent(targetId: targetId).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
@@ -601,212 +656,5 @@ class InboxShell extends ConsumerWidget {
     // just this id so the retry actually re-sends without a WS reconnect.
     drain.resetCycle(clientMsgId: clientMsgId);
     await drain.kick();
-  }
-}
-
-/// Drives the app-icon badge from the unread count, re-asserting it on every
-/// occasion the OS badge can drift from what the user has actually seen. The
-/// server's always-push sets the OS badge from its own `read_at` count whenever
-/// a device is backgrounded; the client must override that with its live count
-/// at each of these moments, or a stale push value sticks:
-///
-///  - **mount / cold launch** (`fireImmediately`) — reconcile a badge left by a
-///    background push when the app is opened from the icon, not a tap;
-///  - **count change** — a new message arrives, or the user reads in the open
-///    room and the number moves;
-///  - **read** — viewing a room advances its last-read marker. This is the
-///    case a count-only listener misses: a background push may have set the OS
-///    badge while our local count was *already* 0, so reading doesn't change
-///    the count and the badge would otherwise never clear. Listening to the
-///    read-marker map catches it;
-///  - **resume** — on a warm resume `InboxShell` doesn't remount and the count
-///    hasn't changed, so only a lifecycle hook re-asserts the live count.
-///
-/// `setBadge` is idempotent, so firing on all four (often redundantly) is safe.
-/// Renders its [child] unchanged.
-class _BadgeSyncScope extends ConsumerStatefulWidget {
-  const _BadgeSyncScope({required this.selfUsername, required this.child});
-  final String selfUsername;
-  final Widget child;
-
-  @override
-  ConsumerState<_BadgeSyncScope> createState() => _BadgeSyncScopeState();
-}
-
-class _BadgeSyncScopeState extends ConsumerState<_BadgeSyncScope>
-    with WidgetsBindingObserver {
-  void _sync() {
-    final count = ref.read(totalUnreadProvider(widget.selfUsername));
-    ref.read(pushServiceProvider).setBadge(count);
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    ref.listenManual(
-      totalUnreadProvider(widget.selfUsername),
-      (_, _) => _sync(),
-      fireImmediately: true,
-    );
-    ref.listenManual(readStateProvider, (_, _) => _sync());
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      // Reopening the app counts as reading the room you land in. Tell the
-      // server so read_at clears and its unread_count (the badge source) drops;
-      // _sync then re-asserts the now-zero count over any stale push value.
-      final selected = ref.read(inboxStateProvider).selectedRoomId;
-      if (selected != null) sendMarkRead(ref, selected);
-      _sync();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => widget.child;
-}
-
-class PairCard extends ConsumerWidget {
-  const PairCard({super.key, required this.account});
-  final LocalAccount account;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Material(
-      color: TwilightColors.bubblePartnerBg,
-      shape: const RoundedRectangleBorder(
-        side: BorderSide(color: TwilightColors.borderSoft),
-        borderRadius: BorderRadius.all(Radius.circular(2)),
-      ),
-      elevation: 0,
-      child: Column(
-        children: [
-          _PairOption(
-            glyph: '+',
-            title: 'Invite them with a code',
-            detail: 'Generates a one-time code they enter on their device.',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const ShowInviteScreen()),
-            ),
-          ),
-          const Divider(
-            height: 1,
-            thickness: 1,
-            color: TwilightColors.borderSoft,
-            indent: 18,
-            endIndent: 18,
-          ),
-          _PairOption(
-            glyph: '⌗',
-            title: 'I have an invite code',
-            detail: 'Enter a code your partner sent you.',
-            onTap: () => _openEnterCode(context, ref),
-          ),
-          const Divider(
-            height: 1,
-            thickness: 1,
-            color: TwilightColors.borderSoft,
-            indent: 18,
-            endIndent: 18,
-          ),
-          _PairOption(
-            glyph: '✦',
-            title: 'Create a chat',
-            detail: 'Pick your partner, then send the invite.',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) =>
-                    CreateChatPickScreen(selfUsername: account.username),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _openEnterCode(BuildContext context, WidgetRef ref) =>
-      openEnterCodeScreen(context, ref, account.username);
-}
-
-class _PairOption extends StatelessWidget {
-  const _PairOption({
-    required this.glyph,
-    required this.title,
-    required this.detail,
-    required this.onTap,
-  });
-  final String glyph;
-  final String title;
-  final String detail;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 16, 14, 16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                border: Border.all(color: TwilightColors.accentSage),
-                borderRadius: BorderRadius.circular(2),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                glyph,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: TwilightColors.accentSage,
-                ),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: TwilightColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(detail, style: TwilightType.lede),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              '→',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 18,
-                color: TwilightColors.textMuted,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

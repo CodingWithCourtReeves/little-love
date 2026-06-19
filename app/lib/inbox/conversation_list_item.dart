@@ -10,11 +10,15 @@ class ConversationListItem extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.unread = false,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
+
+  /// Whether this room has unread incoming messages — draws a trailing dot.
+  final bool unread;
 
   @override
   Widget build(BuildContext context) {
@@ -44,10 +48,22 @@ class ConversationListItem extends StatelessWidget {
                   label,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: TwilightColors.textPrimary,
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    fontWeight: (selected || unread)
+                        ? FontWeight.w600
+                        : FontWeight.w400,
                   ),
                 ),
               ),
+              if (unread)
+                Container(
+                  key: const Key('unread-dot'),
+                  width: 9,
+                  height: 9,
+                  decoration: const BoxDecoration(
+                    color: TwilightColors.accentUser,
+                    shape: BoxShape.circle,
+                  ),
+                ),
             ],
           ),
         ),

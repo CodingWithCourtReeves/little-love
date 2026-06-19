@@ -46,7 +46,6 @@ void main() {
     );
     addTearDown(container.dispose);
     container.read(inboxStateProvider.notifier).setRooms([_roomA()]);
-    container.read(inboxStateProvider.notifier).select('roomA');
     container.read(messageStoreProvider('roomA').notifier).setAll([
       Msg(
         id: '1',
@@ -79,7 +78,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('hey love'), findsOneWidget);
     expect(find.text('long. miss you.'), findsOneWidget);
-    expect(find.byKey(const Key('channel-switcher-pill')), findsOneWidget);
+    // The AppBar now shows the room name in place of the channel switcher.
+    expect(find.text('Kaitlyn'), findsOneWidget);
   });
 
   testWidgets('renders a link-preview card for a message that has one', (
@@ -93,7 +93,6 @@ void main() {
     );
     addTearDown(container.dispose);
     container.read(inboxStateProvider.notifier).setRooms([_roomA()]);
-    container.read(inboxStateProvider.notifier).select('roomA');
     container.read(messageStoreProvider('roomA').notifier).setAll([
       Msg(
         id: '1',
@@ -170,7 +169,6 @@ void main() {
     );
     addTearDown(container.dispose);
     container.read(inboxStateProvider.notifier).setRooms([_roomA()]);
-    container.read(inboxStateProvider.notifier).select('roomA');
     container.read(messageStoreProvider('roomA').notifier).setAll([
       Msg(
         id: '2',
@@ -221,7 +219,6 @@ void main() {
     );
     addTearDown(container.dispose);
     container.read(inboxStateProvider.notifier).setRooms([_roomA()]);
-    container.read(inboxStateProvider.notifier).select('roomA');
     container.read(messageStoreProvider('roomA').notifier).setAll([
       Msg(
         id: 'cli-9',
@@ -273,7 +270,6 @@ void main() {
     );
     addTearDown(container.dispose);
     container.read(inboxStateProvider.notifier).setRooms([_roomA()]);
-    container.read(inboxStateProvider.notifier).select('roomA');
     container.read(messageStoreProvider('roomA').notifier).setAll([
       Msg(
         id: '1',

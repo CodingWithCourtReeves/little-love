@@ -25,6 +25,15 @@ void main() {
     expect(await store.load(), isEmpty);
   });
 
+  test('clear removes all saved markers', () async {
+    final store = ReadStateStore(homeDirectory: tmp);
+    await store.save({'room-a': DateTime.utc(2026, 6, 14)});
+    await store.clear();
+    expect(await store.load(), isEmpty);
+    // Clearing an already-absent file is a no-op, not an error.
+    await store.clear();
+  });
+
   test('load returns empty map when file contains corrupt JSON', () async {
     final store = ReadStateStore(homeDirectory: tmp);
     // Seed a file at the store's path, then clobber it with garbage.

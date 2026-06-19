@@ -16,6 +16,7 @@ use littlelove_api::{
     r2::R2Presigner,
     routing::Routing,
     store::Store,
+    well_known::{apple_app_site_association, pair_landing},
     ws::{ws_handler, AppState},
 };
 use littlelove_crypto::sig::{challenge_signing_input, invite_consume_signing_input};
@@ -79,6 +80,11 @@ pub fn build_app_with_push(
             get(get_account_by_username),
         )
         .route("/invites/:code/preview", post(preview_invite))
+        .route(
+            "/.well-known/apple-app-site-association",
+            get(apple_app_site_association),
+        )
+        .route("/pair/:token", get(pair_landing))
         .route("/ws", get(ws_handler))
         .with_state(state)
 }

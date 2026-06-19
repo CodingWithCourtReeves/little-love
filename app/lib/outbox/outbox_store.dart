@@ -58,6 +58,10 @@ abstract class OutboxStore {
     String? error,
     bool reset = false,
   });
+
+  /// Delete every queued row (used on sign-out so a new account on this device
+  /// never re-sends the previous user's pending messages).
+  Future<void> clear();
 }
 
 class SqliteOutboxStore implements OutboxStore {
@@ -157,6 +161,11 @@ class SqliteOutboxStore implements OutboxStore {
       'WHERE client_msg_id = ?',
       [error, clientMsgId],
     );
+  }
+
+  @override
+  Future<void> clear() async {
+    await _db.delete('outbox');
   }
 
   OutboxRow _rowFromMap(Map<String, Object?> r) => OutboxRow(
