@@ -8,12 +8,10 @@ import 'live_connection.dart';
 
 /// Multiplexed `PairingTransport` over a `LiveConnection`.
 ///
-/// The "Invite them with a code" path is not a standalone `CreateInvite`
-/// frame; instead `createInvite()` issues `CreateRoom
-/// { invite_human_partner: true }` and waits for the matching `RoomCreated`
-/// (which carries an inline `pending_invite`). The transport adapts the
-/// resulting `pending_invite` back into the `InviteCreatedFrame` shape its
-/// callers already understand.
+/// `createInvite()` issues a roomless `CreateInvite` frame and resolves on the
+/// matching `InviteCreated` (the server creates no room until the partner
+/// consumes — see spec Part B). `consumeInvite()` issues `ConsumeInvite` and
+/// resolves on `InviteConsumed`.
 ///
 /// FIFO queue per kind: the next matching frame resolves the head of the
 /// queue. A `RoomError` resolves the oldest pending call (createInvite
@@ -33,7 +31,7 @@ class LivePairingTransport implements PairingTransport {
   Future<InviteCreatedFrame> createInvite() {
     final c = Completer<InviteCreatedFrame>();
     _pendingCreate.add(c);
-    _conn.send(const CreateRoomFrame(inviteHumanPartner: true).toJson());
+    _conn.send(const CreateInviteFrame().toJson());
     return c.future;
   }
 
@@ -55,22 +53,8 @@ class LivePairingTransport implements PairingTransport {
 
   void _onFrame(RoomServerFrame frame) {
     switch (frame) {
-      case RoomCreatedFrame(:final pendingInvite):
-        if (pendingInvite == null) break;
-        if (_pendingCreate.isNotEmpty) {
-          _pendingCreate
-              .removeAt(0)
-              .complete(
-                InviteCreatedFrame(
-                  code: pendingInvite.code,
-                  qrPngBase64: pendingInvite.qrPngBase64,
-                  expiresAt: pendingInvite.expiresAt,
-                ),
-              );
-        }
       case InviteCreatedFrame():
-        // Forward-compat: a server build re-emitting a standalone
-        // InviteCreated resolves a pending createInvite().
+        // The server's InviteCreated resolves the pending createInvite().
         if (_pendingCreate.isNotEmpty) {
           _pendingCreate.removeAt(0).complete(frame);
         }
@@ -95,6 +79,7 @@ class LivePairingTransport implements PairingTransport {
           _pendingConsume.removeAt(0).completeError(err);
         }
       case RoomsFrame() ||
+          RoomCreatedFrame() ||
           RoomRenamedFrame() ||
           MemberLeftFrame() ||
           MessageFrame() ||
