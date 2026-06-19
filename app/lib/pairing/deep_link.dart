@@ -1,9 +1,15 @@
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'invite_link.dart';
+
+/// Native channel (shared with push) used here only to pull a universal link
+/// that cold-launched the app — app_links misses those under this app's
+/// implicit-engine AppDelegate. See `ios/Runner/AppDelegate.swift`.
+const _nativeChannel = MethodChannel('little_love/push');
 
 /// One-shot "a pair link arrived" command. [PairingScreen] listens, prefills
 /// the enter-code field, consumes, and resets this to null. Mirrors
@@ -18,14 +24,27 @@ void handlePairUri(Uri uri, void Function(String code) onCode) {
   if (code != null) onCode(code);
 }
 
-/// Subscribes to `app_links` for the lifetime of the signed-in session: the
-/// cold-start initial link and every warm link while running. Activated by
-/// HomeScreen via `ref.watch`. Tolerant of platform errors (e.g. tests /
-/// unsupported platforms) — it simply never fires there.
+/// Subscribes to `app_links` for the whole app lifetime (activated by
+/// `AuthGate` via `ref.watch`, so it runs even while signed out): the
+/// cold-start initial link and every warm link while running. Tolerant of
+/// platform errors (e.g. tests / unsupported platforms) — it simply never
+/// fires there.
 final deepLinkBootstrapProvider = Provider<void>((ref) {
   void setCode(String code) =>
       ref.read(pendingPairCodeProvider.notifier).state = code;
 
+  // Cold start: pull the launch link buffered natively (app_links misses it
+  // under the implicit-engine AppDelegate — see AppDelegate.swift).
+  unawaited(
+    _nativeChannel
+        .invokeMethod<String>('takePendingLaunchLink')
+        .then((link) {
+          if (link != null) handlePairUri(Uri.parse(link), setCode);
+        })
+        .catchError((_) {}),
+  );
+
+  // Warm links (app already running) flow through app_links.
   final appLinks = AppLinks();
   unawaited(
     appLinks
