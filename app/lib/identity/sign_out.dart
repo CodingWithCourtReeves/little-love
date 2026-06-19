@@ -1,11 +1,10 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/read_state_provider.dart';
 import '../outbox/outbox_store.dart';
+import '../pairing/deep_link.dart';
 import 'providers.dart';
 
 /// Sign the current account out of this device: wipe the local identity and all
@@ -19,12 +18,15 @@ import 'providers.dart';
 Future<void> signOut(WidgetRef ref) async {
   final username = ref.read(accountProvider).valueOrNull?.username;
 
-  // Best-effort outbox wipe so a new account never re-sends the old user's
-  // queued messages. Capture the store future while `ref` is still valid, but
-  // don't block sign-out on it (and don't touch `ref` in the callback — the
-  // accountProvider invalidation below disposes this widget).
+  // Outbox wipe so a new account on this device never re-sends the old user's
+  // queued messages. The outbox is a single device-global DB (see
+  // `outbox_store.dart` — `<app-support>/outbox.db`, not account-scoped), so a
+  // fire-and-forget clear can lose the race with the next account's send loop
+  // and leak the previous user's ciphertext. Await it. Stay best-effort,
+  // though — a failed clear must not abort sign-out — and don't touch `ref` in
+  // the callback (the await itself is safe before the disposal below).
   final outboxFuture = ref.read(outboxStoreProvider.future);
-  unawaited(outboxFuture.then((s) => s.clear()).catchError((_) {}));
+  await outboxFuture.then((s) => s.clear()).catchError((_) {});
 
   // 1. Persisted identity + per-account data.
   if (username != null) {
@@ -39,6 +41,9 @@ Future<void> signOut(WidgetRef ref) async {
   ref.invalidate(readStateProvider);
   ref.invalidate(activeRoomProvider);
   ref.invalidate(requestedRoomProvider);
+  // A /pair/<code> link captured before sign-out (e.g. while the old account
+  // was still paired) must not survive to auto-join the next account.
+  ref.invalidate(pendingPairCodeProvider);
 
   // 3. Drop back to the choice screen; this also disposes the live socket and
   // identity, which both watch accountProvider.
