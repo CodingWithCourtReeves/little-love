@@ -23,6 +23,7 @@ import '../../conversation/room_message_router.dart';
 import '../../conversation/send_fanout.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
+import '../../inbox/active_room_provider.dart';
 import '../../inbox/conversation_list_item.dart';
 import '../../inbox/inbox_state.dart';
 import '../../inbox/room.dart';
@@ -72,6 +73,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ref.watch(pushBootstrapProvider);
     }
     ref.watch(badgeSyncProvider(_me));
+
+    // A notification tap (or any out-of-tree caller) requests a room by id.
+    // Consume the command and push its conversation, unless it's already on
+    // screen. Resetting the signal must be deferred — Riverpod forbids mutating
+    // a provider inside a listener that runs during build.
+    ref.listen<String?>(requestedRoomProvider, (_, roomId) {
+      if (roomId == null) return;
+      Room? target;
+      for (final r in inbox.rooms) {
+        if (r.roomId == roomId) {
+          target = r;
+          break;
+        }
+      }
+      Future.microtask(
+        () => ref.read(requestedRoomProvider.notifier).state = null,
+      );
+      if (target == null) return;
+      if (ref.read(activeRoomProvider) == roomId) return; // already open
+      _openRoom(target);
+    });
 
     // Single-room auto-open: exactly one room → push straight into it, so the
     // couples-app "into the chat" feel survives without abandoning the list.

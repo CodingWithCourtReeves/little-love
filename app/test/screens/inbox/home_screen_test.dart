@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/conversation/conversation_page.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
+import 'package:littlelove/inbox/active_room_provider.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/screens/inbox/home_screen.dart';
@@ -90,6 +91,31 @@ void main() {
       expect(find.text('Travel'), findsOneWidget);
     },
   );
+
+  testWidgets('a requested room (notification tap) pushes its conversation', (
+    tester,
+  ) async {
+    final c = _container();
+    c.read(inboxStateProvider.notifier).setRooms([
+      _partnerRoom('room1'),
+      Room(
+        roomId: 'room2',
+        name: 'Travel',
+        members: _partnerRoom('room2').members,
+        createdAt: DateTime.utc(2026, 6, 11),
+      ),
+    ]);
+    await tester.pumpWidget(_app(c, _acct()));
+    await tester.pump();
+    expect(find.byType(ConversationPage), findsNothing);
+
+    // A notification tap sets the requested-room command signal.
+    c.read(requestedRoomProvider.notifier).state = 'room2';
+    await tester.pumpAndSettle();
+    expect(find.byType(ConversationPage), findsOneWidget);
+    // The command signal is consumed, not left latched.
+    expect(c.read(requestedRoomProvider), isNull);
+  });
 
   testWidgets('single room auto-opens into the conversation', (tester) async {
     final c = _container();

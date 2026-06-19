@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/read_state_provider.dart';
-import '../inbox/select_room.dart';
 import 'push_registration.dart';
 
 /// One-time push wiring, run after the inbox has a partner room. Requests
@@ -25,7 +25,9 @@ final pushBootstrapProvider = Provider<void>((ref) {
   void openRoom(String roomId) {
     final rooms = ref.read(inboxStateProvider).rooms;
     if (rooms.any((r) => r.roomId == roomId)) {
-      selectAndMarkRead(ref, roomId);
+      // Hand the room to HomeScreen, which pushes its ConversationPage. The
+      // page marks the room read on mount, so no separate mark-read here.
+      ref.read(requestedRoomProvider.notifier).state = roomId;
     }
   }
 
