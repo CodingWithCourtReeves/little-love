@@ -372,7 +372,8 @@ void main() {
     },
   );
 
-  test('a replayed partner message sends no MarkRead', () async {
+  test('a replayed partner message into the selected room sends a debounced '
+      'MarkRead', () async {
     final me = await deriveIdentity(seedA);
     final peer = await deriveIdentity(seedB);
     final conn = _FakeConn();
@@ -406,14 +407,71 @@ void main() {
         replayed: true,
       ),
     );
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    // Nothing fires synchronously — it's debounced.
+    expect(
+      conn.sent.cast<Map<String, Object?>>().where(
+        (m) => m['kind'] == 'MarkRead',
+      ),
+      isEmpty,
+    );
+    // After the debounce window, exactly one MarkRead lands. This is what
+    // keeps the server's unread_count (and thus the app-icon badge) from
+    // sticking on messages the user has actually seen via replay.
+    await Future<void>.delayed(const Duration(milliseconds: 500));
 
     final marks = conn.sent
         .cast<Map<String, Object?>>()
         .where((m) => m['kind'] == 'MarkRead')
         .toList();
-    expect(marks, isEmpty);
+    expect(marks, hasLength(1));
+    expect(marks.single['up_to_message_id'], 'm1');
   });
+
+  test(
+    'a replayed partner message into a non-selected room sends no MarkRead',
+    () async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final conn = _FakeConn();
+      final container = await _container(conn: conn, me: me);
+
+      container.read(inboxStateProvider.notifier).setRooms([
+        Room(
+          roomId: 'room1',
+          name: '',
+          members: [_member('court', me), _member('kaitlyn', peer)],
+          createdAt: DateTime.utc(2026, 6, 10),
+        ),
+      ]);
+      // No room selected — the debounce rechecks selection when it fires.
+      container.read(roomMessageRouterProvider);
+
+      final key = await deriveRoomKey(
+        me: peer,
+        peerX25519Pub: me.x25519PublicKey,
+        roomId: 'room1',
+      );
+      final body = await encryptOutgoing(key, 'hi love');
+
+      conn.emit(
+        MessageFrame(
+          id: 'm1',
+          roomId: 'room1',
+          from: 'kaitlyn',
+          ts: DateTime.utc(2026, 6, 10, 12),
+          body: body,
+          replayed: true,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+
+      final marks = conn.sent
+          .cast<Map<String, Object?>>()
+          .where((m) => m['kind'] == 'MarkRead')
+          .toList();
+      expect(marks, isEmpty);
+    },
+  );
 
   test('replayed self-copy with read:true lands as SendStatus.read', () async {
     final me = await deriveIdentity(seedA);

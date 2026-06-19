@@ -23,6 +23,11 @@ void markRoomRead(dynamic reader, String roomId) {
 void sendMarkRead(dynamic reader, String roomId) {
   final messages = reader.read(messageStoreProvider(roomId)) as List<Msg>;
   if (messages.isEmpty) return;
+  // Advance the local read marker in the same breath. The unread count and the
+  // app-icon badge are computed client-side off this marker; if we only told
+  // the server (the path replay/resume reads take), the marker would stay stale
+  // and the badge would keep counting messages the user has actually seen.
+  reader.read(readStateProvider.notifier).markRead(roomId);
   final upTo = messages
       .map((m) => m.id)
       .reduce((a, b) => a.compareTo(b) >= 0 ? a : b);

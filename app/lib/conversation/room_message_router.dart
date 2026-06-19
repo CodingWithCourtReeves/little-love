@@ -29,6 +29,21 @@ class RoomMessageRouter {
   final LiveConnection conn;
   late final StreamSubscription<RoomServerFrame> _sub;
   final Set<String> _subscribed = {};
+  // Per-room debounce for the "viewing this room → tell the server I've read up
+  // to the latest message" frame. Coalesces a replay burst into a single
+  // MarkRead and rechecks selection when it fires (so it survives the
+  // cold-launch race where messages replay just before the room auto-selects).
+  final Map<String, Timer> _markReadDebounce = {};
+
+  void _scheduleMarkRead(String roomId) {
+    _markReadDebounce[roomId]?.cancel();
+    _markReadDebounce[roomId] = Timer(const Duration(milliseconds: 400), () {
+      _markReadDebounce.remove(roomId);
+      if (ref.read(activeRoomProvider) == roomId) {
+        sendMarkRead(ref, roomId);
+      }
+    });
+  }
 
   Future<void> _onFrame(RoomServerFrame f) async {
     switch (f) {
@@ -212,10 +227,23 @@ class RoomMessageRouter {
         // phantom unread dot for a message we just watched arrive.
         markRoomRead(ref, f.roomId);
       }
+      // Replayed messages (reconnect / cold launch / a push received while
+      // backgrounded) must ALSO reach the server, or read_at stays NULL and the
+      // app-icon badge — driven server-side off unread_count — climbs and never
+      // clears. The old code skipped replays, assuming an explicit room-open tap
+      // would cover them; in this always-auto-selected couples app there is no
+      // such tap. Debounced so a full replay burst sends one MarkRead.
+      if (f.replayed) {
+        _scheduleMarkRead(f.roomId);
+      }
     }
   }
 
   Future<void> dispose() async {
+    for (final t in _markReadDebounce.values) {
+      t.cancel();
+    }
+    _markReadDebounce.clear();
     await _sub.cancel();
   }
 }
