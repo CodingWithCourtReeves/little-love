@@ -8,6 +8,7 @@ import '../../identity/bip39.dart';
 import '../../identity/keypair.dart';
 import '../../identity/providers.dart';
 import '../../outbox/outbox_rehydrate.dart';
+import '../../pairing/deep_link.dart';
 import '../../theme/twilight.dart';
 import '../../wire/rest_client.dart';
 import '../inbox/home_screen.dart';
@@ -20,6 +21,14 @@ class AuthGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Listen for incoming /pair/<code> universal links for the app's entire
+    // lifetime, *including while signed out*. An invitee who taps a link
+    // before creating an account would otherwise lose the code (HomeScreen,
+    // which used to host this listener, doesn't exist pre-auth) and have to
+    // scan again after signup. Captured here, the code survives signup and
+    // PairingScreen auto-consumes it on mount.
+    ref.watch(deepLinkBootstrapProvider);
+
     final account = ref.watch(accountProvider);
     return account.when(
       loading: () =>

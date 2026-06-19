@@ -31,7 +31,6 @@ import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
 import '../../outbox/outbox_drain.dart';
 import '../../outbox/outbox_store.dart';
-import '../../pairing/deep_link.dart';
 import '../../push/push_bootstrap.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
@@ -76,8 +75,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ref.watch(pushBootstrapProvider);
     }
     ref.watch(badgeSyncProvider(_me));
-    // Listen for incoming universal-link pair invites for the session lifetime.
-    ref.watch(deepLinkBootstrapProvider);
 
     // A notification tap (or any out-of-tree caller) requests a room by id.
     // Consume the command and push its conversation, unless it's already on

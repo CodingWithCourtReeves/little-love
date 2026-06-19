@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/identity/current_identity.dart';
 import 'package:littlelove/identity/keypair.dart';
+import 'package:littlelove/pairing/deep_link.dart';
 import 'package:littlelove/pairing/pairing_transport.dart';
 import 'package:littlelove/screens/pair/pairing_screen.dart';
 import 'package:littlelove/wire/frames.dart';
@@ -71,5 +72,41 @@ void main() {
     await tester.tap(joinButton);
     await tester.pumpAndSettle();
     expect(t.consumedCode, 'gather-pilot-rocket-zoo');
+  });
+
+  // The linchpin of the "invitee scans before they have an account" flow: the
+  // code is captured pre-auth into pendingPairCodeProvider, survives signup,
+  // and PairingScreen auto-consumes it the moment it mounts — no second scan.
+  testWidgets('auto-consumes a pending pair code already set at mount', (
+    tester,
+  ) async {
+    final t = _FakeTransport();
+    final c = ProviderContainer(
+      overrides: [
+        pairingTransportProvider.overrideWithValue(t),
+        currentIdentityProvider.overrideWith(
+          (_) => deriveIdentity(
+            Uint8List.fromList(List<int>.generate(16, (i) => i)),
+          ),
+        ),
+      ],
+    );
+    addTearDown(c.dispose);
+    // Simulate a link captured while signed out.
+    c.read(pendingPairCodeProvider.notifier).state = 'gather-pilot-rocket-zoo';
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: c,
+        child: const MaterialApp(
+          home: Scaffold(body: PairingScreen(selfUsername: 'court')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(t.consumedCode, 'gather-pilot-rocket-zoo');
+    // The one-shot command is cleared after consumption.
+    expect(c.read(pendingPairCodeProvider), isNull);
   });
 }
