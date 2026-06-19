@@ -11,6 +11,10 @@
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:littlelove.dev</string>
+		<!-- Dev: the reserved ngrok API tunnel (see ngrok.yml) serves the same
+		     host-independent AASA, so on-device dev builds get universal links
+		     too. Harmless in prod (the host just never produces a link there). -->
+		<string>applinks:dops-api-court.ngrok.app</string>
 	</array>
 </dict>
 </plist>
