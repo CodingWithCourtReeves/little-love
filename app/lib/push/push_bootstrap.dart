@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../inbox/inbox_state.dart';
-import '../inbox/read_state_provider.dart';
 import '../inbox/select_room.dart';
 import 'push_registration.dart';
 
@@ -35,14 +34,4 @@ final pushBootstrapProvider = Provider<void>((ref) {
   push.takePendingLaunchRoom().then((roomId) {
     if (roomId != null) openRoom(roomId);
   });
-});
-
-/// Keeps the app-icon badge in sync with total unread. As a side-effect
-/// provider, its body runs once on first watch — reconciling a stale badge left
-/// by a background push when the app is launched from the icon rather than a
-/// notification tap — and again whenever the count changes, but NOT on every
-/// widget rebuild. Keyed by username (forwarded to [totalUnreadProvider]).
-final badgeSyncProvider = Provider.family<void, String>((ref, selfUsername) {
-  final count = ref.watch(totalUnreadProvider(selfUsername));
-  ref.read(pushServiceProvider).setBadge(count);
 });

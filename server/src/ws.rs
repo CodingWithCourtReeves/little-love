@@ -1192,11 +1192,16 @@ async fn notify_recipient(
     for t in tokens {
         let msg = PushMessage {
             token: t.apns_token.clone(),
-            environment: t.environment,
+            environment: t.environment.clone(),
             room_id: room_id.to_string(),
             badge,
         };
-        if let SendOutcome::DropToken = sender.send(&msg).await {
+        let outcome = sender.send(&msg).await;
+        tracing::debug!(
+            "push: sent account={recipient_account_id} env={} badge={badge} outcome={outcome:?}",
+            t.environment
+        );
+        if let SendOutcome::DropToken = outcome {
             if let Err(e) =
                 delete_token_value(store.pool(), recipient_account_id, &t.apns_token).await
             {

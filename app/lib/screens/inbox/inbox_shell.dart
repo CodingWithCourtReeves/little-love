@@ -33,8 +33,10 @@ import '../../inbox/navigation_rail.dart';
 import '../../inbox/pending_invites_provider.dart';
 import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
+import '../../inbox/select_room.dart';
 import '../../inbox/sidebar.dart';
 import '../../push/push_bootstrap.dart';
+import '../../push/push_registration.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
@@ -70,17 +72,19 @@ class InboxShell extends ConsumerWidget {
     if (inbox.rooms.isNotEmpty) {
       ref.watch(pushBootstrapProvider);
     }
-    // Keep the app-icon badge in sync with unread. The side-effect provider sets
-    // it once on first watch (reconciling a stale badge from a background push)
-    // and again whenever the count changes — not on every rebuild.
-    ref.watch(badgeSyncProvider(account.username));
     final detail = _detail(context, ref, inbox.selectedRoomId, inbox.rooms);
 
-    return LayoutScaffold(
-      sidebar: Sidebar(username: account.username),
-      rail: NavigationRailChrome(username: account.username),
-      drawer: DrawerContent(username: account.username),
-      detail: detail,
+    // Keep the app-icon badge in sync with unread. _BadgeSyncScope re-asserts the
+    // count on every occasion the displayed badge can drift from what the user
+    // has actually seen — see its doc comment.
+    return _BadgeSyncScope(
+      selfUsername: account.username,
+      child: LayoutScaffold(
+        sidebar: Sidebar(username: account.username),
+        rail: NavigationRailChrome(username: account.username),
+        drawer: DrawerContent(username: account.username),
+        detail: detail,
+      ),
     );
   }
 
@@ -146,8 +150,11 @@ class InboxShell extends ConsumerWidget {
       final home = defaultHomeRoomId(rooms, account.username);
       if (home != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref.read(inboxStateProvider.notifier).select(home);
-          ref.read(readStateProvider.notifier).markRead(home);
+          // selectAndMarkRead (not a bare local markRead) so opening the
+          // auto-selected room also tells the server we've read up to the
+          // latest message it holds — otherwise read_at stays NULL for messages
+          // hydrated from disk and the server-driven badge never clears.
+          selectAndMarkRead(ref, home);
         });
         // One frame of empty canvas before selection lands.
         return const Scaffold(backgroundColor: TwilightColors.bgCanvas);
@@ -595,6 +602,76 @@ class InboxShell extends ConsumerWidget {
     drain.resetCycle(clientMsgId: clientMsgId);
     await drain.kick();
   }
+}
+
+/// Drives the app-icon badge from the unread count, re-asserting it on every
+/// occasion the OS badge can drift from what the user has actually seen. The
+/// server's always-push sets the OS badge from its own `read_at` count whenever
+/// a device is backgrounded; the client must override that with its live count
+/// at each of these moments, or a stale push value sticks:
+///
+///  - **mount / cold launch** (`fireImmediately`) — reconcile a badge left by a
+///    background push when the app is opened from the icon, not a tap;
+///  - **count change** — a new message arrives, or the user reads in the open
+///    room and the number moves;
+///  - **read** — viewing a room advances its last-read marker. This is the
+///    case a count-only listener misses: a background push may have set the OS
+///    badge while our local count was *already* 0, so reading doesn't change
+///    the count and the badge would otherwise never clear. Listening to the
+///    read-marker map catches it;
+///  - **resume** — on a warm resume `InboxShell` doesn't remount and the count
+///    hasn't changed, so only a lifecycle hook re-asserts the live count.
+///
+/// `setBadge` is idempotent, so firing on all four (often redundantly) is safe.
+/// Renders its [child] unchanged.
+class _BadgeSyncScope extends ConsumerStatefulWidget {
+  const _BadgeSyncScope({required this.selfUsername, required this.child});
+  final String selfUsername;
+  final Widget child;
+
+  @override
+  ConsumerState<_BadgeSyncScope> createState() => _BadgeSyncScopeState();
+}
+
+class _BadgeSyncScopeState extends ConsumerState<_BadgeSyncScope>
+    with WidgetsBindingObserver {
+  void _sync() {
+    final count = ref.read(totalUnreadProvider(widget.selfUsername));
+    ref.read(pushServiceProvider).setBadge(count);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    ref.listenManual(
+      totalUnreadProvider(widget.selfUsername),
+      (_, _) => _sync(),
+      fireImmediately: true,
+    );
+    ref.listenManual(readStateProvider, (_, _) => _sync());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Reopening the app counts as reading the room you land in. Tell the
+      // server so read_at clears and its unread_count (the badge source) drops;
+      // _sync then re-asserts the now-zero count over any stale push value.
+      final selected = ref.read(inboxStateProvider).selectedRoomId;
+      if (selected != null) sendMarkRead(ref, selected);
+      _sync();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class PairCard extends ConsumerWidget {
