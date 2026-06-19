@@ -38,7 +38,20 @@ import UserNotifications
         result(nil)
       case "setBadge":
         if let n = call.arguments as? Int {
-          UIApplication.shared.applicationIconBadgeNumber = n
+          let center = UNUserNotificationCenter.current()
+          // applicationIconBadgeNumber is deprecated since iOS 17 and unreliable
+          // on iOS 18+; setBadgeCount is the supported path (iOS 16+).
+          if #available(iOS 16.0, *) {
+            center.setBadgeCount(n)
+          } else {
+            UIApplication.shared.applicationIconBadgeNumber = n
+          }
+          // setBadgeCount(0) drops the icon badge but leaves delivered banners in
+          // Notification Center, and those re-assert a badge on the next glance.
+          // When clearing, sweep them too so "I've read everything" really sticks.
+          if n == 0 {
+            center.removeAllDeliveredNotifications()
+          }
         }
         result(nil)
       default:
