@@ -121,18 +121,20 @@ void main() {
     expect(done, isTrue);
   });
 
-  testWidgets('signOut resets a pending pair-link code', (t) async {
+  testWidgets('signOut preserves a captured pair-link code', (t) async {
     final outbox = _GatedOutbox(Future<void>.value());
     final ref = await _mountRef(t, baseOverrides(outbox));
 
-    // A /pair/<code> link captured before sign-out (e.g. while the previous
-    // account was still paired) must not survive to auto-join the next account.
+    // The invitee flow is "tap /pair/<code> link → sign out of the old account
+    // → sign up → auto-pair". The cold-launch link is pulled from the native
+    // buffer only once, so the captured code MUST survive sign-out for the new
+    // account's PairingScreen to consume it. Regression guard: sign-out must
+    // not clear it.
     ref.read(pendingPairCodeProvider.notifier).state = 'amber-fern-locket-tide';
-    expect(ref.read(pendingPairCodeProvider), isNotNull);
 
     await signOut(ref);
     await t.pumpAndSettle();
 
-    expect(ref.read(pendingPairCodeProvider), isNull);
+    expect(ref.read(pendingPairCodeProvider), 'amber-fern-locket-tide');
   });
 }

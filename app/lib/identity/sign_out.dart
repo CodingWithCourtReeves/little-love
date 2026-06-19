@@ -4,7 +4,6 @@ import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/read_state_provider.dart';
 import '../outbox/outbox_store.dart';
-import '../pairing/deep_link.dart';
 import 'providers.dart';
 
 /// Sign the current account out of this device: wipe the local identity and all
@@ -41,9 +40,12 @@ Future<void> signOut(WidgetRef ref) async {
   ref.invalidate(readStateProvider);
   ref.invalidate(activeRoomProvider);
   ref.invalidate(requestedRoomProvider);
-  // A /pair/<code> link captured before sign-out (e.g. while the old account
-  // was still paired) must not survive to auto-join the next account.
-  ref.invalidate(pendingPairCodeProvider);
+  // NOTE: deliberately do NOT clear pendingPairCodeProvider here. A
+  // /pair/<code> link captured at cold launch is pulled from the native
+  // buffer exactly once (takePendingLaunchLink); the legitimate invitee flow
+  // is "tap link → sign out of the old account → sign up → auto-pair", which
+  // needs the captured code to survive sign-out. A truly stale/expired code
+  // fails gracefully on consume, so there's nothing to defend against here.
 
   // 3. Drop back to the choice screen; this also disposes the live socket and
   // identity, which both watch accountProvider.
