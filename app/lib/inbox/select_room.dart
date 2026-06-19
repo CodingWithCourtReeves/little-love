@@ -17,6 +17,15 @@ void selectAndMarkRead(dynamic reader, String roomId) {
   sendMarkRead(reader, roomId);
 }
 
+/// Mark [roomId] read locally and tell the server, without changing any
+/// selection. Called from [ConversationPage] on mount: opening a chat clears
+/// its unread badge and flips the partner's bubbles to a double heart.
+/// Accepts any Riverpod reader ([WidgetRef], [Ref], or [ProviderContainer]).
+void markRoomRead(dynamic reader, String roomId) {
+  reader.read(readStateProvider.notifier).markRead(roomId);
+  sendMarkRead(reader, roomId);
+}
+
 /// Tell the server we've read everything in [roomId] up to the latest message
 /// we hold, so the sender's bubbles flip to a double heart. No-op when the room
 /// is empty or the live connection isn't up yet. The watermark is the max
