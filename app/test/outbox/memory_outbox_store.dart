@@ -41,6 +41,9 @@ class MemoryOutboxStore implements OutboxStore {
       _rows.remove(clientMsgId) != null;
 
   @override
+  Future<void> clear() async => _rows.clear();
+
+  @override
   Future<void> markAttempt(
     String clientMsgId, {
     String? error,

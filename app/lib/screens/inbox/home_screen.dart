@@ -23,6 +23,7 @@ import '../../conversation/room_message_router.dart';
 import '../../conversation/send_fanout.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
+import '../../identity/sign_out.dart';
 import '../../inbox/active_room_provider.dart';
 import '../../inbox/conversation_list_item.dart';
 import '../../inbox/inbox_state.dart';
@@ -142,6 +143,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 }
               },
             ),
+          PopupMenuButton<String>(
+            key: const Key('home-menu'),
+            onSelected: (value) {
+              if (value == 'signout') _confirmSignOut();
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem<String>(
+                value: 'signout',
+                child: Text('Sign out'),
+              ),
+            ],
+          ),
         ],
       ),
       body: _body(inbox.rooms),
@@ -286,6 +299,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
     );
     _chatOnStack = false;
+  }
+
+  Future<void> _confirmSignOut() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Sign out?'),
+        content: const Text(
+          'This removes this account and its messages from this device. You '
+          'can sign back in with your recovery phrase.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            key: const Key('confirm-signout'),
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await signOut(ref);
   }
 
   // ---- send/retry/media wiring moved verbatim from inbox_shell.dart ----

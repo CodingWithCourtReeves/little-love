@@ -142,6 +142,9 @@ class _NoopOutboxStore implements OutboxStore {
     String? error,
     bool reset = false,
   }) async {}
+
+  @override
+  Future<void> clear() async {}
 }
 
 /// UUID helper exposed so [outbox_rehydrate] and the send path agree on
