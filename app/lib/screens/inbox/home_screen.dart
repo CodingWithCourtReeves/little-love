@@ -34,6 +34,7 @@ import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
 import '../../wire/message.dart';
+import '../create_chat/create_channel_sheet.dart';
 import 'new_chat_screen.dart';
 import 'pair_card.dart';
 
@@ -59,6 +60,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _chatOnStack = false;
 
   String get _me => widget.account.username;
+
+  /// Paired once any room actually contains the partner. A room you're the only
+  /// member of is a not-yet-consumed invite, not a pairing.
+  bool _isPaired(List<Room> rooms) =>
+      rooms.any((r) => r.members.any((m) => m.username != _me));
 
   @override
   Widget build(BuildContext context) {
@@ -95,9 +101,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       _openRoom(target);
     });
 
-    // Single-room auto-open: exactly one room → push straight into it, so the
-    // couples-app "into the chat" feel survives without abandoning the list.
-    if (!_autoOpened && !_chatOnStack && inbox.rooms.length == 1) {
+    // Single-room auto-open: exactly one *partner* room → push straight into
+    // it, so the couples-app "into the chat" feel survives without abandoning
+    // the list. A lone solo room (a freshly created invite, no partner yet)
+    // must NOT auto-open, or creating an invite dumps you into an empty chat.
+    if (!_autoOpened &&
+        !_chatOnStack &&
+        inbox.rooms.length == 1 &&
+        inbox.rooms.single.shape(_me) == RoomShape.partner) {
       _autoOpened = true;
       final only = inbox.rooms.single;
       WidgetsBinding.instance.addPostFrameCallback((_) => _openRoom(only));
@@ -115,11 +126,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               key: const Key('home-new-chat'),
               icon: const Icon(Icons.add),
               tooltip: 'New chat',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => NewChatScreen(account: widget.account),
-                ),
-              ),
+              onPressed: () {
+                // Paired → a topical channel with your partner. Not yet paired
+                // → keep offering the pairing options so a mid-pairing user can
+                // still reach their invite code.
+                if (_isPaired(inbox.rooms)) {
+                  showCreateChannelSheet(context, ref);
+                } else {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => NewChatScreen(account: widget.account),
+                    ),
+                  );
+                }
+              },
             ),
         ],
       ),

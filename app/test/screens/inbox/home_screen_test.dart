@@ -30,6 +30,17 @@ Room _partnerRoom(String id) => Room(
   createdAt: DateTime.utc(2026, 6, 10),
 );
 
+/// A room you're the only member of — the interim state right after creating an
+/// invite, before the partner consumes it.
+Room _soloRoom(String id) => Room(
+  roomId: id,
+  name: '',
+  members: const [
+    Member(username: 'court', ed25519PubBase64: 'e', x25519PubBase64: 'x'),
+  ],
+  createdAt: DateTime.utc(2026, 6, 10),
+);
+
 Widget _app(ProviderContainer c, LocalAccount acct) =>
     UncontrolledProviderScope(
       container: c,
@@ -115,6 +126,55 @@ void main() {
     expect(find.byType(ConversationPage), findsOneWidget);
     // The command signal is consumed, not left latched.
     expect(c.read(requestedRoomProvider), isNull);
+  });
+
+  testWidgets('a lone solo invite room does NOT auto-open (no dump)', (
+    tester,
+  ) async {
+    final c = _container();
+    c.read(inboxStateProvider.notifier).setRooms([_soloRoom('room1')]);
+    await tester.pumpWidget(_app(c, _acct()));
+    await tester.pumpAndSettle();
+    // Creating an invite must not throw you into an empty conversation.
+    expect(find.byType(ConversationPage), findsNothing);
+  });
+
+  testWidgets(
+    'when paired, [+] opens the new-channel sheet (no invite options)',
+    (tester) async {
+      final c = _container();
+      // Two rooms (so no auto-open), at least one a real partner room => paired.
+      c.read(inboxStateProvider.notifier).setRooms([
+        _partnerRoom('room1'),
+        Room(
+          roomId: 'room2',
+          name: 'Travel',
+          members: _partnerRoom('room2').members,
+          createdAt: DateTime.utc(2026, 6, 11),
+        ),
+      ]);
+      await tester.pumpWidget(_app(c, _acct()));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('home-new-chat')));
+      await tester.pumpAndSettle();
+      // The create-channel sheet, not the pairing options.
+      expect(find.text('New channel'), findsOneWidget);
+      expect(find.text('Invite them with a code'), findsNothing);
+    },
+  );
+
+  testWidgets('when not yet paired, [+] still offers the pairing options', (
+    tester,
+  ) async {
+    final c = _container();
+    c.read(inboxStateProvider.notifier).setRooms([_soloRoom('room1')]);
+    await tester.pumpWidget(_app(c, _acct()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('home-new-chat')));
+    await tester.pumpAndSettle();
+    expect(find.text('Invite them with a code'), findsOneWidget);
   });
 
   testWidgets('single room auto-opens into the conversation', (tester) async {
