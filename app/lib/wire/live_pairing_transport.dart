@@ -64,11 +64,14 @@ class LivePairingTransport implements PairingTransport {
         }
       case RoomErrorFrame():
         // Errors carry no request correlation id, so we dispatch by fixed queue
-        // priority. This only routes correctly when at most one mint/consume
-        // call is in flight at a time — which the pairing UI guarantees (each
-        // screen drives a single request). Overlapping calls of different kinds
-        // could mis-route an error; revisit with a correlation id if that flow
-        // ever becomes concurrent.
+        // priority: createInvite first, then consumeInvite. PairingScreen can
+        // have both kinds in flight at once (it mints its own invite in
+        // initState while the deep-link auto-join consumes the partner's), so
+        // this is only correct because the server answers in order on a single
+        // connection — InviteCreated drains _pendingCreate before any consume
+        // error arrives. If the server ever responds out of order or
+        // multiplexes, add a request correlation id; this priority scheme would
+        // otherwise mis-route the error onto the wrong pending call.
         final err = PairingTransportException(
           code: frame.code,
           message: frame.message,
