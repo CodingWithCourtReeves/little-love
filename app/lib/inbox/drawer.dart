@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../identity/providers.dart';
 import '../screens/inbox/new_chat_screen.dart';
 import '../theme/twilight.dart';
+import '../wallpaper/wallpaper_screen.dart';
 import 'conversation_list_item.dart';
 import 'inbox_state.dart';
 import 'pending_invites_provider.dart';
@@ -65,6 +66,21 @@ class DrawerContent extends ConsumerWidget {
             ...chats.map(item),
             const Spacer(),
             Container(height: 1, color: TwilightColors.borderSoft),
+            Material(
+              color: Colors.transparent,
+              child: ListTile(
+                key: const Key('drawer-wallpaper'),
+                leading: const Icon(
+                  Icons.wallpaper,
+                  color: TwilightColors.textMuted,
+                ),
+                title: const Text('Wallpaper'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).push(WallpaperScreen.route());
+                },
+              ),
+            ),
             Material(
               color: Colors.transparent,
               child: ListTile(

@@ -5,7 +5,9 @@ import 'package:littlelove/inbox/drawer.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/theme/twilight.dart';
+import 'package:littlelove/wallpaper/wallpaper_screen.dart';
 import 'package:littlelove/wire/frames.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Room _r(String id, String peer) => Room(
   roomId: id,
@@ -53,4 +55,36 @@ void main() {
       expect(find.byKey(const Key('drawer-room-1')), findsNothing);
     },
   );
+
+  testWidgets('drawer has a Wallpaper entry that opens the picker', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(inboxStateProvider.notifier).setRooms([_r('1', 'kaitlyn')]);
+    final scaffoldKey = GlobalKey<ScaffoldState>();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildTwilightTheme(),
+          home: Scaffold(
+            key: scaffoldKey,
+            appBar: AppBar(),
+            drawer: const Drawer(child: DrawerContent(username: 'court')),
+            body: const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    );
+    scaffoldKey.currentState!.openDrawer();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('drawer-wallpaper')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(WallpaperScreen), findsOneWidget);
+  });
 }

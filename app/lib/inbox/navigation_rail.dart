@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../theme/twilight.dart';
+import '../wallpaper/wallpaper_screen.dart';
 import 'inbox_state.dart';
 import 'select_room.dart';
 
@@ -34,6 +35,23 @@ class NavigationRailChrome extends ConsumerWidget {
               r.displayName(username),
               r.roomId == inbox.selectedRoomId,
             ),
+          const Spacer(),
+          Tooltip(
+            message: 'Wallpaper',
+            child: InkWell(
+              key: const Key('rail-wallpaper'),
+              onTap: () => Navigator.of(context).push(WallpaperScreen.route()),
+              child: Container(
+                width: 56,
+                constraints: const BoxConstraints(minHeight: 56),
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.wallpaper,
+                  color: TwilightColors.textMuted,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
