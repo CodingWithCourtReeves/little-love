@@ -605,7 +605,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           ),
           PopupMenuButton<String>(
             key: const Key('room-menu-button'),
-            icon: const Icon(Icons.more_vert, color: TwilightColors.textMuted),
+            icon: Container(
+              width: 34,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: TwilightColors.bgSurface.withValues(alpha: 0.7),
+              ),
+              child: const Icon(
+                Icons.more_vert,
+                color: TwilightColors.textMuted,
+                size: 22,
+              ),
+            ),
             onSelected: (value) {
               switch (value) {
                 case 'wallpaper':
@@ -978,42 +991,38 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  Widget _daySeparator(DateTime day) {
+  Widget _daySeparator(DateTime day) => _centerPill(
+    _formatDaySeparator(day),
+    key: ValueKey('day-${day.toIso8601String()}'),
+  );
+
+  Widget _gapHeader(DateTime t) => _centerPill(
+    _formatGapHeader(t),
+    key: ValueKey('gap-${t.toIso8601String()}'),
+    fontSize: 11,
+  );
+
+  /// Centered translucent pill for day/gap headers — anchors the label over
+  /// the wallpaper (iMessage/Telegram style) instead of bare text on lines.
+  Widget _centerPill(String text, {required Key key, double fontSize = 12}) {
     return Padding(
-      key: ValueKey('day-${day.toIso8601String()}'),
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Row(
-        children: [
-          Expanded(
-            child: Container(height: 1, color: TwilightColors.borderSoft),
+      key: key,
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          decoration: BoxDecoration(
+            color: TwilightColors.bgSurface.withValues(alpha: 0.86),
+            borderRadius: BorderRadius.circular(14),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Text(
-              _formatDaySeparator(day),
-              style: const TextStyle(
-                color: TwilightColors.textMuted,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
+          child: Text(
+            text,
+            style: TextStyle(
+              color: TwilightColors.textMuted,
+              fontSize: fontSize,
+              fontWeight: FontWeight.w500,
             ),
           ),
-          Expanded(
-            child: Container(height: 1, color: TwilightColors.borderSoft),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _gapHeader(DateTime t) {
-    return Padding(
-      key: ValueKey('gap-${t.toIso8601String()}'),
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Center(
-        child: Text(
-          _formatGapHeader(t),
-          style: const TextStyle(color: TwilightColors.textMuted, fontSize: 11),
         ),
       ),
     );
