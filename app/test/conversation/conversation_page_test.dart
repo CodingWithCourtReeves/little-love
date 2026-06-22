@@ -10,6 +10,8 @@ import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/theme/twilight.dart';
+import 'package:littlelove/wallpaper/wallpaper_background.dart';
+import 'package:littlelove/wallpaper/wallpaper_controller.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
 
@@ -156,6 +158,38 @@ void main() {
     await tester.tap(find.byKey(const Key('composer-send')));
     await tester.pump();
     expect(sent, 'hi');
+  });
+
+  testWidgets('renders a wallpaper and a send bumps the drift', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildTwilightTheme(),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(WallpaperBackground), findsOneWidget);
+
+    final before = container.read(wallpaperDriftProvider);
+    await tester.enterText(find.byKey(const Key('composer')), 'hi');
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('composer-send')));
+    await tester.pump();
+    expect(container.read(wallpaperDriftProvider), before + 1);
   });
 
   testWidgets('trailing button morphs mic <-> send with content', (

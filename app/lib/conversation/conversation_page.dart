@@ -19,6 +19,8 @@ import '../attachment/staged_attachment.dart';
 import '../attachment/thumbnail.dart';
 import '../identity/providers.dart';
 import '../inbox/channel_switcher.dart';
+import '../wallpaper/wallpaper_background.dart';
+import '../wallpaper/wallpaper_controller.dart';
 import '../inbox/room.dart';
 import '../theme/love_toast.dart';
 import '../theme/twilight.dart';
@@ -287,6 +289,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       HapticFeedback.lightImpact();
       final items = List<StagedAttachment>.of(_staged);
       widget.onSendMedia?.call(items, text);
+      ref.read(wallpaperDriftProvider.notifier).bump();
       setState(() => _staged.clear());
       _controller.clear();
       _stopTyping();
@@ -295,6 +298,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     if (text.isEmpty) return;
     HapticFeedback.lightImpact();
     widget.onSend(text);
+    ref.read(wallpaperDriftProvider.notifier).bump();
     _controller.clear();
     _stopTyping();
   }
@@ -562,7 +566,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // reserved bottom padding tracks the bar as it grows/shrinks.
     SchedulerBinding.instance.addPostFrameCallback((_) => _measureComposer());
     return Scaffold(
-      backgroundColor: TwilightColors.bgCanvas,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         backgroundColor: TwilightColors.bgSurface,
         elevation: 0,
@@ -601,71 +605,76 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             ),
         ],
       ),
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: ListView.builder(
-              controller: _scrollController,
-              reverse: true,
-              // Reserve room for the floating glass composer so the newest
-              // message clears it (reverse:true → bottom padding is the
-              // visual bottom). Height is measured from the live bar.
-              padding: EdgeInsets.only(
-                left: 16,
-                right: 16,
-                top: 12,
-                bottom: _composerHeight + 12,
+      body: WallpaperBackground(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: ListView.builder(
+                controller: _scrollController,
+                reverse: true,
+                // Reserve room for the floating glass composer so the newest
+                // message clears it (reverse:true → bottom padding is the
+                // visual bottom). Height is measured from the live bar.
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 12,
+                  bottom: _composerHeight + 12,
+                ),
+                itemCount: items.length,
+                // Relocate existing keyed rows by identity when an insert
+                // shifts indices, so the delegate reuses them instead of
+                // rebuilding the visible list (the receive-time flash).
+                findChildIndexCallback: (key) {
+                  final value = (key as ValueKey<String>).value;
+                  final idx = items.indexWhere((it) => _rowKey(it) == value);
+                  return idx < 0 ? null : idx;
+                },
+                itemBuilder: (_, i) {
+                  final item = items[i];
+                  final child = switch (item) {
+                    _BubbleItem(:final msg) => _bubble(
+                      msg,
+                      me,
+                      status.inBubble[msg.id],
+                      status.failedRun[msg.id],
+                    ),
+                    _DayItem(:final day) => _daySeparator(day),
+                    _GapItem(:final time) => _gapHeader(time),
+                  };
+                  return KeyedSubtree(
+                    key: ValueKey(_rowKey(item)),
+                    child: child,
+                  );
+                },
               ),
-              itemCount: items.length,
-              // Relocate existing keyed rows by identity when an insert
-              // shifts indices, so the delegate reuses them instead of
-              // rebuilding the visible list (the receive-time flash).
-              findChildIndexCallback: (key) {
-                final value = (key as ValueKey<String>).value;
-                final idx = items.indexWhere((it) => _rowKey(it) == value);
-                return idx < 0 ? null : idx;
-              },
-              itemBuilder: (_, i) {
-                final item = items[i];
-                final child = switch (item) {
-                  _BubbleItem(:final msg) => _bubble(
-                    msg,
-                    me,
-                    status.inBubble[msg.id],
-                    status.failedRun[msg.id],
-                  ),
-                  _DayItem(:final day) => _daySeparator(day),
-                  _GapItem(:final time) => _gapHeader(time),
-                };
-                return KeyedSubtree(key: ValueKey(_rowKey(item)), child: child);
-              },
             ),
-          ),
-          Positioned(
-            right: 16,
-            bottom: _composerHeight + 16,
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 150),
-              opacity: _atBottom ? 0 : 1,
-              child: IgnorePointer(
-                ignoring: _atBottom,
-                child: FloatingActionButton.small(
-                  key: const Key('jump-to-bottom'),
-                  backgroundColor: TwilightColors.bgSurface,
-                  foregroundColor: TwilightColors.accentUser,
-                  elevation: 4,
-                  onPressed: _animateToBottom,
-                  tooltip: 'Jump to latest',
-                  child: const Icon(Icons.arrow_downward),
+            Positioned(
+              right: 16,
+              bottom: _composerHeight + 16,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 150),
+                opacity: _atBottom ? 0 : 1,
+                child: IgnorePointer(
+                  ignoring: _atBottom,
+                  child: FloatingActionButton.small(
+                    key: const Key('jump-to-bottom'),
+                    backgroundColor: TwilightColors.bgSurface,
+                    foregroundColor: TwilightColors.accentUser,
+                    elevation: 4,
+                    onPressed: _animateToBottom,
+                    tooltip: 'Jump to latest',
+                    child: const Icon(Icons.arrow_downward),
+                  ),
                 ),
               ),
             ),
-          ),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: KeyedSubtree(key: _composerKey, child: _composer()),
-          ),
-        ],
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: KeyedSubtree(key: _composerKey, child: _composer()),
+            ),
+          ],
+        ),
       ),
     );
   }
