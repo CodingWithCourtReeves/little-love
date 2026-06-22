@@ -574,24 +574,45 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
-        flexibleSpace: ClipRect(
-          child: BackdropFilter(
-            filter: ImageFilter.compose(
-              outer: const ColorFilter.matrix(_glassSaturation),
-              inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-            ),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: TwilightColors.bgCanvas.withValues(alpha: 0.62),
-                border: Border(
-                  bottom: BorderSide(
-                    color: TwilightColors.textPrimary.withValues(alpha: 0.08),
-                    width: 0.5,
+        // White status-bar icons — they sit over the dark top scrim below.
+        systemOverlayStyle: SystemUiOverlayStyle.light,
+        flexibleSpace: Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipRect(
+              child: BackdropFilter(
+                filter: ImageFilter.compose(
+                  outer: const ColorFilter.matrix(_glassSaturation),
+                  inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                ),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: TwilightColors.bgCanvas.withValues(alpha: 0.62),
+                    border: Border(
+                      bottom: BorderSide(
+                        color: TwilightColors.textPrimary.withValues(
+                          alpha: 0.08,
+                        ),
+                        width: 0.5,
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
+            // Dark gradient concentrated at the very top so the OS status bar
+            // (clock, battery, signal) stays legible, Telegram-style.
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0x66000000), Color(0x00000000)],
+                  stops: [0.0, 0.62],
+                ),
+              ),
+            ),
+          ],
         ),
         titleSpacing: 8,
         title: ChannelSwitcher(
