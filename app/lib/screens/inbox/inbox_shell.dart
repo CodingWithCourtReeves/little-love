@@ -26,15 +26,11 @@ import '../../outbox/outbox_store.dart';
 import '../../wire/message.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
-import '../../inbox/drawer.dart';
 import '../../inbox/inbox_state.dart';
-import '../../inbox/layout_scaffold.dart';
-import '../../inbox/navigation_rail.dart';
 import '../../inbox/pending_invites_provider.dart';
 import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
 import '../../inbox/select_room.dart';
-import '../../inbox/sidebar.dart';
 import '../../push/push_bootstrap.dart';
 import '../../push/push_registration.dart';
 import '../../theme/twilight.dart';
@@ -74,18 +70,12 @@ class InboxShell extends ConsumerWidget {
     }
     final detail = _detail(context, ref, inbox.selectedRoomId, inbox.rooms);
 
-    // Keep the app-icon badge in sync with unread. _BadgeSyncScope re-asserts the
-    // count on every occasion the displayed badge can drift from what the user
-    // has actually seen — see its doc comment.
-    return _BadgeSyncScope(
-      selfUsername: account.username,
-      child: LayoutScaffold(
-        sidebar: Sidebar(username: account.username),
-        rail: NavigationRailChrome(username: account.username),
-        drawer: DrawerContent(username: account.username),
-        detail: detail,
-      ),
-    );
+    // The conversation is the home screen — it's a full-screen `ConversationPage`
+    // with its own frosted header (the ChannelSwitcher there moves between rooms
+    // and creates new channels) and composer over the wallpaper. Settings/pairing
+    // are pushed pages, so there's no sidebar/rail/drawer chrome to fight the
+    // wallpaper. _BadgeSyncScope keeps the app-icon badge in sync with unread.
+    return _BadgeSyncScope(selfUsername: account.username, child: detail);
   }
 
   Widget _detail(
