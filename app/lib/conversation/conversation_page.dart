@@ -28,6 +28,7 @@ import '../wallpaper/wallpaper_controller.dart';
 import '../wallpaper/wallpaper_screen.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
+import 'chat_info_page.dart';
 import 'link_preview.dart';
 import 'message_store.dart';
 import 'typing_state.dart';
@@ -637,22 +638,31 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
               )
             : null,
         centerTitle: true,
-        // The room name as a centered pill. Tapping it will later open a chat-
-        // info page (call/video/search + media/voice/links), Telegram-style.
-        title: Container(
+        // The room name as a centered pill; tapping it opens the chat-info
+        // page (Telegram-style: call/video/search + media/voice/links).
+        title: GestureDetector(
           key: const Key('room-title-pill'),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          decoration: BoxDecoration(
-            color: context.palette.bgSurface.withValues(alpha: 0.7),
-            borderRadius: BorderRadius.circular(999),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => Navigator.of(context).push(
+            ChatInfoPage.route(
+              room: widget.room,
+              selfUsername: widget.selfUsername,
+            ),
           ),
-          child: Text(
-            widget.room.displayName(widget.selfUsername),
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
-              color: context.palette.textPrimary,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: context.palette.bgSurface.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              widget.room.displayName(widget.selfUsername),
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: context.palette.textPrimary,
+              ),
             ),
           ),
         ),

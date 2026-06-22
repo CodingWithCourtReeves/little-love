@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:littlelove/conversation/chat_info_page.dart';
 import 'package:littlelove/conversation/conversation_page.dart';
 import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_store.dart';
@@ -255,6 +256,35 @@ void main() {
     await tester.tap(find.byKey(const Key('room-menu-wallpaper')));
     await tester.pumpAndSettle();
     expect(find.byType(WallpaperScreen), findsOneWidget);
+  });
+
+  testWidgets('tapping the room-name pill opens the chat-info page', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('room-title-pill')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatInfoPage), findsOneWidget);
   });
 
   testWidgets('trailing button morphs mic <-> send with content', (
