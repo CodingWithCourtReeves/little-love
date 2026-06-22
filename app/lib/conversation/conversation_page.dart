@@ -1205,119 +1205,117 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     };
     return TapRegion(
       onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
-      // Frosted-glass bar: the message list scrolls underneath and is blurred
-      // through a translucent canvas tint, so the composer floats instead of
-      // sitting on a solid slab. ClipRect bounds the backdrop blur to the bar.
-      child: ClipRect(
-        child: BackdropFilter(
-          // Apple-style material: blur the messages behind, then lift their
-          // saturation back up (ColorFilter implements ImageFilter, so
-          // compose() chains it over the blur) so the glass stays luminous.
-          filter: ImageFilter.compose(
-            outer: const ColorFilter.matrix(_glassSaturation),
-            inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-          ),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: TwilightColors.bgCanvas.withValues(alpha: 0.72),
-              // Hairline at the top edge, like iMessage/Telegram, so the glass
-              // boundary reads crisply against messages passing underneath.
-              border: Border(
-                top: BorderSide(
-                  color: TwilightColors.textPrimary.withValues(alpha: 0.08),
-                  width: 0.5,
-                ),
-              ),
-            ),
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_staged.isNotEmpty) _stagingTray(),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        // The pill: one rounded surface holding the attach action
-                        // (inside-left, bottom-pinned) and the text field. Bottom
-                        // alignment keeps the attach glyph on the last line as the
-                        // field grows, instead of drifting to the vertical center.
-                        Expanded(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: TwilightColors.bgSurfaceAlt,
-                              borderRadius: BorderRadius.circular(22),
+      // Floating frosted pill — no full-width slab. The message list scrolls
+      // straight up behind the composer with wallpaper showing through the
+      // gutters; the glass lives in the pill itself (and the idle mic), so it
+      // reads as a translucent chip hovering over the chat, Telegram-style.
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_staged.isNotEmpty) _stagingTray(),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  // The pill: one rounded glass surface holding the attach
+                  // action (inside-left, bottom-pinned) and the text field.
+                  // Bottom alignment keeps the attach glyph on the last line as
+                  // the field grows, instead of drifting to the vertical center.
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(22),
+                      child: BackdropFilter(
+                        // Apple-style material: blur the messages behind, then
+                        // lift their saturation back up (ColorFilter implements
+                        // ImageFilter, so compose() chains it over the blur) so
+                        // the glass stays luminous instead of going muddy.
+                        filter: ImageFilter.compose(
+                          outer: const ColorFilter.matrix(_glassSaturation),
+                          inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                        ),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: TwilightColors.bgSurface.withValues(
+                              alpha: 0.55,
                             ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                if (widget.onPickMedia != null)
-                                  IconButton(
-                                    key: const Key('composer-attach'),
-                                    onPressed: _pickMedia,
-                                    icon: const Icon(
-                                      Icons.attach_file,
-                                      color: TwilightColors.textMuted,
-                                      size: 22,
-                                    ),
-                                    tooltip: 'Attach a photo or video',
+                            borderRadius: BorderRadius.circular(22),
+                            // Hairline all the way around so the glass edge
+                            // reads crisply against messages passing behind it.
+                            border: Border.all(
+                              color: TwilightColors.textPrimary.withValues(
+                                alpha: 0.10,
+                              ),
+                              width: 0.5,
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              if (widget.onPickMedia != null)
+                                IconButton(
+                                  key: const Key('composer-attach'),
+                                  onPressed: _pickMedia,
+                                  icon: const Icon(
+                                    Icons.attach_file,
+                                    color: TwilightColors.textMuted,
+                                    size: 22,
                                   ),
-                                Expanded(
-                                  child: Shortcuts(
-                                    shortcuts: shortcuts,
-                                    child: Actions(
-                                      actions: {
-                                        _SendIntent:
-                                            CallbackAction<_SendIntent>(
-                                              onInvoke: (_) {
-                                                _submitFromIntent();
-                                                return null;
-                                              },
-                                            ),
-                                      },
-                                      child: TextField(
-                                        key: const Key('composer'),
-                                        controller: _controller,
-                                        onChanged: _onComposerChanged,
-                                        minLines: 1,
-                                        maxLines: 8,
-                                        keyboardType: TextInputType.multiline,
-                                        textInputAction:
-                                            TextInputAction.newline,
-                                        decoration: InputDecoration(
-                                          isDense: true,
-                                          hintText: 'Message',
-                                          hintStyle: const TextStyle(
-                                            color: TwilightColors.textMuted,
-                                          ),
-                                          border: InputBorder.none,
-                                          // Lead padding only when the attach button
-                                          // isn't there to provide it.
-                                          contentPadding: EdgeInsets.fromLTRB(
-                                            widget.onPickMedia != null ? 0 : 16,
-                                            11,
-                                            16,
-                                            11,
-                                          ),
+                                  tooltip: 'Attach a photo or video',
+                                ),
+                              Expanded(
+                                child: Shortcuts(
+                                  shortcuts: shortcuts,
+                                  child: Actions(
+                                    actions: {
+                                      _SendIntent: CallbackAction<_SendIntent>(
+                                        onInvoke: (_) {
+                                          _submitFromIntent();
+                                          return null;
+                                        },
+                                      ),
+                                    },
+                                    child: TextField(
+                                      key: const Key('composer'),
+                                      controller: _controller,
+                                      onChanged: _onComposerChanged,
+                                      minLines: 1,
+                                      maxLines: 8,
+                                      keyboardType: TextInputType.multiline,
+                                      textInputAction: TextInputAction.newline,
+                                      decoration: InputDecoration(
+                                        isDense: true,
+                                        hintText: 'Message',
+                                        hintStyle: const TextStyle(
+                                          color: TwilightColors.textMuted,
+                                        ),
+                                        border: InputBorder.none,
+                                        // Lead padding only when the attach
+                                        // button isn't there to provide it.
+                                        contentPadding: EdgeInsets.fromLTRB(
+                                          widget.onPickMedia != null ? 0 : 16,
+                                          11,
+                                          16,
+                                          11,
                                         ),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        _trailingButton(),
-                      ],
+                      ),
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  _trailingButton(),
+                ],
               ),
-            ),
+            ],
           ),
         ),
       ),
@@ -1360,22 +1358,46 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   }
 
   /// Idle-state mic affordance. Voice notes aren't implemented yet, so the tap
-  /// just signals that they're coming rather than leaving a dead control.
+  /// just signals that they're coming rather than leaving a dead control. A
+  /// frosted glass circle (matching the pill) anchors it over the wallpaper.
   Widget _micButton() {
-    return IconButton(
+    return ClipOval(
       key: const Key('composer-mic'),
-      onPressed: () {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Voice messages are coming soon'),
-            duration: Duration(seconds: 2),
+      child: BackdropFilter(
+        filter: ImageFilter.compose(
+          outer: const ColorFilter.matrix(_glassSaturation),
+          inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+        ),
+        child: Material(
+          color: TwilightColors.bgSurface.withValues(alpha: 0.55),
+          shape: const CircleBorder(
+            side: BorderSide(
+              color: Color(0x1AFFFFFF),
+              width: 0.5,
+            ),
           ),
-        );
-      },
-      iconSize: 24,
-      constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-      icon: const Icon(Icons.mic, color: TwilightColors.textMuted),
-      tooltip: 'Voice message (coming soon)',
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Voice messages are coming soon'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+            child: const SizedBox(
+              width: 44,
+              height: 44,
+              child: Icon(
+                Icons.mic,
+                color: TwilightColors.textMuted,
+                size: 24,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 

@@ -218,8 +218,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    // Two frosted surfaces now: the composer and the app bar.
-    expect(find.byType(BackdropFilter), findsNWidgets(2));
+    // Three frosted surfaces now: the composer pill, the idle mic glass
+    // circle (shown while the field is empty), and the app bar.
+    expect(find.byType(BackdropFilter), findsNWidgets(3));
   });
 
   testWidgets('header menu opens the Wallpaper picker', (tester) async {
