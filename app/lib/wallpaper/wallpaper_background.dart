@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'wallpaper_selection.dart';
 import 'wallpaper_controller.dart';
+import 'wallpaper_doodles.dart';
 
 /// Element-wise interpolation of two 4-anchor configurations.
 List<Offset> lerpAnchors(List<Offset> a, List<Offset> b, double t) => [
@@ -72,6 +73,7 @@ class _WallpaperBackgroundState extends ConsumerState<WallpaperBackground>
           painter: WallpaperMeshPainter(
             gradient: selection.gradient,
             anchors: anchors,
+            doodles: selection.doodles,
           ),
           child: child,
         );
@@ -84,10 +86,15 @@ class _WallpaperBackgroundState extends ConsumerState<WallpaperBackground>
 /// Paints the four-color radial mesh: base fill + four soft radial blobs at
 /// the (unit-space) anchors, layered for a smooth blend.
 class WallpaperMeshPainter extends CustomPainter {
-  WallpaperMeshPainter({required this.gradient, required this.anchors});
+  WallpaperMeshPainter({
+    required this.gradient,
+    required this.anchors,
+    required this.doodles,
+  });
 
   final WallpaperGradient gradient;
   final List<Offset> anchors;
+  final bool doodles;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -106,9 +113,15 @@ class WallpaperMeshPainter extends CustomPainter {
       ).createShader(Rect.fromCircle(center: center, radius: radius));
       canvas.drawRect(rect, Paint()..shader = shader);
     }
+
+    if (doodles) {
+      paintDoodleField(canvas, size, gradient.doodleInk);
+    }
   }
 
   @override
   bool shouldRepaint(WallpaperMeshPainter old) =>
-      old.gradient != gradient || old.anchors != anchors;
+      old.gradient != gradient ||
+      old.anchors != anchors ||
+      old.doodles != doodles;
 }
