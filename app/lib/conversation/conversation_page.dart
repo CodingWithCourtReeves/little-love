@@ -1866,6 +1866,7 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
       elevation: 8,
       borderRadius: BorderRadius.circular(26),
       color: context.palette.bgSurface,
+      surfaceTintColor: Colors.transparent,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         child: Row(
@@ -1885,6 +1886,7 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
       elevation: 8,
       borderRadius: BorderRadius.circular(14),
       color: context.palette.bgSurface,
+      surfaceTintColor: Colors.transparent,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Column(

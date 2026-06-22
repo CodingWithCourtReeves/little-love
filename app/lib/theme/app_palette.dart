@@ -188,6 +188,10 @@ ThemeData buildAppTheme(AppPalette p) {
     onSurface: p.textPrimary,
     error: p.warningTone,
     onError: Colors.white,
+    // Kill M3's elevation surface-tint: it lightens elevated surfaces (menus,
+    // the reaction bar, dialogs) toward the primary, which reads as "too
+    // bright" on the dark palette. We want flat, palette-true surfaces.
+    surfaceTint: Colors.transparent,
   );
   return ThemeData(
     useMaterial3: true,
