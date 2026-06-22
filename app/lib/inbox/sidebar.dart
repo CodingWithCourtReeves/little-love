@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../identity/providers.dart';
 import '../screens/inbox/new_chat_screen.dart';
 import '../theme/twilight.dart';
+import '../wallpaper/wallpaper_screen.dart';
 import 'conversation_list_item.dart';
 import 'inbox_state.dart';
 import 'pending_invites_provider.dart';
@@ -93,7 +94,8 @@ class Sidebar extends ConsumerWidget {
             IconButton(
               key: const Key('sidebar-settings'),
               icon: const Icon(Icons.settings, color: TwilightColors.textMuted),
-              onPressed: () {},
+              onPressed: () =>
+                  Navigator.of(context).push(WallpaperScreen.route()),
               tooltip: 'Settings',
             ),
             const SizedBox(width: 8),
