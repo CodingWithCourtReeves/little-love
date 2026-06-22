@@ -55,6 +55,16 @@ extension WallpaperGradientData on WallpaperGradient {
     WallpaperGradient.twilight => const Color(0x24FFFFFF),
     WallpaperGradient.deepDusk => const Color(0x2BFFFFFF),
   };
+
+  /// Whether this wallpaper reads as dark — the chrome (and the whole app
+  /// theme) flips light/dark to match. Mirrors the [doodleInk] split: the two
+  /// pale palettes are light; the plum/aubergine ones are dark.
+  Brightness get brightness => switch (this) {
+    WallpaperGradient.rose => Brightness.light,
+    WallpaperGradient.mauveSage => Brightness.light,
+    WallpaperGradient.twilight => Brightness.dark,
+    WallpaperGradient.deepDusk => Brightness.dark,
+  };
 }
 
 class WallpaperSelection {

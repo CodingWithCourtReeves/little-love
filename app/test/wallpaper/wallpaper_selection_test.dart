@@ -17,6 +17,13 @@ void main() {
     }
   });
 
+  test('brightness: pale palettes are light, plum ones are dark', () {
+    expect(WallpaperGradient.rose.brightness, Brightness.light);
+    expect(WallpaperGradient.mauveSage.brightness, Brightness.light);
+    expect(WallpaperGradient.twilight.brightness, Brightness.dark);
+    expect(WallpaperGradient.deepDusk.brightness, Brightness.dark);
+  });
+
   test('copyWith + equality', () {
     const a = WallpaperSelection(
       gradient: WallpaperGradient.rose,
