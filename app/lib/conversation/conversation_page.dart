@@ -618,6 +618,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         leading: Navigator.of(context).canPop()
             ? IconButton(
                 key: const Key('room-back-button'),
+                tooltip: 'Back',
                 onPressed: () => Navigator.of(context).maybePop(),
                 icon: Container(
                   width: 34,
