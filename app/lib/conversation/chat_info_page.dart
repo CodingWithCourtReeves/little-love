@@ -1,7 +1,7 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -9,7 +9,6 @@ import '../attachment/attachment_descriptor.dart';
 import '../inbox/room.dart';
 import '../theme/app_palette.dart';
 import '../theme/love_toast.dart';
-import '../wallpaper/wallpaper_background.dart';
 import '../wire/message.dart';
 import 'message_store.dart';
 
@@ -52,64 +51,35 @@ class ChatInfoPage extends ConsumerWidget {
     return DefaultTabController(
       length: 3,
       child: Scaffold(
-        backgroundColor: Colors.transparent,
-        extendBodyBehindAppBar: true,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          scrolledUnderElevation: 0,
-          surfaceTintColor: Colors.transparent,
-          foregroundColor: p.textPrimary,
-          // White status-bar icons over the wallpaper + dark top scrim.
-          systemOverlayStyle: SystemUiOverlayStyle.light,
-          // Dark gradient at the very top so the OS status bar (clock, battery)
-          // stays legible over the wallpaper — same treatment as the chat.
-          flexibleSpace: const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0x66000000), Color(0x00000000)],
-                stops: [0.0, 0.62],
-              ),
+        backgroundColor: p.bgCanvas,
+        appBar: AppBar(title: const Text('Info')),
+        body: Column(
+          children: [
+            _header(context, name),
+            _actionRow(context),
+            const SizedBox(height: 8),
+            TabBar(
+              labelColor: p.accentUser,
+              unselectedLabelColor: p.textMuted,
+              indicatorColor: p.accentUser,
+              // Drop M3's full-width divider line under the tabs.
+              dividerColor: Colors.transparent,
+              tabs: const [
+                Tab(text: 'Media'),
+                Tab(text: 'Voice'),
+                Tab(text: 'Links'),
+              ],
             ),
-          ),
-          title: const Text('Info'),
-        ),
-        // The chat wallpaper carries through, so the page reads as part of the
-        // conversation and the top gradient actually has something to darken.
-        body: WallpaperBackground(
-          child: Column(
-            children: [
-              SizedBox(
-                height: MediaQuery.paddingOf(context).top + kToolbarHeight,
-              ),
-              _header(context, name),
-              _actionRow(context),
-              const SizedBox(height: 8),
-              TabBar(
-                labelColor: p.accentUser,
-                unselectedLabelColor: p.textMuted,
-                indicatorColor: p.accentUser,
-                // Drop M3's full-width divider line under the tabs.
-                dividerColor: Colors.transparent,
-                tabs: const [
-                  Tab(text: 'Media'),
-                  Tab(text: 'Voice'),
-                  Tab(text: 'Links'),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _mediaTab(context, media),
+                  _emptyTab(context, 'Voice messages are coming soon'),
+                  _linksTab(context, links),
                 ],
               ),
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    _mediaTab(context, media),
-                    _emptyTab(context, 'Voice messages are coming soon'),
-                    _linksTab(context, links),
-                  ],
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

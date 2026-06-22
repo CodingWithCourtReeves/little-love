@@ -599,21 +599,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
-        // White status-bar icons — they sit over the dark top scrim below.
+        // White status-bar icons — they sit over the dark top scrim (painted
+        // in the body so it's taller/stronger than an app-bar-only gradient).
         systemOverlayStyle: SystemUiOverlayStyle.light,
-        // No frosted slab — the wallpaper shows straight through the top bar.
-        // A dark gradient concentrated at the very top keeps the OS status bar
-        // (clock, battery, signal) legible against the wallpaper, Telegram-style.
-        flexibleSpace: const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0x66000000), Color(0x00000000)],
-              stops: [0.0, 0.62],
-            ),
-          ),
-        ),
         // Back arrow in a pill, matching the ⋯ menu, when this chat was pushed
         // onto a route (home → chat). Null in tests that mount it directly.
         leading: Navigator.of(context).canPop()
@@ -753,6 +741,27 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                     child: child,
                   );
                 },
+              ),
+            ),
+            // Dark scrim across the very top — behind the status bar and app
+            // bar — so the OS clock/battery and the title stay legible over the
+            // wallpaper, Telegram-style. Drawn over the message list (so it
+            // scrolls under), tall enough to clear the toolbar, pointer-through.
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: MediaQuery.of(context).padding.top + kToolbarHeight + 12,
+              child: const IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0x99000000), Color(0x00000000)],
+                    ),
+                  ),
+                ),
               ),
             ),
             Positioned(
