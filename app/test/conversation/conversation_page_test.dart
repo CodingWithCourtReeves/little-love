@@ -158,6 +158,48 @@ void main() {
     expect(sent, 'hi');
   });
 
+  testWidgets('trailing button morphs mic <-> send with content', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildTwilightTheme(),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Empty composer: mic affordance shown, send hidden.
+    expect(find.byKey(const Key('composer-mic')), findsOneWidget);
+    expect(find.byKey(const Key('composer-send')), findsNothing);
+
+    // With text: send shown, mic gone.
+    await tester.enterText(find.byKey(const Key('composer')), 'hi');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('composer-send')), findsOneWidget);
+    expect(find.byKey(const Key('composer-mic')), findsNothing);
+
+    // Cleared again: morphs back to mic.
+    await tester.enterText(find.byKey(const Key('composer')), '');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('composer-mic')), findsOneWidget);
+    expect(find.byKey(const Key('composer-send')), findsNothing);
+  });
+
   testWidgets('long-press my own message offers Copy + Delete; Delete fires', (
     tester,
   ) async {

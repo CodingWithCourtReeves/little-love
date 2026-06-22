@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
@@ -148,6 +149,33 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     with WidgetsBindingObserver {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
+
+  /// Measures the floating composer so the message list can reserve matching
+  /// bottom padding (the list scrolls *under* the frosted bar, so its newest
+  /// row must clear the glass). Tracked in state and re-measured each frame;
+  /// the bar's height changes with multiline growth and the staging tray.
+  final _composerKey = GlobalKey();
+  double _composerHeight = 0;
+
+  /// Saturation ×1.3 color matrix (luma-weighted rows). Composed over the
+  /// composer's backdrop blur to mimic Apple's blur *material*: a plain
+  /// gaussian blur goes muddy, so we lift saturation back up to keep the
+  /// messages reading luminous through the glass.
+  static const _glassSaturation = <double>[
+    1.2361, -0.2145, -0.0216, 0, 0, //
+    -0.0639, 1.0855, -0.0216, 0, 0, //
+    -0.0639, -0.2145, 1.2784, 0, 0, //
+    0, 0, 0, 1, 0, //
+  ];
+
+  void _measureComposer() {
+    if (!mounted) return;
+    final box = _composerKey.currentContext?.findRenderObject() as RenderBox?;
+    final h = box?.size.height;
+    if (h != null && (h - _composerHeight).abs() > 0.5) {
+      setState(() => _composerHeight = h);
+    }
+  }
 
   /// Distance (in logical px) from the bottom that still counts as "at bottom".
   static const _stickThreshold = 120.0;
@@ -530,6 +558,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // bottom on its own. The partner's "typing…" indicator deliberately lives
     // in the app bar (not as a bottom row) so it never reflows this list.
     final items = _itemize(sorted).reversed.toList();
+    // Re-measure the floating composer after this frame paints so the list's
+    // reserved bottom padding tracks the bar as it grows/shrinks.
+    SchedulerBinding.instance.addPostFrameCallback((_) => _measureComposer());
     return Scaffold(
       backgroundColor: TwilightColors.bgCanvas,
       appBar: AppBar(
@@ -570,69 +601,70 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          Expanded(
-            child: Stack(
-              children: [
-                ListView.builder(
-                  controller: _scrollController,
-                  reverse: true,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
+          Positioned.fill(
+            child: ListView.builder(
+              controller: _scrollController,
+              reverse: true,
+              // Reserve room for the floating glass composer so the newest
+              // message clears it (reverse:true → bottom padding is the
+              // visual bottom). Height is measured from the live bar.
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 12,
+                bottom: _composerHeight + 12,
+              ),
+              itemCount: items.length,
+              // Relocate existing keyed rows by identity when an insert
+              // shifts indices, so the delegate reuses them instead of
+              // rebuilding the visible list (the receive-time flash).
+              findChildIndexCallback: (key) {
+                final value = (key as ValueKey<String>).value;
+                final idx = items.indexWhere((it) => _rowKey(it) == value);
+                return idx < 0 ? null : idx;
+              },
+              itemBuilder: (_, i) {
+                final item = items[i];
+                final child = switch (item) {
+                  _BubbleItem(:final msg) => _bubble(
+                    msg,
+                    me,
+                    status.inBubble[msg.id],
+                    status.failedRun[msg.id],
                   ),
-                  itemCount: items.length,
-                  // Relocate existing keyed rows by identity when an insert
-                  // shifts indices, so the delegate reuses them instead of
-                  // rebuilding the visible list (the receive-time flash).
-                  findChildIndexCallback: (key) {
-                    final value = (key as ValueKey<String>).value;
-                    final idx = items.indexWhere((it) => _rowKey(it) == value);
-                    return idx < 0 ? null : idx;
-                  },
-                  itemBuilder: (_, i) {
-                    final item = items[i];
-                    final child = switch (item) {
-                      _BubbleItem(:final msg) => _bubble(
-                        msg,
-                        me,
-                        status.inBubble[msg.id],
-                        status.failedRun[msg.id],
-                      ),
-                      _DayItem(:final day) => _daySeparator(day),
-                      _GapItem(:final time) => _gapHeader(time),
-                    };
-                    return KeyedSubtree(
-                      key: ValueKey(_rowKey(item)),
-                      child: child,
-                    );
-                  },
-                ),
-                Positioned(
-                  right: 16,
-                  bottom: 16,
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 150),
-                    opacity: _atBottom ? 0 : 1,
-                    child: IgnorePointer(
-                      ignoring: _atBottom,
-                      child: FloatingActionButton.small(
-                        key: const Key('jump-to-bottom'),
-                        backgroundColor: TwilightColors.bgSurface,
-                        foregroundColor: TwilightColors.accentUser,
-                        elevation: 4,
-                        onPressed: _animateToBottom,
-                        tooltip: 'Jump to latest',
-                        child: const Icon(Icons.arrow_downward),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+                  _DayItem(:final day) => _daySeparator(day),
+                  _GapItem(:final time) => _gapHeader(time),
+                };
+                return KeyedSubtree(key: ValueKey(_rowKey(item)), child: child);
+              },
             ),
           ),
-          _composer(),
+          Positioned(
+            right: 16,
+            bottom: _composerHeight + 16,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 150),
+              opacity: _atBottom ? 0 : 1,
+              child: IgnorePointer(
+                ignoring: _atBottom,
+                child: FloatingActionButton.small(
+                  key: const Key('jump-to-bottom'),
+                  backgroundColor: TwilightColors.bgSurface,
+                  foregroundColor: TwilightColors.accentUser,
+                  elevation: 4,
+                  onPressed: _animateToBottom,
+                  tooltip: 'Jump to latest',
+                  child: const Icon(Icons.arrow_downward),
+                ),
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: KeyedSubtree(key: _composerKey, child: _composer()),
+          ),
         ],
       ),
     );
@@ -1109,94 +1141,177 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     };
     return TapRegion(
       onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
-      child: Container(
-        color: TwilightColors.bgSurface,
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_staged.isNotEmpty) _stagingTray(),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                if (widget.onPickMedia != null)
-                  IconButton(
-                    key: const Key('composer-attach'),
-                    onPressed: _pickMedia,
-                    icon: const Icon(
-                      Icons.add,
-                      color: TwilightColors.textMuted,
-                    ),
-                    tooltip: 'Attach a photo or video',
-                  ),
-                Expanded(
-                  child: Shortcuts(
-                    shortcuts: shortcuts,
-                    child: Actions(
-                      actions: {
-                        _SendIntent: CallbackAction<_SendIntent>(
-                          onInvoke: (_) {
-                            _submitFromIntent();
-                            return null;
-                          },
-                        ),
-                      },
-                      child: TextField(
-                        key: const Key('composer'),
-                        controller: _controller,
-                        onChanged: _onComposerChanged,
-                        minLines: 1,
-                        maxLines: 8,
-                        keyboardType: TextInputType.multiline,
-                        textInputAction: TextInputAction.newline,
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: TwilightColors.bgSurfaceAlt,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
+      // Frosted-glass bar: the message list scrolls underneath and is blurred
+      // through a translucent canvas tint, so the composer floats instead of
+      // sitting on a solid slab. ClipRect bounds the backdrop blur to the bar.
+      child: ClipRect(
+        child: BackdropFilter(
+          // Apple-style material: blur the messages behind, then lift their
+          // saturation back up (ColorFilter implements ImageFilter, so
+          // compose() chains it over the blur) so the glass stays luminous.
+          filter: ImageFilter.compose(
+            outer: const ColorFilter.matrix(_glassSaturation),
+            inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+          ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: TwilightColors.bgCanvas.withValues(alpha: 0.72),
+              // Hairline at the top edge, like iMessage/Telegram, so the glass
+              // boundary reads crisply against messages passing underneath.
+              border: Border(
+                top: BorderSide(
+                  color: TwilightColors.textPrimary.withValues(alpha: 0.08),
+                  width: 0.5,
+                ),
+              ),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_staged.isNotEmpty) _stagingTray(),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        // The pill: one rounded surface holding the attach action
+                        // (inside-left, bottom-pinned) and the text field. Bottom
+                        // alignment keeps the attach glyph on the last line as the
+                        // field grows, instead of drifting to the vertical center.
+                        Expanded(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: TwilightColors.bgSurfaceAlt,
+                              borderRadius: BorderRadius.circular(22),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                if (widget.onPickMedia != null)
+                                  IconButton(
+                                    key: const Key('composer-attach'),
+                                    onPressed: _pickMedia,
+                                    icon: const Icon(
+                                      Icons.attach_file,
+                                      color: TwilightColors.textMuted,
+                                      size: 22,
+                                    ),
+                                    tooltip: 'Attach a photo or video',
+                                  ),
+                                Expanded(
+                                  child: Shortcuts(
+                                    shortcuts: shortcuts,
+                                    child: Actions(
+                                      actions: {
+                                        _SendIntent:
+                                            CallbackAction<_SendIntent>(
+                                              onInvoke: (_) {
+                                                _submitFromIntent();
+                                                return null;
+                                              },
+                                            ),
+                                      },
+                                      child: TextField(
+                                        key: const Key('composer'),
+                                        controller: _controller,
+                                        onChanged: _onComposerChanged,
+                                        minLines: 1,
+                                        maxLines: 8,
+                                        keyboardType: TextInputType.multiline,
+                                        textInputAction:
+                                            TextInputAction.newline,
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          hintText: 'Message',
+                                          hintStyle: const TextStyle(
+                                            color: TwilightColors.textMuted,
+                                          ),
+                                          border: InputBorder.none,
+                                          // Lead padding only when the attach button
+                                          // isn't there to provide it.
+                                          contentPadding: EdgeInsets.fromLTRB(
+                                            widget.onPickMedia != null ? 0 : 16,
+                                            11,
+                                            16,
+                                            11,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        _trailingButton(),
+                      ],
                     ),
-                  ),
+                  ],
                 ),
-                _sendButton(),
-              ],
+              ),
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  /// Filled circular send. Hidden until there's something to send (composer
-  /// text or staged media), iMessage-style, so the field stretches to fill the
-  /// bar when the chat is idle.
-  Widget _sendButton() {
+  /// Single trailing control that morphs between an idle mic affordance and
+  /// the active send button, Telegram-style. A cross-fade (not a scale) keeps
+  /// whichever child is showing at full layout size, so it stays tappable the
+  /// frame it appears.
+  Widget _trailingButton() {
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: _controller,
       builder: (context, value, _) {
         final hasContent = value.text.trim().isNotEmpty || _staged.isNotEmpty;
-        if (!hasContent) return const SizedBox.shrink();
-        return Padding(
-          padding: const EdgeInsets.only(left: 12),
-          child: Material(
-            color: TwilightColors.accentUser,
-            shape: const CircleBorder(),
-            child: InkWell(
-              key: const Key('composer-send'),
-              customBorder: const CircleBorder(),
-              onTap: () => _handleSubmit(_controller.text),
-              child: const SizedBox(
-                width: 44,
-                height: 44,
-                child: Icon(Icons.arrow_upward, color: Colors.white, size: 22),
-              ),
-            ),
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 160),
+          child: hasContent ? _sendButton() : _micButton(),
+        );
+      },
+    );
+  }
+
+  /// Filled circular send.
+  Widget _sendButton() {
+    return Material(
+      key: const Key('composer-send'),
+      color: TwilightColors.accentUser,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () => _handleSubmit(_controller.text),
+        child: const SizedBox(
+          width: 44,
+          height: 44,
+          child: Icon(Icons.arrow_upward, color: Colors.white, size: 22),
+        ),
+      ),
+    );
+  }
+
+  /// Idle-state mic affordance. Voice notes aren't implemented yet, so the tap
+  /// just signals that they're coming rather than leaving a dead control.
+  Widget _micButton() {
+    return IconButton(
+      key: const Key('composer-mic'),
+      onPressed: () {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Voice messages are coming soon'),
+            duration: Duration(seconds: 2),
           ),
         );
       },
+      iconSize: 24,
+      constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+      icon: const Icon(Icons.mic, color: TwilightColors.textMuted),
+      tooltip: 'Voice message (coming soon)',
     );
   }
 
