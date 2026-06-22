@@ -194,7 +194,7 @@ void main() {
     expect(container.read(wallpaperDriftProvider), before + 1);
   });
 
-  testWidgets('app bar is frosted glass (has a BackdropFilter)', (
+  testWidgets('composer floats as frosted glass (has BackdropFilters)', (
     tester,
   ) async {
     final container = ProviderContainer(
@@ -218,9 +218,10 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    // Three frosted surfaces now: the composer pill, the idle mic glass
-    // circle (shown while the field is empty), and the app bar.
-    expect(find.byType(BackdropFilter), findsNWidgets(3));
+    // Two frosted surfaces: the composer pill and the idle mic glass circle
+    // (shown while the field is empty). The top bar is now just a dark scrim,
+    // no frost.
+    expect(find.byType(BackdropFilter), findsNWidgets(2));
   });
 
   testWidgets('header menu opens the Wallpaper picker', (tester) async {
