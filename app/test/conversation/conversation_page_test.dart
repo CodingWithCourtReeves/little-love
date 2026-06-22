@@ -84,6 +84,10 @@ void main() {
     expect(find.text('hey love'), findsOneWidget);
     expect(find.text('long. miss you.'), findsOneWidget);
     expect(find.byKey(const Key('channel-switcher-pill')), findsOneWidget);
+    // Each text bubble paints its own tailed background (a CustomPaint keyed
+    // by message id) — one for the partner's, one for mine.
+    expect(find.byKey(const Key('bubble-bg-1')), findsOneWidget);
+    expect(find.byKey(const Key('bubble-bg-2')), findsOneWidget);
   });
 
   testWidgets('renders a link-preview card for a message that has one', (

@@ -900,14 +900,26 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             ),
           Container(
             margin: const EdgeInsets.symmetric(vertical: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             constraints: BoxConstraints(maxWidth: maxBubbleWidth),
-            decoration: BoxDecoration(
-              color: bubbleColor,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: bubbleBorder),
+            child: CustomPaint(
+              key: Key('bubble-bg-${m.clientMsgId ?? m.id}'),
+              painter: _BubbleBackground(
+                color: bubbleColor,
+                border: bubbleBorder,
+                mine: mine,
+              ),
+              child: Padding(
+                // Inset the content by the tail width on the sender's side so
+                // text never sits in the tail strip at the bottom corner.
+                padding: EdgeInsets.only(
+                  left: mine ? 14 : 14 + _kBubbleTail,
+                  right: mine ? 14 + _kBubbleTail : 14,
+                  top: 10,
+                  bottom: 10,
+                ),
+                child: _bubbleBody(m, mine, marker),
+              ),
             ),
-            child: _bubbleBody(m, mine, marker),
           ),
         ],
       ),
@@ -2258,6 +2270,91 @@ class _MediaImageState extends ConsumerState<_MediaImage> {
             ),
     );
   }
+}
+
+/// Width of the tail flicked out of a text bubble's bottom corner. Content is
+/// inset by this much on the tail side so it never overlaps the tail.
+const double _kBubbleTail = 7;
+
+/// Paints a chat bubble: a rounded rectangle with a small tail flicked out of
+/// the bottom corner on the sender's side — right for my messages, left for the
+/// partner's — like iMessage/Telegram. The tail occupies a [_kBubbleTail]-wide
+/// strip on that side; the body fills the rest of the box.
+class _BubbleBackground extends CustomPainter {
+  const _BubbleBackground({
+    required this.color,
+    required this.border,
+    required this.mine,
+  });
+
+  final Color color;
+  final Color border;
+  final bool mine;
+
+  /// Corner radius of the bubble body (the tail aside).
+  static const double _radius = 14;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = _path(size);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = color
+        ..isAntiAlias = true
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = border
+        ..isAntiAlias = true
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+  }
+
+  Path _path(Size size) {
+    const r = _radius;
+    const t = _kBubbleTail;
+    final w = size.width;
+    final h = size.height;
+    final path = Path();
+    if (mine) {
+      // Body occupies [0, w - t]; the tail flicks out to the right at bottom.
+      path
+        ..moveTo(w - t, r)
+        ..lineTo(w - t, h - r)
+        ..quadraticBezierTo(w - t, h, w, h) // flare out to the tail tip
+        ..quadraticBezierTo(w - t, h, w - t - r, h) // hook back to the body
+        ..lineTo(r, h)
+        ..quadraticBezierTo(0, h, 0, h - r) // bottom-left corner
+        ..lineTo(0, r)
+        ..quadraticBezierTo(0, 0, r, 0) // top-left corner
+        ..lineTo(w - t - r, 0)
+        ..quadraticBezierTo(w - t, 0, w - t, r) // top-right corner
+        ..close();
+    } else {
+      // Body occupies [t, w]; the tail flicks out to the left at bottom.
+      path
+        ..moveTo(t, r)
+        ..lineTo(t, h - r)
+        ..quadraticBezierTo(t, h, 0, h) // flare out to the tail tip
+        ..quadraticBezierTo(t, h, t + r, h) // hook back to the body
+        ..lineTo(w - r, h)
+        ..quadraticBezierTo(w, h, w, h - r) // bottom-right corner
+        ..lineTo(w, r)
+        ..quadraticBezierTo(w, 0, w - r, 0) // top-right corner
+        ..lineTo(t + r, 0)
+        ..quadraticBezierTo(t, 0, t, r) // top-left corner
+        ..close();
+    }
+    return path;
+  }
+
+  @override
+  bool shouldRepaint(_BubbleBackground old) =>
+      old.color != color || old.border != border || old.mine != mine;
 }
 
 class _PlayBadge extends StatelessWidget {
