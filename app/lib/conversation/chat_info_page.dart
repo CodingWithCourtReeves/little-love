@@ -62,6 +62,8 @@ class ChatInfoPage extends ConsumerWidget {
               labelColor: p.accentUser,
               unselectedLabelColor: p.textMuted,
               indicatorColor: p.accentUser,
+              // Drop M3's full-width divider line under the tabs.
+              dividerColor: Colors.transparent,
               tabs: const [
                 Tab(text: 'Media'),
                 Tab(text: 'Voice'),
