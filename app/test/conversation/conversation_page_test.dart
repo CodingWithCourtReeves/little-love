@@ -192,6 +192,34 @@ void main() {
     expect(container.read(wallpaperDriftProvider), before + 1);
   });
 
+  testWidgets('app bar is frosted glass (has a BackdropFilter)', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildTwilightTheme(),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // Two frosted surfaces now: the composer and the app bar.
+    expect(find.byType(BackdropFilter), findsNWidgets(2));
+  });
+
   testWidgets('trailing button morphs mic <-> send with content', (
     tester,
   ) async {

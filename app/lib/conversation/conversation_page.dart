@@ -567,11 +567,31 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     SchedulerBinding.instance.addPostFrameCallback((_) => _measureComposer());
     return Scaffold(
       backgroundColor: Colors.transparent,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: TwilightColors.bgSurface,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
+        flexibleSpace: ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.compose(
+              outer: const ColorFilter.matrix(_glassSaturation),
+              inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            ),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: TwilightColors.bgCanvas.withValues(alpha: 0.62),
+                border: Border(
+                  bottom: BorderSide(
+                    color: TwilightColors.textPrimary.withValues(alpha: 0.08),
+                    width: 0.5,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
         titleSpacing: 8,
         title: ChannelSwitcher(
           selfUsername: widget.selfUsername,
@@ -618,7 +638,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 padding: EdgeInsets.only(
                   left: 16,
                   right: 16,
-                  top: 12,
+                  top: 12 + MediaQuery.of(context).padding.top + kToolbarHeight,
                   bottom: _composerHeight + 12,
                 ),
                 itemCount: items.length,
