@@ -57,7 +57,7 @@ class _SignupScreenState extends State<SignupScreen> {
           controller: _usernameCtl,
           autocorrect: false,
           decoration: InputDecoration(
-            hintText: 'court',
+            hintText: 'username',
             errorText: showError ? '3–20 chars, lowercase a-z 0-9 _' : null,
           ),
           onChanged: (_) => setState(() {}),

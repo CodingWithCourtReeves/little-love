@@ -51,7 +51,7 @@ _harness() async {
 
 void main() {
   test(
-    'createInvite writes CreateRoom, returns InviteCreated from RoomCreated.pending_invite',
+    'createInvite writes CreateInvite and resolves on InviteCreated',
     () async {
       final h = await _harness();
       addTearDown(h.conn.close);
@@ -59,23 +59,16 @@ void main() {
 
       final fut = transport.createInvite();
       await Future<void>.delayed(Duration.zero);
+      // The wire frame must be the roomless CreateInvite — never CreateRoom.
       final sent = jsonDecode(h.sink.writes.last) as Map<String, Object?>;
-      expect(sent['kind'], 'CreateRoom');
-      expect(sent['invite_human_partner'], true);
+      expect(sent['kind'], 'CreateInvite');
 
       h.server.add(
         jsonEncode({
-          'kind': 'RoomCreated',
-          'room_id': '01JROOM',
-          'name': '',
-          'members': [
-            {'username': 'court', 'ed25519_pub': 'AAAA', 'x25519_pub': 'BBBB'},
-          ],
-          'pending_invite': {
-            'code': 'amber-fern-locket-tide',
-            'qr_png_base64': 'AAAA',
-            'expires_at': '2026-06-09T20:32:00Z',
-          },
+          'kind': 'InviteCreated',
+          'code': 'amber-fern-locket-tide',
+          'qr_png_base64': 'AAAA',
+          'expires_at': '2026-06-09T20:32:00Z',
         }),
       );
       final created = await fut.timeout(const Duration(seconds: 2));

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-/// Renders a QR code for an invite. The code string is the canonical payload
-/// per spec §4.3 — no JSON, no URL scheme. White background / dark foreground
-/// kept simple; theme integration can come later without breaking callers.
+import 'invite_link.dart';
+
+/// Renders a QR code for an invite. The QR encodes the **universal link**
+/// (`https://littlelove.dev/pair/<code>`), so scanning with the system camera
+/// opens the app straight into the consume path — no in-app scanner needed.
 class InviteQr extends StatelessWidget {
   const InviteQr({super.key, required this.code, this.size = 220});
 
@@ -16,7 +18,7 @@ class InviteQr extends StatelessWidget {
       color: Colors.white,
       padding: const EdgeInsets.all(8),
       child: QrImageView(
-        data: code,
+        data: pairLink(code),
         version: QrVersions.auto,
         size: size,
         backgroundColor: Colors.white,

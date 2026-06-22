@@ -422,6 +422,15 @@ class MarkReadFrame {
   };
 }
 
+/// Roomless invite request (spec §5.2 / Part B). Mints an invite with
+/// `room_id = NULL` and creates **no** room; the couple room is created on the
+/// server only when the partner consumes. Server replies with `InviteCreated`.
+class CreateInviteFrame {
+  const CreateInviteFrame();
+
+  Map<String, Object?> toJson() => <String, Object?>{'kind': 'CreateInvite'};
+}
+
 class CreateRoomFrame {
   const CreateRoomFrame({this.name, required this.inviteHumanPartner});
   final String? name;

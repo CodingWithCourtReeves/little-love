@@ -57,6 +57,7 @@ dependencies:
   flutter_linkify: ^6.0.0
   html: ^0.15.4
   shared_preferences: ^2.3.2
+  app_links: ^6.3.0
 
 dev_dependencies:
   flutter_test:

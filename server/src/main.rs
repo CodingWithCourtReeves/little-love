@@ -74,6 +74,14 @@ async fn main() -> Result<()> {
             "/invites/:code/preview",
             axum::routing::post(littlelove_api::invites::preview_invite),
         )
+        .route(
+            "/.well-known/apple-app-site-association",
+            get(littlelove_api::well_known::apple_app_site_association),
+        )
+        .route(
+            "/pair/:token",
+            get(littlelove_api::well_known::pair_landing),
+        )
         .route("/ws", get(ws_handler))
         .with_state(state);
 

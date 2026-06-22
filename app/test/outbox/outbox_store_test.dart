@@ -56,6 +56,14 @@ void main() {
     },
   );
 
+  test('clear deletes every queued row', () async {
+    final s = await freshStore();
+    await s.enqueue(clientMsgId: 'a', roomId: 'r1', bodies: {'k': 'ct-a'});
+    await s.enqueue(clientMsgId: 'b', roomId: 'r2', bodies: {'k': 'ct-b'});
+    await s.clear();
+    expect(await s.pending(), isEmpty);
+  });
+
   test('markAttempt bumps attempts and stores last_error', () async {
     final s = await freshStore();
     await s.enqueue(

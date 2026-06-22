@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../identity/current_identity.dart';
+import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/select_room.dart';
-import '../inbox/pending_invites_provider.dart';
 import '../inbox/room.dart';
 import '../outbox/outbox_store.dart';
 import '../pairing/encryption.dart';
@@ -39,7 +39,7 @@ class RoomMessageRouter {
     _markReadDebounce[roomId]?.cancel();
     _markReadDebounce[roomId] = Timer(const Duration(milliseconds: 400), () {
       _markReadDebounce.remove(roomId);
-      if (ref.read(inboxStateProvider).selectedRoomId == roomId) {
+      if (ref.read(activeRoomProvider) == roomId) {
         sendMarkRead(ref, roomId);
       }
     });
@@ -59,25 +59,16 @@ class RoomMessageRouter {
             )
             .toList(growable: false);
         ref.read(inboxStateProvider.notifier).setRooms(mapped);
+        // The authoritative room list has landed — the inbox is now synced, so
+        // an empty list reads as "unpaired" rather than "still loading".
+        ref.read(inboxSyncedProvider.notifier).state = true;
         for (final r in mapped) {
           _subscribe(r.roomId);
         }
 
-      case RoomCreatedFrame(
-        :final roomId,
-        :final name,
-        :final members,
-        :final pendingInvite,
-      ):
+      case RoomCreatedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
         _subscribe(roomId);
-        if (pendingInvite != null) {
-          ref.read(pendingInvitesProvider.notifier).set(roomId, pendingInvite);
-        }
-        // The creator just made this room — drop them into it and mark read.
-        // For a pending-invite room this routes to the invite-code screen via
-        // inbox_shell; otherwise straight into the conversation.
-        selectAndMarkRead(ref, roomId);
 
       case InviteConsumedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
@@ -226,12 +217,15 @@ class RoomMessageRouter {
       // A live partner message landing in the open room should flip the
       // sender's bubble to a double heart now, not on the next reopen.
       // `clientMsgId == null && !replayed` is precisely a live partner message
-      // (my own live self-copy always carries a clientMsgId, handled above).
-      // The watermark in sendMarkRead already covers this message since it's in
-      // the store before this runs.
-      if (!f.replayed &&
-          ref.read(inboxStateProvider).selectedRoomId == f.roomId) {
-        sendMarkRead(ref, f.roomId);
+      // (my own live self-copy always carries a clientMsgId, handled above;
+      // replays are covered by the open trigger and must not spam a MarkRead
+      // per row). The watermark in sendMarkRead already covers this message
+      // since it's in the store before this runs.
+      if (!f.replayed && ref.read(activeRoomProvider) == f.roomId) {
+        // The chat is on screen, so this message is read: tell the server AND
+        // advance our local read marker, so leaving the room doesn't leave a
+        // phantom unread dot for a message we just watched arrive.
+        markRoomRead(ref, f.roomId);
       }
       // Replayed messages (reconnect / cold launch / a push received while
       // backgrounded) must ALSO reach the server, or read_at stays NULL and the

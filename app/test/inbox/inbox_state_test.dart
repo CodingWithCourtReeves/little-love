@@ -15,12 +15,10 @@ Room _r(String id, String peer) => Room(
 );
 
 void main() {
-  test('initial state has no rooms and no selection', () {
+  test('initial state has no rooms', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);
-    final s = container.read(inboxStateProvider);
-    expect(s.rooms, isEmpty);
-    expect(s.selectedRoomId, isNull);
+    expect(container.read(inboxStateProvider).rooms, isEmpty);
   });
 
   test('setRooms replaces the room list', () {
@@ -29,33 +27,30 @@ void main() {
     final rooms = [_r('1', 'kaitlyn'), _r('2', 'sage')];
     container.read(inboxStateProvider.notifier).setRooms(rooms);
     expect(container.read(inboxStateProvider).rooms, rooms);
-  });
-
-  test('select sets selectedRoomId when the room exists', () {
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
-    container.read(inboxStateProvider.notifier).setRooms([_r('1', 'kaitlyn')]);
-    container.read(inboxStateProvider.notifier).select('1');
-    expect(container.read(inboxStateProvider).selectedRoomId, '1');
-  });
-
-  test('select throws for an unknown roomId', () {
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
-    container.read(inboxStateProvider.notifier).setRooms([_r('1', 'kaitlyn')]);
-    expect(
-      () =>
-          container.read(inboxStateProvider.notifier).select('does-not-exist'),
-      throwsArgumentError,
-    );
-  });
-
-  test('setRooms clears selection if the previously selected room is gone', () {
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
-    container.read(inboxStateProvider.notifier).setRooms([_r('1', 'kaitlyn')]);
-    container.read(inboxStateProvider.notifier).select('1');
     container.read(inboxStateProvider.notifier).setRooms([_r('2', 'sage')]);
-    expect(container.read(inboxStateProvider).selectedRoomId, isNull);
+    expect(container.read(inboxStateProvider).rooms.single.roomId, '2');
+  });
+
+  test('renameRoom updates the name in place', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(inboxStateProvider.notifier).setRooms([_r('1', 'kaitlyn')]);
+    container.read(inboxStateProvider.notifier).renameRoom('1', 'Daily');
+    expect(container.read(inboxStateProvider).rooms.single.name, 'Daily');
+  });
+
+  test('removeMember drops the member, and the room when none remain', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(inboxStateProvider.notifier).setRooms([_r('1', 'kaitlyn')]);
+    // Removing the partner leaves only court.
+    container.read(inboxStateProvider.notifier).removeMember('1', 'kaitlyn');
+    expect(
+      container.read(inboxStateProvider).rooms.single.members.single.username,
+      'court',
+    );
+    // Removing the last member removes the room entirely.
+    container.read(inboxStateProvider.notifier).removeMember('1', 'court');
+    expect(container.read(inboxStateProvider).rooms, isEmpty);
   });
 }

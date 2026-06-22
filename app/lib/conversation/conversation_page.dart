@@ -18,13 +18,14 @@ import '../attachment/attachment_download.dart';
 import '../attachment/staged_attachment.dart';
 import '../attachment/thumbnail.dart';
 import '../identity/providers.dart';
-import '../inbox/channel_switcher.dart';
+import '../inbox/active_room_provider.dart';
+import '../inbox/room.dart';
+import '../inbox/select_room.dart';
+import '../theme/app_palette.dart';
+import '../theme/love_toast.dart';
 import '../wallpaper/wallpaper_background.dart';
 import '../wallpaper/wallpaper_controller.dart';
 import '../wallpaper/wallpaper_screen.dart';
-import '../inbox/room.dart';
-import '../theme/love_toast.dart';
-import '../theme/app_palette.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
 import 'link_preview.dart';
@@ -94,7 +95,6 @@ class ConversationPage extends ConsumerStatefulWidget {
     required this.selfUsername,
     required this.onSend,
     this.onRename,
-    this.onNewChannel,
     this.onRetry,
     this.onPickMedia,
     this.onSendMedia,
@@ -109,7 +109,6 @@ class ConversationPage extends ConsumerStatefulWidget {
   final String selfUsername;
   final SendCallback onSend;
   final RenameCallback? onRename;
-  final VoidCallback? onNewChannel;
   final RetryCallback? onRetry;
 
   /// Tapped the composer's attach (+) button: pick media to stage on the
@@ -218,8 +217,22 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     super.initState();
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addObserver(this);
-    SchedulerBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _jumpToBottom();
+      // This chat is now on screen: it owns the read-receipt signal, and
+      // opening it marks everything read. Done post-frame to avoid mutating a
+      // provider during the first build. We capture the controller here because
+      // `ref` is unusable in dispose (the element is already gone by then).
+      if (!mounted) return;
+      _activeRoom = ref.read(activeRoomProvider.notifier);
+      _activeRoom!.state = widget.roomId;
+      markRoomRead(ref, widget.roomId);
+    });
   }
+
+  /// The active-room controller, captured on mount so [dispose] can clear it
+  /// without touching the (by-then disposed) [ref].
+  StateController<String?>? _activeRoom;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -269,6 +282,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   @override
   void dispose() {
+    // Leaving the chat: drop the read-receipt signal. Riverpod forbids
+    // mutating a provider inside dispose, so defer to a microtask. Clear only
+    // if it still points at us — a faster push of another room may have claimed
+    // it by the time this runs.
+    final activeRoom = _activeRoom;
+    final roomId = widget.roomId;
+    if (activeRoom != null) {
+      Future.microtask(() {
+        if (activeRoom.state == roomId) activeRoom.state = null;
+      });
+    }
     _dismissReactionBar();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
@@ -590,9 +614,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           ),
         ),
         titleSpacing: 8,
-        title: ChannelSwitcher(
-          selfUsername: widget.selfUsername,
-          onNewChannel: widget.onNewChannel,
+        title: Text(
+          widget.room.displayName(widget.selfUsername),
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+            color: context.palette.textPrimary,
+          ),
         ),
         actions: [
           Padding(

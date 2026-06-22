@@ -5,25 +5,14 @@ import 'room.dart';
 
 @immutable
 class InboxState {
-  const InboxState({required this.rooms, required this.selectedRoomId});
+  const InboxState({required this.rooms});
 
   final List<Room> rooms;
-  final String? selectedRoomId;
 
-  InboxState copyWith({
-    List<Room>? rooms,
-    String? selectedRoomId,
-    bool clearSelection = false,
-  }) {
-    return InboxState(
-      rooms: rooms ?? this.rooms,
-      selectedRoomId: clearSelection
-          ? null
-          : (selectedRoomId ?? this.selectedRoomId),
-    );
-  }
+  InboxState copyWith({List<Room>? rooms}) =>
+      InboxState(rooms: rooms ?? this.rooms);
 
-  static const InboxState empty = InboxState(rooms: [], selectedRoomId: null);
+  static const InboxState empty = InboxState(rooms: []);
 }
 
 class InboxNotifier extends Notifier<InboxState> {
@@ -31,27 +20,7 @@ class InboxNotifier extends Notifier<InboxState> {
   InboxState build() => InboxState.empty;
 
   void setRooms(List<Room> rooms) {
-    final keepSelection =
-        state.selectedRoomId != null &&
-        rooms.any((r) => r.roomId == state.selectedRoomId);
-    state = state.copyWith(
-      rooms: List.unmodifiable(rooms),
-      clearSelection: !keepSelection,
-    );
-  }
-
-  void select(String roomId) {
-    if (!state.rooms.any((r) => r.roomId == roomId)) {
-      throw ArgumentError.value(roomId, 'roomId', 'no such room in inbox');
-    }
-    state = state.copyWith(selectedRoomId: roomId);
-  }
-
-  /// Drop the current selection so the detail pane returns to the
-  /// "Select a conversation" surface (which carries the pair / new-chat
-  /// affordances). Used by the sidebar's "+ new chat" button.
-  void deselect() {
-    state = state.copyWith(clearSelection: true);
+    state = state.copyWith(rooms: List.unmodifiable(rooms));
   }
 
   /// Rename a room in place, preserving members + createdAt. No-op if the
@@ -104,19 +73,19 @@ class InboxNotifier extends Notifier<InboxState> {
         );
       }
     }
-    final selectionStillValid =
-        state.selectedRoomId == null ||
-        updated.any((r) => r.roomId == state.selectedRoomId);
-    state = state.copyWith(
-      rooms: List.unmodifiable(updated),
-      clearSelection: !selectionStillValid,
-    );
+    state = state.copyWith(rooms: List.unmodifiable(updated));
   }
 }
 
 final inboxStateProvider = NotifierProvider<InboxNotifier, InboxState>(
   InboxNotifier.new,
 );
+
+/// Flips to true the first time the server's room list lands (a `Rooms` frame),
+/// and stays true. Lets the UI tell "no rooms yet, still syncing" apart from
+/// "genuinely unpaired" — so a paired user doesn't flash the pairing screen on
+/// launch before their rooms arrive over the socket.
+final inboxSyncedProvider = StateProvider<bool>((ref) => false);
 
 /// The room to open by default ("home"): the partner DM if one exists,
 /// otherwise the most recently created room. Returns null for an empty inbox.

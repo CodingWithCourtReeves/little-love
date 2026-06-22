@@ -17,6 +17,10 @@ import UserNotifications
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
+  // NOTE: universal links (`https://…/pair/<code>`) are NOT handled here. This
+  // app uses the UIScene lifecycle, so iOS delivers them to `SceneDelegate`,
+  // never to `application(_:continue:)`. See SceneDelegate.swift.
+
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     let messenger = engineBridge.applicationRegistrar.messenger()

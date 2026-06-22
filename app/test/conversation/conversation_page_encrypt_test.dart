@@ -12,7 +12,7 @@ import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/outbox/outbox_store.dart';
-import 'package:littlelove/screens/inbox/inbox_shell.dart';
+import 'package:littlelove/screens/inbox/home_screen.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/live_connection.dart';
 
@@ -85,15 +85,12 @@ void main() {
           createdAt: DateTime.utc(2026, 6, 10),
         ),
       ]);
-      container.read(inboxStateProvider.notifier).select('room1');
-
-      await tester.binding.setSurfaceSize(const Size(1200, 900));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
+      // One room → HomeScreen auto-opens straight into its ConversationPage,
+      // so the composer is on screen after settle.
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: MaterialApp(home: InboxShell(account: acc)),
+          child: MaterialApp(home: HomeScreen(account: acc)),
         ),
       );
       await tester.pumpAndSettle();

@@ -66,7 +66,6 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
     if (_submitting) return;
     final name = _formatted;
     if (name.isEmpty) return;
-    // Mirror create_chat_pick_screen.dart's exact mechanism:
     // ref.read(liveConnectionProvider).asData?.value gives the LiveConnection.
     final conn = ref.read(liveConnectionProvider).asData?.value;
     if (conn == null) {
@@ -77,7 +76,6 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
       return;
     }
     setState(() => _submitting = true);
-    // Mirror create_chat_pick_screen.dart: conn.send(Frame.toJson())
     conn.send(CreateRoomFrame(name: name, inviteHumanPartner: true).toJson());
     if (mounted) Navigator.of(context).pop();
   }
