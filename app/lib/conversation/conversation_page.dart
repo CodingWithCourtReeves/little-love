@@ -909,13 +909,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 mine: mine,
               ),
               child: Padding(
-                // Inset the content by the tail width on the sender's side so
-                // text never sits in the tail strip at the bottom corner.
-                padding: EdgeInsets.only(
-                  left: mine ? 14 : 14 + _kBubbleTail,
-                  right: mine ? 14 + _kBubbleTail : 14,
-                  top: 10,
-                  bottom: 10,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
                 ),
                 child: _bubbleBody(m, mine, marker),
               ),
@@ -2272,14 +2268,12 @@ class _MediaImageState extends ConsumerState<_MediaImage> {
   }
 }
 
-/// Width of the tail flicked out of a text bubble's bottom corner. Content is
-/// inset by this much on the tail side so it never overlaps the tail.
-const double _kBubbleTail = 7;
-
-/// Paints a chat bubble: a rounded rectangle with a small tail flicked out of
+/// Paints a chat bubble: a rounded rectangle with a small tail curling out of
 /// the bottom corner on the sender's side — right for my messages, left for the
-/// partner's — like iMessage/Telegram. The tail occupies a [_kBubbleTail]-wide
-/// strip on that side; the body fills the rest of the box.
+/// partner's — like iMessage. The tail isn't a flat flare: the edge runs down
+/// past the corner, pokes out to the box edge, then *hooks back inward* with a
+/// little curl (the control points dip just past the bottom edge). The body
+/// fills the full box; the tail lives entirely inside the bottom corner.
 class _BubbleBackground extends CustomPainter {
   const _BubbleBackground({
     required this.color,
@@ -2290,9 +2284,6 @@ class _BubbleBackground extends CustomPainter {
   final Color color;
   final Color border;
   final bool mine;
-
-  /// Corner radius of the bubble body (the tail aside).
-  static const double _radius = 14;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2314,39 +2305,43 @@ class _BubbleBackground extends CustomPainter {
     );
   }
 
+  /// The canonical iMessage bubble path: 15px rounded corners on three sides,
+  /// and a curled tail at the bottom corner on the sender's side. Coordinates
+  /// are the fixed pixel landmarks from Apple's shape (tail spans ~20px), so it
+  /// reads identically at any bubble size.
   Path _path(Size size) {
-    const r = _radius;
-    const t = _kBubbleTail;
     final w = size.width;
     final h = size.height;
     final path = Path();
     if (mine) {
-      // Body occupies [0, w - t]; the tail flicks out to the right at bottom.
+      // Tail at the bottom-right; mirror of the received geometry (x -> w - x).
       path
-        ..moveTo(w - t, r)
-        ..lineTo(w - t, h - r)
-        ..quadraticBezierTo(w - t, h, w, h) // flare out to the tail tip
-        ..quadraticBezierTo(w - t, h, w - t - r, h) // hook back to the body
-        ..lineTo(r, h)
-        ..quadraticBezierTo(0, h, 0, h - r) // bottom-left corner
-        ..lineTo(0, r)
-        ..quadraticBezierTo(0, 0, r, 0) // top-left corner
-        ..lineTo(w - t - r, 0)
-        ..quadraticBezierTo(w - t, 0, w - t, r) // top-right corner
+        ..moveTo(w - 20, h)
+        ..lineTo(15, h)
+        ..cubicTo(8, h, 0, h - 8, 0, h - 15) // bottom-left corner
+        ..lineTo(0, 15)
+        ..cubicTo(0, 8, 8, 0, 15, 0) // top-left corner
+        ..lineTo(w - 20, 0)
+        ..cubicTo(w - 12, 0, w - 5, 8, w - 5, 15) // top-right corner
+        ..lineTo(w - 5, h - 10) // right edge runs down past the corner
+        ..cubicTo(w - 5, h - 1, w, h, w, h) // poke out to the tail tip
+        ..cubicTo(w - 4, h + 1, w - 8, h - 1, w - 12, h - 4) // curl back in
+        ..cubicTo(w - 15, h - 1, w - 18, h, w - 20, h) // rejoin bottom edge
         ..close();
     } else {
-      // Body occupies [t, w]; the tail flicks out to the left at bottom.
+      // Tail at the bottom-left (received).
       path
-        ..moveTo(t, r)
-        ..lineTo(t, h - r)
-        ..quadraticBezierTo(t, h, 0, h) // flare out to the tail tip
-        ..quadraticBezierTo(t, h, t + r, h) // hook back to the body
-        ..lineTo(w - r, h)
-        ..quadraticBezierTo(w, h, w, h - r) // bottom-right corner
-        ..lineTo(w, r)
-        ..quadraticBezierTo(w, 0, w - r, 0) // top-right corner
-        ..lineTo(t + r, 0)
-        ..quadraticBezierTo(t, 0, t, r) // top-left corner
+        ..moveTo(20, h)
+        ..lineTo(w - 15, h)
+        ..cubicTo(w - 8, h, w, h - 8, w, h - 15) // bottom-right corner
+        ..lineTo(w, 15)
+        ..cubicTo(w, 8, w - 8, 0, w - 15, 0) // top-right corner
+        ..lineTo(20, 0)
+        ..cubicTo(12, 0, 5, 8, 5, 15) // top-left corner
+        ..lineTo(5, h - 10) // left edge runs down past the corner
+        ..cubicTo(5, h - 1, 0, h, 0, h) // poke out to the tail tip
+        ..cubicTo(4, h + 1, 8, h - 1, 12, h - 4) // curl back in
+        ..cubicTo(15, h - 1, 18, h, 20, h) // rejoin bottom edge
         ..close();
     }
     return path;
