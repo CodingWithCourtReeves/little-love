@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -208,7 +209,7 @@ class ChatInfoPage extends ConsumerWidget {
         final title = m.linkPreview?.title?.trim();
         return ListTile(
           key: Key('chat-info-link-$i'),
-          leading: Icon(Icons.link, color: p.accentUser),
+          leading: _linkLeading(p, m.linkPreview?.imageB64),
           title: Text(
             (title != null && title.isNotEmpty) ? title : url,
             maxLines: 1,
@@ -224,6 +225,36 @@ class ChatInfoPage extends ConsumerWidget {
           onTap: () => _open(url),
         );
       },
+    );
+  }
+
+  /// Leading thumbnail for a link row: the link preview's image when it has
+  /// one, else the default link icon.
+  Widget _linkLeading(AppPalette p, String? imageB64) {
+    Uint8List? bytes;
+    if (imageB64 != null && imageB64.isNotEmpty) {
+      try {
+        bytes = base64.decode(imageB64);
+      } catch (_) {
+        bytes = null;
+      }
+    }
+    final icon = SizedBox(
+      width: 40,
+      height: 40,
+      child: Icon(Icons.link, color: p.accentUser),
+    );
+    if (bytes == null) return icon;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: Image.memory(
+        bytes,
+        width: 40,
+        height: 40,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) => icon,
+      ),
     );
   }
 
