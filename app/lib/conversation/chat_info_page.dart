@@ -9,6 +9,7 @@ import '../attachment/attachment_descriptor.dart';
 import '../inbox/room.dart';
 import '../theme/app_palette.dart';
 import '../theme/love_toast.dart';
+import '../wallpaper/wallpaper_background.dart';
 import '../wire/message.dart';
 import 'message_store.dart';
 
@@ -48,69 +49,67 @@ class ChatInfoPage extends ConsumerWidget {
         if (_linkUrl(m) != null) m,
     ];
     final name = room.displayName(selfUsername);
-    final isDark = p.brightness == Brightness.dark;
-
     return DefaultTabController(
       length: 3,
       child: Scaffold(
-        backgroundColor: p.bgCanvas,
+        backgroundColor: Colors.transparent,
+        extendBodyBehindAppBar: true,
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
           scrolledUnderElevation: 0,
           surfaceTintColor: Colors.transparent,
           foregroundColor: p.textPrimary,
-          // Light status-bar icons on the dark palette, dark on the light one.
-          systemOverlayStyle: isDark
-              ? SystemUiOverlayStyle.light
-              : SystemUiOverlayStyle.dark,
-          // Match the chat: the page colour fills the bar, with a dark gradient
-          // at the very top so the OS status bar (clock, battery) stays legible.
-          flexibleSpace: Stack(
-            fit: StackFit.expand,
+          // White status-bar icons over the wallpaper + dark top scrim.
+          systemOverlayStyle: SystemUiOverlayStyle.light,
+          // Dark gradient at the very top so the OS status bar (clock, battery)
+          // stays legible over the wallpaper — same treatment as the chat.
+          flexibleSpace: const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0x66000000), Color(0x00000000)],
+                stops: [0.0, 0.62],
+              ),
+            ),
+          ),
+          title: const Text('Info'),
+        ),
+        // The chat wallpaper carries through, so the page reads as part of the
+        // conversation and the top gradient actually has something to darken.
+        body: WallpaperBackground(
+          child: Column(
             children: [
-              DecoratedBox(decoration: BoxDecoration(color: p.bgCanvas)),
-              const DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Color(0x66000000), Color(0x00000000)],
-                    stops: [0.0, 0.62],
-                  ),
+              SizedBox(
+                height: MediaQuery.paddingOf(context).top + kToolbarHeight,
+              ),
+              _header(context, name),
+              _actionRow(context),
+              const SizedBox(height: 8),
+              TabBar(
+                labelColor: p.accentUser,
+                unselectedLabelColor: p.textMuted,
+                indicatorColor: p.accentUser,
+                // Drop M3's full-width divider line under the tabs.
+                dividerColor: Colors.transparent,
+                tabs: const [
+                  Tab(text: 'Media'),
+                  Tab(text: 'Voice'),
+                  Tab(text: 'Links'),
+                ],
+              ),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    _mediaTab(context, media),
+                    _emptyTab(context, 'Voice messages are coming soon'),
+                    _linksTab(context, links),
+                  ],
                 ),
               ),
             ],
           ),
-          title: const Text('Info'),
-        ),
-        body: Column(
-          children: [
-            _header(context, name),
-            _actionRow(context),
-            const SizedBox(height: 8),
-            TabBar(
-              labelColor: p.accentUser,
-              unselectedLabelColor: p.textMuted,
-              indicatorColor: p.accentUser,
-              // Drop M3's full-width divider line under the tabs.
-              dividerColor: Colors.transparent,
-              tabs: const [
-                Tab(text: 'Media'),
-                Tab(text: 'Voice'),
-                Tab(text: 'Links'),
-              ],
-            ),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  _mediaTab(context, media),
-                  _emptyTab(context, 'Voice messages are coming soon'),
-                  _linksTab(context, links),
-                ],
-              ),
-            ),
-          ],
         ),
       ),
     );

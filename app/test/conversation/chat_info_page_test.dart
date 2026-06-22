@@ -11,6 +11,7 @@ import 'package:littlelove/theme/app_palette.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
 import 'package:littlelove/attachment/attachment_descriptor.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Room _room() => Room(
   roomId: 'roomA',
@@ -44,6 +45,8 @@ Widget _app(ProviderContainer c) => UncontrolledProviderScope(
 );
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   testWidgets('header shows the partner name; tabs render media and links', (
     tester,
   ) async {
