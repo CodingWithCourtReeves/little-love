@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -48,12 +48,42 @@ class ChatInfoPage extends ConsumerWidget {
         if (_linkUrl(m) != null) m,
     ];
     final name = room.displayName(selfUsername);
+    final isDark = p.brightness == Brightness.dark;
 
     return DefaultTabController(
       length: 3,
       child: Scaffold(
         backgroundColor: p.bgCanvas,
-        appBar: AppBar(title: const Text('Info')),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          surfaceTintColor: Colors.transparent,
+          foregroundColor: p.textPrimary,
+          // Light status-bar icons on the dark palette, dark on the light one.
+          systemOverlayStyle: isDark
+              ? SystemUiOverlayStyle.light
+              : SystemUiOverlayStyle.dark,
+          // Match the chat: the page colour fills the bar, with a dark gradient
+          // at the very top so the OS status bar (clock, battery) stays legible.
+          flexibleSpace: Stack(
+            fit: StackFit.expand,
+            children: [
+              DecoratedBox(decoration: BoxDecoration(color: p.bgCanvas)),
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0x66000000), Color(0x00000000)],
+                    stops: [0.0, 0.62],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          title: const Text('Info'),
+        ),
         body: Column(
           children: [
             _header(context, name),
