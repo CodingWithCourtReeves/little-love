@@ -4,6 +4,8 @@ import 'package:littlelove/pairing/deep_link.dart';
 import 'package:littlelove/pairing/invite_link.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('handlePairUri sets the pending code for a /pair link', () {
     final c = ProviderContainer();
     addTearDown(c.dispose);
