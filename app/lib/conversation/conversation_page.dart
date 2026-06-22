@@ -21,6 +21,7 @@ import '../identity/providers.dart';
 import '../inbox/channel_switcher.dart';
 import '../wallpaper/wallpaper_background.dart';
 import '../wallpaper/wallpaper_controller.dart';
+import '../wallpaper/wallpaper_screen.dart';
 import '../inbox/room.dart';
 import '../theme/love_toast.dart';
 import '../theme/twilight.dart';
@@ -602,27 +603,31 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: _TopStatus(roomId: widget.roomId),
           ),
-          if (widget.onRename != null)
-            PopupMenuButton<String>(
-              key: const Key('room-menu-button'),
-              icon: const Icon(
-                Icons.more_vert,
-                color: TwilightColors.textMuted,
+          PopupMenuButton<String>(
+            key: const Key('room-menu-button'),
+            icon: const Icon(Icons.more_vert, color: TwilightColors.textMuted),
+            onSelected: (value) {
+              switch (value) {
+                case 'wallpaper':
+                  Navigator.of(context).push(WallpaperScreen.route());
+                case 'rename':
+                  if (widget.onRename != null) _showRenameDialog();
+              }
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem<String>(
+                key: Key('room-menu-wallpaper'),
+                value: 'wallpaper',
+                child: Text('Wallpaper'),
               ),
-              onSelected: (value) {
-                if (value == 'rename' && widget.onRename != null) {
-                  _showRenameDialog();
-                }
-              },
-              itemBuilder: (_) => [
-                if (widget.onRename != null)
-                  const PopupMenuItem<String>(
-                    key: Key('room-menu-rename'),
-                    value: 'rename',
-                    child: Text('Rename chat'),
-                  ),
-              ],
-            ),
+              if (widget.onRename != null)
+                const PopupMenuItem<String>(
+                  key: Key('room-menu-rename'),
+                  value: 'rename',
+                  child: Text('Rename chat'),
+                ),
+            ],
+          ),
         ],
       ),
       body: WallpaperBackground(
