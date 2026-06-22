@@ -9,7 +9,7 @@ import '../../inbox/room.dart';
 import '../../pairing/bip39_invite.dart';
 import '../../pairing/invite_consume.dart';
 import '../../pairing/pairing_transport.dart';
-import '../../theme/twilight.dart';
+import '../../theme/app_palette.dart';
 import '../../wire/frames.dart';
 import '../../wire/rest_client.dart';
 
@@ -160,9 +160,9 @@ class _EnterCodeScreenState extends ConsumerState<EnterCodeScreen> {
   Widget build(BuildContext context) {
     final preview = _preview;
     return Scaffold(
-      backgroundColor: TwilightColors.bgCanvas,
+      backgroundColor: context.palette.bgCanvas,
       appBar: AppBar(
-        backgroundColor: TwilightColors.bgSurface,
+        backgroundColor: context.palette.bgSurface,
         title: const Text('Enter invite code'),
       ),
       body: SingleChildScrollView(
@@ -223,11 +223,11 @@ class _PreviewHeader extends StatelessWidget {
         : 'Pair with @$inviter?';
     return Text(
       text,
-      style: const TextStyle(
+      style: TextStyle(
         fontFamily: 'Inter',
         fontSize: 22,
         fontWeight: FontWeight.w500,
-        color: TwilightColors.textPrimary,
+        color: context.palette.textPrimary,
       ),
     );
   }
@@ -251,13 +251,13 @@ class _RosterCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'ROOM ROSTER',
             style: TextStyle(
               fontFamily: 'JetBrainsMono',
               fontSize: 10,
               letterSpacing: 2.0,
-              color: TwilightColors.textMuted,
+              color: context.palette.textMuted,
             ),
           ),
           const SizedBox(height: 14),
@@ -296,8 +296,8 @@ class _MemberRow extends StatelessWidget {
     return 'HOST';
   }
 
-  Color _avColor() {
-    return TwilightColors.accentUser;
+  Color _avColor(BuildContext context) {
+    return context.palette.accentUser;
   }
 
   @override
@@ -311,9 +311,9 @@ class _MemberRow extends StatelessWidget {
           width: 32,
           height: 32,
           decoration: BoxDecoration(
-            color: isSelf ? Colors.transparent : _avColor(),
+            color: isSelf ? Colors.transparent : _avColor(context),
             shape: BoxShape.circle,
-            border: isSelf ? Border.all(color: _avColor()) : null,
+            border: isSelf ? Border.all(color: _avColor(context)) : null,
           ),
           alignment: Alignment.center,
           child: Text(
@@ -322,7 +322,7 @@ class _MemberRow extends StatelessWidget {
               fontFamily: 'Inter',
               fontWeight: FontWeight.w500,
               fontSize: 13,
-              color: isSelf ? _avColor() : const Color(0xFFFFFAFB),
+              color: isSelf ? _avColor(context) : const Color(0xFFFFFAFB),
             ),
           ),
         ),
@@ -330,21 +330,21 @@ class _MemberRow extends StatelessWidget {
         Expanded(
           child: Text(
             _label(),
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'Inter',
               fontWeight: FontWeight.w500,
               fontSize: 15,
-              color: TwilightColors.textPrimary,
+              color: context.palette.textPrimary,
             ),
           ),
         ),
         Text(
           _role(),
-          style: const TextStyle(
+          style: TextStyle(
             fontFamily: 'JetBrainsMono',
             fontSize: 10,
             letterSpacing: 1.2,
-            color: TwilightColors.textMuted,
+            color: context.palette.textMuted,
           ),
         ),
       ],

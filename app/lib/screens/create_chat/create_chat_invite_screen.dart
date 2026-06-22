@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../inbox/inbox_state.dart';
 import '../../inbox/pending_invites_provider.dart';
 import '../../inbox/room.dart';
-import '../../theme/twilight.dart';
+import '../../theme/app_palette.dart';
 import '../../wire/frames.dart';
 import '../pair/enter_code.dart';
 
@@ -51,20 +51,20 @@ class CreateChatInviteScreen extends ConsumerWidget {
 
     if (invite == null || room == null) {
       return Scaffold(
-        backgroundColor: TwilightColors.bgCanvas,
+        backgroundColor: context.palette.bgCanvas,
         appBar: AppBar(
-          backgroundColor: TwilightColors.bgSurface,
+          backgroundColor: context.palette.bgSurface,
           title: const Text('Send invite code'),
         ),
-        body: const Center(
+        body: Center(
           child: Padding(
-            padding: EdgeInsets.all(24),
+            padding: const EdgeInsets.all(24),
             child: Text(
               'Waiting for the server to confirm the new chat…',
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 14,
-                color: TwilightColors.textMuted,
+                color: context.palette.textMuted,
               ),
             ),
           ),
@@ -73,9 +73,9 @@ class CreateChatInviteScreen extends ConsumerWidget {
     }
 
     return Scaffold(
-      backgroundColor: TwilightColors.bgCanvas,
+      backgroundColor: context.palette.bgCanvas,
       appBar: AppBar(
-        backgroundColor: TwilightColors.bgSurface,
+        backgroundColor: context.palette.bgSurface,
         title: const Text('Send invite code'),
       ),
       body: SingleChildScrollView(
@@ -83,22 +83,22 @@ class CreateChatInviteScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
+            Text(
               'Send this code to your partner.',
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontWeight: FontWeight.w500,
                 fontSize: 22,
-                color: TwilightColors.textPrimary,
+                color: context.palette.textPrimary,
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Your partner becomes a member the moment they enter this code.',
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 13,
-                color: TwilightColors.textMuted,
+                color: context.palette.textMuted,
               ),
             ),
             const SizedBox(height: 24),
@@ -162,30 +162,30 @@ class _CodeCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFFFFFAFB),
-        border: Border.all(color: TwilightColors.borderSoft),
+        border: Border.all(color: context.palette.borderSoft),
       ),
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             '4-WORD INVITE',
             style: TextStyle(
               fontFamily: 'JetBrainsMono',
               fontSize: 10,
               letterSpacing: 2.0,
-              color: TwilightColors.textMuted,
+              color: context.palette.textMuted,
             ),
           ),
           const SizedBox(height: 8),
           SelectableText(
             invite.code,
             key: const Key('invite-code-words'),
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'Inter',
               fontSize: 22,
               fontWeight: FontWeight.w500,
-              color: TwilightColors.textPrimary,
+              color: context.palette.textPrimary,
             ),
           ),
         ],
@@ -212,19 +212,19 @@ class _QrCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFFFFFAFB),
-        border: Border.all(color: TwilightColors.borderSoft),
+        border: Border.all(color: context.palette.borderSoft),
       ),
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'SAME CODE · QR',
             style: TextStyle(
               fontFamily: 'JetBrainsMono',
               fontSize: 10,
               letterSpacing: 2.0,
-              color: TwilightColors.textMuted,
+              color: context.palette.textMuted,
             ),
           ),
           const SizedBox(height: 8),
@@ -241,7 +241,7 @@ class _QrCard extends StatelessWidget {
                     key: const Key('invite-qr-placeholder'),
                     width: 180,
                     height: 180,
-                    color: TwilightColors.bgSurface,
+                    color: context.palette.bgSurface,
                   ),
           ),
         ],
@@ -259,19 +259,19 @@ class _RosterList extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFFFFFAFB),
-        border: Border.all(color: TwilightColors.borderSoft),
+        border: Border.all(color: context.palette.borderSoft),
       ),
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'ROOM ROSTER',
             style: TextStyle(
               fontFamily: 'JetBrainsMono',
               fontSize: 10,
               letterSpacing: 2.0,
-              color: TwilightColors.textMuted,
+              color: context.palette.textMuted,
             ),
           ),
           const SizedBox(height: 12),
@@ -281,8 +281,8 @@ class _RosterList extends StatelessWidget {
                 Container(
                   width: 28,
                   height: 28,
-                  decoration: const BoxDecoration(
-                    color: TwilightColors.accentUser,
+                  decoration: BoxDecoration(
+                    color: context.palette.accentUser,
                     shape: BoxShape.circle,
                   ),
                   alignment: Alignment.center,
@@ -300,19 +300,19 @@ class _RosterList extends StatelessWidget {
                 Expanded(
                   child: Text(
                     m.username,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Inter',
                       fontSize: 14,
-                      color: TwilightColors.textPrimary,
+                      color: context.palette.textPrimary,
                     ),
                   ),
                 ),
-                const Text(
+                Text(
                   'IN',
                   style: TextStyle(
                     fontFamily: 'JetBrainsMono',
                     fontSize: 10,
-                    color: TwilightColors.accentSage,
+                    color: context.palette.accentSage,
                   ),
                 ),
               ],
@@ -326,37 +326,37 @@ class _RosterList extends StatelessWidget {
                 height: 28,
                 decoration: BoxDecoration(
                   color: Colors.transparent,
-                  border: Border.all(color: TwilightColors.accentPartner),
+                  border: Border.all(color: context.palette.accentPartner),
                   shape: BoxShape.circle,
                 ),
                 alignment: Alignment.center,
-                child: const Text(
+                child: Text(
                   '?',
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontWeight: FontWeight.w500,
                     fontSize: 12,
-                    color: TwilightColors.accentPartner,
+                    color: context.palette.accentPartner,
                   ),
                 ),
               ),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Partner',
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 14,
-                    color: TwilightColors.textPrimary,
+                    color: context.palette.textPrimary,
                   ),
                 ),
               ),
-              const Text(
+              Text(
                 'PENDING',
                 style: TextStyle(
                   fontFamily: 'JetBrainsMono',
                   fontSize: 10,
-                  color: TwilightColors.accentUser,
+                  color: context.palette.accentUser,
                 ),
               ),
             ],

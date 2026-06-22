@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:littlelove/theme/twilight.dart';
+import 'package:littlelove/theme/app_palette.dart';
 import 'package:littlelove/wallpaper/wallpaper_controller.dart';
 import 'package:littlelove/wallpaper/wallpaper_screen.dart';
 import 'package:littlelove/wallpaper/wallpaper_selection.dart';
@@ -25,7 +25,7 @@ void main() {
         UncontrolledProviderScope(
           container: container,
           child: MaterialApp(
-            theme: buildTwilightTheme(),
+            theme: buildAppTheme(AppPalette.light),
             home: const WallpaperScreen(),
           ),
         ),

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../identity/account_local.dart';
-import '../../theme/twilight.dart';
+import '../../theme/app_palette.dart';
 import 'inbox_shell.dart' show PairCard;
 
 /// Dedicated screen hosting the three pair / new-chat CTAs. Pushed from the
@@ -17,9 +17,9 @@ class NewChatScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: TwilightColors.bgCanvas,
+      backgroundColor: context.palette.bgCanvas,
       appBar: AppBar(
-        backgroundColor: TwilightColors.bgSurface,
+        backgroundColor: context.palette.bgSurface,
         title: const Text('New chat'),
       ),
       body: Center(

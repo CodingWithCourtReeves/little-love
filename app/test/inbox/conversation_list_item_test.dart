@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/inbox/conversation_list_item.dart';
-import 'package:littlelove/theme/twilight.dart';
+import 'package:littlelove/theme/app_palette.dart';
 
 void main() {
   testWidgets('tap fires onTap', (tester) async {
     var tapped = false;
     await tester.pumpWidget(
       MaterialApp(
-        theme: buildTwilightTheme(),
+        theme: buildAppTheme(AppPalette.light),
         home: Scaffold(
           body: ConversationListItem(
             key: const Key('item-1'),
@@ -26,7 +26,7 @@ void main() {
   testWidgets('tap target is at least 44x44', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        theme: buildTwilightTheme(),
+        theme: buildAppTheme(AppPalette.light),
         home: Scaffold(
           body: ConversationListItem(
             key: const Key('item-1'),
@@ -45,7 +45,7 @@ void main() {
   testWidgets('selected variant has a distinct background', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        theme: buildTwilightTheme(),
+        theme: buildAppTheme(AppPalette.light),
         home: Scaffold(
           body: Column(
             children: [

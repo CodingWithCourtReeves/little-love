@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../theme/app_palette.dart';
 import '../theme/twilight.dart';
 import 'wallpaper_background.dart';
 import 'wallpaper_controller.dart';
@@ -18,9 +19,9 @@ class WallpaperScreen extends ConsumerWidget {
     final controller = ref.read(wallpaperControllerProvider.notifier);
 
     return Scaffold(
-      backgroundColor: TwilightColors.bgCanvas,
+      backgroundColor: context.palette.bgCanvas,
       appBar: AppBar(
-        backgroundColor: TwilightColors.bgSurface,
+        backgroundColor: context.palette.bgSurface,
         elevation: 0,
         title: const Text('Wallpaper'),
       ),
@@ -50,7 +51,7 @@ class WallpaperScreen extends ConsumerWidget {
             onChanged: controller.setDoodles,
             title: const Text('Love Doodles'),
             subtitle: const Text('A subtle pattern over the gradient'),
-            activeThumbColor: TwilightColors.accentUser,
+            activeThumbColor: context.palette.accentUser,
           ),
         ],
       ),
@@ -89,7 +90,7 @@ class _GradientTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
                   color: selected
-                      ? TwilightColors.accentUser
+                      ? context.palette.accentUser
                       : Colors.transparent,
                   width: 2,
                 ),

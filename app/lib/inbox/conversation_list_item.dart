@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../theme/twilight.dart';
+import '../theme/app_palette.dart';
 
 /// Single row in the sidebar / drawer. The whole row is the tap target;
 /// minimum 44x44 logical px per spec §6.4.
@@ -27,11 +27,11 @@ class ConversationListItem extends StatelessWidget {
           constraints: const BoxConstraints(minHeight: 44),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
-            color: selected ? TwilightColors.bgSurfaceAlt : Colors.transparent,
+            color: selected ? context.palette.bgSurfaceAlt : Colors.transparent,
             border: Border(
               left: BorderSide(
                 color: selected
-                    ? TwilightColors.accentUser
+                    ? context.palette.accentUser
                     : Colors.transparent,
                 width: 3,
               ),
@@ -43,7 +43,7 @@ class ConversationListItem extends StatelessWidget {
                 child: Text(
                   label,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: TwilightColors.textPrimary,
+                    color: context.palette.textPrimary,
                     fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                   ),
                 ),

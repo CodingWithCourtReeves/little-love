@@ -33,6 +33,7 @@ import '../../inbox/room.dart';
 import '../../inbox/select_room.dart';
 import '../../push/push_bootstrap.dart';
 import '../../push/push_registration.dart';
+import '../../theme/app_palette.dart';
 import '../../theme/twilight.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
@@ -86,7 +87,7 @@ class InboxShell extends ConsumerWidget {
   ) {
     if (rooms.isEmpty) {
       return Scaffold(
-        backgroundColor: TwilightColors.bgCanvas,
+        backgroundColor: context.palette.bgCanvas,
         body: Center(
           child: SingleChildScrollView(
             child: ConstrainedBox(
@@ -97,18 +98,18 @@ class InboxShell extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
+                    Text(
                       'STEP 4 OF 4 · PAIR',
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 11,
                         letterSpacing: 2.4,
                         fontWeight: FontWeight.w500,
-                        color: TwilightColors.accentSage,
+                        color: context.palette.accentSage,
                       ),
                     ),
                     const SizedBox(height: 14),
-                    const Text(
+                    Text(
                       'Invite your partner',
                       style: TextStyle(
                         fontFamily: 'Inter',
@@ -116,7 +117,7 @@ class InboxShell extends ConsumerWidget {
                         fontWeight: FontWeight.w500,
                         height: 1.14,
                         letterSpacing: -0.6,
-                        color: TwilightColors.textPrimary,
+                        color: context.palette.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -147,10 +148,10 @@ class InboxShell extends ConsumerWidget {
           selectAndMarkRead(ref, home);
         });
         // One frame of empty canvas before selection lands.
-        return const Scaffold(backgroundColor: TwilightColors.bgCanvas);
+        return Scaffold(backgroundColor: context.palette.bgCanvas);
       }
       // No rooms case is handled above; this is a defensive fallback.
-      return const Scaffold(backgroundColor: TwilightColors.bgCanvas);
+      return Scaffold(backgroundColor: context.palette.bgCanvas);
     }
     final room = rooms.firstWhere((r) => r.roomId == selectedId);
     // A "solo" room is one where Court is the only member AND a pending invite
@@ -671,10 +672,10 @@ class PairCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Material(
-      color: TwilightColors.bubblePartnerBg,
-      shape: const RoundedRectangleBorder(
-        side: BorderSide(color: TwilightColors.borderSoft),
-        borderRadius: BorderRadius.all(Radius.circular(2)),
+      color: context.palette.bubblePartnerBg,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: context.palette.borderSoft),
+        borderRadius: const BorderRadius.all(Radius.circular(2)),
       ),
       elevation: 0,
       child: Column(
@@ -687,10 +688,10 @@ class PairCard extends ConsumerWidget {
               MaterialPageRoute<void>(builder: (_) => const ShowInviteScreen()),
             ),
           ),
-          const Divider(
+          Divider(
             height: 1,
             thickness: 1,
-            color: TwilightColors.borderSoft,
+            color: context.palette.borderSoft,
             indent: 18,
             endIndent: 18,
           ),
@@ -700,10 +701,10 @@ class PairCard extends ConsumerWidget {
             detail: 'Enter a code your partner sent you.',
             onTap: () => _openEnterCode(context, ref),
           ),
-          const Divider(
+          Divider(
             height: 1,
             thickness: 1,
-            color: TwilightColors.borderSoft,
+            color: context.palette.borderSoft,
             indent: 18,
             endIndent: 18,
           ),
@@ -752,17 +753,17 @@ class _PairOption extends StatelessWidget {
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                border: Border.all(color: TwilightColors.accentSage),
+                border: Border.all(color: context.palette.accentSage),
                 borderRadius: BorderRadius.circular(2),
               ),
               alignment: Alignment.center,
               child: Text(
                 glyph,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Inter',
                   fontSize: 16,
                   fontWeight: FontWeight.w500,
-                  color: TwilightColors.accentSage,
+                  color: context.palette.accentSage,
                 ),
               ),
             ),
@@ -773,11 +774,11 @@ class _PairOption extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Inter',
                       fontSize: 15,
                       fontWeight: FontWeight.w500,
-                      color: TwilightColors.textPrimary,
+                      color: context.palette.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -786,12 +787,12 @@ class _PairOption extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            const Text(
+            Text(
               '→',
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 18,
-                color: TwilightColors.textMuted,
+                color: context.palette.textMuted,
               ),
             ),
           ],

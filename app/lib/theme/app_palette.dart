@@ -153,19 +153,22 @@ class AppPalette extends ThemeExtension<AppPalette> {
       warningTone: Color.lerp(warningTone, other.warningTone, t)!,
       bubbleUserBg: Color.lerp(bubbleUserBg, other.bubbleUserBg, t)!,
       bubbleUserText: Color.lerp(bubbleUserText, other.bubbleUserText, t)!,
-      bubblePartnerBg: Color.lerp(
-        bubblePartnerBg,
-        other.bubblePartnerBg,
-        t,
-      )!,
+      bubblePartnerBg: Color.lerp(bubblePartnerBg, other.bubblePartnerBg, t)!,
     );
   }
 }
 
 /// Reads the active [AppPalette] off the inherited theme. Call sites use
 /// `context.palette.x` where they once used `TwilightColors.x`.
+///
+/// Production always registers the extension via [buildAppTheme]. The fallback
+/// (by the ambient theme brightness, defaulting to light) keeps widgets robust
+/// under a bare `MaterialApp` — e.g. in widget tests that don't set our theme.
 extension AppPaletteContext on BuildContext {
-  AppPalette get palette => Theme.of(this).extension<AppPalette>()!;
+  AppPalette get palette {
+    final theme = Theme.of(this);
+    return theme.extension<AppPalette>() ?? AppPalette.of(theme.brightness);
+  }
 }
 
 /// Builds a Material [ThemeData] from [p]. Registers the palette as a theme

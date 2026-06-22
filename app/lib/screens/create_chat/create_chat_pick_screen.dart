@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../inbox/inbox_state.dart';
-import '../../theme/twilight.dart';
+import '../../theme/app_palette.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
 
@@ -68,9 +68,9 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
     final partnerUsername = _knownPartnerUsername();
 
     return Scaffold(
-      backgroundColor: TwilightColors.bgCanvas,
+      backgroundColor: context.palette.bgCanvas,
       appBar: AppBar(
-        backgroundColor: TwilightColors.bgSurface,
+        backgroundColor: context.palette.bgSurface,
         title: const Text('New chat'),
       ),
       body: SingleChildScrollView(
@@ -78,23 +78,23 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
+            Text(
               "Who's in this chat?",
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontWeight: FontWeight.w500,
                 fontSize: 26,
-                color: TwilightColors.textPrimary,
+                color: context.palette.textPrimary,
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               "You'll always be in it. Pick your partner if they should be. "
               "Membership is fixed once the chat is created.",
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 14,
-                color: TwilightColors.textMuted,
+                color: context.palette.textMuted,
               ),
             ),
             const SizedBox(height: 24),
@@ -109,10 +109,10 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
                 isDense: true,
               ),
               maxLength: 64,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 15,
-                color: TwilightColors.textPrimary,
+                color: context.palette.textPrimary,
               ),
             ),
             const SizedBox(height: 16),
@@ -130,10 +130,10 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
                 child: Text(
                   "@$partnerUsername joins the moment the chat is created — "
                   "no code, no waiting. You're already linked.",
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 12,
-                    color: TwilightColors.textMuted,
+                    color: context.palette.textMuted,
                     height: 1.4,
                   ),
                 ),
@@ -141,15 +141,15 @@ class _CreateChatPickScreenState extends ConsumerState<CreateChatPickScreen> {
             ],
             const SizedBox(height: 32),
             if (partnerUsername == null)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 12),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
                 child: Text(
                   "Nothing to put in a chat yet. Pair with your partner "
                   "first, then come back.",
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 13,
-                    color: TwilightColors.textMuted,
+                    color: context.palette.textMuted,
                   ),
                 ),
               ),
@@ -178,11 +178,11 @@ class _GroupHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       label,
-      style: const TextStyle(
+      style: TextStyle(
         fontFamily: 'JetBrainsMono',
         fontSize: 10,
         letterSpacing: 2.0,
-        color: TwilightColors.textMuted,
+        color: context.palette.textMuted,
       ),
     );
   }
@@ -198,10 +198,10 @@ class _EmptyHint extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Text(
         text,
-        style: const TextStyle(
+        style: TextStyle(
           fontFamily: 'Inter',
           fontSize: 13,
-          color: TwilightColors.textMuted,
+          color: context.palette.textMuted,
         ),
       ),
     );
@@ -230,7 +230,7 @@ class _PartnerRow extends StatelessWidget {
     }
     return _PickRow(
       key: const Key('partner-row'),
-      avBg: TwilightColors.accentPartner,
+      avBg: context.palette.accentPartner,
       initial: username[0].toUpperCase(),
       title: username,
       subtitle: 'PARTNER',
@@ -264,8 +264,8 @@ class _PickRow extends StatelessWidget {
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: checked ? TwilightColors.bgSurface : Colors.transparent,
-          border: Border.all(color: TwilightColors.borderSoft),
+          color: checked ? context.palette.bgSurface : Colors.transparent,
+          border: Border.all(color: context.palette.borderSoft),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
@@ -292,20 +292,20 @@ class _PickRow extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Inter',
                       fontWeight: FontWeight.w500,
                       fontSize: 15,
-                      color: TwilightColors.textPrimary,
+                      color: context.palette.textPrimary,
                     ),
                   ),
                   Text(
                     subtitle,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'JetBrainsMono',
                       fontSize: 10,
                       letterSpacing: 1.2,
-                      color: TwilightColors.textMuted,
+                      color: context.palette.textMuted,
                     ),
                   ),
                 ],
@@ -329,9 +329,11 @@ class _Checkbox extends StatelessWidget {
       width: 22,
       height: 22,
       decoration: BoxDecoration(
-        color: checked ? TwilightColors.accentUser : Colors.transparent,
+        color: checked ? context.palette.accentUser : Colors.transparent,
         border: Border.all(
-          color: checked ? TwilightColors.accentUser : TwilightColors.textMuted,
+          color: checked
+              ? context.palette.accentUser
+              : context.palette.textMuted,
         ),
       ),
       alignment: Alignment.center,

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../theme/twilight.dart';
+import '../theme/app_palette.dart';
 import 'inbox_state.dart';
 import 'read_state_provider.dart';
 import 'room.dart';
@@ -45,21 +45,21 @@ class ChannelSwitcher extends ConsumerWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(8, 7, 12, 7),
         decoration: BoxDecoration(
-          color: TwilightColors.bgSurfaceAlt,
-          border: Border.all(color: TwilightColors.borderSoft),
+          color: context.palette.bgSurfaceAlt,
+          border: Border.all(color: context.palette.borderSoft),
           borderRadius: BorderRadius.circular(999),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (!isPartner)
-              const Padding(
-                padding: EdgeInsets.only(right: 6),
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
                 child: Text(
                   '#',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
-                    color: TwilightColors.textMuted,
+                    color: context.palette.textMuted,
                   ),
                 ),
               ),
@@ -67,10 +67,10 @@ class ChannelSwitcher extends ConsumerWidget {
               child: Text(
                 label,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: 15,
-                  color: TwilightColors.textPrimary,
+                  color: context.palette.textPrimary,
                 ),
               ),
             ),
@@ -80,14 +80,14 @@ class ChannelSwitcher extends ConsumerWidget {
                 width: 7,
                 height: 7,
                 margin: const EdgeInsets.only(right: 4),
-                decoration: const BoxDecoration(
-                  color: TwilightColors.accentUser,
+                decoration: BoxDecoration(
+                  color: context.palette.accentUser,
                   shape: BoxShape.circle,
                 ),
               ),
-            const Text(
+            Text(
               '▾',
-              style: TextStyle(color: TwilightColors.textMuted, fontSize: 13),
+              style: TextStyle(color: context.palette.textMuted, fontSize: 13),
             ),
           ],
         ),
@@ -99,7 +99,7 @@ class ChannelSwitcher extends ConsumerWidget {
     final selfUsername = this.selfUsername;
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: TwilightColors.bgSurface,
+      backgroundColor: context.palette.bgSurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -118,24 +118,24 @@ class ChannelSwitcher extends ConsumerWidget {
               key: Key('switcher-row-${r.roomId}'),
               leading: Text(
                 partner ? '' : '#',
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  color: TwilightColors.textMuted,
+                  color: context.palette.textMuted,
                 ),
               ),
               title: Text(
                 r.displayName(selfUsername),
                 style: TextStyle(
                   fontWeight: unread ? FontWeight.w700 : FontWeight.w500,
-                  color: TwilightColors.textPrimary,
+                  color: context.palette.textPrimary,
                 ),
               ),
               trailing: unread
                   ? Container(
                       width: 9,
                       height: 9,
-                      decoration: const BoxDecoration(
-                        color: TwilightColors.accentUser,
+                      decoration: BoxDecoration(
+                        color: context.palette.accentUser,
                         shape: BoxShape.circle,
                       ),
                     )
@@ -160,20 +160,20 @@ class ChannelSwitcher extends ConsumerWidget {
                   const _SectionLabel('CHANNELS'),
                   ...channels.map((r) => rowFor(r, partner: false)),
                 ],
-                const Divider(height: 1, color: TwilightColors.borderSoft),
+                Divider(height: 1, color: context.palette.borderSoft),
                 ListTile(
                   key: const Key('switcher-new-channel'),
-                  leading: const Text(
+                  leading: Text(
                     '+',
                     style: TextStyle(
                       fontSize: 18,
-                      color: TwilightColors.accentUser,
+                      color: context.palette.accentUser,
                     ),
                   ),
-                  title: const Text(
+                  title: Text(
                     'New channel',
                     style: TextStyle(
-                      color: TwilightColors.accentUser,
+                      color: context.palette.accentUser,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -199,10 +199,10 @@ class _SectionLabel extends StatelessWidget {
     padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
     child: Text(
       text,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 10,
         letterSpacing: 2.0,
-        color: TwilightColors.accentSage,
+        color: context.palette.accentSage,
       ),
     ),
   );

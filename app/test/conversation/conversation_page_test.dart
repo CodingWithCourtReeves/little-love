@@ -9,7 +9,7 @@ import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
-import 'package:littlelove/theme/twilight.dart';
+import 'package:littlelove/theme/app_palette.dart';
 import 'package:littlelove/wallpaper/wallpaper_background.dart';
 import 'package:littlelove/wallpaper/wallpaper_controller.dart';
 import 'package:littlelove/wallpaper/wallpaper_screen.dart';
@@ -71,7 +71,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -121,7 +121,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -149,7 +149,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -178,7 +178,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -212,7 +212,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -241,7 +241,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -272,7 +272,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -326,7 +326,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -379,7 +379,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -429,7 +429,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -468,7 +468,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',

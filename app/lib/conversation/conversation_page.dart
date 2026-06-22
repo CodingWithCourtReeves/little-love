@@ -24,7 +24,7 @@ import '../wallpaper/wallpaper_controller.dart';
 import '../wallpaper/wallpaper_screen.dart';
 import '../inbox/room.dart';
 import '../theme/love_toast.dart';
-import '../theme/twilight.dart';
+import '../theme/app_palette.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
 import 'link_preview.dart';
@@ -438,7 +438,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   Future<void> _openReactionPicker(Msg m) async {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: TwilightColors.bgSurface,
+      backgroundColor: context.palette.bgSurface,
       builder: (ctx) => SizedBox(
         height: 320,
         child: EmojiPicker(
@@ -446,27 +446,27 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             Navigator.pop(ctx);
             _react(m, emoji.emoji);
           },
-          config: const Config(
+          config: Config(
             height: 320,
             emojiViewConfig: EmojiViewConfig(
-              backgroundColor: TwilightColors.bgSurface,
+              backgroundColor: context.palette.bgSurface,
               columns: 7,
               emojiSizeMax: 32,
             ),
             categoryViewConfig: CategoryViewConfig(
-              backgroundColor: TwilightColors.bgSurface,
-              indicatorColor: TwilightColors.accentUser,
-              iconColor: TwilightColors.textMuted,
-              iconColorSelected: TwilightColors.accentUser,
+              backgroundColor: context.palette.bgSurface,
+              indicatorColor: context.palette.accentUser,
+              iconColor: context.palette.textMuted,
+              iconColorSelected: context.palette.accentUser,
             ),
             bottomActionBarConfig: BottomActionBarConfig(
-              backgroundColor: TwilightColors.bgSurface,
-              buttonColor: TwilightColors.bgSurfaceAlt,
-              buttonIconColor: TwilightColors.accentUser,
+              backgroundColor: context.palette.bgSurface,
+              buttonColor: context.palette.bgSurfaceAlt,
+              buttonIconColor: context.palette.accentUser,
             ),
             searchViewConfig: SearchViewConfig(
-              backgroundColor: TwilightColors.bgSurface,
-              buttonIconColor: TwilightColors.accentUser,
+              backgroundColor: context.palette.bgSurface,
+              buttonIconColor: context.palette.accentUser,
             ),
           ),
         ),
@@ -519,7 +519,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   };
 
   Color _senderColor(String username) {
-    if (username == widget.selfUsername) return TwilightColors.accentUser;
+    if (username == widget.selfUsername) return context.palette.accentUser;
     // Stable hash → one of three accents per spec §7.5 (sage / mauve / wine).
     const palette = <Color>[
       Color(0xFF4F7A5E), // sage
@@ -607,11 +607,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: TwilightColors.bgSurface.withValues(alpha: 0.7),
+                color: context.palette.bgSurface.withValues(alpha: 0.7),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.more_vert,
-                color: TwilightColors.textMuted,
+                color: context.palette.textMuted,
                 size: 22,
               ),
             ),
@@ -693,8 +693,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                   ignoring: _atBottom,
                   child: FloatingActionButton.small(
                     key: const Key('jump-to-bottom'),
-                    backgroundColor: TwilightColors.bgSurface,
-                    foregroundColor: TwilightColors.accentUser,
+                    backgroundColor: context.palette.bgSurface,
+                    foregroundColor: context.palette.accentUser,
                     elevation: 4,
                     onPressed: _animateToBottom,
                     tooltip: 'Jump to latest',
@@ -754,11 +754,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           tappable,
-          const Padding(
-            padding: EdgeInsets.only(right: 16, top: 2, bottom: 2),
+          Padding(
+            padding: const EdgeInsets.only(right: 16, top: 2, bottom: 2),
             child: Text(
               'failed · tap to retry',
-              style: TextStyle(color: TwilightColors.warningTone, fontSize: 11),
+              style: TextStyle(
+                color: context.palette.warningTone,
+                fontSize: 11,
+              ),
             ),
           ),
         ],
@@ -804,9 +807,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   /// Heart (sent) or clock (sending) tucked into a bubble's bottom-right
   /// corner, Telegram style.
-  static Widget _markerWidget(_Marker marker) {
+  static Widget _markerWidget(_Marker marker, AppPalette palette) {
     return switch (marker) {
-      _Marker.sent => _heart(TwilightColors.accentUser, key: 'status-heart'),
+      _Marker.sent => _heart(palette.accentUser, key: 'status-heart'),
       // Read = a double heart: a soft trailing heart with the full-accent heart
       // overlapping on top. Both tones come from theme tokens (not baked into
       // the asset) so a future palette switcher recolors them together.
@@ -817,16 +820,16 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            Positioned(left: 0, child: _heart(TwilightColors.accentUserSoft)),
-            Positioned(left: 6, child: _heart(TwilightColors.accentUser)),
+            Positioned(left: 0, child: _heart(palette.accentUserSoft)),
+            Positioned(left: 6, child: _heart(palette.accentUser)),
           ],
         ),
       ),
-      _Marker.sending => const Icon(
+      _Marker.sending => Icon(
         Icons.schedule,
-        key: Key('status-clock'),
+        key: const Key('status-clock'),
         size: 12,
-        color: TwilightColors.textMuted,
+        color: palette.textMuted,
       ),
     };
   }
@@ -873,9 +876,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       );
     }
     final bubbleColor = mine
-        ? TwilightColors.bubbleUserBg
-        : TwilightColors.bubblePartnerBg;
-    const bubbleBorder = TwilightColors.borderSoft;
+        ? context.palette.bubbleUserBg
+        : context.palette.bubblePartnerBg;
+    final bubbleBorder = context.palette.borderSoft;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
@@ -930,8 +933,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   Widget _bubbleBody(Msg m, bool mine, _Marker? marker) {
     final textColor = mine
-        ? TwilightColors.bubbleUserText
-        : TwilightColors.textPrimary;
+        ? context.palette.bubbleUserText
+        : context.palette.textPrimary;
     final text = Linkify(
       text: m.body,
       onOpen: (link) => _openUrl(link.url),
@@ -953,13 +956,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           style: TextStyle(
             fontSize: 10,
             color: mine
-                ? TwilightColors.bubbleUserText.withValues(alpha: 0.55)
-                : TwilightColors.textMuted,
+                ? context.palette.bubbleUserText.withValues(alpha: 0.55)
+                : context.palette.textMuted,
           ),
         ),
         if (marker != null) ...[
           const SizedBox(width: 4),
-          _markerWidget(marker),
+          _markerWidget(marker, context.palette),
         ],
       ],
     );
@@ -1016,13 +1019,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
           decoration: BoxDecoration(
-            color: TwilightColors.bgSurface.withValues(alpha: 0.86),
+            color: context.palette.bgSurface.withValues(alpha: 0.86),
             borderRadius: BorderRadius.circular(14),
           ),
           child: Text(
             text,
             style: TextStyle(
-              color: TwilightColors.textMuted,
+              color: context.palette.textMuted,
               fontSize: fontSize,
               fontWeight: FontWeight.w500,
             ),
@@ -1221,14 +1224,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                         ),
                         child: DecoratedBox(
                           decoration: BoxDecoration(
-                            color: TwilightColors.bgSurface.withValues(
+                            color: context.palette.bgSurface.withValues(
                               alpha: 0.55,
                             ),
                             borderRadius: BorderRadius.circular(22),
                             // Hairline all the way around so the glass edge
                             // reads crisply against messages passing behind it.
                             border: Border.all(
-                              color: TwilightColors.textPrimary.withValues(
+                              color: context.palette.textPrimary.withValues(
                                 alpha: 0.10,
                               ),
                               width: 0.5,
@@ -1241,9 +1244,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                                 IconButton(
                                   key: const Key('composer-attach'),
                                   onPressed: _pickMedia,
-                                  icon: const Icon(
+                                  icon: Icon(
                                     Icons.attach_file,
-                                    color: TwilightColors.textMuted,
+                                    color: context.palette.textMuted,
                                     size: 22,
                                   ),
                                   tooltip: 'Attach a photo or video',
@@ -1271,8 +1274,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                                       decoration: InputDecoration(
                                         isDense: true,
                                         hintText: 'Message',
-                                        hintStyle: const TextStyle(
-                                          color: TwilightColors.textMuted,
+                                        hintStyle: TextStyle(
+                                          color: context.palette.textMuted,
                                         ),
                                         border: InputBorder.none,
                                         // Lead padding only when the attach
@@ -1326,7 +1329,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   Widget _sendButton() {
     return Material(
       key: const Key('composer-send'),
-      color: TwilightColors.accentUser,
+      color: context.palette.accentUser,
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
@@ -1352,12 +1355,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
         ),
         child: Material(
-          color: TwilightColors.bgSurface.withValues(alpha: 0.55),
+          color: context.palette.bgSurface.withValues(alpha: 0.55),
           shape: const CircleBorder(
-            side: BorderSide(
-              color: Color(0x1AFFFFFF),
-              width: 0.5,
-            ),
+            side: BorderSide(color: Color(0x1AFFFFFF), width: 0.5),
           ),
           child: InkWell(
             customBorder: const CircleBorder(),
@@ -1369,12 +1369,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 ),
               );
             },
-            child: const SizedBox(
+            child: SizedBox(
               width: 44,
               height: 44,
               child: Icon(
                 Icons.mic,
-                color: TwilightColors.textMuted,
+                color: context.palette.textMuted,
                 size: 24,
               ),
             ),
@@ -1418,7 +1418,7 @@ class _TopStatus extends ConsumerWidget {
     return Row(
       key: const Key('typing-indicator'),
       mainAxisSize: MainAxisSize.min,
-      children: const [
+      children: [
         Text(
           'Typing',
           style: TextStyle(
@@ -1426,11 +1426,11 @@ class _TopStatus extends ConsumerWidget {
             fontSize: 11,
             letterSpacing: 0.4,
             fontWeight: FontWeight.w500,
-            color: TwilightColors.accentSage,
+            color: context.palette.accentSage,
           ),
         ),
-        SizedBox(width: 6),
-        _PulsingDots(),
+        const SizedBox(width: 6),
+        const _PulsingDots(),
       ],
     );
   }
@@ -1480,8 +1480,8 @@ class _PulsingDotsState extends State<_PulsingDots>
                   child: Container(
                     width: 5,
                     height: 5,
-                    decoration: const BoxDecoration(
-                      color: TwilightColors.accentSage,
+                    decoration: BoxDecoration(
+                      color: context.palette.accentSage,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -1541,10 +1541,10 @@ class _LinkPreviewCardState extends State<_LinkPreviewCard> {
         constraints: const BoxConstraints(maxWidth: 300),
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
-          color: TwilightColors.bgSurfaceAlt.withValues(alpha: 0.6),
+          color: context.palette.bgSurfaceAlt.withValues(alpha: 0.6),
           borderRadius: BorderRadius.circular(10),
-          border: const Border(
-            left: BorderSide(color: TwilightColors.accentSage, width: 3),
+          border: Border(
+            left: BorderSide(color: context.palette.accentSage, width: 3),
           ),
         ),
         child: Column(
@@ -1588,11 +1588,11 @@ class _LinkPreviewCardState extends State<_LinkPreviewCard> {
                       preview.siteName!.toUpperCase(),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10,
                         letterSpacing: 0.8,
                         fontWeight: FontWeight.w600,
-                        color: TwilightColors.accentSage,
+                        color: context.palette.accentSage,
                       ),
                     ),
                   if (preview.title != null && preview.title!.isNotEmpty)
@@ -1602,10 +1602,10 @@ class _LinkPreviewCardState extends State<_LinkPreviewCard> {
                         preview.title!,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: TwilightColors.textPrimary,
+                          color: context.palette.textPrimary,
                         ),
                       ),
                     ),
@@ -1617,9 +1617,9 @@ class _LinkPreviewCardState extends State<_LinkPreviewCard> {
                         preview.description!,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
-                          color: TwilightColors.textMuted,
+                          color: context.palette.textMuted,
                         ),
                       ),
                     ),
@@ -1655,11 +1655,13 @@ class _ReactionPill extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
           color: mine
-              ? TwilightColors.accentUser.withValues(alpha: 0.18)
-              : TwilightColors.bgSurfaceAlt,
+              ? context.palette.accentUser.withValues(alpha: 0.18)
+              : context.palette.bgSurfaceAlt,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: mine ? TwilightColors.accentUser : TwilightColors.borderSoft,
+            color: mine
+                ? context.palette.accentUser
+                : context.palette.borderSoft,
           ),
         ),
         child: Row(
@@ -1680,9 +1682,9 @@ class _ReactionPill extends StatelessWidget {
               const SizedBox(width: 4),
               Text(
                 '$count',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
-                  color: TwilightColors.textMuted,
+                  color: context.palette.textMuted,
                 ),
               ),
             ],
@@ -1801,7 +1803,7 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
       key: const Key('reaction-bar'),
       elevation: 8,
       borderRadius: BorderRadius.circular(26),
-      color: TwilightColors.bgSurface,
+      color: context.palette.bgSurface,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         child: Row(
@@ -1820,7 +1822,7 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
       key: const Key('message-actions'),
       elevation: 8,
       borderRadius: BorderRadius.circular(14),
-      color: TwilightColors.bgSurface,
+      color: context.palette.bgSurface,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Column(
@@ -1838,7 +1840,7 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
                 key: 'action-delete',
                 icon: Icons.delete_outline,
                 label: 'Delete',
-                color: TwilightColors.warningTone,
+                color: context.palette.warningTone,
                 onTap: widget.onDelete!,
               ),
           ],
@@ -1854,7 +1856,7 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
     required VoidCallback onTap,
     Color? color,
   }) {
-    final c = color ?? TwilightColors.textPrimary;
+    final c = color ?? context.palette.textPrimary;
     return InkWell(
       key: Key(key),
       onTap: onTap,
@@ -1883,7 +1885,7 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: isSelected
-              ? TwilightColors.accentUser.withValues(alpha: 0.18)
+              ? context.palette.accentUser.withValues(alpha: 0.18)
               : Colors.transparent,
           shape: BoxShape.circle,
         ),
@@ -1907,7 +1909,7 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
         width: 40,
         height: 40,
         alignment: Alignment.center,
-        child: const Icon(Icons.add, color: TwilightColors.textMuted),
+        child: Icon(Icons.add, color: context.palette.textMuted),
       ),
     );
   }
@@ -1998,7 +2000,7 @@ class _StagedChipState extends State<_StagedChip> {
           future: _poster,
           builder: (_, snap) => snap.data != null
               ? Image.memory(snap.data!, fit: BoxFit.cover, cacheWidth: 256)
-              : Container(color: TwilightColors.bgSurfaceAlt),
+              : Container(color: context.palette.bgSurfaceAlt),
         ),
         const Center(child: _PlayBadge(size: 26)),
       ],
@@ -2030,8 +2032,8 @@ class _MediaBubble extends StatelessWidget {
         padding: const EdgeInsets.all(4),
         decoration: BoxDecoration(
           color: isMe
-              ? TwilightColors.bubbleUserBg
-              : TwilightColors.bubblePartnerBg,
+              ? context.palette.bubbleUserBg
+              : context.palette.bubblePartnerBg,
           borderRadius: BorderRadius.circular(18),
         ),
         child: Column(
@@ -2089,8 +2091,8 @@ class _MediaBubble extends StatelessWidget {
                   msg.body,
                   style: TextStyle(
                     color: isMe
-                        ? TwilightColors.bubbleUserText
-                        : TwilightColors.textPrimary,
+                        ? context.palette.bubbleUserText
+                        : context.palette.textPrimary,
                     fontSize: 15,
                   ),
                 ),
@@ -2123,7 +2125,7 @@ class _MediaMeta extends StatelessWidget {
           Text(time, style: const TextStyle(fontSize: 10, color: Colors.white)),
           if (marker != null) ...[
             const SizedBox(width: 4),
-            _ConversationPageState._markerWidget(marker!),
+            _ConversationPageState._markerWidget(marker!, context.palette),
           ],
         ],
       ),
@@ -2156,7 +2158,7 @@ class _ThumbImageState extends State<_ThumbImage> {
             filterQuality: FilterQuality.medium,
           );
         }
-        return Container(color: TwilightColors.bgSurfaceAlt);
+        return Container(color: context.palette.bgSurfaceAlt);
       },
     );
   }

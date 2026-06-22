@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'twilight.dart';
+import 'app_palette.dart';
 
 /// Show a brief Telegram-style toast: a rounded dark pill that slides up and
 /// fades in near the bottom of the screen, holds, then fades out and removes
@@ -94,7 +94,7 @@ class _LoveToastState extends State<_LoveToast>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: TwilightColors.textPrimary.withValues(alpha: 0.95),
+        color: context.palette.textPrimary.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(22),
         boxShadow: const [
           BoxShadow(

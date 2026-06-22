@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../pairing/invite_create.dart';
 import '../../pairing/pairing_transport.dart';
 import '../../pairing/qr.dart';
-import '../../theme/twilight.dart';
+import '../../theme/app_palette.dart';
 import '../../wire/frames.dart';
 
 class ShowInviteScreen extends ConsumerStatefulWidget {
@@ -27,9 +27,9 @@ class _ShowInviteScreenState extends ConsumerState<ShowInviteScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: TwilightColors.bgCanvas,
+      backgroundColor: context.palette.bgCanvas,
       appBar: AppBar(
-        backgroundColor: TwilightColors.bgSurface,
+        backgroundColor: context.palette.bgSurface,
         title: const Text('Invite your partner'),
       ),
       body: Center(
@@ -54,8 +54,8 @@ class _ShowInviteScreenState extends ConsumerState<ShowInviteScreen> {
                       isAlreadyPaired
                           ? "You're already paired with a partner."
                           : 'Could not create invite: $err',
-                      style: const TextStyle(
-                        color: TwilightColors.textPrimary,
+                      style: TextStyle(
+                        color: context.palette.textPrimary,
                         fontFamily: 'Inter',
                         fontSize: 16,
                       ),
@@ -63,11 +63,11 @@ class _ShowInviteScreenState extends ConsumerState<ShowInviteScreen> {
                     ),
                     if (isAlreadyPaired) ...[
                       const SizedBox(height: 12),
-                      const Text(
+                      Text(
                         'Leave the current partner chat first if you want to '
                         'pair with someone new.',
                         style: TextStyle(
-                          color: TwilightColors.textMuted,
+                          color: context.palette.textMuted,
                           fontFamily: 'Inter',
                           fontSize: 13,
                         ),
@@ -88,12 +88,12 @@ class _ShowInviteScreenState extends ConsumerState<ShowInviteScreen> {
                   const SizedBox(height: 20),
                   SelectableText(
                     invite.code,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Inter',
                       fontSize: 18,
                       fontWeight: FontWeight.w500,
                       letterSpacing: 0.4,
-                      color: TwilightColors.textPrimary,
+                      color: context.palette.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -106,8 +106,8 @@ class _ShowInviteScreenState extends ConsumerState<ShowInviteScreen> {
                   const SizedBox(height: 8),
                   Text(
                     'Expires ${invite.expiresAt.toLocal()}',
-                    style: const TextStyle(
-                      color: TwilightColors.textMuted,
+                    style: TextStyle(
+                      color: context.palette.textMuted,
                       fontSize: 12,
                     ),
                   ),
