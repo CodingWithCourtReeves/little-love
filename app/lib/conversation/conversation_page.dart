@@ -613,14 +613,46 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             ),
           ),
         ),
-        titleSpacing: 8,
-        title: Text(
-          widget.room.displayName(widget.selfUsername),
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
-            color: context.palette.textPrimary,
+        // Back arrow in a pill, matching the ⋯ menu, when this chat was pushed
+        // onto a route (home → chat). Null in tests that mount it directly.
+        leading: Navigator.of(context).canPop()
+            ? IconButton(
+                key: const Key('room-back-button'),
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: Container(
+                  width: 34,
+                  height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: context.palette.bgSurface.withValues(alpha: 0.7),
+                  ),
+                  child: Icon(
+                    Icons.arrow_back_ios_new,
+                    color: context.palette.textPrimary,
+                    size: 18,
+                  ),
+                ),
+              )
+            : null,
+        centerTitle: true,
+        // The room name as a centered pill. Tapping it will later open a chat-
+        // info page (call/video/search + media/voice/links), Telegram-style.
+        title: Container(
+          key: const Key('room-title-pill'),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: context.palette.bgSurface.withValues(alpha: 0.7),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            widget.room.displayName(widget.selfUsername),
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              color: context.palette.textPrimary,
+            ),
           ),
         ),
         actions: [
