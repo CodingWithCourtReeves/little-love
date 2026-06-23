@@ -65,6 +65,15 @@ If you created the R2 bucket by hand (e.g. to avoid granting `Workers R2 Storage
 tofu import cloudflare_r2_bucket.media littlelove-media
 ```
 
+## Voice calling: TURN key (not Terraform-managed)
+
+Voice calls use Cloudflare's TURN service for NAT traversal. The **TURN key** (a long-lived server-side secret that mints short-lived per-call ICE credentials) is **not** managed here — the pinned provider has no TURN resource, so it's an out-of-band credential just like the R2 S3 keys. Full instructions live in [`turn.tf`](turn.tf). In short:
+
+- Create one **dev** and one **prod** key — dashboard (Realtime → TURN → Create) or the `calls/turn_keys` API. The API route needs an account-scoped **Calls / Realtime: Write** token, which the Terraform token above does **not** include.
+- The create response gives `uid` → `TURN_KEY_ID` and `key` → `TURN_API_TOKEN`.
+- dev values → `.secrets.env`; prod values → Railway env on `littlelove-api`.
+- Pricing: $0.05/GB with **1,000 GB/month free** — effectively free at this app's scale.
+
 ## Future: remote state
 
 When you want this on more than one machine, move state to Cloudflare R2 (S3-compatible). ~20 min of work. Don't bother until you need it.
