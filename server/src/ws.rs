@@ -77,6 +77,9 @@ pub struct AppState {
     /// Shared HTTP client for the Cloudflare `generate-ice-servers` call.
     /// `reqwest::Client` is internally `Arc`, so cloning `AppState` is cheap.
     pub http: reqwest::Client,
+    /// Call invites held for callees not yet (re)connected — delivered when the
+    /// callee's WS comes up (e.g. after a VoIP-push cold start).
+    pub pending_calls: Arc<crate::calls::PendingCalls>,
 }
 
 /// WSS close code for auth failures (spec §3.3 step 6).
@@ -197,10 +200,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     }
 
     announce_presence_on_connect(&state, &me, &tx).await;
+    deliver_pending_calls(&state, &me, &tx).await;
 
     let mut upload_rl = WindowRateLimiter::new(UPLOAD_RL_WINDOW, UPLOAD_RL_MAX);
     let mut typing_rl = WindowRateLimiter::new(TYPING_RL_WINDOW, TYPING_RL_MAX);
     let mut turn_rl = WindowRateLimiter::new(TURN_RL_WINDOW, TURN_RL_MAX);
+    // Call invites trigger a VoIP push to the partner; gate them like TURN so a
+    // misbehaving client can't spam-ring (or drain) the partner's device.
+    let mut call_rl = WindowRateLimiter::new(TURN_RL_WINDOW, TURN_RL_MAX);
     // First tick after a full interval (not immediately) so we never ping a
     // client the instant it connects.
     let mut ping =
@@ -349,6 +356,57 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                         send_error(&tx, error_codes::RATE_LIMITED, "");
                     }
                 }
+                Ok(RoomClientFrame::CallInvite {
+                    room_id,
+                    call_id,
+                    offer,
+                }) => {
+                    if call_rl.allow() {
+                        handle_call_invite(&state, &me, room_id, call_id, offer).await;
+                    } else {
+                        warn!("call invite rate limit hit for {}", me.username);
+                        send_error(&tx, error_codes::RATE_LIMITED, "");
+                    }
+                }
+                Ok(RoomClientFrame::CallAnswer {
+                    room_id,
+                    call_id,
+                    answer,
+                }) => {
+                    forward_call_to_partner(
+                        &state,
+                        &me,
+                        RoomServerFrame::CallAnswer {
+                            room_id,
+                            call_id,
+                            answer,
+                        },
+                    )
+                    .await;
+                }
+                Ok(RoomClientFrame::CallIce {
+                    room_id,
+                    call_id,
+                    candidate,
+                }) => {
+                    forward_call_to_partner(
+                        &state,
+                        &me,
+                        RoomServerFrame::CallIce {
+                            room_id,
+                            call_id,
+                            candidate,
+                        },
+                    )
+                    .await;
+                }
+                Ok(RoomClientFrame::CallHangup {
+                    room_id,
+                    call_id,
+                    reason,
+                }) => {
+                    handle_call_hangup(&state, &me, room_id, call_id, reason).await;
+                }
                 Err(e) => warn!("invalid frame from {}: {e}", me.username),
                 }
             }
@@ -419,6 +477,144 @@ async fn handle_call_turn_request(
         call_id: call_id.to_string(),
         ice_servers,
     });
+}
+
+/// Deliver a call-signaling frame to the requester's partner (the only other
+/// member of a 1:1 room). No-op if unpaired or the partner is offline (the
+/// caller will hang up / time out). Used for answer/ice/hangup relays.
+async fn forward_call_to_partner(state: &AppState, me: &AccountRecord, frame: RoomServerFrame) {
+    let Some(store) = state.store.as_ref() else {
+        return;
+    };
+    match partner_username_for(store.pool(), me.id).await {
+        Ok(Some(partner)) => {
+            state.routing.deliver(&partner, frame).await;
+        }
+        Ok(None) => {}
+        Err(e) => warn!("forward_call_to_partner: partner lookup failed: {e}"),
+    }
+}
+
+/// Caller starts a call: forward the encrypted offer to the partner's open
+/// sessions, hold it for a woken cold-start callee, and fire a VoIP push.
+async fn handle_call_invite(
+    state: &AppState,
+    me: &AccountRecord,
+    room_id: String,
+    call_id: String,
+    offer: String,
+) {
+    let Some(store) = state.store.as_ref() else {
+        return;
+    };
+    let partner = match partner_account_id_for(store.pool(), me.id).await {
+        Ok(Some(p)) => p,
+        Ok(None) => return, // unpaired: no one to call
+        Err(e) => {
+            warn!("handle_call_invite: partner lookup failed: {e}");
+            return;
+        }
+    };
+    let partner_username = match partner_username_for(store.pool(), me.id).await {
+        Ok(Some(u)) => u,
+        _ => return,
+    };
+
+    // Hold the invite (TTL) so a VoIP-woken callee can fetch it on (re)connect,
+    // and opportunistically sweep stale entries.
+    let now = std::time::Instant::now();
+    state.pending_calls.expire_due(now);
+    state.pending_calls.insert(
+        partner,
+        crate::calls::Pending {
+            call_id: call_id.clone(),
+            room_id: room_id.clone(),
+            from: me.username.clone(),
+            offer: offer.clone(),
+            expires_at: now + crate::calls::PENDING_TTL,
+        },
+    );
+
+    // Forward to any open partner sessions (foreground case).
+    state
+        .routing
+        .deliver(
+            &partner_username,
+            RoomServerFrame::CallInvite {
+                room_id: room_id.clone(),
+                call_id: call_id.clone(),
+                from: me.username.clone(),
+                offer,
+            },
+        )
+        .await;
+
+    // Wake the partner's device(s) via VoIP push (background / killed case).
+    if let Some(sender) = state.push.clone() {
+        notify_call(&sender, store, partner, &room_id, &call_id).await;
+    }
+}
+
+/// Forward a hangup to the partner and drop any held invite for it (covers the
+/// caller cancelling before a woken callee reconnected).
+async fn handle_call_hangup(
+    state: &AppState,
+    me: &AccountRecord,
+    room_id: String,
+    call_id: String,
+    reason: String,
+) {
+    let Some(store) = state.store.as_ref() else {
+        return;
+    };
+    if let Ok(Some(partner)) = partner_account_id_for(store.pool(), me.id).await {
+        state.pending_calls.remove(partner, &call_id);
+    }
+    forward_call_to_partner(
+        state,
+        me,
+        RoomServerFrame::CallHangup {
+            room_id,
+            call_id,
+            reason,
+        },
+    )
+    .await;
+}
+
+/// Send a content-free VoIP push to every PushKit token of the callee, deleting
+/// any token APNs reports as permanently dead.
+async fn notify_call(
+    sender: &Arc<dyn PushSender>,
+    store: &Store,
+    callee_account_id: i64,
+    room_id: &str,
+    call_id: &str,
+) {
+    let tokens = match crate::push_tokens::voip_tokens_for(store.pool(), callee_account_id).await {
+        Ok(t) => t,
+        Err(e) => {
+            warn!("notify_call: voip_tokens_for failed: {e}");
+            return;
+        }
+    };
+    for t in tokens {
+        let msg = PushMessage {
+            token: t.apns_token.clone(),
+            environment: t.environment.clone(),
+            room_id: room_id.to_string(),
+            badge: 0,
+            push_type: crate::push::PushKind::Voip,
+            call_id: Some(call_id.to_string()),
+        };
+        if let SendOutcome::DropToken = sender.send(&msg).await {
+            if let Err(e) =
+                delete_token_value(store.pool(), callee_account_id, &t.apns_token).await
+            {
+                warn!("notify_call: delete_token_value failed: {e}");
+            }
+        }
+    }
 }
 
 async fn handle_create_invite(
@@ -788,6 +984,25 @@ async fn handle_typing(state: &AppState, me: &AccountRecord, room_id: &str, typi
 /// session whether my partner is currently online. The partner is resolved from
 /// the authoritative `accounts.partner_account_id` link, so presence is only
 /// ever shared between the two linked partners.
+/// Deliver any call invites held for this account (a callee woken by a VoIP
+/// push connects and fetches the encrypted offer it was rung for). Expired
+/// invites are filtered out by `take_for`.
+async fn deliver_pending_calls(
+    state: &AppState,
+    me: &AccountRecord,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let now = std::time::Instant::now();
+    for p in state.pending_calls.take_for(me.id, now) {
+        let _ = tx.send(RoomServerFrame::CallInvite {
+            room_id: p.room_id,
+            call_id: p.call_id,
+            from: p.from,
+            offer: p.offer,
+        });
+    }
+}
+
 async fn announce_presence_on_connect(
     state: &AppState,
     me: &AccountRecord,

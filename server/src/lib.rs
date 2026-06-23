@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod attachments;
+pub mod calls;
 pub mod config;
 pub mod invites;
 pub mod push;

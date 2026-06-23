@@ -74,6 +74,7 @@ pub fn build_app_with_push(
         push,
         turn: None,
         http: reqwest::Client::new(),
+        pending_calls: std::sync::Arc::new(littlelove_api::calls::PendingCalls::new()),
     };
     Router::new()
         .route("/accounts", post(create_account))

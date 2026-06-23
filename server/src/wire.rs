@@ -149,6 +149,35 @@ pub enum RoomClientFrame {
     CallTurnRequest {
         call_id: String,
     },
+
+    // ── Call signaling (spec §4) ────────────────────────────────────────────
+    // All SDP/ICE payloads are opaque ciphertext (encrypted under the per-call
+    // sig-key); the server forwards them blind, exactly like message bodies.
+    /// Caller → server: start a call. `offer` is the encrypted SDP offer.
+    CallInvite {
+        room_id: String,
+        call_id: String,
+        offer: String,
+    },
+    /// Callee → server: accept. `answer` is the encrypted SDP answer.
+    CallAnswer {
+        room_id: String,
+        call_id: String,
+        answer: String,
+    },
+    /// Either side → server: a trickled ICE candidate (encrypted).
+    CallIce {
+        room_id: String,
+        call_id: String,
+        candidate: String,
+    },
+    /// Either side → server: end/decline/cancel. `reason` ∈
+    /// {hangup, decline, busy, timeout, cancel}.
+    CallHangup {
+        room_id: String,
+        call_id: String,
+        reason: String,
+    },
 }
 
 /// Post-Authenticated server frames (spec §8.2).
@@ -260,6 +289,34 @@ pub enum RoomServerFrame {
     CallTurnGrant {
         call_id: String,
         ice_servers: serde_json::Value,
+    },
+
+    // ── Call signaling forwarded to the partner (spec §4) ───────────────────
+    /// Forwarded to the callee. `from` is the caller's username; `offer` is the
+    /// encrypted SDP offer.
+    CallInvite {
+        room_id: String,
+        call_id: String,
+        from: String,
+        offer: String,
+    },
+    /// Forwarded to the caller. `answer` is the encrypted SDP answer.
+    CallAnswer {
+        room_id: String,
+        call_id: String,
+        answer: String,
+    },
+    /// Forwarded to the peer: a trickled ICE candidate (encrypted).
+    CallIce {
+        room_id: String,
+        call_id: String,
+        candidate: String,
+    },
+    /// Forwarded to the peer: end/decline/cancel.
+    CallHangup {
+        room_id: String,
+        call_id: String,
+        reason: String,
     },
 
     Error {
@@ -879,6 +936,48 @@ mod tests {
         assert!(
             matches!(frame, RoomClientFrame::CallTurnRequest { call_id } if call_id == "01JCALL")
         );
+    }
+
+    #[test]
+    fn parses_call_invite_frame() {
+        let raw = r#"{"kind":"CallInvite","room_id":"01J","call_id":"01JCALL","offer":"ENCSDP"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::CallInvite {
+                room_id,
+                call_id,
+                offer,
+            } => {
+                assert_eq!(room_id, "01J");
+                assert_eq!(call_id, "01JCALL");
+                assert_eq!(offer, "ENCSDP");
+            }
+            _ => panic!("expected CallInvite"),
+        }
+    }
+
+    #[test]
+    fn parses_call_hangup_frame_with_reason() {
+        let raw = r#"{"kind":"CallHangup","room_id":"01J","call_id":"01JCALL","reason":"decline"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::CallHangup { reason, .. } => assert_eq!(reason, "decline"),
+            _ => panic!("expected CallHangup"),
+        }
+    }
+
+    #[test]
+    fn serializes_server_call_invite_with_from() {
+        let f = RoomServerFrame::CallInvite {
+            room_id: "01J".into(),
+            call_id: "01JCALL".into(),
+            from: "court".into(),
+            offer: "ENCSDP".into(),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"CallInvite""#));
+        assert!(s.contains(r#""from":"court""#));
+        assert!(s.contains(r#""offer":"ENCSDP""#));
     }
 
     #[test]

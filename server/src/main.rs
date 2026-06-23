@@ -66,6 +66,7 @@ async fn main() -> Result<()> {
         push,
         turn: cfg.turn.clone(),
         http: reqwest::Client::new(),
+        pending_calls: std::sync::Arc::new(littlelove_api::calls::PendingCalls::new()),
     };
     let app = Router::new()
         .route("/health", get(health))
