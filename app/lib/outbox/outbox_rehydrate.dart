@@ -102,6 +102,11 @@ Future<void> rehydrateOutbox({
         descriptor,
         null,
       ),
+      AudioContent(:final descriptor, :final caption) => (
+        caption ?? '',
+        descriptor,
+        null,
+      ),
       ReactionContent() => ('', null, null), // handled by the continue above
       DeleteContent() => ('', null, null), // handled by the continue above
     };

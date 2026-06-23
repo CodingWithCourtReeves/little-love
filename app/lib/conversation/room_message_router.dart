@@ -200,6 +200,18 @@ class RoomMessageRouter {
         attachment: descriptor,
         sendStatus: sendStatus,
       ),
+      // Voice memos carry the audio descriptor (incl. waveform) as the
+      // attachment, same as a file; the bubble renders it as a player.
+      AudioContent(:final descriptor, :final caption) => Msg(
+        id: f.id,
+        from: f.from,
+        to: f.roomId,
+        body: caption ?? '',
+        ts: f.ts,
+        replayed: f.replayed,
+        attachment: descriptor,
+        sendStatus: sendStatus,
+      ),
       // Handled by the early returns above; here only for exhaustiveness.
       ReactionContent() => throw StateError('reaction handled above'),
       DeleteContent() => throw StateError('delete handled above'),

@@ -37,6 +37,8 @@ dependencies:
   path_provider: ^2.1.2
   path: ^1.9.0
   uuid: ^4.4.0
+  record: ^5.1.2
+  just_audio: ^0.9.40
   cryptography: ^2.7.0
   emoji_picker_flutter: ^4.0.0
   bip39: ^1.0.6
@@ -58,6 +60,16 @@ dependencies:
   html: ^0.15.4
   shared_preferences: ^2.3.2
   app_links: ^6.3.0
+
+dependency_overrides:
+  # record_linux 0.7.2 (the latest, pulled transitively by `record`) is stale
+  # against record_platform_interface 1.6.0: it doesn't implement the abstract
+  # `startStream` and its `hasPermission` lacks the 1.5.0 `request` param, so
+  # the iOS kernel snapshot (which still compiles the federated Linux impl)
+  # fails to compile. This is an iOS-only app and record_darwin has no Dart
+  # code (iOS uses the interface's MethodChannelRecord), so pinning the
+  # interface to the version record_linux 0.7.2 was built against is safe.
+  record_platform_interface: 1.2.0
 
 dev_dependencies:
   flutter_test:

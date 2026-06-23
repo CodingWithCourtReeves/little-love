@@ -6,16 +6,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../attachment/attachment_descriptor.dart';
+import '../audio/playback_provider.dart';
 import '../inbox/room.dart';
 import '../theme/app_palette.dart';
 import '../theme/love_toast.dart';
+import '../wire/live_connection.dart';
 import '../wire/message.dart';
+import 'audio_bubble.dart';
 import 'message_store.dart';
 
 /// Telegram-style chat-info page, reached by tapping the room name in a chat.
 /// A header (avatar + name), an action row (Call / Video / Search — stubbed
 /// until that infrastructure exists), and tabs over the room's shared content:
-/// Media (real), Voice (coming soon), Links (real). All data is read from the
+/// Media (real), Voice (real), Links (real). All data is read from the
 /// local [MessageStore]; nothing new is fetched.
 class ChatInfoPage extends ConsumerWidget {
   const ChatInfoPage({
@@ -41,7 +44,11 @@ class ChatInfoPage extends ConsumerWidget {
     // Newest first for both galleries.
     final media = [
       for (final m in messages.reversed)
-        if (m.attachment != null) m,
+        if (m.attachment != null && !m.attachment!.isAudio) m,
+    ];
+    final voice = [
+      for (final m in messages.reversed)
+        if (m.attachment != null && m.attachment!.isAudio) m,
     ];
     final links = [
       for (final m in messages.reversed)
@@ -74,7 +81,7 @@ class ChatInfoPage extends ConsumerWidget {
               child: TabBarView(
                 children: [
                   _mediaTab(context, media),
-                  _emptyTab(context, 'Voice messages are coming soon'),
+                  _voiceTab(context, ref, voice),
                   _linksTab(context, links),
                 ],
               ),
@@ -191,6 +198,25 @@ class ChatInfoPage extends ConsumerWidget {
       itemBuilder: (_, i) => _MediaTile(
         key: Key('chat-info-media-$i'),
         descriptor: media[i].attachment!,
+      ),
+    );
+  }
+
+  Widget _voiceTab(BuildContext context, WidgetRef ref, List<Msg> voice) {
+    if (voice.isEmpty) return _emptyTab(context, 'No voice messages yet');
+    final controller = ref.read(voicePlaybackControllerProvider);
+    final conn = ref.read(liveConnectionProvider).asData?.value;
+    return ListView.builder(
+      key: const Key('chat-info-voice-list'),
+      itemCount: voice.length,
+      itemBuilder: (_, i) => ListTile(
+        key: Key('chat-info-voice-$i'),
+        title: AudioBubble(
+          descriptor: voice[i].attachment!,
+          isMe: false,
+          controller: controller,
+          conn: conn,
+        ),
       ),
     );
   }
