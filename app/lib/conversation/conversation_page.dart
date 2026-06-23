@@ -24,11 +24,12 @@ import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
 import '../inbox/room.dart';
 import '../inbox/select_room.dart';
+import '../profile/avatar.dart';
+import '../profile/profile_store.dart';
 import '../theme/app_palette.dart';
 import '../theme/love_toast.dart';
 import '../wallpaper/wallpaper_background.dart';
 import '../wallpaper/wallpaper_controller.dart';
-import '../wallpaper/wallpaper_screen.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
 import 'audio_bubble.dart';
@@ -527,35 +528,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _handleSubmit(_controller.text);
   }
 
-  Future<void> _showRenameDialog() async {
-    final controller = TextEditingController(text: widget.room.name);
-    final newName = await showDialog<String?>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rename chat'),
-        content: TextField(
-          key: const Key('rename-dialog-field'),
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Chat name'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(null),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            key: const Key('rename-dialog-save'),
-            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    if (newName == null) return;
-    widget.onRename?.call(newName);
-  }
-
   /// Stable identity string for a list row, used for both its [ValueKey] and
   /// [SliverChildBuilderDelegate.findChildIndexCallback]. The latter is what
   /// lets the builder relocate an existing keyed element when a new message
@@ -595,6 +567,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   Widget build(BuildContext context) {
     final messages = ref.watch(messageStoreProvider(widget.roomId));
     final me = ref.watch(accountProvider).valueOrNull?.username ?? '';
+
+    // Partner profile drives the header name + avatar (and the room list).
+    final profiles = ref.watch(profileStoreProvider);
+    String? nameFor(String u) => profiles.forUsername(u)?.displayName;
+    final partner = _partnerUsername();
+    final partnerProfile = partner != null
+        ? profiles.forUsername(partner)
+        : null;
+    final partnerAvatar = partner != null
+        ? profiles.avatarFileFor(partner)
+        : null;
+    final partnerSeed = (partnerProfile?.displayName?.isNotEmpty ?? false)
+        ? partnerProfile!.displayName!
+        : (partner ?? widget.room.displayName(widget.selfUsername));
 
     // The reverse list keeps the newest message pinned on its own whenever
     // we're already at the bottom, so the only case that needs a programmatic
@@ -668,6 +654,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             ChatInfoPage.route(
               room: widget.room,
               selfUsername: widget.selfUsername,
+              onRename: widget.onRename,
             ),
           ),
           child: Container(
@@ -680,7 +667,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  widget.room.displayName(widget.selfUsername),
+                  widget.room.displayName(
+                    widget.selfUsername,
+                    nameFor: nameFor,
+                  ),
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 16,
@@ -698,43 +688,26 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           ),
         ),
         actions: [
-          PopupMenuButton<String>(
-            key: const Key('room-menu-button'),
-            icon: Container(
-              width: 34,
-              height: 34,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: context.palette.bgSurface.withValues(alpha: 0.7),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: GestureDetector(
+              key: const Key('room-header-avatar'),
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.of(context).push(
+                ChatInfoPage.route(
+                  room: widget.room,
+                  selfUsername: widget.selfUsername,
+                  onRename: widget.onRename,
+                ),
               ),
-              child: Icon(
-                Icons.more_vert,
-                color: context.palette.textMuted,
-                size: 22,
+              child: Center(
+                child: Avatar(
+                  seedText: partnerSeed,
+                  imageFile: partnerAvatar,
+                  radius: 17,
+                ),
               ),
             ),
-            onSelected: (value) {
-              switch (value) {
-                case 'wallpaper':
-                  Navigator.of(context).push(WallpaperScreen.route());
-                case 'rename':
-                  if (widget.onRename != null) _showRenameDialog();
-              }
-            },
-            itemBuilder: (_) => [
-              const PopupMenuItem<String>(
-                key: Key('room-menu-wallpaper'),
-                value: 'wallpaper',
-                child: Text('Wallpaper'),
-              ),
-              if (widget.onRename != null)
-                const PopupMenuItem<String>(
-                  key: Key('room-menu-rename'),
-                  value: 'rename',
-                  child: Text('Rename chat'),
-                ),
-            ],
           ),
         ],
       ),

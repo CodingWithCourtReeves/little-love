@@ -37,7 +37,8 @@ pub async fn fresh_store() -> Store {
     // Truncate the dependent tables first, then the parents, with CASCADE on
     // accounts and rooms to catch anything we missed.
     for table in [
-        "TRUNCATE TABLE attachments",
+        // CASCADE reaches account_profiles, which FK-references attachments.
+        "TRUNCATE TABLE attachments CASCADE",
         "TRUNCATE TABLE messages",
         "TRUNCATE TABLE room_members",
         "TRUNCATE TABLE rooms CASCADE",

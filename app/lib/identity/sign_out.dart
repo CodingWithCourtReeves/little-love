@@ -4,6 +4,8 @@ import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/read_state_provider.dart';
 import '../outbox/outbox_store.dart';
+import '../profile/profile_publish_cache.dart';
+import '../profile/profile_store.dart';
 import 'providers.dart';
 
 /// Sign the current account out of this device: wipe the local identity and all
@@ -33,6 +35,13 @@ Future<void> signOut(WidgetRef ref) async {
   }
   await ref.read(accountLocalStoreProvider).delete();
   await ref.read(readStateStoreProvider).clear();
+  // Drop the persisted avatar descriptor/blob key, or a new account on this
+  // device would re-publish the previous user's avatar (ensureAvatarUploaded
+  // short-circuits on the cache hit before reading the new avatarPath).
+  await ref
+      .read(profilePublishCacheProvider)
+      .setAvatar(null, null)
+      .catchError((_) {});
 
   // 2. In-memory session state that doesn't watch accountProvider.
   ref.invalidate(inboxStateProvider);
@@ -40,6 +49,8 @@ Future<void> signOut(WidgetRef ref) async {
   ref.invalidate(readStateProvider);
   ref.invalidate(activeRoomProvider);
   ref.invalidate(requestedRoomProvider);
+  // The partner's decrypted profile + cached avatar files belong to this couple.
+  ref.invalidate(profileStoreProvider);
   // NOTE: deliberately do NOT clear pendingPairCodeProvider here. A
   // /pair/<code> link captured at cold launch is pulled from the native
   // buffer exactly once (takePendingLaunchLink); the legitimate invitee flow

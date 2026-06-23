@@ -14,6 +14,7 @@ import 'package:littlelove/pairing/pairing_transport.dart';
 import 'package:littlelove/screens/auth/auth_gate.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/live_connection.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../outbox/memory_outbox_store.dart';
 
@@ -62,6 +63,10 @@ class _StubStore implements AccountLocalStore {
 }
 
 void main() {
+  // ProfileScreen (reached for the sign-out flow) embeds the wallpaper picker,
+  // which reads SharedPreferences.
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   testWidgets('null account renders the choice screen', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
@@ -137,10 +142,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('PAIR WITH YOUR PARTNER'), findsOneWidget);
 
-    // Open the home menu and sign out.
-    await tester.tap(find.byKey(const Key('home-menu')));
+    // Open the profile (top-left avatar) and sign out from there.
+    await tester.tap(find.byKey(const Key('home-open-profile')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Sign out'));
+    final signOutBtn = find.byKey(const Key('profile-sign-out'));
+    await tester.ensureVisible(signOutBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(signOutBtn);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('confirm-signout')));
     await tester.pumpAndSettle();

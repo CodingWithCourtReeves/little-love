@@ -58,41 +58,43 @@ ProviderContainer _container() {
 }
 
 void main() {
-  testWidgets('rename menu opens dialog and calls onRename with new name', (
-    tester,
-  ) async {
-    final container = _container();
-    String? renamed;
+  testWidgets(
+    'chat-info rename opens dialog and calls onRename with new name',
+    (tester) async {
+      final container = _container();
+      String? renamed;
 
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: MaterialApp(
-          home: ConversationPage(
-            room: _coupleRoom(),
-            selfUsername: 'court',
-            onSend: (_) {},
-            onRename: (n) => renamed = n,
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: ConversationPage(
+              room: _coupleRoom(),
+              selfUsername: 'court',
+              onSend: (_) {},
+              onRename: (n) => renamed = n,
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('room-menu-button')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('room-menu-rename')));
-    await tester.pumpAndSettle();
+      // Rename now lives on the chat-info page, reached via the header avatar.
+      await tester.tap(find.byKey(const Key('room-header-avatar')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('chat-info-rename')));
+      await tester.pumpAndSettle();
 
-    await tester.enterText(
-      find.byKey(const Key('rename-dialog-field')),
-      'Daily life',
-    );
-    await tester.tap(find.byKey(const Key('rename-dialog-save')));
-    await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('rename-dialog-field')),
+        'Daily life',
+      );
+      await tester.tap(find.byKey(const Key('rename-dialog-save')));
+      await tester.pumpAndSettle();
 
-    expect(renamed, 'Daily life');
-  });
+      expect(renamed, 'Daily life');
+    },
+  );
 
   testWidgets(
     'sender labels render in 3+ member rooms and are absent in 2-member rooms',

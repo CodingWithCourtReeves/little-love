@@ -11,6 +11,7 @@ import 'package:littlelove/identity/sign_out.dart';
 import 'package:littlelove/inbox/read_state_store.dart';
 import 'package:littlelove/outbox/outbox_store.dart';
 import 'package:littlelove/pairing/deep_link.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Pure-async stores (no `dart:io`): real file I/O never completes inside the
 /// `testWidgets` fake-async zone, which would hang `signOut`'s awaits. These
@@ -89,6 +90,11 @@ Future<WidgetRef> _mountRef(WidgetTester t, List<Override> overrides) async {
 }
 
 void main() {
+  // signOut clears the SharedPreferences-backed profile avatar cache; the mock
+  // makes getInstance() resolve on a microtask instead of hanging the fake-async
+  // zone (real platform-channel I/O never completes here).
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   List<Override> baseOverrides(OutboxStore outbox) => [
     keystoreProvider.overrideWithValue(InMemoryKeystore()),
     accountLocalStoreProvider.overrideWithValue(_NoopAccountStore()),
