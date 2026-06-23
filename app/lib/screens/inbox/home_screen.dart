@@ -14,6 +14,7 @@ import '../../attachment/attachment_viewer.dart';
 import '../../attachment/file_crypto.dart';
 import '../../attachment/staged_attachment.dart';
 import '../../attachment/thumbnail.dart';
+import '../../audio/recorder_controller.dart';
 import '../../conversation/conversation_page.dart';
 import '../../conversation/link_preview.dart';
 import '../../conversation/message_content.dart';
@@ -228,6 +229,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           onTyping: (typing) => _sendTyping(ref, room, typing),
           onOpenAttachment: (descriptor) =>
               _openAttachment(ref, room, context, descriptor),
+          onSendVoice: (rec) => _sendVoice(ref, room, context, rec),
           onRename: (newName) {
             final conn = ref.read(liveConnectionProvider).asData?.value;
             conn?.send(
@@ -414,6 +416,79 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Couldn't send attachment.")),
+      );
+    }
+  }
+
+  /// Encrypt + upload a recorded voice memo, then fan it out as a
+  /// `kind:"audio"` message through the same outbox path as files. Voice memos
+  /// skip the staging tray — they send the moment the user releases the mic.
+  /// Mirrors [_sendAttachment] but with no thumbnail and the waveform/duration
+  /// populated from the recording.
+  Future<void> _sendVoice(
+    WidgetRef ref,
+    Room room,
+    BuildContext context,
+    VoiceRecording rec,
+  ) async {
+    final conn = ref.read(liveConnectionProvider).asData?.value;
+    if (conn == null) return;
+    final clientMsgId = ref.read(outboxIdGenProvider)();
+    try {
+      final bytes = await File(rec.path).readAsBytes();
+      final enc = await encryptFileBytes(bytes);
+      final blobKey = await uploadCiphertext(
+        conn: conn,
+        roomId: room.roomId,
+        ciphertext: enc.ciphertext,
+      );
+      final descriptor = AttachmentDescriptor(
+        blobKey: blobKey,
+        contentKeyB64: base64.encode(enc.key),
+        nonceB64: base64.encode(enc.nonce),
+        mime: 'audio/mp4',
+        filename: 'voice.m4a',
+        size: bytes.length,
+        width: 0,
+        height: 0,
+        durationMs: rec.duration.inMilliseconds,
+        thumbB64: '',
+        waveform: rec.waveform,
+      );
+      final me = await ref.read(currentIdentityProvider.future);
+      final frame = await buildSendFrame(
+        room: room,
+        me: me,
+        selfUsername: _me,
+        plaintext: AudioContent(descriptor).encode(),
+        cache: ref.read(roomKeyCacheProvider),
+        clientMsgId: clientMsgId,
+      );
+      final store = await ref.read(outboxStoreProvider.future);
+      await store.enqueue(
+        clientMsgId: clientMsgId,
+        roomId: room.roomId,
+        bodies: frame.bodies,
+      );
+      ref
+          .read(messageStoreProvider(room.roomId).notifier)
+          .add(
+            Msg(
+              id: clientMsgId,
+              from: _me,
+              to: room.roomId,
+              body: '',
+              ts: DateTime.now().toUtc(),
+              clientMsgId: clientMsgId,
+              sendStatus: SendStatus.sending,
+              attachment: descriptor,
+            ),
+          );
+      await ref.read(outboxDrainProvider).kick();
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't send voice message.")),
       );
     }
   }
