@@ -22,6 +22,8 @@ String _cacheExt(AttachmentDescriptor d) {
       return '.mp4';
     case 'video/quicktime':
       return '.mov';
+    case 'audio/mp4':
+      return '.m4a';
     case 'image/png':
       return '.png';
     case 'image/jpeg':
@@ -30,6 +32,9 @@ String _cacheExt(AttachmentDescriptor d) {
       return d.mime.startsWith('video/') ? '.mp4' : '';
   }
 }
+
+/// Test-visible wrapper for [_cacheExt].
+String cacheExtFor(AttachmentDescriptor d) => _cacheExt(d);
 
 /// Fetch + decrypt the full file for [descriptor], returning a local plaintext
 /// file. Cached by `blob_key` (plus a real extension) under app-support so
