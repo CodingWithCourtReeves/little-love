@@ -6,6 +6,7 @@ import 'package:littlelove/conversation/chat_info_page.dart';
 import 'package:littlelove/conversation/conversation_page.dart';
 import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_store.dart';
+import 'package:littlelove/conversation/typing_state.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
@@ -285,6 +286,49 @@ void main() {
     await tester.tap(find.byKey(const Key('room-title-pill')));
     await tester.pumpAndSettle();
     expect(find.byType(ChatInfoPage), findsOneWidget);
+  });
+
+  testWidgets('partner typing shows a typing line inside the title pill', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('typing-indicator')), findsNothing);
+
+    // Partner starts typing → the line appears nested in the title pill.
+    container.read(typingProvider('roomA').notifier).setTyping(true);
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('room-title-pill')),
+        matching: find.byKey(const Key('typing-indicator')),
+      ),
+      findsOneWidget,
+    );
+
+    // Stop typing (also cancels the safety-timeout timer).
+    container.read(typingProvider('roomA').notifier).setTyping(false);
+    await tester.pump();
+    expect(find.byKey(const Key('typing-indicator')), findsNothing);
   });
 
   testWidgets('trailing button morphs mic <-> send with content', (

@@ -638,27 +638,30 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             ),
           ),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
             decoration: BoxDecoration(
               color: context.palette.bgSurface.withValues(alpha: 0.7),
               borderRadius: BorderRadius.circular(999),
             ),
-            child: Text(
-              widget.room.displayName(widget.selfUsername),
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-                color: context.palette.textPrimary,
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  widget.room.displayName(widget.selfUsername),
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    height: 1.1,
+                    color: context.palette.textPrimary,
+                  ),
+                ),
+                _PartnerStatusLine(roomId: widget.roomId),
+              ],
             ),
           ),
         ),
         actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: _TopStatus(roomId: widget.roomId),
-          ),
           PopupMenuButton<String>(
             key: const Key('room-menu-button'),
             icon: Container(
@@ -1488,8 +1491,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 /// pulsing dots while they compose, and nothing when idle. Living in the app
 /// bar (not as a list row) keeps the partner's typing state from reflowing the
 /// message list — which otherwise nudged the list on send.
-class _TopStatus extends ConsumerWidget {
-  const _TopStatus({required this.roomId});
+/// The status line under the room name in the title pill. Shows "typing" with
+/// animated dots while the partner is composing; otherwise the partner's
+/// presence (online / last seen), once that lands. Empty until then.
+class _PartnerStatusLine extends ConsumerWidget {
+  const _PartnerStatusLine({required this.roomId});
   final String roomId;
 
   @override
@@ -1501,16 +1507,16 @@ class _TopStatus extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          'Typing',
+          'typing',
           style: TextStyle(
             fontFamily: 'Inter',
             fontSize: 11,
-            letterSpacing: 0.4,
+            letterSpacing: 0.3,
             fontWeight: FontWeight.w500,
             color: context.palette.accentSage,
           ),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 5),
         const _PulsingDots(),
       ],
     );
