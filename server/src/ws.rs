@@ -200,6 +200,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
 
     let mut upload_rl = WindowRateLimiter::new(UPLOAD_RL_WINDOW, UPLOAD_RL_MAX);
     let mut typing_rl = WindowRateLimiter::new(TYPING_RL_WINDOW, TYPING_RL_MAX);
+    let mut turn_rl = WindowRateLimiter::new(TURN_RL_WINDOW, TURN_RL_MAX);
     // First tick after a full interval (not immediately) so we never ping a
     // client the instant it connects.
     let mut ping =
@@ -334,7 +335,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     }
                 }
                 Ok(RoomClientFrame::CallTurnRequest { call_id }) => {
-                    handle_call_turn_request(&state, &call_id, &tx).await;
+                    if turn_rl.allow() {
+                        handle_call_turn_request(&state, &me, &call_id, &tx).await;
+                    } else {
+                        warn!("TURN credential rate limit hit for {}", me.username);
+                        send_error(&tx, error_codes::RATE_LIMITED, "");
+                    }
                 }
                 Err(e) => warn!("invalid frame from {}: {e}", me.username),
                 }
@@ -356,27 +362,50 @@ fn send_error(tx: &mpsc::UnboundedSender<RoomServerFrame>, code: &str, message: 
 
 /// Mint ICE credentials for a call and return them to the requesting session.
 ///
-/// On any failure (no TURN config, or the Cloudflare call errors) we still send
-/// a `CallTurnGrant` with an empty `iceServers` list rather than an error: the
-/// client can still attempt a direct/host-candidate connection, and a relay
-/// failure should degrade, not abort call setup.
+/// Authorization: only a *paired* account may mint credentials. A call only
+/// ever exists between the two partners of a room, so an unpaired principal has
+/// no legitimate call — refusing here stops an authenticated account from using
+/// our Cloudflare TURN allotment as a free relay (the credentials authorize
+/// metered egress). The caller also rate-limits this (`turn_rl`).
+///
+/// On any *failure* (unpaired, no TURN config, or the Cloudflare call errors) we
+/// send a `CallTurnGrant` with an empty `iceServers` list rather than an error
+/// frame: the client can still attempt a direct/host-candidate connection, and a
+/// relay failure should degrade, not abort call setup. The empty list simply
+/// withholds the relay.
 async fn handle_call_turn_request(
     state: &AppState,
+    me: &AccountRecord,
     call_id: &str,
     tx: &mpsc::UnboundedSender<RoomServerFrame>,
 ) {
     let empty = || serde_json::json!({ "iceServers": [] });
-    let ice_servers = match state.turn.as_ref() {
-        Some(cfg) => match crate::turn::ice_servers(cfg, &state.http).await {
-            Ok(v) => v,
-            Err(e) => {
-                warn!("TURN credential mint failed for call {call_id}: {e}");
+
+    // Authorization gate: require an established pairing before minting.
+    let paired = match state.store.as_ref() {
+        Some(store) => matches!(
+            partner_account_id_for(store.pool(), me.id).await,
+            Ok(Some(_))
+        ),
+        None => false,
+    };
+
+    let ice_servers = if !paired {
+        warn!("CallTurnRequest from unpaired account {}; withholding relay", me.username);
+        empty()
+    } else {
+        match state.turn.as_ref() {
+            Some(cfg) => match crate::turn::ice_servers(cfg, &state.http).await {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!("TURN credential mint failed for call {call_id}: {e}");
+                    empty()
+                }
+            },
+            None => {
+                warn!("CallTurnRequest but TURN is not configured");
                 empty()
             }
-        },
-        None => {
-            warn!("CallTurnRequest but TURN is not configured");
-            empty()
         }
     };
     let _ = tx.send(RoomServerFrame::CallTurnGrant {
@@ -995,6 +1024,14 @@ const UPLOAD_RL_MAX: usize = 60;
 // radius is limited to the authenticated partner either way.
 const TYPING_RL_WINDOW: Duration = Duration::from_secs(10);
 const TYPING_RL_MAX: usize = 40;
+
+// A call needs ICE credentials roughly once at setup (plus the rare mid-call
+// refresh). Real call frequency is tiny, but each request triggers a paid
+// Cloudflare `generate-ice-servers` round-trip and mints relay credentials, so
+// it must be gated like `RequestUpload`. 10/min/connection is generous for a
+// couple yet bounds both DoS amplification and third-party cost abuse.
+const TURN_RL_WINDOW: Duration = Duration::from_secs(60);
+const TURN_RL_MAX: usize = 10;
 
 /// Per-connection sliding-window rate limiter: at most `max` calls per `window`.
 struct WindowRateLimiter {

@@ -74,9 +74,13 @@ impl ServerConfig {
         Some(TurnConfig {
             key_id: get("TURN_KEY_ID")?,
             api_token: get("TURN_API_TOKEN")?,
+            // 2h: a credential is fetched fresh per call, so this bounds the
+            // leak/abuse blast radius far better than Cloudflare's 24h example
+            // while still exceeding any normal call. Marathon calls refresh
+            // mid-session via `setConfiguration()`. Override with TURN_TTL_SECS.
             ttl_secs: get("TURN_TTL_SECS")
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(86_400),
+                .unwrap_or(7_200),
             ice_override: get("TURN_ICE_OVERRIDE"),
         })
     }
@@ -223,7 +227,7 @@ mod tests {
         let cfg = ServerConfig::turn_from_env().expect("turn config Some when key+token set");
         assert_eq!(cfg.key_id, "k123");
         assert_eq!(cfg.api_token, "tok");
-        assert_eq!(cfg.ttl_secs, 86_400);
+        assert_eq!(cfg.ttl_secs, 7_200);
         assert!(cfg.ice_override.is_none());
         std::env::remove_var("TURN_KEY_ID");
         std::env::remove_var("TURN_API_TOKEN");
