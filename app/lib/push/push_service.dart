@@ -43,6 +43,14 @@ class PushService {
   /// Register a callback for a live notification tap (app already running).
   void onTap(void Function(String roomId) cb) => _onTap = cb;
 
+  /// Register a callback for PushKit VoIP token delivery / refresh. Distinct
+  /// from [onToken]: a device has separate alert and VoIP tokens. Environment is
+  /// resolved natively from the same signing profile.
+  void onVoipToken(void Function(String hexToken, String environment) cb) =>
+      _onVoipToken = cb;
+
+  void Function(String hexToken, String environment)? _onVoipToken;
+
   Future<Object?> _onCall(MethodCall call) async {
     switch (call.method) {
       case 'onToken':
@@ -50,6 +58,12 @@ class PushService {
         final t = args?['token'] as String?;
         final env = args?['environment'] as String? ?? 'sandbox';
         if (t != null) _onToken?.call(t, env);
+        return null;
+      case 'onVoipToken':
+        final args = call.arguments as Map?;
+        final t = args?['token'] as String?;
+        final env = args?['environment'] as String? ?? 'sandbox';
+        if (t != null) _onVoipToken?.call(t, env);
         return null;
       case 'onTap':
         final r = call.arguments as String?;

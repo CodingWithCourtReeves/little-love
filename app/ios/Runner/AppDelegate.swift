@@ -1,20 +1,88 @@
+import CallKit
 import Flutter
+import PushKit
 import UIKit
 import UserNotifications
+import flutter_callkit_incoming
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, PKPushRegistryDelegate {
   private var pushChannel: FlutterMethodChannel?
   /// A room id captured from a notification tap that cold-launched the app,
   /// held until Dart asks for it once the inbox is ready.
   private var pendingLaunchRoomId: String?
+  /// PushKit registry for VoIP (call) wakes — distinct from the alert APNs
+  /// registration above. Retained for the app's lifetime.
+  private var voipRegistry: PKPushRegistry?
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     UNUserNotificationCenter.current().delegate = self
+    // Register for VoIP pushes. The token arrives in `didUpdate` and is sent to
+    // Dart (which registers it server-side as a `voip`-kind token).
+    let registry = PKPushRegistry(queue: .main)
+    registry.delegate = self
+    registry.desiredPushTypes = [.voIP]
+    self.voipRegistry = registry
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // MARK: - PushKit (VoIP)
+
+  func pushRegistry(
+    _ registry: PKPushRegistry, didUpdate credentials: PKPushCredentials, for type: PKPushType
+  ) {
+    guard type == .voIP else { return }
+    let hex = credentials.token.map { String(format: "%02x", $0) }.joined()
+    // Let the CallKit plugin know the token too (its own bookkeeping)...
+    SwiftFlutterCallkitIncomingPlugin.sharedInstance?.setDevicePushTokenVoIP(hex)
+    // ...and hand it to Dart for server registration, with the APNs environment
+    // resolved the same way as the alert token (same provisioning profile).
+    pushChannel?.invokeMethod(
+      "onVoipToken",
+      arguments: ["token": hex, "environment": Self.apnsEnvironment()])
+  }
+
+  func pushRegistry(
+    _ registry: PKPushRegistry, didInvalidatePushTokenFor type: PKPushType
+  ) {
+    guard type == .voIP else { return }
+    pushChannel?.invokeMethod("onVoipTokenInvalidated", arguments: nil)
+  }
+
+  /// A VoIP push arrived — wakes the app even from a cold start. iOS 13+ REQUIRES
+  /// that every VoIP push report a CallKit incoming call and call `completion()`,
+  /// or the app is killed and VoIP delivery is eventually disabled. So we ALWAYS
+  /// show CallKit here (the plugin reports it to the system), then complete.
+  func pushRegistry(
+    _ registry: PKPushRegistry,
+    didReceiveIncomingPushWith payload: PKPushPayload,
+    for type: PKPushType,
+    completion: @escaping () -> Void
+  ) {
+    guard type == .voIP else {
+      completion()
+      return
+    }
+    let dict = payload.dictionaryPayload
+    let callId = (dict["call_id"] as? String) ?? UUID().uuidString
+    let roomId = (dict["room_id"] as? String) ?? ""
+    let caller = (dict["from"] as? String) ?? "Partner"
+
+    let info: [String: Any?] = [
+      "id": callId,
+      "nameCaller": caller,
+      "handle": caller,
+      "type": 0,  // 0 = audio call
+      "extra": ["room_id": roomId, "call_id": callId],
+      "ios": ["handleType": "generic", "supportsVideo": false],
+    ]
+    SwiftFlutterCallkitIncomingPlugin.sharedInstance?.showCallkitIncoming(
+      flutter_callkit_incoming.Data(args: info), fromPushKit: true)
+    // Give CallKit a beat to present before completing (per plugin guidance).
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { completion() }
   }
 
   // NOTE: universal links (`https://…/pair/<code>`) are NOT handled here. This

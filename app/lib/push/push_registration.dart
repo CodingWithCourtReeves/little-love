@@ -49,16 +49,27 @@ class PushRegistration {
   final DeviceIdStore _deviceIdStore;
   String? _lastToken;
   String? _lastEnvironment;
+  String? _lastVoipToken;
+  String? _lastVoipEnvironment;
 
   void start() {
     _push.onToken((hexToken, environment) {
       _lastToken = hexToken;
       _lastEnvironment = environment;
-      _sendRegister(hexToken, environment);
+      _sendRegister(hexToken, environment, 'alert');
+    });
+    _push.onVoipToken((hexToken, environment) {
+      _lastVoipToken = hexToken;
+      _lastVoipEnvironment = environment;
+      _sendRegister(hexToken, environment, 'voip');
     });
   }
 
-  Future<void> _sendRegister(String hexToken, String environment) async {
+  Future<void> _sendRegister(
+    String hexToken,
+    String environment,
+    String tokenKind,
+  ) async {
     final conn = _ref.read(liveConnectionProvider).valueOrNull;
     if (conn == null) return;
     final deviceId = await stableDeviceId(_deviceIdStore);
@@ -67,15 +78,19 @@ class PushRegistration {
         deviceId: deviceId,
         apnsToken: hexToken,
         environment: environment,
+        tokenKind: tokenKind,
       ).toJson(),
     );
   }
 
-  /// Re-send the last known token (call on reconnect / app resume).
+  /// Re-send the last known tokens (call on reconnect / app resume).
   Future<void> resend() async {
     final t = _lastToken;
     final env = _lastEnvironment;
-    if (t != null && env != null) await _sendRegister(t, env);
+    if (t != null && env != null) await _sendRegister(t, env, 'alert');
+    final vt = _lastVoipToken;
+    final venv = _lastVoipEnvironment;
+    if (vt != null && venv != null) await _sendRegister(vt, venv, 'voip');
   }
 
   Future<void> unregister() async {
