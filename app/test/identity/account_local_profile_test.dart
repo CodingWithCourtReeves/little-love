@@ -3,11 +3,11 @@ import 'package:littlelove/identity/account_local.dart';
 
 void main() {
   LocalAccount base() => LocalAccount(
-        username: 'alice',
-        ed25519PubBase64: 'e',
-        x25519PubBase64: 'x',
-        createdAt: DateTime.utc(2026),
-      );
+    username: 'alice',
+    ed25519PubBase64: 'e',
+    x25519PubBase64: 'x',
+    createdAt: DateTime.utc(2026),
+  );
 
   test('defaults are null and survive JSON', () {
     final a = base();

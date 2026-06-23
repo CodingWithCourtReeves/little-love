@@ -17,15 +17,21 @@ void main() {
   });
 
   test('Profile frame tolerates missing avatar_key', () {
-    final f = RoomServerFrame.fromJson(
-            {'kind': 'Profile', 'user': 'bob', 'envelope': 'ZW52'})
-        as ProfileFrame;
+    final f =
+        RoomServerFrame.fromJson({
+              'kind': 'Profile',
+              'user': 'bob',
+              'envelope': 'ZW52',
+            })
+            as ProfileFrame;
     expect(f.avatarKey, isNull);
   });
 
   test('PublishProfileFrame serializes', () {
-    final json =
-        PublishProfileFrame(envelopeB64: 'ZW52', avatarKey: 'blob-2').toJson();
+    final json = PublishProfileFrame(
+      envelopeB64: 'ZW52',
+      avatarKey: 'blob-2',
+    ).toJson();
     expect(json, {
       'kind': 'PublishProfile',
       'envelope': 'ZW52',

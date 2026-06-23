@@ -37,8 +37,7 @@ class Room {
       return (resolved != null && resolved.isNotEmpty)
           ? resolved
           : _capitalize(m);
-    }).toList()
-      ..sort();
+    }).toList()..sort();
     final derived = labels.join(' + ');
     // A freshly created room you're the only member of (e.g. a pending-invite
     // room before the partner joins) has no others to derive from. Never

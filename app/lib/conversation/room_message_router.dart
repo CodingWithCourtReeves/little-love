@@ -10,6 +10,7 @@ import '../inbox/select_room.dart';
 import '../inbox/room.dart';
 import '../outbox/outbox_store.dart';
 import '../pairing/encryption.dart';
+import '../profile/profile_publish_cache.dart';
 import '../profile/profile_service.dart';
 import '../profile/profile_store.dart';
 import '../wire/frames.dart';
@@ -69,6 +70,11 @@ class RoomMessageRouter {
         for (final r in mapped) {
           _subscribe(r.roomId);
         }
+        // Re-assert my own profile to the partner now that the room list (and
+        // thus the couple room) is known. Covers a pre-pairing edit and every
+        // reconnect; idempotent + latest-wins on the receiver. Reuses the cached
+        // avatar descriptor, so no photo re-upload.
+        unawaited(_republishMyProfile());
 
       case RoomCreatedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
@@ -134,6 +140,26 @@ class RoomMessageRouter {
       cache: ref.read(roomKeyCacheProvider),
       store: ref.read(profileStoreProvider),
       receivedAt: DateTime.now().toUtc(),
+    );
+  }
+
+  /// Re-publish my own profile (display name + cached avatar) to my partner on
+  /// connect. No-ops before pairing or when nothing has been set.
+  Future<void> _republishMyProfile() async {
+    final account = await ref.read(accountProvider.future);
+    if (account == null) return;
+    if (account.displayName == null && account.avatarPath == null) return;
+    final cache = ref.read(profilePublishCacheProvider);
+    final me = await ref.read(currentIdentityProvider.future);
+    await assembleAndPublishProfile(
+      conn: ref.read(liveConnectionProvider).valueOrNull,
+      rooms: ref.read(inboxStateProvider).rooms,
+      selfUsername: account.username,
+      displayName: account.displayName,
+      me: me,
+      keyCache: ref.read(roomKeyCacheProvider),
+      avatar: await cache.avatar(),
+      avatarKey: await cache.avatarKey(),
     );
   }
 

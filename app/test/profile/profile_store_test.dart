@@ -3,11 +3,11 @@ import 'package:littlelove/profile/profile_store.dart';
 
 void main() {
   PartnerProfile p(String name, DateTime t) => PartnerProfile(
-        username: 'bob',
-        displayName: name,
-        avatar: null,
-        updatedAt: t,
-      );
+    username: 'bob',
+    displayName: name,
+    avatar: null,
+    updatedAt: t,
+  );
 
   test('apply stores and reads back by username', () {
     final s = ProfileStore();

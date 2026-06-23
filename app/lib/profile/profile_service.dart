@@ -1,3 +1,4 @@
+import '../attachment/attachment_descriptor.dart';
 import '../conversation/room_key_cache.dart';
 import '../identity/keypair.dart';
 import '../inbox/room.dart';
@@ -50,6 +51,35 @@ Future<void> publishProfile({
   );
 }
 
+/// Assemble the local profile from already-resolved pieces and publish it to the
+/// partner, picking the canonical [coupleRoomFor] room. No-ops when there is no
+/// connection or no couple room yet (pre-pairing) — the caller re-runs this on
+/// the next connect. Used by both the profile editor (on save) and the live
+/// router (on connect, to re-assert after pairing or a reconnect).
+Future<void> assembleAndPublishProfile({
+  required LiveConnection? conn,
+  required Iterable<Room> rooms,
+  required String selfUsername,
+  required String? displayName,
+  required DerivedIdentity me,
+  required RoomKeyCache keyCache,
+  required AttachmentDescriptor? avatar,
+  required String? avatarKey,
+}) async {
+  if (conn == null) return;
+  final room = coupleRoomFor(rooms, selfUsername);
+  if (room == null) return;
+  await publishProfile(
+    conn: conn,
+    coupleRoom: room,
+    me: me,
+    selfUsername: selfUsername,
+    data: ProfileData(displayName: displayName, avatar: avatar),
+    cache: keyCache,
+    avatarKey: avatarKey,
+  );
+}
+
 /// Decode an inbound partner profile and apply it to [store]. Undecryptable
 /// frames are dropped (the partner keeps their @username fallback).
 Future<void> handleIncomingProfile(
@@ -70,10 +100,12 @@ Future<void> handleIncomingProfile(
   );
   final data = await decodeProfileEnvelope(key, f.envelopeB64);
   if (data == null) return; // undecryptable — keep @username fallback
-  store.apply(PartnerProfile(
-    username: f.user,
-    displayName: data.displayName,
-    avatar: data.avatar,
-    updatedAt: receivedAt,
-  ));
+  store.apply(
+    PartnerProfile(
+      username: f.user,
+      displayName: data.displayName,
+      avatar: data.avatar,
+      updatedAt: receivedAt,
+    ),
+  );
 }

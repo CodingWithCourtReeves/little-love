@@ -18,10 +18,10 @@ Future<DerivedIdentity> _identityFromByte(int b) =>
     );
 
 Member _memberOf(DerivedIdentity id, String username) => Member(
-      username: username,
-      ed25519PubBase64: base64.encode(id.ed25519PublicKey),
-      x25519PubBase64: base64.encode(id.x25519PublicKey),
-    );
+  username: username,
+  ed25519PubBase64: base64.encode(id.ed25519PublicKey),
+  x25519PubBase64: base64.encode(id.x25519PublicKey),
+);
 
 /// Captures the frames sent through it; never receives.
 class _FakeConn implements LiveConnection {

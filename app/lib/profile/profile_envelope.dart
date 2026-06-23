@@ -17,7 +17,10 @@ Map<String, Object?> _toPlain(ProfileData d) => <String, Object?>{
 };
 
 /// Seal [data] with the pairwise [roomKey]; returns base64 for the wire.
-Future<String> encodeProfileEnvelope(Uint8List roomKey, ProfileData data) async {
+Future<String> encodeProfileEnvelope(
+  Uint8List roomKey,
+  ProfileData data,
+) async {
   final wire = await encryptOutgoing(roomKey, jsonEncode(_toPlain(data)));
   return base64.encode(utf8.encode(wire));
 }

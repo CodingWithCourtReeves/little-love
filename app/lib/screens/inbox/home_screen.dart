@@ -24,7 +24,6 @@ import '../../conversation/room_message_router.dart';
 import '../../conversation/send_fanout.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
-import '../../identity/sign_out.dart';
 import '../../inbox/active_room_provider.dart';
 import '../../inbox/conversation_list_item.dart';
 import '../../inbox/inbox_state.dart';
@@ -32,6 +31,7 @@ import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
 import '../../outbox/outbox_drain.dart';
 import '../../outbox/outbox_store.dart';
+import '../../profile/avatar.dart';
 import '../../profile/profile_store.dart';
 import '../../push/push_bootstrap.dart';
 import '../../theme/app_palette.dart';
@@ -40,6 +40,7 @@ import '../../wire/live_connection.dart';
 import '../../wire/message.dart';
 import '../create_chat/create_channel_sheet.dart';
 import '../pair/pairing_screen.dart';
+import '../profile/profile_screen.dart';
 
 /// Signed-in root: the conversation list is home. Tapping a room pushes a
 /// [ConversationPage]; back pops here. When there are no rooms, the body is the
@@ -117,6 +118,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       appBar: AppBar(
         backgroundColor: context.palette.bgSurface,
         elevation: 0,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 12),
+          child: GestureDetector(
+            key: const Key('home-open-profile'),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const ProfileScreen()),
+            ),
+            child: Center(child: Avatar(seedText: _me, radius: 16)),
+          ),
+        ),
         title: Text('@$_me'),
         actions: [
           if (inbox.rooms.isNotEmpty)
@@ -130,18 +141,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               // state's PairingScreen, never behind [+].
               onPressed: () => showCreateChannelSheet(context, ref),
             ),
-          PopupMenuButton<String>(
-            key: const Key('home-menu'),
-            onSelected: (value) {
-              if (value == 'signout') _confirmSignOut();
-            },
-            itemBuilder: (_) => [
-              const PopupMenuItem<String>(
-                value: 'signout',
-                child: Text('Sign out'),
-              ),
-            ],
-          ),
         ],
       ),
       body: _body(inbox.rooms),
@@ -244,31 +243,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
     );
     _chatOnStack = false;
-  }
-
-  Future<void> _confirmSignOut() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: const Text('Sign out?'),
-        content: const Text(
-          'This removes this account and its messages from this device. You '
-          'can sign back in with your recovery phrase.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            key: const Key('confirm-signout'),
-            onPressed: () => Navigator.of(dialogCtx).pop(true),
-            child: const Text('Sign out'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) await signOut(ref);
   }
 
   // ---- send/retry/media wiring moved verbatim from inbox_shell.dart ----

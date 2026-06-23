@@ -44,15 +44,20 @@ void main() {
 
     test('falls back to capitalized username when resolver returns null', () {
       expect(
-        r([m('court'), m('kaitlyn')]).displayName('court', nameFor: (_) => null),
+        r([
+          m('court'),
+          m('kaitlyn'),
+        ]).displayName('court', nameFor: (_) => null),
         'Kaitlyn',
       );
     });
 
     test('named room still wins over resolver', () {
       expect(
-        r([m('court'), m('kaitlyn')], name: 'Date Night')
-            .displayName('court', nameFor: (_) => 'X'),
+        r([
+          m('court'),
+          m('kaitlyn'),
+        ], name: 'Date Night').displayName('court', nameFor: (_) => 'X'),
         'Date Night',
       );
     });

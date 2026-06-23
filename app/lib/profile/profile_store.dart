@@ -33,5 +33,6 @@ class ProfileStore extends ChangeNotifier {
   }
 }
 
-final profileStoreProvider =
-    ChangeNotifierProvider<ProfileStore>((_) => ProfileStore());
+final profileStoreProvider = ChangeNotifierProvider<ProfileStore>(
+  (_) => ProfileStore(),
+);
