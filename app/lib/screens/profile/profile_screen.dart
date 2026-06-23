@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -9,9 +8,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../attachment/attachment_descriptor.dart';
-import '../../attachment/attachment_upload.dart';
-import '../../attachment/file_crypto.dart';
-import '../../attachment/thumbnail.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
@@ -201,12 +197,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     if (picked == null) return;
     setState(() => _busy = true);
     final LocalAccount updated;
-    final Uint8List squared;
     // Phase 1: the local update. This is what "update photo" means to the user;
     // if it fails, that's the real failure.
     try {
       final raw = await picked.readAsBytes();
-      squared = _squareJpeg(raw, 512);
+      final squared = _squareJpeg(raw, 512);
       final dir = await getApplicationDocumentsDirectory();
       final path =
           '${dir.path}/avatar_${DateTime.now().millisecondsSinceEpoch}.jpg';
@@ -221,6 +216,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       updated = account.copyWith(avatarPath: path);
       await ref.read(accountLocalStoreProvider).save(updated);
       ref.invalidate(accountProvider);
+      // New photo → drop any previously-uploaded descriptor so the sync path
+      // (here and the connect-time retry) re-uploads this one.
+      await ref.read(profilePublishCacheProvider).setAvatar(null, null);
     } catch (_) {
       _toast("Couldn't update photo");
       if (mounted) setState(() => _busy = false);
@@ -228,10 +226,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
     // Phase 2: sync to the partner (encrypt → upload → publish). Best-effort —
     // a network/upload failure does NOT mean the photo didn't update; it just
-    // hasn't synced yet. It retries on the next edit or reconnect.
+    // hasn't synced yet. The connect-time retry re-uploads it on the next
+    // stable connection.
     var synced = true;
     try {
-      await _publishAvatar(updated, squared);
+      await _publishAvatar(updated);
     } catch (_) {
       synced = false;
     }
@@ -261,39 +260,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     return Uint8List.fromList(img.encodeJpg(resized, quality: 88));
   }
 
-  /// Encrypt + upload the avatar, build its descriptor, cache it, then publish
-  /// the full profile. No-ops before pairing/connection (the photo stays local;
-  /// the connect-time republish re-asserts it once paired).
-  Future<void> _publishAvatar(LocalAccount account, Uint8List squared) async {
+  /// Upload the avatar (via the shared, retry-able helper) and publish the full
+  /// profile. No-ops before pairing/connection (the photo stays local; the
+  /// connect-time retry re-asserts it once paired and connected).
+  Future<void> _publishAvatar(LocalAccount account) async {
     final conn = ref.read(liveConnectionProvider).valueOrNull;
     final rooms = ref.read(inboxStateProvider).rooms;
     final room = coupleRoomFor(rooms, account.username);
     if (conn == null || room == null) return;
-    final enc = await encryptFileBytes(squared);
-    final blobKey = await uploadCiphertext(
+    final descriptor = await ensureAvatarUploaded(
       conn: conn,
-      roomId: room.roomId,
-      ciphertext: enc.ciphertext,
+      room: room,
+      avatarPath: account.avatarPath,
+      cache: ref.read(profilePublishCacheProvider),
     );
-    final thumb = await buildImageThumbnail(
-      squared,
-      maxEdge: 128,
-      maxThumbBytes: 12 * 1024,
-    );
-    final descriptor = AttachmentDescriptor(
-      blobKey: blobKey,
-      contentKeyB64: base64.encode(enc.key),
-      nonceB64: base64.encode(enc.nonce),
-      mime: 'image/jpeg',
-      filename: 'avatar.jpg',
-      size: squared.length,
-      width: 512,
-      height: 512,
-      durationMs: null,
-      thumbB64: base64.encode(thumb.jpeg),
-    );
-    await ref.read(profilePublishCacheProvider).setAvatar(descriptor, blobKey);
-    await _publishWith(account, descriptor, blobKey);
+    await _publishWith(account, descriptor, descriptor?.blobKey);
   }
 
   /// Publish a display-name change, carrying the existing cached avatar so it

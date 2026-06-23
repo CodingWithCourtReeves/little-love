@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../attachment/attachment_descriptor.dart';
 import '../attachment/attachment_download.dart';
 import '../identity/current_identity.dart';
 import '../identity/providers.dart';
@@ -163,17 +164,36 @@ class RoomMessageRouter {
     final account = await ref.read(accountProvider.future);
     if (account == null) return;
     if (account.displayName == null && account.avatarPath == null) return;
+    final conn = ref.read(liveConnectionProvider).valueOrNull;
+    final rooms = ref.read(inboxStateProvider).rooms;
+    final room = coupleRoomFor(rooms, account.username);
+    if (conn == null || room == null) return;
     final cache = ref.read(profilePublishCacheProvider);
+    // Upload the avatar on connect if it hasn't landed yet (e.g. the upload
+    // failed earlier on a flaky connection). This is the stable post-connect
+    // window, so a previously-stuck photo finally syncs here. Best-effort: fall
+    // back to whatever's cached if this attempt also fails.
+    AttachmentDescriptor? avatar;
+    try {
+      avatar = await ensureAvatarUploaded(
+        conn: conn,
+        room: room,
+        avatarPath: account.avatarPath,
+        cache: cache,
+      );
+    } catch (_) {
+      avatar = await cache.avatar();
+    }
     final me = await ref.read(currentIdentityProvider.future);
     await assembleAndPublishProfile(
-      conn: ref.read(liveConnectionProvider).valueOrNull,
-      rooms: ref.read(inboxStateProvider).rooms,
+      conn: conn,
+      rooms: rooms,
       selfUsername: account.username,
       displayName: account.displayName,
       me: me,
       keyCache: ref.read(roomKeyCacheProvider),
-      avatar: await cache.avatar(),
-      avatarKey: await cache.avatarKey(),
+      avatar: avatar,
+      avatarKey: avatar?.blobKey,
     );
   }
 

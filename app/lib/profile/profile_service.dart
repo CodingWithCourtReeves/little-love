@@ -1,10 +1,17 @@
+import 'dart:convert';
+import 'dart:io';
+
 import '../attachment/attachment_descriptor.dart';
+import '../attachment/attachment_upload.dart';
+import '../attachment/file_crypto.dart';
+import '../attachment/thumbnail.dart';
 import '../conversation/room_key_cache.dart';
 import '../identity/keypair.dart';
 import '../inbox/room.dart';
 import '../wire/frames.dart';
 import '../wire/live_connection.dart';
 import 'profile_envelope.dart';
+import 'profile_publish_cache.dart';
 import 'profile_store.dart';
 
 String? _peerX25519(Room room, String selfUsername) {
@@ -31,6 +38,53 @@ Room? coupleRoomFor(Iterable<Room> rooms, String selfUsername) {
           .toList()
         ..sort((a, b) => a.roomId.compareTo(b.roomId));
   return shared.isEmpty ? null : shared.first;
+}
+
+/// Ensure the local avatar is uploaded to the blob store, returning its
+/// descriptor. Returns the cached descriptor when the photo was already
+/// uploaded (so a reconnect re-asserts without re-uploading); otherwise reads
+/// [avatarPath], encrypts, uploads to [room], caches the result, and returns it.
+/// Returns null when there's no local avatar. Throws if the upload fails — the
+/// caller treats that as best-effort and retries on the next connect. To force a
+/// re-upload after picking a NEW photo, clear the cache first
+/// (`cache.setAvatar(null, null)`).
+Future<AttachmentDescriptor?> ensureAvatarUploaded({
+  required LiveConnection conn,
+  required Room room,
+  required String? avatarPath,
+  required ProfilePublishCache cache,
+}) async {
+  final cached = await cache.avatar();
+  if (cached != null) return cached;
+  if (avatarPath == null) return null;
+  final file = File(avatarPath);
+  if (!file.existsSync()) return null;
+  final bytes = await file.readAsBytes();
+  final enc = await encryptFileBytes(bytes);
+  final blobKey = await uploadCiphertext(
+    conn: conn,
+    roomId: room.roomId,
+    ciphertext: enc.ciphertext,
+  );
+  final thumb = await buildImageThumbnail(
+    bytes,
+    maxEdge: 128,
+    maxThumbBytes: 12 * 1024,
+  );
+  final descriptor = AttachmentDescriptor(
+    blobKey: blobKey,
+    contentKeyB64: base64.encode(enc.key),
+    nonceB64: base64.encode(enc.nonce),
+    mime: 'image/jpeg',
+    filename: 'avatar.jpg',
+    size: bytes.length,
+    width: thumb.width,
+    height: thumb.height,
+    durationMs: null,
+    thumbB64: base64.encode(thumb.jpeg),
+  );
+  await cache.setAvatar(descriptor, blobKey);
+  return descriptor;
 }
 
 /// Seal [data] with the pairwise key and send it to the server (relayed to the
