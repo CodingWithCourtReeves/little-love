@@ -1376,6 +1376,8 @@ async fn notify_recipient(
             environment: t.environment.clone(),
             room_id: room_id.to_string(),
             badge,
+            push_type: crate::push::PushKind::Alert,
+            call_id: None,
         };
         let outcome = sender.send(&msg).await;
         tracing::debug!(

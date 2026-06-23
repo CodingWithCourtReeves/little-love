@@ -20,8 +20,12 @@ pub struct ApnsConfig {
     pub key_p8: String,
     pub key_id: String,
     pub team_id: String,
-    /// APNs topic — the app bundle id.
+    /// APNs topic — the app bundle id. Used for alert (message) pushes.
     pub topic: String,
+    /// APNs topic for VoIP pushes — the bundle id suffixed with `.voip`. iOS
+    /// requires VoIP pushes to use this distinct topic (and a distinct
+    /// push-type). Defaults to `{topic}.voip`; override with `APNS_VOIP_TOPIC`.
+    pub voip_topic: String,
     /// `sandbox` (dev builds) or `production`.
     pub environment: String,
 }
@@ -87,11 +91,14 @@ impl ServerConfig {
 
     fn apns_from_env() -> Option<ApnsConfig> {
         let get = |k: &str| env::var(k).ok().filter(|s| !s.is_empty());
+        let topic = get("APNS_TOPIC")?;
+        let voip_topic = get("APNS_VOIP_TOPIC").unwrap_or_else(|| format!("{topic}.voip"));
         Some(ApnsConfig {
             key_p8: get("APNS_KEY_P8")?,
             key_id: get("APNS_KEY_ID")?,
             team_id: get("APNS_TEAM_ID")?,
-            topic: get("APNS_TOPIC")?,
+            topic,
+            voip_topic,
             environment: get("APNS_ENV").unwrap_or_else(|| "sandbox".to_string()),
         })
     }
@@ -172,10 +179,14 @@ mod tests {
         ] {
             std::env::set_var(k, v);
         }
+        // Exercise the derived voip_topic default deterministically.
+        std::env::remove_var("APNS_VOIP_TOPIC");
         let cfg = ServerConfig::from_env();
         let apns = cfg.apns.expect("apns config Some when all vars set");
         assert_eq!(apns.key_id, "KEY123");
         assert_eq!(apns.topic, "dev.littlelove.littlelove");
+        // voip_topic defaults to the alert topic + ".voip" when unset.
+        assert_eq!(apns.voip_topic, "dev.littlelove.littlelove.voip");
         assert_eq!(apns.environment, "sandbox");
         for k in [
             "APNS_KEY_P8",
