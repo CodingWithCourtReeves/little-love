@@ -4,69 +4,80 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'call_controller.dart';
 import 'call_state.dart';
 
-/// In-app call view. CallKit owns the system/lock-screen UI; this is the
-/// foreground screen shown while a call is dialing/connecting/active, with a
-/// status line, mute, and hang-up. Auto-pops when the call ends.
-class CallScreen extends ConsumerStatefulWidget {
-  const CallScreen({super.key});
-
-  static Route<void> route() =>
-      MaterialPageRoute<void>(builder: (_) => const CallScreen());
+/// App-root overlay that shows the in-app call UI on BOTH sides whenever a call
+/// is live (dialing / connecting / active), so the caller and callee see the
+/// same screen. CallKit still owns the ring and the system/lock-screen/CarPlay
+/// UI; this is the in-app view when you're looking at the phone.
+///
+/// Mounted once via `MaterialApp.builder` so it floats above all routes.
+class CallOverlay extends ConsumerWidget {
+  const CallOverlay({super.key});
 
   @override
-  ConsumerState<CallScreen> createState() => _CallScreenState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.watch(callControllerProvider);
+    return ValueListenableBuilder<CallState>(
+      valueListenable: controller.state,
+      builder: (context, state, _) {
+        // Ringing (incoming, pre-accept) is owned by CallKit's native screen;
+        // we only take over once the user is in the call.
+        final show = state.phase == CallPhase.dialing ||
+            state.phase == CallPhase.connecting ||
+            state.phase == CallPhase.active;
+        if (!show) return const SizedBox.shrink();
+        return Positioned.fill(child: _CallView(controller: controller, state: state));
+      },
+    );
+  }
 }
 
-class _CallScreenState extends ConsumerState<CallScreen> {
+class _CallView extends StatefulWidget {
+  const _CallView({required this.controller, required this.state});
+  final CallController controller;
+  final CallState state;
+
+  @override
+  State<_CallView> createState() => _CallViewState();
+}
+
+class _CallViewState extends State<_CallView> {
   bool _muted = false;
 
   @override
   Widget build(BuildContext context) {
-    final controller = ref.read(callControllerProvider);
-    return Scaffold(
-      backgroundColor: const Color(0xFF1A1326),
-      body: SafeArea(
-        child: ValueListenableBuilder<CallState>(
-          valueListenable: controller.state,
-          builder: (context, state, _) {
-            // Pop once the call has ended.
-            if (state.phase == CallPhase.ended || state.phase == CallPhase.idle) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (Navigator.of(context).canPop()) Navigator.of(context).pop();
-              });
-            }
-            return Column(
+    return Material(
+      color: const Color(0xFF1A1326),
+      child: SafeArea(
+        child: Column(
+          children: [
+            const Spacer(),
+            const Icon(Icons.favorite, color: Colors.white70, size: 72),
+            const SizedBox(height: 24),
+            Text(
+              _statusLabel(widget.state.phase),
+              style: const TextStyle(color: Colors.white, fontSize: 22),
+            ),
+            const Spacer(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                const Spacer(),
-                const Icon(Icons.favorite, color: Colors.white70, size: 72),
-                const SizedBox(height: 24),
-                Text(
-                  _statusLabel(state.phase),
-                  style: const TextStyle(color: Colors.white, fontSize: 22),
+                _CircleButton(
+                  icon: _muted ? Icons.mic_off : Icons.mic,
+                  color: Colors.white24,
+                  onTap: () {
+                    setState(() => _muted = !_muted);
+                    widget.controller.toggleMute(_muted);
+                  },
                 ),
-                const Spacer(),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _CircleButton(
-                      icon: _muted ? Icons.mic_off : Icons.mic,
-                      color: Colors.white24,
-                      onTap: () {
-                        setState(() => _muted = !_muted);
-                        controller.toggleMute(_muted);
-                      },
-                    ),
-                    _CircleButton(
-                      icon: Icons.call_end,
-                      color: Colors.red,
-                      onTap: () => controller.hangup(),
-                    ),
-                  ],
+                _CircleButton(
+                  icon: Icons.call_end,
+                  color: Colors.red,
+                  onTap: () => widget.controller.hangup(),
                 ),
-                const SizedBox(height: 48),
               ],
-            );
-          },
+            ),
+            const SizedBox(height: 48),
+          ],
         ),
       ),
     );
@@ -74,7 +85,6 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
   String _statusLabel(CallPhase phase) => switch (phase) {
         CallPhase.dialing => 'Calling…',
-        CallPhase.ringing => 'Incoming call…',
         CallPhase.connecting => 'Connecting…',
         CallPhase.active => 'Connected',
         _ => '',

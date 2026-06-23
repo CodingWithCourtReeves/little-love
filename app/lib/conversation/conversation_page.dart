@@ -8,7 +8,6 @@ import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
 
 import '../calling/call_controller.dart';
-import '../calling/call_screen.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
@@ -714,8 +713,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
               child: Icon(Icons.call, color: context.palette.textMuted, size: 20),
             ),
             onPressed: () {
+              // The CallOverlay shows the in-app call UI automatically once the
+              // call is dialing.
               ref.read(callControllerProvider).placeCall(widget.roomId);
-              Navigator.of(context).push(CallScreen.route());
             },
           ),
           PopupMenuButton<String>(
