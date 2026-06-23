@@ -25,6 +25,7 @@ class _NoopPlayer implements PlayerBackend {
     if (i.memberName == #playingStream) return const Stream<bool>.empty();
     if (i.memberName == #positionStream) return const Stream<Duration>.empty();
     if (i.memberName == #durationStream) return const Stream<Duration?>.empty();
+    if (i.memberName == #onCompleted) return const Stream<void>.empty();
     return Future<void>.value();
   }
 }

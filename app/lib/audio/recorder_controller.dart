@@ -80,6 +80,15 @@ class VoiceRecorderController extends ChangeNotifier {
 
   Duration get elapsed => _watch?.elapsed ?? Duration.zero;
 
+  /// The most recent amplitude samples (dBFS, newest last) for a live recording
+  /// waveform — the trailing [count] of what's been captured so far.
+  List<double> recentAmplitudes([int count = 40]) {
+    final n = _amplitudes.length;
+    return n <= count
+        ? List<double>.of(_amplitudes)
+        : _amplitudes.sublist(n - count);
+  }
+
   /// Begin recording. Returns false (and stays idle) if already recording or
   /// microphone permission is denied, so the caller can surface that instead of
   /// failing silently.

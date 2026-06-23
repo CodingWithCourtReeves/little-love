@@ -19,6 +19,7 @@ import '../attachment/staged_attachment.dart';
 import '../attachment/thumbnail.dart';
 import '../audio/playback_provider.dart';
 import '../audio/recorder_controller.dart';
+import '../audio/waveform.dart';
 import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
 import '../inbox/room.dart';
@@ -1411,120 +1412,117 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             mainAxisSize: MainAxisSize.min,
             children: [
               if (_staged.isNotEmpty) _stagingTray(),
-              if (_recorder.state == RecorderState.recording ||
-                  _recorder.state == RecorderState.locked)
-                RecordingOverlay(
-                  elapsed: _recorder.elapsed,
-                  locked: _recorder.state == RecorderState.locked,
-                  cancelArmed: _cancelArmed,
-                  // Locked mode: trash discards, send stops + fans out.
-                  onStop: () => _recorder.cancel(),
-                  onSend: () async {
-                    final rec = await _recorder.stop();
-                    if (rec != null) await widget.onSendVoice?.call(rec);
-                  },
-                )
-              else
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    // The pill: one rounded glass surface holding the attach
-                    // action (inside-left, bottom-pinned) and the text field.
-                    // Bottom alignment keeps the attach glyph on the last line as
-                    // the field grows, instead of drifting to the vertical center.
-                    Expanded(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(22),
-                        child: BackdropFilter(
-                          // Apple-style material: blur the messages behind, then
-                          // lift their saturation back up (ColorFilter implements
-                          // ImageFilter, so compose() chains it over the blur) so
-                          // the glass stays luminous instead of going muddy.
-                          filter: ImageFilter.compose(
-                            outer: const ColorFilter.matrix(_glassSaturation),
-                            inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                          ),
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: context.palette.bgSurface.withValues(
-                                alpha: 0.55,
-                              ),
-                              borderRadius: BorderRadius.circular(22),
-                              // Hairline all the way around so the glass edge
-                              // reads crisply against messages passing behind it.
-                              border: Border.all(
-                                color: context.palette.textPrimary.withValues(
-                                  alpha: 0.10,
-                                ),
-                                width: 0.5,
-                              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  // The pill: one rounded glass surface holding the attach
+                  // action (inside-left, bottom-pinned) and the text field.
+                  // Bottom alignment keeps the attach glyph on the last line as
+                  // the field grows, instead of drifting to the vertical center.
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(22),
+                      child: BackdropFilter(
+                        // Apple-style material: blur the messages behind, then
+                        // lift their saturation back up (ColorFilter implements
+                        // ImageFilter, so compose() chains it over the blur) so
+                        // the glass stays luminous instead of going muddy.
+                        filter: ImageFilter.compose(
+                          outer: const ColorFilter.matrix(_glassSaturation),
+                          inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                        ),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: context.palette.bgSurface.withValues(
+                              alpha: 0.55,
                             ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                if (widget.onPickMedia != null)
-                                  IconButton(
-                                    key: const Key('composer-attach'),
-                                    onPressed: _pickMedia,
-                                    icon: Icon(
-                                      Icons.attach_file,
-                                      color: context.palette.textMuted,
-                                      size: 22,
-                                    ),
-                                    tooltip: 'Attach a photo or video',
-                                  ),
-                                Expanded(
-                                  child: Shortcuts(
-                                    shortcuts: shortcuts,
-                                    child: Actions(
-                                      actions: {
-                                        _SendIntent:
-                                            CallbackAction<_SendIntent>(
-                                              onInvoke: (_) {
-                                                _submitFromIntent();
-                                                return null;
-                                              },
+                            borderRadius: BorderRadius.circular(22),
+                            // Hairline all the way around so the glass edge
+                            // reads crisply against messages passing behind it.
+                            border: Border.all(
+                              color: context.palette.textPrimary.withValues(
+                                alpha: 0.10,
+                              ),
+                              width: 0.5,
+                            ),
+                          ),
+                          // Recording keeps the pill in place — only its
+                          // content swaps to the live waveform strip.
+                          child:
+                              _recorder.state == RecorderState.recording ||
+                                  _recorder.state == RecorderState.locked
+                              ? _recordingStrip()
+                              : Row(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    if (widget.onPickMedia != null)
+                                      IconButton(
+                                        key: const Key('composer-attach'),
+                                        onPressed: _pickMedia,
+                                        icon: Icon(
+                                          Icons.attach_file,
+                                          color: context.palette.textMuted,
+                                          size: 22,
+                                        ),
+                                        tooltip: 'Attach a photo or video',
+                                      ),
+                                    Expanded(
+                                      child: Shortcuts(
+                                        shortcuts: shortcuts,
+                                        child: Actions(
+                                          actions: {
+                                            _SendIntent:
+                                                CallbackAction<_SendIntent>(
+                                                  onInvoke: (_) {
+                                                    _submitFromIntent();
+                                                    return null;
+                                                  },
+                                                ),
+                                          },
+                                          child: TextField(
+                                            key: const Key('composer'),
+                                            controller: _controller,
+                                            onChanged: _onComposerChanged,
+                                            minLines: 1,
+                                            maxLines: 8,
+                                            keyboardType:
+                                                TextInputType.multiline,
+                                            textInputAction:
+                                                TextInputAction.newline,
+                                            decoration: InputDecoration(
+                                              isDense: true,
+                                              hintText: 'Message',
+                                              hintStyle: TextStyle(
+                                                color:
+                                                    context.palette.textMuted,
+                                              ),
+                                              border: InputBorder.none,
+                                              // Lead padding only when the attach
+                                              // button isn't there to provide it.
+                                              contentPadding:
+                                                  EdgeInsets.fromLTRB(
+                                                    widget.onPickMedia != null
+                                                        ? 0
+                                                        : 16,
+                                                    11,
+                                                    16,
+                                                    11,
+                                                  ),
                                             ),
-                                      },
-                                      child: TextField(
-                                        key: const Key('composer'),
-                                        controller: _controller,
-                                        onChanged: _onComposerChanged,
-                                        minLines: 1,
-                                        maxLines: 8,
-                                        keyboardType: TextInputType.multiline,
-                                        textInputAction:
-                                            TextInputAction.newline,
-                                        decoration: InputDecoration(
-                                          isDense: true,
-                                          hintText: 'Message',
-                                          hintStyle: TextStyle(
-                                            color: context.palette.textMuted,
-                                          ),
-                                          border: InputBorder.none,
-                                          // Lead padding only when the attach
-                                          // button isn't there to provide it.
-                                          contentPadding: EdgeInsets.fromLTRB(
-                                            widget.onPickMedia != null ? 0 : 16,
-                                            11,
-                                            16,
-                                            11,
                                           ),
                                         ),
                                       ),
                                     ),
-                                  ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                          ),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    _trailingButton(),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  _trailingButton(),
+                ],
+              ),
             ],
           ),
         ),
@@ -1537,6 +1535,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// whichever child is showing at full layout size, so it stays tappable the
   /// frame it appears.
   Widget _trailingButton() {
+    // Locked (hands-free) recording: the trailing becomes a voice send. While a
+    // press-and-hold is still in flight we leave the normal mic path untouched
+    // so the active gesture isn't torn out from under the finger.
+    if (_recorder.state == RecorderState.locked) return _voiceSendButton();
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: _controller,
       builder: (context, value, _) {
@@ -1546,6 +1548,41 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           child: hasContent ? _sendButton() : _micButton(),
         );
       },
+    );
+  }
+
+  /// The in-pill recording strip (red dot + timer + live waveform), shown while
+  /// the composer is capturing a voice memo. The chat bar stays put.
+  Widget _recordingStrip() {
+    return RecordingStrip(
+      elapsed: _recorder.elapsed,
+      locked: _recorder.state == RecorderState.locked,
+      cancelArmed: _cancelArmed,
+      waveform: downsampleWaveform(_recorder.recentAmplitudes(), buckets: 28),
+      barColor: context.palette.textPrimary,
+      hintColor: context.palette.textMuted,
+      onTrash: () => _recorder.cancel(),
+    );
+  }
+
+  /// Filled circular send for a locked voice recording: stop + fan out.
+  Widget _voiceSendButton() {
+    return Material(
+      key: const Key('recording-send'),
+      color: context.palette.accentUser,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () async {
+          final rec = await _recorder.stop();
+          if (rec != null) await widget.onSendVoice?.call(rec);
+        },
+        child: const SizedBox(
+          width: 44,
+          height: 44,
+          child: Icon(Icons.arrow_upward, color: Colors.white, size: 22),
+        ),
+      ),
     );
   }
 
