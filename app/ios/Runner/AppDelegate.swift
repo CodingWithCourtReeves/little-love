@@ -105,7 +105,13 @@ import flutter_callkit_incoming
     let dict = payload.dictionaryPayload
     let callId = (dict["call_id"] as? String) ?? UUID().uuidString
     let roomId = (dict["room_id"] as? String) ?? ""
-    let caller = (dict["from"] as? String) ?? "Partner"
+    // Resolve the caller name LOCALLY (never from the push) to keep call
+    // metadata off APNs — E2EE/privacy posture, same as our content-free message
+    // pushes. A couple has exactly one partner, so the app stashes their name in
+    // the shared App Group when known; we read it here on the wake.
+    let caller =
+      UserDefaults(suiteName: "group.dev.littlelove.littlelove")?
+      .string(forKey: "partner_name") ?? "Partner"
 
     let info: [String: Any?] = [
       "id": callId,
@@ -147,6 +153,14 @@ import flutter_callkit_incoming
         if let key = call.arguments as? String {
           UserDefaults(suiteName: "group.dev.littlelove.littlelove")?
             .set(key, forKey: "selected_palette")
+        }
+        result(nil)
+      case "setPartnerName":
+        // Stash the partner's display name locally so a VoIP-wake CallKit screen
+        // can name the caller without the push ever carrying it (E2EE/privacy).
+        if let name = call.arguments as? String {
+          UserDefaults(suiteName: "group.dev.littlelove.littlelove")?
+            .set(name, forKey: "partner_name")
         }
         result(nil)
       case "setBadge":

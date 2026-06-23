@@ -31,6 +31,12 @@ class PushService {
   Future<void> setPalette(String key) =>
       _channel.invokeMethod<void>('setPalette', key);
 
+  /// Stash the partner's display name in the shared App Group so a VoIP-wake
+  /// CallKit screen can name the caller locally — the name never rides the push
+  /// (keeps call metadata off APNs, matching content-free message pushes).
+  Future<void> setPartnerName(String name) =>
+      _channel.invokeMethod<void>('setPartnerName', name);
+
   /// Set the app-icon badge to the current unread count. Pushes set it for the
   /// background/quit case; this clears/decrements it as the user reads.
   Future<void> setBadge(int count) =>

@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/read_state_provider.dart';
@@ -21,6 +22,19 @@ final pushBootstrapProvider = Provider<void>((ref) {
   push.setPalette('twilight');
   // Ask permission; registration fires via onToken once it's granted.
   push.requestPermission();
+
+  // Stash the partner's name locally so a VoIP-wake CallKit screen can name the
+  // caller without the push carrying it. Couples app → exactly one partner.
+  final self = ref.read(accountProvider).valueOrNull?.username;
+  final rooms = ref.read(inboxStateProvider).rooms;
+  if (self != null && rooms.isNotEmpty) {
+    for (final m in rooms.first.members) {
+      if (m.username != self) {
+        push.setPartnerName(m.username);
+        break;
+      }
+    }
+  }
 
   void openRoom(String roomId) {
     final rooms = ref.read(inboxStateProvider).rooms;
