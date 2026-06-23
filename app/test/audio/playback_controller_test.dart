@@ -5,9 +5,16 @@ import 'package:littlelove/audio/playback_controller.dart';
 
 class FakePlayer implements PlayerBackend {
   final _playing = StreamController<bool>.broadcast();
+  final _completed = StreamController<void>.broadcast();
   bool playing = false;
   String? loadedPath;
   double speed = 1.0;
+  Duration? lastSeek;
+
+  void complete() {
+    playing = false;
+    _completed.add(null);
+  }
 
   @override
   Future<void> setFilePath(String path) async => loadedPath = path;
@@ -24,7 +31,7 @@ class FakePlayer implements PlayerBackend {
   }
 
   @override
-  Future<void> seek(Duration to) async {}
+  Future<void> seek(Duration to) async => lastSeek = to;
   @override
   Future<void> setSpeed(double s) async => speed = s;
   @override
@@ -33,6 +40,8 @@ class FakePlayer implements PlayerBackend {
   Stream<Duration> get positionStream => const Stream.empty();
   @override
   Stream<Duration?> get durationStream => const Stream.empty();
+  @override
+  Stream<void> get onCompleted => _completed.stream;
   @override
   Future<void> dispose() async {}
 }
@@ -74,6 +83,24 @@ void main() {
     await c.toggle(a, null);
     await c.toggle(a, null);
     expect(fake.playing, isFalse);
+  });
+
+  test('after a memo completes, toggling replays it from the start', () async {
+    final fake = FakePlayer();
+    final c = VoicePlaybackController(
+      backend: fake,
+      resolvePath: (d, conn) async => '/tmp/${d.blobKey}.m4a',
+    );
+    final a = _audio('a');
+    await c.toggle(a, null);
+    fake.complete();
+    await Future<void>.delayed(Duration.zero);
+    // Completion rewinds to the start and parks paused, so the button is live.
+    expect(c.isPlaying, isFalse);
+    expect(fake.lastSeek, Duration.zero);
+    // Tapping again replays (it's still the active memo, now paused at 0).
+    await c.toggle(a, null);
+    expect(fake.playing, isTrue);
   });
 
   test('cycleSpeed walks 1.0 -> 1.5 -> 2.0 -> 1.0', () {

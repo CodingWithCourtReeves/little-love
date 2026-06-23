@@ -17,6 +17,9 @@ abstract class PlayerBackend {
   Stream<bool> get playingStream;
   Stream<Duration> get positionStream;
   Stream<Duration?> get durationStream;
+
+  /// Emits once each time playback reaches the end of the clip.
+  Stream<void> get onCompleted;
   Future<void> dispose();
 }
 
@@ -38,6 +41,10 @@ class JustAudioBackend implements PlayerBackend {
   Stream<Duration> get positionStream => _p.positionStream;
   @override
   Stream<Duration?> get durationStream => _p.durationStream;
+  @override
+  Stream<void> get onCompleted => _p.processingStateStream
+      .where((s) => s == ProcessingState.completed)
+      .map((_) {});
   @override
   Future<void> dispose() => _p.dispose();
 }
@@ -72,6 +79,15 @@ class VoicePlaybackController extends ChangeNotifier {
     });
     _p.durationStream.listen((v) {
       _duration = v ?? Duration.zero;
+      notifyListeners();
+    });
+    // On completion just_audio parks at the end with playing still latched, so
+    // a follow-up play() is a no-op and the button looks stuck. Rewind to the
+    // start and sit paused so the next tap replays from the beginning.
+    _p.onCompleted.listen((_) {
+      _isPlaying = false;
+      _position = Duration.zero;
+      _p.seek(Duration.zero);
       notifyListeners();
     });
   }
