@@ -3,12 +3,15 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../identity/current_identity.dart';
+import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/select_room.dart';
 import '../inbox/room.dart';
 import '../outbox/outbox_store.dart';
 import '../pairing/encryption.dart';
+import '../profile/profile_service.dart';
+import '../profile/profile_store.dart';
 import '../wire/frames.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
@@ -97,6 +100,9 @@ class RoomMessageRouter {
         // Server-authoritative partner online/offline, keyed by username.
         ref.read(presenceProvider(user).notifier).setOnline(online);
 
+      case ProfileFrame():
+        await _ingestProfile(f);
+
       case InviteCreatedFrame():
       case RoomErrorFrame():
       case UploadGrantedFrame():
@@ -104,6 +110,31 @@ class RoomMessageRouter {
         // Owned by LivePairingTransport / attachment upload+download flows.
         break;
     }
+  }
+
+  /// Decrypt a relayed partner profile and apply it to the ProfileStore. The
+  /// pairwise key is salted by the canonical couple-room id (see [coupleRoomFor]),
+  /// so we resolve the same room the publisher used. A Profile can arrive before
+  /// the room list reconciles; if so we drop it — the connect-time replay (and
+  /// any later live publish) re-delivers it once the room is present.
+  Future<void> _ingestProfile(ProfileFrame f) async {
+    final account = await ref.read(accountProvider.future);
+    if (account == null) return;
+    final room = coupleRoomFor(
+      ref.read(inboxStateProvider).rooms,
+      account.username,
+    );
+    if (room == null) return;
+    final me = await ref.read(currentIdentityProvider.future);
+    await handleIncomingProfile(
+      f,
+      coupleRoom: room,
+      me: me,
+      selfUsername: account.username,
+      cache: ref.read(roomKeyCacheProvider),
+      store: ref.read(profileStoreProvider),
+      receivedAt: DateTime.now().toUtc(),
+    );
   }
 
   void _upsertRoom(String roomId, String name, List<Member> members) {
