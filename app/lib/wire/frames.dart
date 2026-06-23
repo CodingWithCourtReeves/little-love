@@ -216,6 +216,13 @@ sealed class RoomServerFrame {
           url: json['url']! as String,
           expiresAt: DateTime.parse(json['expires_at']! as String).toUtc(),
         );
+      case 'CallTurnGrant':
+        return CallTurnGrantFrame(
+          callId: json['call_id']! as String,
+          iceServers:
+              (json['ice_servers'] as Map?)?.cast<String, Object?>() ??
+              const <String, Object?>{},
+        );
       case 'Error':
         return RoomErrorFrame(
           code: json['code']! as String,
@@ -373,6 +380,16 @@ class DownloadGrantedFrame extends RoomServerFrame {
   final String blobKey;
   final String url;
   final DateTime expiresAt;
+}
+
+/// Short-lived ICE servers for a call, answering a [CallTurnRequestFrame].
+/// [iceServers] is the raw provider object as the server passed it through —
+/// `{ "iceServers": [ { "urls": .., "username": .., "credential": .. }, ... ] }`
+/// (or an empty object when the relay is withheld). Not E2EE-sensitive.
+class CallTurnGrantFrame extends RoomServerFrame {
+  const CallTurnGrantFrame({required this.callId, required this.iceServers});
+  final String callId;
+  final Map<String, Object?> iceServers;
 }
 
 // ---------- Outbound (client → server) ----------
@@ -546,5 +563,17 @@ class TypingClientFrame {
     'kind': 'Typing',
     'room_id': roomId,
     'typing': typing,
+  };
+}
+
+/// Ask the server to mint short-lived ICE (STUN/TURN) credentials for [callId].
+/// Answered with a `CallTurnGrant` carrying the iceServers object.
+class CallTurnRequestFrame {
+  const CallTurnRequestFrame({required this.callId});
+  final String callId;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'CallTurnRequest',
+    'call_id': callId,
   };
 }
