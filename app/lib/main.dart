@@ -36,7 +36,12 @@ class LittleLoveApp extends ConsumerWidget {
       theme: buildAppTheme(palette),
       // Float the in-app call UI above every route so an active call shows the
       // same screen on both caller and callee (CallKit owns the ring + system UI).
+      // StackFit.expand gives the app content tight fill constraints — without
+      // it the wrapped Scaffold gets unbounded height and its body collapses
+      // (black screen under the app bar). The CallOverlay is transparent /
+      // pointer-passthrough until a call is live.
       builder: (context, child) => Stack(
+        fit: StackFit.expand,
         children: [
           child ?? const SizedBox.shrink(),
           const CallOverlay(),
