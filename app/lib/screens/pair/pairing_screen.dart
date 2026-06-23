@@ -10,7 +10,7 @@ import '../../pairing/invite_create.dart';
 import '../../pairing/invite_link.dart';
 import '../../pairing/pairing_transport.dart';
 import '../../pairing/qr.dart';
-import '../../theme/twilight.dart';
+import '../../theme/app_palette.dart';
 import '../../wire/frames.dart';
 
 /// The single symmetric pre-pairing surface. Shows your own roomless invite
@@ -115,39 +115,39 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
+                Text(
                   'PAIR WITH YOUR PARTNER',
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 11,
                     letterSpacing: 2.4,
                     fontWeight: FontWeight.w500,
-                    color: TwilightColors.accentSage,
+                    color: context.palette.accentSage,
                   ),
                 ),
                 const SizedBox(height: 14),
-                const Text(
+                Text(
                   'Send them your code',
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 26,
                     fontWeight: FontWeight.w500,
                     letterSpacing: -0.5,
-                    color: TwilightColors.textPrimary,
+                    color: context.palette.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 20),
                 _MyInvite(future: _myInvite!),
                 const SizedBox(height: 36),
-                const Divider(color: TwilightColors.borderSoft),
+                Divider(color: context.palette.borderSoft),
                 const SizedBox(height: 24),
-                const Text(
+                Text(
                   '…or enter theirs',
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 20,
                     fontWeight: FontWeight.w500,
-                    color: TwilightColors.textPrimary,
+                    color: context.palette.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -207,7 +207,7 @@ class _MyInvite extends StatelessWidget {
             alreadyPaired
                 ? "You're already paired with a partner."
                 : 'Could not create an invite: $err',
-            style: const TextStyle(color: TwilightColors.textPrimary),
+            style: TextStyle(color: context.palette.textPrimary),
             textAlign: TextAlign.center,
           );
         }
@@ -220,21 +220,21 @@ class _MyInvite extends StatelessWidget {
             SelectableText(
               invite.code,
               key: const Key('pairing-code-text'),
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 18,
                 fontWeight: FontWeight.w500,
                 letterSpacing: 0.4,
-                color: TwilightColors.textPrimary,
+                color: context.palette.textPrimary,
               ),
             ),
             const SizedBox(height: 6),
             SelectableText(
               link,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 13,
-                color: TwilightColors.textMuted,
+                color: context.palette.textMuted,
               ),
             ),
             const SizedBox(height: 10),

@@ -2,16 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:littlelove/conversation/chat_info_page.dart';
 import 'package:littlelove/conversation/conversation_page.dart';
 import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_store.dart';
+import 'package:littlelove/conversation/presence_state.dart';
+import 'package:littlelove/conversation/typing_state.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
-import 'package:littlelove/theme/twilight.dart';
+import 'package:littlelove/theme/app_palette.dart';
+import 'package:littlelove/wallpaper/wallpaper_background.dart';
+import 'package:littlelove/wallpaper/wallpaper_controller.dart';
+import 'package:littlelove/wallpaper/wallpaper_screen.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Room _roomA() => Room(
   roomId: 'roomA',
@@ -66,7 +73,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -80,6 +87,10 @@ void main() {
     expect(find.text('long. miss you.'), findsOneWidget);
     // The AppBar now shows the room name in place of the channel switcher.
     expect(find.text('Kaitlyn'), findsOneWidget);
+    // Each text bubble paints its own tailed background (a CustomPaint keyed
+    // by message id) — one for the partner's, one for mine.
+    expect(find.byKey(const Key('bubble-bg-1')), findsOneWidget);
+    expect(find.byKey(const Key('bubble-bg-2')), findsOneWidget);
   });
 
   testWidgets('renders a link-preview card for a message that has one', (
@@ -112,7 +123,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -140,7 +151,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -155,6 +166,252 @@ void main() {
     await tester.tap(find.byKey(const Key('composer-send')));
     await tester.pump();
     expect(sent, 'hi');
+  });
+
+  testWidgets('renders a wallpaper and a send bumps the drift', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(WallpaperBackground), findsOneWidget);
+
+    final before = container.read(wallpaperDriftProvider);
+    await tester.enterText(find.byKey(const Key('composer')), 'hi');
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('composer-send')));
+    await tester.pump();
+    expect(container.read(wallpaperDriftProvider), before + 1);
+  });
+
+  testWidgets('composer floats as frosted glass (has BackdropFilters)', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // Two frosted surfaces: the composer pill and the idle mic glass circle
+    // (shown while the field is empty). The top bar is now just a dark scrim,
+    // no frost.
+    expect(find.byType(BackdropFilter), findsNWidgets(2));
+  });
+
+  testWidgets('header menu opens the Wallpaper picker', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('room-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('room-menu-wallpaper')));
+    await tester.pumpAndSettle();
+    expect(find.byType(WallpaperScreen), findsOneWidget);
+  });
+
+  testWidgets('tapping the room-name pill opens the chat-info page', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('room-title-pill')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatInfoPage), findsOneWidget);
+  });
+
+  testWidgets('title pill shows partner presence (offline → online)', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // Default: the partner (kaitlyn) reads as offline.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('room-title-pill')),
+        matching: find.text('offline'),
+      ),
+      findsOneWidget,
+    );
+
+    // Partner comes online → the line flips.
+    container.read(presenceProvider('kaitlyn').notifier).setOnline(true);
+    await tester.pump();
+    expect(find.text('online'), findsOneWidget);
+    expect(find.text('offline'), findsNothing);
+  });
+
+  testWidgets('partner typing shows a typing line inside the title pill', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('typing-indicator')), findsNothing);
+
+    // Partner starts typing → the line appears nested in the title pill.
+    container.read(typingProvider('roomA').notifier).setTyping(true);
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('room-title-pill')),
+        matching: find.byKey(const Key('typing-indicator')),
+      ),
+      findsOneWidget,
+    );
+
+    // Stop typing (also cancels the safety-timeout timer).
+    container.read(typingProvider('roomA').notifier).setTyping(false);
+    await tester.pump();
+    expect(find.byKey(const Key('typing-indicator')), findsNothing);
+  });
+
+  testWidgets('trailing button morphs mic <-> send with content', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Empty composer: mic affordance shown, send hidden.
+    expect(find.byKey(const Key('composer-mic')), findsOneWidget);
+    expect(find.byKey(const Key('composer-send')), findsNothing);
+
+    // With text: send shown, mic gone.
+    await tester.enterText(find.byKey(const Key('composer')), 'hi');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('composer-send')), findsOneWidget);
+    expect(find.byKey(const Key('composer-mic')), findsNothing);
+
+    // Cleared again: morphs back to mic.
+    await tester.enterText(find.byKey(const Key('composer')), '');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('composer-mic')), findsOneWidget);
+    expect(find.byKey(const Key('composer-send')), findsNothing);
   });
 
   testWidgets('long-press my own message offers Copy + Delete; Delete fires', (
@@ -182,7 +439,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -234,7 +491,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -283,7 +540,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
@@ -322,7 +579,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildTwilightTheme(),
+          theme: buildAppTheme(AppPalette.light),
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../theme/twilight.dart';
+import '../../theme/app_palette.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
 
@@ -22,7 +22,7 @@ Future<void> showCreateChannelSheet(BuildContext context, WidgetRef ref) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: TwilightColors.bgCanvas,
+    backgroundColor: context.palette.bgCanvas,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
@@ -96,33 +96,33 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
                 height: 5,
                 margin: const EdgeInsets.only(bottom: 18),
                 decoration: BoxDecoration(
-                  color: TwilightColors.borderSoft,
+                  color: context.palette.borderSoft,
                   borderRadius: BorderRadius.circular(3),
                 ),
               ),
             ),
-            const Text(
+            Text(
               'New channel',
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 fontSize: 23,
-                color: TwilightColors.textPrimary,
+                color: context.palette.textPrimary,
               ),
             ),
             const SizedBox(height: 6),
-            const Text(
+            Text(
               'A topic room just for the two of you.',
-              style: TextStyle(fontSize: 13, color: TwilightColors.textMuted),
+              style: TextStyle(fontSize: 13, color: context.palette.textMuted),
             ),
             const SizedBox(height: 20),
             Row(
               children: [
-                const Text(
+                Text(
                   '#',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w600,
-                    color: TwilightColors.textMuted,
+                    color: context.palette.textMuted,
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -139,30 +139,27 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
                       hintText: 'date-ideas',
                       border: InputBorder.none,
                     ),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w500,
-                      color: TwilightColors.textPrimary,
+                      color: context.palette.textPrimary,
                     ),
                   ),
                 ),
               ],
             ),
-            const Divider(color: TwilightColors.borderSoft),
+            Divider(color: context.palette.borderSoft),
             Text(
               'Preview:  #$preview',
               key: const Key('channel-preview'),
-              style: const TextStyle(
-                fontSize: 12,
-                color: TwilightColors.textMuted,
-              ),
+              style: TextStyle(fontSize: 12, color: context.palette.textMuted),
             ),
             const SizedBox(height: 16),
             FilledButton(
               key: const Key('create-channel-button'),
               onPressed: (_formatted.isEmpty || _submitting) ? null : _create,
               style: FilledButton.styleFrom(
-                backgroundColor: TwilightColors.accentUser,
+                backgroundColor: context.palette.accentUser,
                 minimumSize: const Size.fromHeight(50),
               ),
               child: Text('Create #$preview'),

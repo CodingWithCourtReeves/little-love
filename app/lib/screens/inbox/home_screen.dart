@@ -32,7 +32,7 @@ import '../../inbox/room.dart';
 import '../../outbox/outbox_drain.dart';
 import '../../outbox/outbox_store.dart';
 import '../../push/push_bootstrap.dart';
-import '../../theme/twilight.dart';
+import '../../theme/app_palette.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
 import '../../wire/message.dart';
@@ -111,9 +111,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
 
     return Scaffold(
-      backgroundColor: TwilightColors.bgCanvas,
+      backgroundColor: context.palette.bgCanvas,
       appBar: AppBar(
-        backgroundColor: TwilightColors.bgSurface,
+        backgroundColor: context.palette.bgSurface,
         elevation: 0,
         title: Text('@$_me'),
         actions: [
@@ -184,7 +184,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: TwilightColors.textMuted,
+          color: context.palette.textMuted,
           letterSpacing: 1.2,
         ),
       ),

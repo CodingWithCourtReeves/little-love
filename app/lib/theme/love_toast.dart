@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'twilight.dart';
+import 'app_palette.dart';
 
 /// Show a brief Telegram-style toast: a rounded dark pill that slides up and
 /// fades in near the bottom of the screen, holds, then fades out and removes
@@ -91,11 +91,19 @@ class _LoveToastState extends State<_LoveToast>
   }
 
   Widget _pill() {
+    final p = context.palette;
+    final isDark = p.brightness == Brightness.dark;
+    // A dark pill with light text in both themes (Telegram-style). In dark
+    // mode use a raised surface + hairline rather than `textPrimary` — that
+    // token flips to near-white in dark and would make the toast glaring.
+    final bg = isDark ? p.bgSurfaceAlt : p.textPrimary;
+    final fg = isDark ? p.textPrimary : Colors.white;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: TwilightColors.textPrimary.withValues(alpha: 0.95),
+        color: bg.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(22),
+        border: isDark ? Border.all(color: p.borderSoft) : null,
         boxShadow: const [
           BoxShadow(
             color: Color(0x33000000),
@@ -108,13 +116,13 @@ class _LoveToastState extends State<_LoveToast>
         mainAxisSize: MainAxisSize.min,
         children: [
           if (widget.icon != null) ...[
-            Icon(widget.icon, size: 16, color: Colors.white),
+            Icon(widget.icon, size: 16, color: fg),
             const SizedBox(width: 8),
           ],
           Text(
             widget.message,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: fg,
               fontSize: 13,
               fontWeight: FontWeight.w500,
             ),

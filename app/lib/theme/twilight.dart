@@ -1,56 +1,12 @@
 import 'package:flutter/material.dart';
 
-/// Twilight, light variant. The hour after the lamps come on - aubergine
-/// canvas, pale rose, sage in the corner of the eye. Values lifted verbatim
-/// from design spec §11.4 and mocks/palette-gallery.html.
-class TwilightColors {
-  static const bgCanvas = Color(0xFFF4EBEC);
-  static const bgSurface = Color(0xFFEBDFE2);
-  static const bgSurfaceAlt = Color(0xFFE2D3D8);
-  static const textPrimary = Color(0xFF2A1F2A);
-  static const textMuted = Color(0xFF7C6C78);
-  static const accentUser = Color(0xFFA04A6A);
-
-  /// Lightened [accentUser] — the trailing heart of the read (double-heart)
-  /// marker. A theme token so a future palette switcher recolors it alongside
-  /// [accentUser] instead of it being baked into the SVG asset.
-  static const accentUserSoft = Color(0xFFC98EA3);
-
-  static const accentPartner = Color(0xFF9C7E94);
-
-  /// Sage accent used for section labels, channel chrome, and step markers.
-  static const accentSage = Color(0xFF4F7A5E);
-  static const borderSoft = Color(0xFFD9C7CD);
-  static const ruleStrong = Color(0xFF4F7A5E);
-  static const warningTone = Color(0xFFB85C5C);
-
-  // Bubble shades used by the conversation view.
-  static const bubbleUserBg = Color(0xFFE8C8D2);
-  static const bubbleUserText = Color(0xFF3A1424);
-  static const bubblePartnerBg = Color(0xFFFFFAFB);
-}
-
-/// Builds a Material ThemeData using Twilight colors. Phase 1.5
-/// will replace this with a token-driven ThemeExtension; Day-1
-/// uses the simplest binding that produces the right look.
-ThemeData buildTwilightTheme() {
-  const base = ColorScheme.light(
-    primary: TwilightColors.accentUser,
-    onPrimary: Colors.white,
-    secondary: TwilightColors.accentSage,
-    surface: TwilightColors.bgSurface,
-    onSurface: TwilightColors.textPrimary,
-  );
-  return ThemeData(
-    useMaterial3: true,
-    colorScheme: base,
-    scaffoldBackgroundColor: TwilightColors.bgCanvas,
-    fontFamily: 'Inter',
-  );
-}
-
 /// Editorial type scale. One typeface (Inter), multiple voices.
 /// Use these instead of raw Text(style: ...) so every screen rhymes.
+///
+/// These carry **geometry only** — no color. Color comes from the active
+/// [AppPalette] at the call site (`...copyWith(color: context.palette.x)`),
+/// so text recolors with the light/dark theme. `display`/`title`/`body` read
+/// as primary text; `annotation`/`lede` as muted.
 class TwilightType {
   static const _f = 'Inter';
 
@@ -61,7 +17,6 @@ class TwilightType {
     height: 1.12,
     fontWeight: FontWeight.w500,
     letterSpacing: -0.7,
-    color: TwilightColors.textPrimary,
   );
 
   /// Mid headline — section titles within a screen.
@@ -71,7 +26,6 @@ class TwilightType {
     height: 1.2,
     fontWeight: FontWeight.w500,
     letterSpacing: -0.25,
-    color: TwilightColors.textPrimary,
   );
 
   /// Body — composer text, bubble text, prose.
@@ -81,7 +35,6 @@ class TwilightType {
     height: 1.5,
     fontWeight: FontWeight.w400,
     letterSpacing: -0.05,
-    color: TwilightColors.textPrimary,
   );
 
   /// Annotation — sidebar section headers, step markers, kbd hints.
@@ -92,7 +45,6 @@ class TwilightType {
     height: 1.0,
     fontWeight: FontWeight.w500,
     letterSpacing: 2.4,
-    color: TwilightColors.textMuted,
   );
 
   /// Muted body — sub-copy under headlines.
@@ -102,6 +54,5 @@ class TwilightType {
     height: 1.6,
     fontWeight: FontWeight.w400,
     letterSpacing: -0.05,
-    color: TwilightColors.textMuted,
   );
 }

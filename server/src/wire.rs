@@ -209,6 +209,15 @@ pub enum RoomServerFrame {
         typing: bool,
     },
 
+    /// Partner presence: `user` is now online or offline. Server-authoritative —
+    /// derived from the partner's authenticated WS sessions; clients never send
+    /// this, and it is delivered only to the user's linked partner. Not
+    /// persisted; a fresh connection learns current state on connect.
+    Presence {
+        user: String,
+        online: bool,
+    },
+
     UploadGranted {
         request_id: Uuid,
         blob_key: String,
@@ -772,6 +781,18 @@ mod tests {
         assert!(s.contains(r#""kind":"Typing""#));
         assert!(s.contains(r#""from":"court""#));
         assert!(s.contains(r#""typing":false"#));
+    }
+
+    #[test]
+    fn serializes_presence_server_frame() {
+        let f = RoomServerFrame::Presence {
+            user: "kaitlyn".into(),
+            online: true,
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"Presence""#));
+        assert!(s.contains(r#""user":"kaitlyn""#));
+        assert!(s.contains(r#""online":true"#));
     }
 
     #[test]

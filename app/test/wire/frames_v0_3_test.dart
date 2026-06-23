@@ -134,6 +134,17 @@ void main() {
     expect((read as MessageFrame).read, true);
   });
 
+  test('PresenceFrame parses user + online', () {
+    final f =
+        RoomServerFrame.fromJson(
+              jsonDecode('{"kind":"Presence","user":"kaitlyn","online":true}')
+                  as Map<String, Object?>,
+            )
+            as PresenceFrame;
+    expect(f.user, 'kaitlyn');
+    expect(f.online, true);
+  });
+
   test('ReadFrame parses room, ids, reader', () {
     final f = RoomServerFrame.fromJson(
       jsonDecode(

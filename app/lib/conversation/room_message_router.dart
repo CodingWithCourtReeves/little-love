@@ -14,6 +14,7 @@ import '../wire/live_connection.dart';
 import '../wire/message.dart';
 import 'message_content.dart';
 import 'message_store.dart';
+import 'presence_state.dart';
 import 'room_key_cache.dart';
 import 'typing_state.dart';
 
@@ -91,6 +92,10 @@ class RoomMessageRouter {
         // 1:1 rooms: the only other member is the partner, so a relayed Typing
         // frame is always "the partner is typing" in this room.
         ref.read(typingProvider(roomId).notifier).setTyping(typing);
+
+      case PresenceFrame(:final user, :final online):
+        // Server-authoritative partner online/offline, keyed by username.
+        ref.read(presenceProvider(user).notifier).setOnline(online);
 
       case InviteCreatedFrame():
       case RoomErrorFrame():

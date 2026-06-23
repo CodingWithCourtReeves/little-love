@@ -28,8 +28,8 @@ use crate::push::{PushMessage, PushSender, SendOutcome};
 use crate::push_tokens::{delete_token, delete_token_value, tokens_for_account, upsert_token};
 use crate::rooms::{
     account_id_by_username, create_room_with_members, is_member, leave_room,
-    list_rooms_for_account, members_for_room, partner_account_id_for, rename_room, room_detail,
-    set_partner_link, CreateRoomError, Member, MonogamyError, PairError,
+    list_rooms_for_account, members_for_room, partner_account_id_for, partner_username_for,
+    rename_room, room_detail, set_partner_link, CreateRoomError, Member, MonogamyError, PairError,
 };
 use crate::routing::Routing;
 use crate::store::{MessageRow, Store};
@@ -57,6 +57,13 @@ const MAX_BODY_BYTES: usize = 98_304;
 /// 500 MiB: download decrypts in-memory (ciphertext + plaintext both resident,
 /// ~2× file), so 500 MiB risked iOS jetsam; 256 MiB keeps peak ~512 MiB.
 const MAX_ATTACHMENT_BYTES: i64 = 256 * 1024 * 1024;
+/// Heartbeat: the server pings each session on this cadence (keeps NAT/proxy
+/// connections alive) and considers a session dead — flipping presence to
+/// offline — if nothing (a frame OR an auto-pong) arrives within
+/// [`LIVENESS_TIMEOUT`]. A live foreground client auto-pongs every tick; a
+/// suspended/dropped one stops, so it ages out within the timeout.
+const PING_INTERVAL: Duration = Duration::from_secs(15);
+const LIVENESS_TIMEOUT: Duration = Duration::from_secs(40);
 
 #[derive(Clone)]
 pub struct AppState {
@@ -183,26 +190,56 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         let _ = tx.send(RoomServerFrame::Rooms { rooms: Vec::new() });
     }
 
-    let outbound = tokio::spawn(async move {
-        while let Some(frame) = rx.recv().await {
-            let text = match serde_json::to_string(&frame) {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!("failed to serialize outbound frame: {e}");
-                    continue;
-                }
-            };
-            if sink.send(Message::Text(text)).await.is_err() {
-                break;
-            }
-        }
-    });
+    announce_presence_on_connect(&state, &me, &tx).await;
 
     let mut upload_rl = WindowRateLimiter::new(UPLOAD_RL_WINDOW, UPLOAD_RL_MAX);
     let mut typing_rl = WindowRateLimiter::new(TYPING_RL_WINDOW, TYPING_RL_MAX);
-    while let Some(Ok(msg)) = stream.next().await {
-        if let Message::Text(text) = msg {
-            match serde_json::from_str::<RoomClientFrame>(&text) {
+    // First tick after a full interval (not immediately) so we never ping a
+    // client the instant it connects.
+    let mut ping =
+        tokio::time::interval_at(tokio::time::Instant::now() + PING_INTERVAL, PING_INTERVAL);
+    ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut last_seen = tokio::time::Instant::now();
+    loop {
+        tokio::select! {
+            // Outbound: relay queued server frames to this session. We hold `tx`
+            // for the whole handler, so `rx` stays open until we break.
+            maybe_frame = rx.recv() => {
+                let Some(frame) = maybe_frame else { break };
+                match serde_json::to_string(&frame) {
+                    Ok(text) => {
+                        if sink.send(Message::Text(text)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => warn!("failed to serialize outbound frame: {e}"),
+                }
+            }
+            // Heartbeat: ping each tick; age out a session gone quiet past the
+            // liveness window (its presence flips offline on cleanup below).
+            _ = ping.tick() => {
+                if last_seen.elapsed() > LIVENESS_TIMEOUT {
+                    info!(username = %me.username, "session timed out (no heartbeat)");
+                    break;
+                }
+                if sink.send(Message::Ping(Vec::new())).await.is_err() {
+                    break;
+                }
+            }
+            // Inbound: client frames, auto-pongs, close. Any inbound traffic
+            // (including a pong) refreshes liveness.
+            maybe_msg = stream.next() => {
+                last_seen = tokio::time::Instant::now();
+                let msg = match maybe_msg {
+                    Some(Ok(m)) => m,
+                    _ => break,
+                };
+                let text = match msg {
+                    Message::Text(t) => t,
+                    Message::Close(_) => break,
+                    _ => continue,
+                };
+                match serde_json::from_str::<RoomClientFrame>(&text) {
                 Ok(RoomClientFrame::CreateInvite) => {
                     handle_create_invite(&state, &me, &tx).await;
                 }
@@ -291,12 +328,13 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     }
                 }
                 Err(e) => warn!("invalid frame from {}: {e}", me.username),
+                }
             }
         }
     }
 
     state.routing.unregister(&me.username, &tx).await;
-    outbound.abort();
+    announce_presence_on_disconnect(&state, &me).await;
     info!(username = %me.username, "client disconnected");
 }
 
@@ -667,6 +705,72 @@ async fn handle_typing(state: &AppState, me: &AccountRecord, room_id: &str, typi
             continue;
         }
         state.routing.deliver(&m.username, frame.clone()).await;
+    }
+}
+
+/// On connect: tell my partner I'm online, and tell my freshly-connected
+/// session whether my partner is currently online. The partner is resolved from
+/// the authoritative `accounts.partner_account_id` link, so presence is only
+/// ever shared between the two linked partners.
+async fn announce_presence_on_connect(
+    state: &AppState,
+    me: &AccountRecord,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return,
+    };
+    let partner = match partner_username_for(store.pool(), me.id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => return, // not paired yet — nobody to exchange presence with
+        Err(e) => {
+            warn!("partner_username_for (connect): {e}");
+            return;
+        }
+    };
+    state
+        .routing
+        .deliver(
+            &partner,
+            RoomServerFrame::Presence {
+                user: me.username.clone(),
+                online: true,
+            },
+        )
+        .await;
+    let partner_online = state.routing.is_online(&partner).await;
+    let _ = tx.send(RoomServerFrame::Presence {
+        user: partner,
+        online: partner_online,
+    });
+}
+
+/// On disconnect: once the user's *last* session has gone, tell their partner
+/// they're offline. A reconnect or a second session keeps them online.
+async fn announce_presence_on_disconnect(state: &AppState, me: &AccountRecord) {
+    if state.routing.is_online(&me.username).await {
+        return; // still has another open session
+    }
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return,
+    };
+    match partner_username_for(store.pool(), me.id).await {
+        Ok(Some(partner)) => {
+            state
+                .routing
+                .deliver(
+                    &partner,
+                    RoomServerFrame::Presence {
+                        user: me.username.clone(),
+                        online: false,
+                    },
+                )
+                .await;
+        }
+        Ok(None) => {}
+        Err(e) => warn!("partner_username_for (disconnect): {e}"),
     }
 }
 

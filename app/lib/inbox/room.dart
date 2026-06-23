@@ -32,7 +32,7 @@ class Room {
     return derived.isEmpty ? 'New chat' : derived;
   }
 
-  /// Sidebar shape (spec §7.3): two buckets.
+  /// Channel-switcher bucket (spec §7.3): two buckets.
   ///
   /// - `partner`  — 1:1 unnamed DM with the human partner.
   /// - `chat`     — anything else: 3+ members or named rooms.

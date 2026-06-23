@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
@@ -20,12 +21,17 @@ import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
 import '../inbox/room.dart';
 import '../inbox/select_room.dart';
+import '../theme/app_palette.dart';
 import '../theme/love_toast.dart';
-import '../theme/twilight.dart';
+import '../wallpaper/wallpaper_background.dart';
+import '../wallpaper/wallpaper_controller.dart';
+import '../wallpaper/wallpaper_screen.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
+import 'chat_info_page.dart';
 import 'link_preview.dart';
 import 'message_store.dart';
+import 'presence_state.dart';
 import 'typing_state.dart';
 
 typedef SendCallback = void Function(String text);
@@ -147,6 +153,33 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     with WidgetsBindingObserver {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
+
+  /// Measures the floating composer so the message list can reserve matching
+  /// bottom padding (the list scrolls *under* the frosted bar, so its newest
+  /// row must clear the glass). Tracked in state and re-measured each frame;
+  /// the bar's height changes with multiline growth and the staging tray.
+  final _composerKey = GlobalKey();
+  double _composerHeight = 0;
+
+  /// Saturation ×1.3 color matrix (luma-weighted rows). Composed over the
+  /// composer's backdrop blur to mimic Apple's blur *material*: a plain
+  /// gaussian blur goes muddy, so we lift saturation back up to keep the
+  /// messages reading luminous through the glass.
+  static const _glassSaturation = <double>[
+    1.2361, -0.2145, -0.0216, 0, 0, //
+    -0.0639, 1.0855, -0.0216, 0, 0, //
+    -0.0639, -0.2145, 1.2784, 0, 0, //
+    0, 0, 0, 1, 0, //
+  ];
+
+  void _measureComposer() {
+    if (!mounted) return;
+    final box = _composerKey.currentContext?.findRenderObject() as RenderBox?;
+    final h = box?.size.height;
+    if (h != null && (h - _composerHeight).abs() > 0.5) {
+      setState(() => _composerHeight = h);
+    }
+  }
 
   /// Distance (in logical px) from the bottom that still counts as "at bottom".
   static const _stickThreshold = 120.0;
@@ -283,6 +316,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       HapticFeedback.lightImpact();
       final items = List<StagedAttachment>.of(_staged);
       widget.onSendMedia?.call(items, text);
+      ref.read(wallpaperDriftProvider.notifier).bump();
       setState(() => _staged.clear());
       _controller.clear();
       _stopTyping();
@@ -291,6 +325,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     if (text.isEmpty) return;
     HapticFeedback.lightImpact();
     widget.onSend(text);
+    ref.read(wallpaperDriftProvider.notifier).bump();
     _controller.clear();
     _stopTyping();
   }
@@ -429,7 +464,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   Future<void> _openReactionPicker(Msg m) async {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: TwilightColors.bgSurface,
+      backgroundColor: context.palette.bgSurface,
       builder: (ctx) => SizedBox(
         height: 320,
         child: EmojiPicker(
@@ -437,27 +472,27 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             Navigator.pop(ctx);
             _react(m, emoji.emoji);
           },
-          config: const Config(
+          config: Config(
             height: 320,
             emojiViewConfig: EmojiViewConfig(
-              backgroundColor: TwilightColors.bgSurface,
+              backgroundColor: context.palette.bgSurface,
               columns: 7,
               emojiSizeMax: 32,
             ),
             categoryViewConfig: CategoryViewConfig(
-              backgroundColor: TwilightColors.bgSurface,
-              indicatorColor: TwilightColors.accentUser,
-              iconColor: TwilightColors.textMuted,
-              iconColorSelected: TwilightColors.accentUser,
+              backgroundColor: context.palette.bgSurface,
+              indicatorColor: context.palette.accentUser,
+              iconColor: context.palette.textMuted,
+              iconColorSelected: context.palette.accentUser,
             ),
             bottomActionBarConfig: BottomActionBarConfig(
-              backgroundColor: TwilightColors.bgSurface,
-              buttonColor: TwilightColors.bgSurfaceAlt,
-              buttonIconColor: TwilightColors.accentUser,
+              backgroundColor: context.palette.bgSurface,
+              buttonColor: context.palette.bgSurfaceAlt,
+              buttonIconColor: context.palette.accentUser,
             ),
             searchViewConfig: SearchViewConfig(
-              backgroundColor: TwilightColors.bgSurface,
-              buttonIconColor: TwilightColors.accentUser,
+              backgroundColor: context.palette.bgSurface,
+              buttonIconColor: context.palette.accentUser,
             ),
           ),
         ),
@@ -509,8 +544,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _GapItem(:final time) => 'gap-${time.toIso8601String()}',
   };
 
+  /// The partner's username — the room's one other member — or null for a solo
+  /// room (no partner yet). Drives the presence line in the title pill.
+  String? _partnerUsername() {
+    for (final m in widget.room.members) {
+      if (m.username != widget.selfUsername) return m.username;
+    }
+    return null;
+  }
+
   Color _senderColor(String username) {
-    if (username == widget.selfUsername) return TwilightColors.accentUser;
+    if (username == widget.selfUsername) return context.palette.accentUser;
     // Stable hash → one of three accents per spec §7.5 (sage / mauve / wine).
     const palette = <Color>[
       Color(0xFF4F7A5E), // sage
@@ -554,114 +598,214 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // bottom on its own. The partner's "typing…" indicator deliberately lives
     // in the app bar (not as a bottom row) so it never reflows this list.
     final items = _itemize(sorted).reversed.toList();
+    // Re-measure the floating composer after this frame paints so the list's
+    // reserved bottom padding tracks the bar as it grows/shrinks.
+    SchedulerBinding.instance.addPostFrameCallback((_) => _measureComposer());
     return Scaffold(
-      backgroundColor: TwilightColors.bgCanvas,
+      backgroundColor: Colors.transparent,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: TwilightColors.bgSurface,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
-        title: Text(
-          widget.room.displayName(widget.selfUsername),
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
-            color: TwilightColors.textPrimary,
+        // White status-bar icons — they sit over the dark top scrim (painted
+        // in the body so it's taller/stronger than an app-bar-only gradient).
+        systemOverlayStyle: SystemUiOverlayStyle.light,
+        // Back arrow in a pill, matching the ⋯ menu, when this chat was pushed
+        // onto a route (home → chat). Null in tests that mount it directly.
+        leading: Navigator.of(context).canPop()
+            ? IconButton(
+                key: const Key('room-back-button'),
+                tooltip: 'Back',
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: Container(
+                  width: 34,
+                  height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: context.palette.bgSurface.withValues(alpha: 0.7),
+                  ),
+                  child: Icon(
+                    Icons.arrow_back_ios_new,
+                    color: context.palette.textPrimary,
+                    size: 18,
+                  ),
+                ),
+              )
+            : null,
+        centerTitle: true,
+        // The room name as a centered pill; tapping it opens the chat-info
+        // page (Telegram-style: call/video/search + media/voice/links).
+        title: GestureDetector(
+          key: const Key('room-title-pill'),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => Navigator.of(context).push(
+            ChatInfoPage.route(
+              room: widget.room,
+              selfUsername: widget.selfUsername,
+            ),
+          ),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+            decoration: BoxDecoration(
+              color: context.palette.bgSurface.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  widget.room.displayName(widget.selfUsername),
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    height: 1.1,
+                    color: context.palette.textPrimary,
+                  ),
+                ),
+                _PartnerStatusLine(
+                  roomId: widget.roomId,
+                  partner: _partnerUsername(),
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: _TopStatus(roomId: widget.roomId),
-          ),
-          if (widget.onRename != null)
-            PopupMenuButton<String>(
-              key: const Key('room-menu-button'),
-              icon: const Icon(
-                Icons.more_vert,
-                color: TwilightColors.textMuted,
+          PopupMenuButton<String>(
+            key: const Key('room-menu-button'),
+            icon: Container(
+              width: 34,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: context.palette.bgSurface.withValues(alpha: 0.7),
               ),
-              onSelected: (value) {
-                if (value == 'rename' && widget.onRename != null) {
-                  _showRenameDialog();
-                }
-              },
-              itemBuilder: (_) => [
-                if (widget.onRename != null)
-                  const PopupMenuItem<String>(
-                    key: Key('room-menu-rename'),
-                    value: 'rename',
-                    child: Text('Rename chat'),
-                  ),
-              ],
+              child: Icon(
+                Icons.more_vert,
+                color: context.palette.textMuted,
+                size: 22,
+              ),
             ),
+            onSelected: (value) {
+              switch (value) {
+                case 'wallpaper':
+                  Navigator.of(context).push(WallpaperScreen.route());
+                case 'rename':
+                  if (widget.onRename != null) _showRenameDialog();
+              }
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem<String>(
+                key: Key('room-menu-wallpaper'),
+                value: 'wallpaper',
+                child: Text('Wallpaper'),
+              ),
+              if (widget.onRename != null)
+                const PopupMenuItem<String>(
+                  key: Key('room-menu-rename'),
+                  value: 'rename',
+                  child: Text('Rename chat'),
+                ),
+            ],
+          ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Stack(
-              children: [
-                ListView.builder(
-                  controller: _scrollController,
-                  reverse: true,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  itemCount: items.length,
-                  // Relocate existing keyed rows by identity when an insert
-                  // shifts indices, so the delegate reuses them instead of
-                  // rebuilding the visible list (the receive-time flash).
-                  findChildIndexCallback: (key) {
-                    final value = (key as ValueKey<String>).value;
-                    final idx = items.indexWhere((it) => _rowKey(it) == value);
-                    return idx < 0 ? null : idx;
-                  },
-                  itemBuilder: (_, i) {
-                    final item = items[i];
-                    final child = switch (item) {
-                      _BubbleItem(:final msg) => _bubble(
-                        msg,
-                        me,
-                        status.inBubble[msg.id],
-                        status.failedRun[msg.id],
-                      ),
-                      _DayItem(:final day) => _daySeparator(day),
-                      _GapItem(:final time) => _gapHeader(time),
-                    };
-                    return KeyedSubtree(
-                      key: ValueKey(_rowKey(item)),
-                      child: child,
-                    );
-                  },
-                ),
-                Positioned(
+      body: WallpaperBackground(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: ListView.builder(
+                controller: _scrollController,
+                reverse: true,
+                // Reserve room for the floating glass composer so the newest
+                // message clears it (reverse:true → bottom padding is the
+                // visual bottom). Height is measured from the live bar.
+                padding: EdgeInsets.only(
+                  left: 16,
                   right: 16,
-                  bottom: 16,
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 150),
-                    opacity: _atBottom ? 0 : 1,
-                    child: IgnorePointer(
-                      ignoring: _atBottom,
-                      child: FloatingActionButton.small(
-                        key: const Key('jump-to-bottom'),
-                        backgroundColor: TwilightColors.bgSurface,
-                        foregroundColor: TwilightColors.accentUser,
-                        elevation: 4,
-                        onPressed: _animateToBottom,
-                        tooltip: 'Jump to latest',
-                        child: const Icon(Icons.arrow_downward),
-                      ),
+                  top: 12 + MediaQuery.of(context).padding.top + kToolbarHeight,
+                  bottom: _composerHeight + 12,
+                ),
+                itemCount: items.length,
+                // Relocate existing keyed rows by identity when an insert
+                // shifts indices, so the delegate reuses them instead of
+                // rebuilding the visible list (the receive-time flash).
+                findChildIndexCallback: (key) {
+                  final value = (key as ValueKey<String>).value;
+                  final idx = items.indexWhere((it) => _rowKey(it) == value);
+                  return idx < 0 ? null : idx;
+                },
+                itemBuilder: (_, i) {
+                  final item = items[i];
+                  final child = switch (item) {
+                    _BubbleItem(:final msg) => _bubble(
+                      msg,
+                      me,
+                      status.inBubble[msg.id],
+                      status.failedRun[msg.id],
+                    ),
+                    _DayItem(:final day) => _daySeparator(day),
+                    _GapItem(:final time) => _gapHeader(time),
+                  };
+                  return KeyedSubtree(
+                    key: ValueKey(_rowKey(item)),
+                    child: child,
+                  );
+                },
+              ),
+            ),
+            // Dark scrim across the very top — behind the status bar and app
+            // bar — so the OS clock/battery and the title stay legible over the
+            // wallpaper, Telegram-style. Drawn over the message list (so it
+            // scrolls under), tall enough to clear the toolbar, pointer-through.
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: MediaQuery.of(context).padding.top + kToolbarHeight + 12,
+              child: const IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0x99000000), Color(0x00000000)],
                     ),
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
-          _composer(),
-        ],
+            Positioned(
+              right: 16,
+              bottom: _composerHeight + 16,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 150),
+                opacity: _atBottom ? 0 : 1,
+                child: IgnorePointer(
+                  ignoring: _atBottom,
+                  child: FloatingActionButton.small(
+                    key: const Key('jump-to-bottom'),
+                    backgroundColor: context.palette.bgSurface,
+                    foregroundColor: context.palette.accentUser,
+                    elevation: 4,
+                    onPressed: _animateToBottom,
+                    tooltip: 'Jump to latest',
+                    child: const Icon(Icons.arrow_downward),
+                  ),
+                ),
+              ),
+            ),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: KeyedSubtree(key: _composerKey, child: _composer()),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -707,11 +851,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           tappable,
-          const Padding(
-            padding: EdgeInsets.only(right: 16, top: 2, bottom: 2),
+          Padding(
+            padding: const EdgeInsets.only(right: 16, top: 2, bottom: 2),
             child: Text(
               'failed · tap to retry',
-              style: TextStyle(color: TwilightColors.warningTone, fontSize: 11),
+              style: TextStyle(
+                color: context.palette.warningTone,
+                fontSize: 11,
+              ),
             ),
           ),
         ],
@@ -757,9 +904,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   /// Heart (sent) or clock (sending) tucked into a bubble's bottom-right
   /// corner, Telegram style.
-  static Widget _markerWidget(_Marker marker) {
+  static Widget _markerWidget(_Marker marker, AppPalette palette) {
     return switch (marker) {
-      _Marker.sent => _heart(TwilightColors.accentUser, key: 'status-heart'),
+      _Marker.sent => _heart(palette.accentUser, key: 'status-heart'),
       // Read = a double heart: a soft trailing heart with the full-accent heart
       // overlapping on top. Both tones come from theme tokens (not baked into
       // the asset) so a future palette switcher recolors them together.
@@ -770,16 +917,16 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            Positioned(left: 0, child: _heart(TwilightColors.accentUserSoft)),
-            Positioned(left: 6, child: _heart(TwilightColors.accentUser)),
+            Positioned(left: 0, child: _heart(palette.accentUserSoft)),
+            Positioned(left: 6, child: _heart(palette.accentUser)),
           ],
         ),
       ),
-      _Marker.sending => const Icon(
+      _Marker.sending => Icon(
         Icons.schedule,
-        key: Key('status-clock'),
+        key: const Key('status-clock'),
         size: 12,
-        color: TwilightColors.textMuted,
+        color: palette.textMuted,
       ),
     };
   }
@@ -826,9 +973,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       );
     }
     final bubbleColor = mine
-        ? TwilightColors.bubbleUserBg
-        : TwilightColors.bubblePartnerBg;
-    const bubbleBorder = TwilightColors.borderSoft;
+        ? context.palette.bubbleUserBg
+        : context.palette.bubblePartnerBg;
+    final bubbleBorder = context.palette.borderSoft;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
@@ -853,14 +1000,22 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             ),
           Container(
             margin: const EdgeInsets.symmetric(vertical: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             constraints: BoxConstraints(maxWidth: maxBubbleWidth),
-            decoration: BoxDecoration(
-              color: bubbleColor,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: bubbleBorder),
+            child: CustomPaint(
+              key: Key('bubble-bg-${m.clientMsgId ?? m.id}'),
+              painter: _BubbleBackground(
+                color: bubbleColor,
+                border: bubbleBorder,
+                mine: mine,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                child: _bubbleBody(m, mine, marker),
+              ),
             ),
-            child: _bubbleBody(m, mine, marker),
           ),
         ],
       ),
@@ -875,8 +1030,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   Widget _bubbleBody(Msg m, bool mine, _Marker? marker) {
     final textColor = mine
-        ? TwilightColors.bubbleUserText
-        : TwilightColors.textPrimary;
+        ? context.palette.bubbleUserText
+        : context.palette.textPrimary;
     final text = Linkify(
       text: m.body,
       onOpen: (link) => _openUrl(link.url),
@@ -898,13 +1053,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           style: TextStyle(
             fontSize: 10,
             color: mine
-                ? TwilightColors.bubbleUserText.withValues(alpha: 0.55)
-                : TwilightColors.textMuted,
+                ? context.palette.bubbleUserText.withValues(alpha: 0.55)
+                : context.palette.textMuted,
           ),
         ),
         if (marker != null) ...[
           const SizedBox(width: 4),
-          _markerWidget(marker),
+          _markerWidget(marker, context.palette),
         ],
       ],
     );
@@ -940,42 +1095,38 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  Widget _daySeparator(DateTime day) {
+  Widget _daySeparator(DateTime day) => _centerPill(
+    _formatDaySeparator(day),
+    key: ValueKey('day-${day.toIso8601String()}'),
+  );
+
+  Widget _gapHeader(DateTime t) => _centerPill(
+    _formatGapHeader(t),
+    key: ValueKey('gap-${t.toIso8601String()}'),
+    fontSize: 11,
+  );
+
+  /// Centered translucent pill for day/gap headers — anchors the label over
+  /// the wallpaper (iMessage/Telegram style) instead of bare text on lines.
+  Widget _centerPill(String text, {required Key key, double fontSize = 12}) {
     return Padding(
-      key: ValueKey('day-${day.toIso8601String()}'),
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Row(
-        children: [
-          Expanded(
-            child: Container(height: 1, color: TwilightColors.borderSoft),
+      key: key,
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          decoration: BoxDecoration(
+            color: context.palette.bgSurface.withValues(alpha: 0.86),
+            borderRadius: BorderRadius.circular(14),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Text(
-              _formatDaySeparator(day),
-              style: const TextStyle(
-                color: TwilightColors.textMuted,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
+          child: Text(
+            text,
+            style: TextStyle(
+              color: context.palette.textMuted,
+              fontSize: fontSize,
+              fontWeight: FontWeight.w500,
             ),
           ),
-          Expanded(
-            child: Container(height: 1, color: TwilightColors.borderSoft),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _gapHeader(DateTime t) {
-    return Padding(
-      key: ValueKey('gap-${t.toIso8601String()}'),
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Center(
-        child: Text(
-          _formatGapHeader(t),
-          style: const TextStyle(color: TwilightColors.textMuted, fontSize: 11),
         ),
       ),
     );
@@ -1137,94 +1288,196 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     };
     return TapRegion(
       onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
-      child: Container(
-        color: TwilightColors.bgSurface,
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_staged.isNotEmpty) _stagingTray(),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                if (widget.onPickMedia != null)
-                  IconButton(
-                    key: const Key('composer-attach'),
-                    onPressed: _pickMedia,
-                    icon: const Icon(
-                      Icons.add,
-                      color: TwilightColors.textMuted,
-                    ),
-                    tooltip: 'Attach a photo or video',
-                  ),
-                Expanded(
-                  child: Shortcuts(
-                    shortcuts: shortcuts,
-                    child: Actions(
-                      actions: {
-                        _SendIntent: CallbackAction<_SendIntent>(
-                          onInvoke: (_) {
-                            _submitFromIntent();
-                            return null;
-                          },
+      // Floating frosted pill — no full-width slab. The message list scrolls
+      // straight up behind the composer with wallpaper showing through the
+      // gutters; the glass lives in the pill itself (and the idle mic), so it
+      // reads as a translucent chip hovering over the chat, Telegram-style.
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_staged.isNotEmpty) _stagingTray(),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  // The pill: one rounded glass surface holding the attach
+                  // action (inside-left, bottom-pinned) and the text field.
+                  // Bottom alignment keeps the attach glyph on the last line as
+                  // the field grows, instead of drifting to the vertical center.
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(22),
+                      child: BackdropFilter(
+                        // Apple-style material: blur the messages behind, then
+                        // lift their saturation back up (ColorFilter implements
+                        // ImageFilter, so compose() chains it over the blur) so
+                        // the glass stays luminous instead of going muddy.
+                        filter: ImageFilter.compose(
+                          outer: const ColorFilter.matrix(_glassSaturation),
+                          inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
                         ),
-                      },
-                      child: TextField(
-                        key: const Key('composer'),
-                        controller: _controller,
-                        onChanged: _onComposerChanged,
-                        minLines: 1,
-                        maxLines: 8,
-                        keyboardType: TextInputType.multiline,
-                        textInputAction: TextInputAction.newline,
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: TwilightColors.bgSurfaceAlt,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: context.palette.bgSurface.withValues(
+                              alpha: 0.55,
+                            ),
+                            borderRadius: BorderRadius.circular(22),
+                            // Hairline all the way around so the glass edge
+                            // reads crisply against messages passing behind it.
+                            border: Border.all(
+                              color: context.palette.textPrimary.withValues(
+                                alpha: 0.10,
+                              ),
+                              width: 0.5,
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              if (widget.onPickMedia != null)
+                                IconButton(
+                                  key: const Key('composer-attach'),
+                                  onPressed: _pickMedia,
+                                  icon: Icon(
+                                    Icons.attach_file,
+                                    color: context.palette.textMuted,
+                                    size: 22,
+                                  ),
+                                  tooltip: 'Attach a photo or video',
+                                ),
+                              Expanded(
+                                child: Shortcuts(
+                                  shortcuts: shortcuts,
+                                  child: Actions(
+                                    actions: {
+                                      _SendIntent: CallbackAction<_SendIntent>(
+                                        onInvoke: (_) {
+                                          _submitFromIntent();
+                                          return null;
+                                        },
+                                      ),
+                                    },
+                                    child: TextField(
+                                      key: const Key('composer'),
+                                      controller: _controller,
+                                      onChanged: _onComposerChanged,
+                                      minLines: 1,
+                                      maxLines: 8,
+                                      keyboardType: TextInputType.multiline,
+                                      textInputAction: TextInputAction.newline,
+                                      decoration: InputDecoration(
+                                        isDense: true,
+                                        hintText: 'Message',
+                                        hintStyle: TextStyle(
+                                          color: context.palette.textMuted,
+                                        ),
+                                        border: InputBorder.none,
+                                        // Lead padding only when the attach
+                                        // button isn't there to provide it.
+                                        contentPadding: EdgeInsets.fromLTRB(
+                                          widget.onPickMedia != null ? 0 : 16,
+                                          11,
+                                          16,
+                                          11,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                _sendButton(),
-              ],
-            ),
-          ],
+                  const SizedBox(width: 8),
+                  _trailingButton(),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  /// Filled circular send. Hidden until there's something to send (composer
-  /// text or staged media), iMessage-style, so the field stretches to fill the
-  /// bar when the chat is idle.
-  Widget _sendButton() {
+  /// Single trailing control that morphs between an idle mic affordance and
+  /// the active send button, Telegram-style. A cross-fade (not a scale) keeps
+  /// whichever child is showing at full layout size, so it stays tappable the
+  /// frame it appears.
+  Widget _trailingButton() {
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: _controller,
       builder: (context, value, _) {
         final hasContent = value.text.trim().isNotEmpty || _staged.isNotEmpty;
-        if (!hasContent) return const SizedBox.shrink();
-        return Padding(
-          padding: const EdgeInsets.only(left: 12),
-          child: Material(
-            color: TwilightColors.accentUser,
-            shape: const CircleBorder(),
-            child: InkWell(
-              key: const Key('composer-send'),
-              customBorder: const CircleBorder(),
-              onTap: () => _handleSubmit(_controller.text),
-              child: const SizedBox(
-                width: 44,
-                height: 44,
-                child: Icon(Icons.arrow_upward, color: Colors.white, size: 22),
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 160),
+          child: hasContent ? _sendButton() : _micButton(),
+        );
+      },
+    );
+  }
+
+  /// Filled circular send.
+  Widget _sendButton() {
+    return Material(
+      key: const Key('composer-send'),
+      color: context.palette.accentUser,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () => _handleSubmit(_controller.text),
+        child: const SizedBox(
+          width: 44,
+          height: 44,
+          child: Icon(Icons.arrow_upward, color: Colors.white, size: 22),
+        ),
+      ),
+    );
+  }
+
+  /// Idle-state mic affordance. Voice notes aren't implemented yet, so the tap
+  /// just signals that they're coming rather than leaving a dead control. A
+  /// frosted glass circle (matching the pill) anchors it over the wallpaper.
+  Widget _micButton() {
+    return ClipOval(
+      key: const Key('composer-mic'),
+      child: BackdropFilter(
+        filter: ImageFilter.compose(
+          outer: const ColorFilter.matrix(_glassSaturation),
+          inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+        ),
+        child: Material(
+          color: context.palette.bgSurface.withValues(alpha: 0.55),
+          shape: const CircleBorder(
+            side: BorderSide(color: Color(0x1AFFFFFF), width: 0.5),
+          ),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Voice messages are coming soon'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Icon(
+                Icons.mic,
+                color: context.palette.textMuted,
+                size: 24,
               ),
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -1251,30 +1504,62 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 /// pulsing dots while they compose, and nothing when idle. Living in the app
 /// bar (not as a list row) keeps the partner's typing state from reflowing the
 /// message list — which otherwise nudged the list on send.
-class _TopStatus extends ConsumerWidget {
-  const _TopStatus({required this.roomId});
+/// The status line under the room name in the title pill. Shows "typing" with
+/// animated dots while the partner is composing; otherwise the partner's
+/// online / offline presence. Empty when there's no partner (a solo room).
+class _PartnerStatusLine extends ConsumerWidget {
+  const _PartnerStatusLine({required this.roomId, required this.partner});
   final String roomId;
+  final String? partner;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final typing = ref.watch(typingProvider(roomId));
-    if (!typing) return const SizedBox.shrink();
+    if (typing) {
+      return Row(
+        key: const Key('typing-indicator'),
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'typing',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 11,
+              letterSpacing: 0.3,
+              fontWeight: FontWeight.w500,
+              color: context.palette.accentSage,
+            ),
+          ),
+          const SizedBox(width: 5),
+          const _PulsingDots(),
+        ],
+      );
+    }
+    if (partner == null) return const SizedBox.shrink();
+    final online = ref.watch(presenceProvider(partner!));
+    final tone = online
+        ? context.palette.accentSage
+        : context.palette.textMuted;
     return Row(
-      key: const Key('typing-indicator'),
+      key: const Key('presence-indicator'),
       mainAxisSize: MainAxisSize.min,
-      children: const [
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: tone),
+        ),
+        const SizedBox(width: 5),
         Text(
-          'Typing',
+          online ? 'online' : 'offline',
           style: TextStyle(
             fontFamily: 'Inter',
             fontSize: 11,
-            letterSpacing: 0.4,
+            letterSpacing: 0.3,
             fontWeight: FontWeight.w500,
-            color: TwilightColors.accentSage,
+            color: tone,
           ),
         ),
-        SizedBox(width: 6),
-        _PulsingDots(),
       ],
     );
   }
@@ -1324,8 +1609,8 @@ class _PulsingDotsState extends State<_PulsingDots>
                   child: Container(
                     width: 5,
                     height: 5,
-                    decoration: const BoxDecoration(
-                      color: TwilightColors.accentSage,
+                    decoration: BoxDecoration(
+                      color: context.palette.accentSage,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -1385,10 +1670,10 @@ class _LinkPreviewCardState extends State<_LinkPreviewCard> {
         constraints: const BoxConstraints(maxWidth: 300),
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
-          color: TwilightColors.bgSurfaceAlt.withValues(alpha: 0.6),
+          color: context.palette.bgSurfaceAlt.withValues(alpha: 0.6),
           borderRadius: BorderRadius.circular(10),
-          border: const Border(
-            left: BorderSide(color: TwilightColors.accentSage, width: 3),
+          border: Border(
+            left: BorderSide(color: context.palette.accentSage, width: 3),
           ),
         ),
         child: Column(
@@ -1432,11 +1717,11 @@ class _LinkPreviewCardState extends State<_LinkPreviewCard> {
                       preview.siteName!.toUpperCase(),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10,
                         letterSpacing: 0.8,
                         fontWeight: FontWeight.w600,
-                        color: TwilightColors.accentSage,
+                        color: context.palette.accentSage,
                       ),
                     ),
                   if (preview.title != null && preview.title!.isNotEmpty)
@@ -1446,10 +1731,10 @@ class _LinkPreviewCardState extends State<_LinkPreviewCard> {
                         preview.title!,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: TwilightColors.textPrimary,
+                          color: context.palette.textPrimary,
                         ),
                       ),
                     ),
@@ -1461,9 +1746,9 @@ class _LinkPreviewCardState extends State<_LinkPreviewCard> {
                         preview.description!,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
-                          color: TwilightColors.textMuted,
+                          color: context.palette.textMuted,
                         ),
                       ),
                     ),
@@ -1499,11 +1784,13 @@ class _ReactionPill extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
           color: mine
-              ? TwilightColors.accentUser.withValues(alpha: 0.18)
-              : TwilightColors.bgSurfaceAlt,
+              ? context.palette.accentUser.withValues(alpha: 0.18)
+              : context.palette.bgSurfaceAlt,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: mine ? TwilightColors.accentUser : TwilightColors.borderSoft,
+            color: mine
+                ? context.palette.accentUser
+                : context.palette.borderSoft,
           ),
         ),
         child: Row(
@@ -1524,9 +1811,9 @@ class _ReactionPill extends StatelessWidget {
               const SizedBox(width: 4),
               Text(
                 '$count',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
-                  color: TwilightColors.textMuted,
+                  color: context.palette.textMuted,
                 ),
               ),
             ],
@@ -1645,7 +1932,8 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
       key: const Key('reaction-bar'),
       elevation: 8,
       borderRadius: BorderRadius.circular(26),
-      color: TwilightColors.bgSurface,
+      color: context.palette.bgSurface,
+      surfaceTintColor: Colors.transparent,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         child: Row(
@@ -1664,7 +1952,8 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
       key: const Key('message-actions'),
       elevation: 8,
       borderRadius: BorderRadius.circular(14),
-      color: TwilightColors.bgSurface,
+      color: context.palette.bgSurface,
+      surfaceTintColor: Colors.transparent,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Column(
@@ -1682,7 +1971,7 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
                 key: 'action-delete',
                 icon: Icons.delete_outline,
                 label: 'Delete',
-                color: TwilightColors.warningTone,
+                color: context.palette.warningTone,
                 onTap: widget.onDelete!,
               ),
           ],
@@ -1698,7 +1987,7 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
     required VoidCallback onTap,
     Color? color,
   }) {
-    final c = color ?? TwilightColors.textPrimary;
+    final c = color ?? context.palette.textPrimary;
     return InkWell(
       key: Key(key),
       onTap: onTap,
@@ -1727,7 +2016,7 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: isSelected
-              ? TwilightColors.accentUser.withValues(alpha: 0.18)
+              ? context.palette.accentUser.withValues(alpha: 0.18)
               : Colors.transparent,
           shape: BoxShape.circle,
         ),
@@ -1751,7 +2040,7 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
         width: 40,
         height: 40,
         alignment: Alignment.center,
-        child: const Icon(Icons.add, color: TwilightColors.textMuted),
+        child: Icon(Icons.add, color: context.palette.textMuted),
       ),
     );
   }
@@ -1842,7 +2131,7 @@ class _StagedChipState extends State<_StagedChip> {
           future: _poster,
           builder: (_, snap) => snap.data != null
               ? Image.memory(snap.data!, fit: BoxFit.cover, cacheWidth: 256)
-              : Container(color: TwilightColors.bgSurfaceAlt),
+              : Container(color: context.palette.bgSurfaceAlt),
         ),
         const Center(child: _PlayBadge(size: 26)),
       ],
@@ -1874,8 +2163,8 @@ class _MediaBubble extends StatelessWidget {
         padding: const EdgeInsets.all(4),
         decoration: BoxDecoration(
           color: isMe
-              ? TwilightColors.bubbleUserBg
-              : TwilightColors.bubblePartnerBg,
+              ? context.palette.bubbleUserBg
+              : context.palette.bubblePartnerBg,
           borderRadius: BorderRadius.circular(18),
         ),
         child: Column(
@@ -1933,8 +2222,8 @@ class _MediaBubble extends StatelessWidget {
                   msg.body,
                   style: TextStyle(
                     color: isMe
-                        ? TwilightColors.bubbleUserText
-                        : TwilightColors.textPrimary,
+                        ? context.palette.bubbleUserText
+                        : context.palette.textPrimary,
                     fontSize: 15,
                   ),
                 ),
@@ -1967,7 +2256,7 @@ class _MediaMeta extends StatelessWidget {
           Text(time, style: const TextStyle(fontSize: 10, color: Colors.white)),
           if (marker != null) ...[
             const SizedBox(width: 4),
-            _ConversationPageState._markerWidget(marker!),
+            _ConversationPageState._markerWidget(marker!, context.palette),
           ],
         ],
       ),
@@ -2000,7 +2289,7 @@ class _ThumbImageState extends State<_ThumbImage> {
             filterQuality: FilterQuality.medium,
           );
         }
-        return Container(color: TwilightColors.bgSurfaceAlt);
+        return Container(color: context.palette.bgSurfaceAlt);
       },
     );
   }
@@ -2110,6 +2399,90 @@ class _MediaImageState extends ConsumerState<_MediaImage> {
             ),
     );
   }
+}
+
+/// Paints a chat bubble: a rounded rectangle with a small tail curling out of
+/// the bottom corner on the sender's side — right for my messages, left for the
+/// partner's — like iMessage. The tail isn't a flat flare: the edge runs down
+/// past the corner, pokes out to the box edge, then *hooks back inward* with a
+/// little curl (the control points dip just past the bottom edge). The body
+/// fills the full box; the tail lives entirely inside the bottom corner.
+class _BubbleBackground extends CustomPainter {
+  const _BubbleBackground({
+    required this.color,
+    required this.border,
+    required this.mine,
+  });
+
+  final Color color;
+  final Color border;
+  final bool mine;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = _path(size);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = color
+        ..isAntiAlias = true
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = border
+        ..isAntiAlias = true
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+  }
+
+  /// The canonical iMessage bubble path: 15px rounded corners on three sides,
+  /// and a curled tail at the bottom corner on the sender's side. Coordinates
+  /// are the fixed pixel landmarks from Apple's shape (tail spans ~20px), so it
+  /// reads identically at any bubble size.
+  Path _path(Size size) {
+    final w = size.width;
+    final h = size.height;
+    final path = Path();
+    if (mine) {
+      // Tail at the bottom-right; mirror of the received geometry (x -> w - x).
+      path
+        ..moveTo(w - 20, h)
+        ..lineTo(15, h)
+        ..cubicTo(8, h, 0, h - 8, 0, h - 15) // bottom-left corner
+        ..lineTo(0, 15)
+        ..cubicTo(0, 8, 8, 0, 15, 0) // top-left corner
+        ..lineTo(w - 20, 0)
+        ..cubicTo(w - 12, 0, w - 5, 8, w - 5, 15) // top-right corner
+        ..lineTo(w - 5, h - 10) // right edge runs down past the corner
+        ..cubicTo(w - 5, h - 1, w, h, w, h) // poke out to the tail tip
+        ..cubicTo(w - 4, h + 1, w - 8, h - 1, w - 12, h - 4) // curl back in
+        ..cubicTo(w - 15, h - 1, w - 18, h, w - 20, h) // rejoin bottom edge
+        ..close();
+    } else {
+      // Tail at the bottom-left (received).
+      path
+        ..moveTo(20, h)
+        ..lineTo(w - 15, h)
+        ..cubicTo(w - 8, h, w, h - 8, w, h - 15) // bottom-right corner
+        ..lineTo(w, 15)
+        ..cubicTo(w, 8, w - 8, 0, w - 15, 0) // top-right corner
+        ..lineTo(20, 0)
+        ..cubicTo(12, 0, 5, 8, 5, 15) // top-left corner
+        ..lineTo(5, h - 10) // left edge runs down past the corner
+        ..cubicTo(5, h - 1, 0, h, 0, h) // poke out to the tail tip
+        ..cubicTo(4, h + 1, 8, h - 1, 12, h - 4) // curl back in
+        ..cubicTo(15, h - 1, 18, h, 20, h) // rejoin bottom edge
+        ..close();
+    }
+    return path;
+  }
+
+  @override
+  bool shouldRepaint(_BubbleBackground old) =>
+      old.color != color || old.border != border || old.mine != mine;
 }
 
 class _PlayBadge extends StatelessWidget {

@@ -3,7 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'inbox/mock_fixtures.dart';
 import 'screens/auth/auth_gate.dart';
-import 'theme/twilight.dart';
+import 'theme/app_palette.dart';
+import 'theme/palette_provider.dart';
 
 const _fixtures = String.fromEnvironment('LLOVE_FIXTURES', defaultValue: '');
 
@@ -21,14 +22,17 @@ void main() {
   );
 }
 
-class LittleLoveApp extends StatelessWidget {
+class LittleLoveApp extends ConsumerWidget {
   const LittleLoveApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // The active palette follows the wallpaper each user picks; MaterialApp
+    // cross-fades the theme (and its AppPalette extension) when it changes.
+    final palette = ref.watch(paletteProvider);
     return MaterialApp(
       title: 'LittleLove',
-      theme: buildTwilightTheme(),
+      theme: buildAppTheme(palette),
       home: const AuthGate(),
     );
   }
