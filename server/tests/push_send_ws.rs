@@ -92,9 +92,16 @@ async fn push_fires_whether_or_not_recipient_online() {
     .unwrap();
 
     // Kaitlyn has a registered device token.
-    upsert_token(store.pool(), kait_id, "kait-dev", "kaitTOKEN", "sandbox")
-        .await
-        .unwrap();
+    upsert_token(
+        store.pool(),
+        kait_id,
+        "kait-dev",
+        "kaitTOKEN",
+        "sandbox",
+        littlelove_api::push_tokens::KIND_ALERT,
+    )
+    .await
+    .unwrap();
 
     let (tx, mut rx) = mpsc::unbounded_channel::<PushMessage>();
     let fake: Arc<dyn PushSender> = Arc::new(FakeSender { calls: tx });

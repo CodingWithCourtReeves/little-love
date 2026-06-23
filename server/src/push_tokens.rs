@@ -9,19 +9,27 @@ pub struct DeviceToken {
     pub environment: String,
 }
 
-/// Insert or refresh the token for one (account, device). Idempotent: a second
-/// call for the same device updates the token, environment, and timestamp.
+/// Token kind: an `alert` token receives message banners; a `voip` token is a
+/// PushKit token that wakes the app for an incoming call. A device registers
+/// one of each.
+pub const KIND_ALERT: &str = "alert";
+pub const KIND_VOIP: &str = "voip";
+
+/// Insert or refresh the token for one (account, device, kind). Idempotent: a
+/// second call for the same device+kind updates the token, environment, and
+/// timestamp. A device's `alert` and `voip` tokens are independent rows.
 pub async fn upsert_token(
     pool: &PgPool,
     account_id: i64,
     device_id: &str,
     apns_token: &str,
     environment: &str,
+    kind: &str,
 ) -> anyhow::Result<()> {
     sqlx::query(
-        "INSERT INTO device_push_tokens (account_id, device_id, apns_token, environment, updated_at)
-         VALUES ($1, $2, $3, $4, now())
-         ON CONFLICT (account_id, device_id)
+        "INSERT INTO device_push_tokens (account_id, device_id, apns_token, environment, kind, updated_at)
+         VALUES ($1, $2, $3, $4, $5, now())
+         ON CONFLICT (account_id, device_id, kind)
          DO UPDATE SET apns_token = EXCLUDED.apns_token,
                        environment = EXCLUDED.environment,
                        updated_at = now()",
@@ -30,6 +38,7 @@ pub async fn upsert_token(
     .bind(device_id)
     .bind(apns_token)
     .bind(environment)
+    .bind(kind)
     .execute(pool)
     .await?;
     Ok(())
@@ -59,15 +68,36 @@ pub async fn delete_token_value(
     Ok(())
 }
 
-/// All registered tokens for an account (across the human's devices).
+/// All `alert` tokens for an account (across the human's devices). Used by the
+/// message-push fan-out; voip tokens are deliberately excluded so a banner push
+/// never targets a PushKit token.
 pub async fn tokens_for_account(
     pool: &PgPool,
     account_id: i64,
 ) -> anyhow::Result<Vec<DeviceToken>> {
+    tokens_of_kind(pool, account_id, KIND_ALERT).await
+}
+
+/// All `voip` (PushKit) tokens for an account. Used to wake the recipient's
+/// device(s) for an incoming call.
+pub async fn voip_tokens_for(
+    pool: &PgPool,
+    account_id: i64,
+) -> anyhow::Result<Vec<DeviceToken>> {
+    tokens_of_kind(pool, account_id, KIND_VOIP).await
+}
+
+async fn tokens_of_kind(
+    pool: &PgPool,
+    account_id: i64,
+    kind: &str,
+) -> anyhow::Result<Vec<DeviceToken>> {
     let rows = sqlx::query_as::<_, (String, String)>(
-        "SELECT apns_token, environment FROM device_push_tokens WHERE account_id = $1",
+        "SELECT apns_token, environment FROM device_push_tokens
+         WHERE account_id = $1 AND kind = $2",
     )
     .bind(account_id)
+    .bind(kind)
     .fetch_all(pool)
     .await?;
     Ok(rows

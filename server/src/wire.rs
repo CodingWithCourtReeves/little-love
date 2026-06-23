@@ -4,6 +4,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Default `kind` for a `RegisterPush` frame that omits it (older clients).
+fn default_token_kind() -> String {
+    crate::push_tokens::KIND_ALERT.to_string()
+}
+
 /// Day-1 legacy inbound frames (deprecated; preserved only for the on-disk
 /// migration test harness). New v0.2 client frames use the kind-tagged
 /// `RoomClientFrame` (see below).
@@ -119,6 +124,12 @@ pub enum RoomClientFrame {
         device_id: String,
         apns_token: String,
         environment: String,
+        /// `alert` (message banners) or `voip` (PushKit call wake). Named
+        /// `token_kind` (not `kind`) because `kind` is the enum's serde tag.
+        /// Defaults to `alert` so older clients that omit it keep registering
+        /// alert tokens.
+        #[serde(default = "default_token_kind")]
+        token_kind: String,
     },
     /// Drop this device's APNs token (logout / permission revoked).
     UnregisterPush {
@@ -692,6 +703,7 @@ mod tests {
 
     #[test]
     fn parses_register_push_frame() {
+        // No `kind` field → defaults to "alert" (back-compat with older clients).
         let raw = r#"{"kind":"RegisterPush","device_id":"dev-1","apns_token":"abcd","environment":"sandbox"}"#;
         let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
         match frame {
@@ -699,11 +711,23 @@ mod tests {
                 device_id,
                 apns_token,
                 environment,
+                token_kind,
             } => {
                 assert_eq!(device_id, "dev-1");
                 assert_eq!(apns_token, "abcd");
                 assert_eq!(environment, "sandbox");
+                assert_eq!(token_kind, "alert");
             }
+            _ => panic!("expected RegisterPush"),
+        }
+    }
+
+    #[test]
+    fn parses_register_push_frame_with_voip_kind() {
+        let raw = r#"{"kind":"RegisterPush","device_id":"dev-1","apns_token":"abcd","environment":"sandbox","token_kind":"voip"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::RegisterPush { token_kind, .. } => assert_eq!(token_kind, "voip"),
             _ => panic!("expected RegisterPush"),
         }
     }

@@ -101,7 +101,9 @@ class RoomMessageRouter {
       case RoomErrorFrame():
       case UploadGrantedFrame():
       case DownloadGrantedFrame():
-        // Owned by LivePairingTransport / attachment upload+download flows.
+      case CallTurnGrantFrame():
+        // Owned by LivePairingTransport / attachment upload+download flows /
+        // call setup (fetchIceServers awaits CallTurnGrant directly).
         break;
     }
   }

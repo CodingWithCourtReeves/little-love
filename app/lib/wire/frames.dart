@@ -528,16 +528,22 @@ class RegisterPushFrame {
     required this.deviceId,
     required this.apnsToken,
     required this.environment,
+    this.tokenKind = 'alert',
   });
   final String deviceId;
   final String apnsToken;
   final String environment;
+
+  /// `alert` (message banners) or `voip` (PushKit call wake). The wire key is
+  /// `token_kind`, not `kind`, since `kind` is the frame discriminator.
+  final String tokenKind;
 
   Map<String, Object?> toJson() => <String, Object?>{
     'kind': 'RegisterPush',
     'device_id': deviceId,
     'apns_token': apnsToken,
     'environment': environment,
+    'token_kind': tokenKind,
   };
 }
 

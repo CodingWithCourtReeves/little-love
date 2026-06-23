@@ -317,11 +317,18 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     device_id,
                     apns_token,
                     environment,
+                    token_kind,
                 }) => {
                     if let Some(store) = state.store.as_ref() {
-                        if let Err(e) =
-                            upsert_token(store.pool(), me.id, &device_id, &apns_token, &environment)
-                                .await
+                        if let Err(e) = upsert_token(
+                            store.pool(),
+                            me.id,
+                            &device_id,
+                            &apns_token,
+                            &environment,
+                            &token_kind,
+                        )
+                        .await
                         {
                             warn!("RegisterPush upsert failed: {e}");
                         }
