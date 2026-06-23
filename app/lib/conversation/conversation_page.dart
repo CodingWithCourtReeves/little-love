@@ -960,6 +960,46 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   Widget _bubbleContent(Msg m, String me, _Marker? marker) {
     final mine = m.from == me;
+    // A call-log entry renders as a centered system-style chip — distinct from
+    // chat bubbles. Missed/declined calls show a red phone-missed icon.
+    if (m.callOutcome != null) {
+      final missed =
+          m.callOutcome == 'missed' || m.callOutcome == 'declined';
+      final accent = missed
+          ? const Color(0xFFC0455B)
+          : context.palette.accentSage;
+      final icon = missed
+          ? Icons.phone_missed
+          : (mine ? Icons.call_made : Icons.call_received);
+      final label = m.body.replaceFirst('📞 ', '');
+      return Center(
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: context.palette.bgSurface.withValues(alpha: 0.65),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15, color: accent),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: missed
+                      ? accent
+                      : context.palette.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     if (m.attachment != null) {
       final att = m.attachment!;
       // Voice memos read as a chat bubble (same background + tail as text),

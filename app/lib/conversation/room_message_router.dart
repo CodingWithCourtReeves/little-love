@@ -319,6 +319,7 @@ class RoomMessageRouter {
         ts: f.ts,
         replayed: f.replayed,
         sendStatus: sendStatus,
+        callOutcome: outcome,
       ),
       // Handled by the early returns above; here only for exhaustiveness.
       ReactionContent() => throw StateError('reaction handled above'),

@@ -231,10 +231,10 @@ class CallController {
         await _session?.addRemoteCandidate(_decodeCandidate(json));
       case CallHangupFrame(:final callId, :final reason):
         if (callId != _callId) return;
-        await _end(
-          reason,
-          emitLog: false,
-        ); // remote ended; they log it if caller
+        // The peer ended the call. We still run the normal end path; the
+        // `wasOutgoing` check inside `_end` ensures only the caller logs it
+        // (so it's recorded even when the callee hangs up).
+        await _end(reason);
       default:
         break;
     }
@@ -357,7 +357,7 @@ class CallController {
 
   /// End the call: tear down WebRTC + CallKit, record the outcome, and (caller
   /// only) emit the call-log message.
-  Future<void> _end(String reason, {bool emitLog = true}) async {
+  Future<void> _end(String reason) async {
     if (state.value.isEnded || state.value.phase == CallPhase.idle) {
       _reset();
       return;
@@ -369,7 +369,9 @@ class CallController {
     await FlutterCallkitIncoming.endAllCalls();
     await _session?.dispose();
 
-    if (emitLog && wasOutgoing && ended.outcome != null) {
+    // The caller is the single authoritative emitter — so exactly one call-log
+    // is written regardless of which side hung up.
+    if (wasOutgoing && ended.outcome != null) {
       await _emitCallLog(ended.outcome!);
     }
     _reset();
