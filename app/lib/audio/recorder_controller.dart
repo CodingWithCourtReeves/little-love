@@ -37,10 +37,8 @@ class RecordBackend implements RecorderBackend {
   Future<bool> hasPermission() => _rec.hasPermission();
 
   @override
-  Future<void> start(String path) => _rec.start(
-    const RecordConfig(encoder: AudioEncoder.aacLc),
-    path: path,
-  );
+  Future<void> start(String path) =>
+      _rec.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: path);
 
   @override
   Future<String?> stop() => _rec.stop();

@@ -1348,101 +1348,103 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                  // The pill: one rounded glass surface holding the attach
-                  // action (inside-left, bottom-pinned) and the text field.
-                  // Bottom alignment keeps the attach glyph on the last line as
-                  // the field grows, instead of drifting to the vertical center.
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(22),
-                      child: BackdropFilter(
-                        // Apple-style material: blur the messages behind, then
-                        // lift their saturation back up (ColorFilter implements
-                        // ImageFilter, so compose() chains it over the blur) so
-                        // the glass stays luminous instead of going muddy.
-                        filter: ImageFilter.compose(
-                          outer: const ColorFilter.matrix(_glassSaturation),
-                          inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                        ),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: context.palette.bgSurface.withValues(
-                              alpha: 0.55,
-                            ),
-                            borderRadius: BorderRadius.circular(22),
-                            // Hairline all the way around so the glass edge
-                            // reads crisply against messages passing behind it.
-                            border: Border.all(
-                              color: context.palette.textPrimary.withValues(
-                                alpha: 0.10,
-                              ),
-                              width: 0.5,
-                            ),
+                    // The pill: one rounded glass surface holding the attach
+                    // action (inside-left, bottom-pinned) and the text field.
+                    // Bottom alignment keeps the attach glyph on the last line as
+                    // the field grows, instead of drifting to the vertical center.
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(22),
+                        child: BackdropFilter(
+                          // Apple-style material: blur the messages behind, then
+                          // lift their saturation back up (ColorFilter implements
+                          // ImageFilter, so compose() chains it over the blur) so
+                          // the glass stays luminous instead of going muddy.
+                          filter: ImageFilter.compose(
+                            outer: const ColorFilter.matrix(_glassSaturation),
+                            inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
                           ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              if (widget.onPickMedia != null)
-                                IconButton(
-                                  key: const Key('composer-attach'),
-                                  onPressed: _pickMedia,
-                                  icon: Icon(
-                                    Icons.attach_file,
-                                    color: context.palette.textMuted,
-                                    size: 22,
-                                  ),
-                                  tooltip: 'Attach a photo or video',
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: context.palette.bgSurface.withValues(
+                                alpha: 0.55,
+                              ),
+                              borderRadius: BorderRadius.circular(22),
+                              // Hairline all the way around so the glass edge
+                              // reads crisply against messages passing behind it.
+                              border: Border.all(
+                                color: context.palette.textPrimary.withValues(
+                                  alpha: 0.10,
                                 ),
-                              Expanded(
-                                child: Shortcuts(
-                                  shortcuts: shortcuts,
-                                  child: Actions(
-                                    actions: {
-                                      _SendIntent: CallbackAction<_SendIntent>(
-                                        onInvoke: (_) {
-                                          _submitFromIntent();
-                                          return null;
-                                        },
-                                      ),
-                                    },
-                                    child: TextField(
-                                      key: const Key('composer'),
-                                      controller: _controller,
-                                      onChanged: _onComposerChanged,
-                                      minLines: 1,
-                                      maxLines: 8,
-                                      keyboardType: TextInputType.multiline,
-                                      textInputAction: TextInputAction.newline,
-                                      decoration: InputDecoration(
-                                        isDense: true,
-                                        hintText: 'Message',
-                                        hintStyle: TextStyle(
-                                          color: context.palette.textMuted,
-                                        ),
-                                        border: InputBorder.none,
-                                        // Lead padding only when the attach
-                                        // button isn't there to provide it.
-                                        contentPadding: EdgeInsets.fromLTRB(
-                                          widget.onPickMedia != null ? 0 : 16,
-                                          11,
-                                          16,
-                                          11,
+                                width: 0.5,
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                if (widget.onPickMedia != null)
+                                  IconButton(
+                                    key: const Key('composer-attach'),
+                                    onPressed: _pickMedia,
+                                    icon: Icon(
+                                      Icons.attach_file,
+                                      color: context.palette.textMuted,
+                                      size: 22,
+                                    ),
+                                    tooltip: 'Attach a photo or video',
+                                  ),
+                                Expanded(
+                                  child: Shortcuts(
+                                    shortcuts: shortcuts,
+                                    child: Actions(
+                                      actions: {
+                                        _SendIntent:
+                                            CallbackAction<_SendIntent>(
+                                              onInvoke: (_) {
+                                                _submitFromIntent();
+                                                return null;
+                                              },
+                                            ),
+                                      },
+                                      child: TextField(
+                                        key: const Key('composer'),
+                                        controller: _controller,
+                                        onChanged: _onComposerChanged,
+                                        minLines: 1,
+                                        maxLines: 8,
+                                        keyboardType: TextInputType.multiline,
+                                        textInputAction:
+                                            TextInputAction.newline,
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          hintText: 'Message',
+                                          hintStyle: TextStyle(
+                                            color: context.palette.textMuted,
+                                          ),
+                                          border: InputBorder.none,
+                                          // Lead padding only when the attach
+                                          // button isn't there to provide it.
+                                          contentPadding: EdgeInsets.fromLTRB(
+                                            widget.onPickMedia != null ? 0 : 16,
+                                            11,
+                                            16,
+                                            11,
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  _trailingButton(),
-                ],
-              ),
+                    const SizedBox(width: 8),
+                    _trailingButton(),
+                  ],
+                ),
             ],
           ),
         ),

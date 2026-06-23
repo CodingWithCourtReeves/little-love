@@ -115,7 +115,11 @@ class _Waveform extends StatelessWidget {
         width: 160,
         height: 32,
         child: CustomPaint(
-          painter: _WaveformPainter(peaks: peaks, progress: progress, color: color),
+          painter: _WaveformPainter(
+            peaks: peaks,
+            progress: progress,
+            color: color,
+          ),
         ),
       ),
     );
