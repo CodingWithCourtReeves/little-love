@@ -19,13 +19,27 @@ class Room {
   final DateTime createdAt;
 
   /// Spec §7.1 derived display name. When `name` is non-empty, returns it
-  /// verbatim. Otherwise concatenates the other members (Title-Case,
-  /// alpha-sorted), joined with " + ". Self is never named.
-  String displayName(String selfUsername) {
+  /// verbatim. Otherwise concatenates the other members (alpha-sorted), joined
+  /// with " + ". Self is never named.
+  ///
+  /// [nameFor] maps a member username to its partner-chosen display name, used
+  /// verbatim when it returns a non-empty value. When it returns null/empty (no
+  /// display name set), or no resolver is given, the member is Title-Cased as
+  /// before — so an unset profile still reads "Kaitlyn", not "kaitlyn".
+  String displayName(
+    String selfUsername, {
+    String? Function(String username)? nameFor,
+  }) {
     if (name.isNotEmpty) return name;
     final others = members.where((m) => m.username != selfUsername);
-    final humans = others.map(_capitalize).toList()..sort();
-    final derived = humans.join(' + ');
+    final labels = others.map((m) {
+      final resolved = nameFor?.call(m.username);
+      return (resolved != null && resolved.isNotEmpty)
+          ? resolved
+          : _capitalize(m);
+    }).toList()
+      ..sort();
+    final derived = labels.join(' + ');
     // A freshly created room you're the only member of (e.g. a pending-invite
     // room before the partner joins) has no others to derive from. Never
     // render a blank label.

@@ -32,6 +32,7 @@ import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
 import '../../outbox/outbox_drain.dart';
 import '../../outbox/outbox_store.dart';
+import '../../profile/profile_store.dart';
 import '../../push/push_bootstrap.dart';
 import '../../theme/app_palette.dart';
 import '../../wire/frames.dart';
@@ -174,6 +175,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _roomList(List<Room> rooms) {
     final markers = ref.watch(readStateProvider);
+    final profiles = ref.watch(profileStoreProvider);
+    String? nameFor(String username) =>
+        profiles.forUsername(username)?.displayName;
     List<Room> bucket(RoomShape shape) =>
         rooms.where((r) => r.shape(_me) == shape).toList()
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -193,7 +197,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     Widget item(Room r) => ConversationListItem(
       key: Key('home-room-${r.roomId}'),
-      label: r.displayName(_me),
+      label: r.displayName(_me, nameFor: nameFor),
       selected: false,
       unread: _roomUnread(r.roomId, markers),
       onTap: () => _openRoom(r),

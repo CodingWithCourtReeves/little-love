@@ -33,6 +33,31 @@ void main() {
     );
   });
 
+  group('partner display-name resolver', () {
+    test('uses resolver display name verbatim when present', () {
+      String? nameFor(String u) => u == 'kaitlyn' ? 'Kait 🌹' : null;
+      expect(
+        r([m('court'), m('kaitlyn')]).displayName('court', nameFor: nameFor),
+        'Kait 🌹',
+      );
+    });
+
+    test('falls back to capitalized username when resolver returns null', () {
+      expect(
+        r([m('court'), m('kaitlyn')]).displayName('court', nameFor: (_) => null),
+        'Kaitlyn',
+      );
+    });
+
+    test('named room still wins over resolver', () {
+      expect(
+        r([m('court'), m('kaitlyn')], name: 'Date Night')
+            .displayName('court', nameFor: (_) => 'X'),
+        'Date Night',
+      );
+    });
+  });
+
   group('shape classification', () {
     test('two humans, unnamed → partner', () {
       expect(r([m('court'), m('kaitlyn')]).shape('court'), RoomShape.partner);
