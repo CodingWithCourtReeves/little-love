@@ -23,6 +23,7 @@ import 'call_session.dart';
 import 'call_signaling.dart';
 import 'call_state.dart';
 import 'glare.dart';
+import 'ringback.dart';
 import 'turn_credentials.dart';
 
 /// Orchestrates a voice call end-to-end: ties the pure [CallState] machine to
@@ -51,8 +52,11 @@ class CallController {
   String? _peerUsername;
   DateTime? _startedAt;
   String? _pendingOffer; // encrypted offer awaiting CallKit accept (incoming)
+  String?
+  _pendingAcceptCallId; // accept tapped before the offer arrived (cold wake)
   Timer? _ringTimer;
   bool _ending = false; // re-entrancy guard for _end (see below)
+  final Ringback _ringback = Ringback(); // caller-side dialing tone
 
   StreamSubscription<CallEvent?>? _ckSub;
   StreamSubscription<RoomServerFrame>? _frameSub;
@@ -105,6 +109,8 @@ class CallController {
     await FlutterCallkitIncoming.startCall(
       _callKitParams(callId, peer.username),
     );
+    // Caller-side ringback until the partner answers (or we give up / they decline).
+    unawaited(_ringback.start());
     _startRingTimer();
   }
 
@@ -130,6 +136,7 @@ class CallController {
     _frameSub?.cancel();
     _connListen?.close();
     _ringTimer?.cancel();
+    _ringback.stop();
     _session?.dispose();
     state.dispose();
   }
@@ -164,12 +171,25 @@ class CallController {
     final roomId = _roomId;
     final peer = _peerUsername;
     final self = _selfUsername;
-    if (offer == null || roomId == null || peer == null || self == null) return;
+    if (offer == null || roomId == null || peer == null || self == null) {
+      // VoIP cold-wake race: the user tapped Answer on the native CallKit screen
+      // before the WS delivered the encrypted CallInvite. Remember the accept
+      // and replay it once _onIncomingInvite lands the offer.
+      _pendingAcceptCallId = callId ?? _callId;
+      return;
+    }
     if (callId != null && _callId != null && callId != _callId) return;
 
     final rp = _roomAndPeer(roomId, self);
     if (rp == null) return _fail();
     final (room, peerMember) = rp;
+
+    // Apply-layer trust: derive the peer from room membership, not the invite's
+    // `from`. A couple's room has exactly one other member — honor it over
+    // whatever the frame claimed (the sig-key is derived from this member too).
+    if (_peerUsername != peerMember.username) {
+      _peerUsername = peerMember.username;
+    }
 
     state.value = state.value.accept();
     _sigKey ??= await _deriveSigKey(room, peerMember, _callId!);
@@ -222,6 +242,9 @@ class CallController {
         await _onIncomingInvite(roomId, callId, from, offer);
       case CallAnswerFrame(:final callId, :final answer):
         if (callId != _callId || _sigKey == null) return;
+        // The partner picked up — stop the dialing tone before any call audio
+        // flows, so the ringback never overlaps the live stream.
+        unawaited(_ringback.stop());
         final sdp = await decryptSignal(_sigKey!, answer);
         await _session?.setAnswer(sdp);
         if (state.value.phase == CallPhase.dialing) {
@@ -281,6 +304,13 @@ class CallController {
       _callKitParams(callId, from),
     );
     _startRingTimer();
+
+    // Cold-wake race: if the user already tapped Answer on the native screen
+    // before this offer arrived, the accept was deferred — replay it now.
+    if (_pendingAcceptCallId == callId) {
+      _pendingAcceptCallId = null;
+      await _onCallKitAccept(callId);
+    }
   }
 
   // ── Session wiring ────────────────────────────────────────────────────────
@@ -306,6 +336,7 @@ class CallController {
     session.onConnectionState.listen((s) {
       if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         _ringTimer?.cancel();
+        unawaited(_ringback.stop());
         if (state.value.phase == CallPhase.connecting) {
           state.value = state.value.iceConnected();
           FlutterCallkitIncoming.setCallConnected(_callId ?? '');
@@ -369,21 +400,32 @@ class CallController {
       return;
     }
     _ending = true;
-    _ringTimer?.cancel();
-    final wasOutgoing = state.value.direction == CallDirection.outgoing;
-    final ended = state.value.hangup(reason);
-    state.value = ended;
+    try {
+      _ringTimer?.cancel();
+      unawaited(_ringback.stop());
+      final wasOutgoing = state.value.direction == CallDirection.outgoing;
+      final ended = state.value.hangup(reason);
+      state.value = ended;
 
-    // Emit the call-log FIRST (caller only — the single authoritative emitter,
-    // so exactly one entry regardless of who hung up), while our fields are
-    // still intact, then tear down CallKit + WebRTC.
-    if (wasOutgoing && ended.outcome != null) {
-      await _emitCallLog(ended.outcome!);
+      // Emit the call-log FIRST (caller only — the single authoritative emitter,
+      // so exactly one entry regardless of who hung up), while our fields are
+      // still intact, then tear down CallKit + WebRTC. A log failure must not
+      // abort teardown, so it's caught here; the finally restores the
+      // re-entrancy guard even if CallKit/WebRTC teardown throws (otherwise a
+      // stuck `_ending = true` would brick every later call).
+      if (wasOutgoing && ended.outcome != null) {
+        try {
+          await _emitCallLog(ended.outcome!);
+        } catch (e, st) {
+          debugPrint('call: call-log emit failed: $e\n$st');
+        }
+      }
+      await FlutterCallkitIncoming.endAllCalls();
+      await _session?.dispose();
+      _reset();
+    } finally {
+      _ending = false;
     }
-    await FlutterCallkitIncoming.endAllCalls();
-    await _session?.dispose();
-    _reset();
-    _ending = false;
   }
 
   Future<void> _emitCallLog(CallOutcome outcome) async {
@@ -435,7 +477,9 @@ class CallController {
     _peerUsername = null;
     _startedAt = null;
     _pendingOffer = null;
+    _pendingAcceptCallId = null;
     _ringTimer?.cancel();
+    unawaited(_ringback.stop());
   }
 
   CallKitParams _callKitParams(String callId, String caller) => CallKitParams(
