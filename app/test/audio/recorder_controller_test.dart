@@ -57,6 +57,46 @@ void main() {
     },
   );
 
+  test('can record again after a previous stop (not single-use)', () async {
+    final be = FakeBackend();
+    final c = VoiceRecorderController(
+      backend: be,
+      tempPathFactory: () async => '/tmp/voice_test.m4a',
+    );
+    await c.start();
+    await c.stop();
+    // A second recording in the same controller must be allowed.
+    expect(await c.start(), isTrue);
+    expect(c.state, RecorderState.recording);
+  });
+
+  test('can record again after a cancel', () async {
+    final c = VoiceRecorderController(
+      backend: FakeBackend(),
+      tempPathFactory: () async => '/tmp/voice_test.m4a',
+    );
+    await c.start();
+    await c.cancel();
+    expect(await c.start(), isTrue);
+    expect(c.state, RecorderState.recording);
+  });
+
+  test('auto-stop at maxDuration delivers the recording, not discards it', () async {
+    final be = FakeBackend();
+    VoiceRecording? delivered;
+    final c = VoiceRecorderController(
+      backend: be,
+      tempPathFactory: () async => '/tmp/voice_test.m4a',
+      maxDuration: Duration.zero,
+      onMaxDuration: (rec) => delivered = rec,
+    );
+    await c.start();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(delivered, isNotNull);
+    expect(delivered!.waveform.length, 64);
+    expect(c.state, RecorderState.stopped);
+  });
+
   test('lock moves recording -> locked', () async {
     final c = VoiceRecorderController(
       backend: FakeBackend(),

@@ -486,10 +486,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           );
       await ref.read(outboxDrainProvider).kick();
     } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Couldn't send voice message.")),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Couldn't send voice message.")),
+        );
+      }
+    } finally {
+      // The plaintext .m4a was only needed to encrypt + upload; the encrypted
+      // bytes now live in R2 and the outbox holds the frame. Reap it on every
+      // path so unencrypted recordings don't pile up in the app tmp dir.
+      try {
+        final f = File(rec.path);
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
     }
   }
 

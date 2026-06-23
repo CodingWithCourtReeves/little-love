@@ -208,8 +208,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// Drives the hold-to-record voice memo flow. Rebuilds the composer on every
   /// state/elapsed change so the recording overlay timer ticks. [_cancelArmed]
   /// tracks whether the current drag has crossed the slide-to-cancel threshold.
-  late final VoiceRecorderController _recorder = VoiceRecorderController()
-    ..addListener(_onRecorderChanged);
+  late final VoiceRecorderController _recorder = VoiceRecorderController(
+    // Hitting the 5-minute cap sends the memo rather than dropping it.
+    onMaxDuration: (rec) => widget.onSendVoice?.call(rec),
+  )..addListener(_onRecorderChanged);
   bool _cancelArmed = false;
 
   void _onRecorderChanged() {

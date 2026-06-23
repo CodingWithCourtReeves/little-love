@@ -62,12 +62,17 @@ class VoiceRecorderController extends ChangeNotifier {
     RecorderBackend? backend,
     TempPathFactory? tempPathFactory,
     this.maxDuration = const Duration(minutes: 5),
+    this.onMaxDuration,
   }) : _backend = backend ?? RecordBackend(),
        _tempPath = tempPathFactory ?? _defaultTempPath;
 
   final RecorderBackend _backend;
   final TempPathFactory _tempPath;
   final Duration maxDuration;
+
+  /// Called with the finished recording when [maxDuration] is hit, so the
+  /// auto-stop sends the memo instead of silently dropping it.
+  final void Function(VoiceRecording rec)? onMaxDuration;
 
   RecorderState _state = RecorderState.idle;
   RecorderState get state => _state;
@@ -93,7 +98,12 @@ class VoiceRecorderController extends ChangeNotifier {
   /// microphone permission is denied, so the caller can surface that instead of
   /// failing silently.
   Future<bool> start() async {
-    if (_state != RecorderState.idle) return false;
+    // Reject only while a capture is actually in flight — a controller that has
+    // already stopped/cancelled a prior memo must be reusable (it's held for
+    // the whole conversation, so single-use would brick the mic after one memo).
+    if (_state == RecorderState.recording || _state == RecorderState.locked) {
+      return false;
+    }
     if (!await _backend.hasPermission()) return false;
     _path = await _tempPath();
     _amplitudes.clear();
@@ -101,12 +111,22 @@ class VoiceRecorderController extends ChangeNotifier {
     _ampSub = _backend.amplitudeStream().listen(_amplitudes.add);
     _watch = Stopwatch()..start();
     _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (elapsed >= maxDuration) stop();
+      if (elapsed >= maxDuration) {
+        _autoStop();
+        return;
+      }
       notifyListeners();
     });
     _state = RecorderState.recording;
     notifyListeners();
     return true;
+  }
+
+  /// Hit the time cap: stop and hand the finished recording to [onMaxDuration]
+  /// so it's sent rather than discarded.
+  Future<void> _autoStop() async {
+    final rec = await stop();
+    if (rec != null) onMaxDuration?.call(rec);
   }
 
   void lock() {
