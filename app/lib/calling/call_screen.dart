@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import '../profile/avatar.dart';
+import '../profile/profile_store.dart';
 import '../theme/app_palette.dart';
 import 'call_controller.dart';
 import 'call_state.dart';
@@ -18,6 +21,7 @@ class CallOverlay extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.watch(callControllerProvider);
+    final profiles = ref.watch(profileStoreProvider);
     return ValueListenableBuilder<CallState>(
       valueListenable: controller.state,
       builder: (context, state, _) {
@@ -25,8 +29,17 @@ class CallOverlay extends ConsumerWidget {
             state.phase == CallPhase.connecting ||
             state.phase == CallPhase.active;
         if (!show) return const SizedBox.shrink();
+        // Resolve the partner's display name + avatar from their synced profile,
+        // falling back to the username / initials.
+        final username = controller.peerName;
+        final name = profiles.forUsername(username)?.displayName ?? username;
         return Positioned.fill(
-          child: _CallView(controller: controller, state: state),
+          child: _CallView(
+            controller: controller,
+            state: state,
+            name: name,
+            avatarFile: profiles.avatarFileFor(username),
+          ),
         );
       },
     );
@@ -34,9 +47,16 @@ class CallOverlay extends ConsumerWidget {
 }
 
 class _CallView extends StatefulWidget {
-  const _CallView({required this.controller, required this.state});
+  const _CallView({
+    required this.controller,
+    required this.state,
+    required this.name,
+    required this.avatarFile,
+  });
   final CallController controller;
   final CallState state;
+  final String name;
+  final File? avatarFile;
 
   @override
   State<_CallView> createState() => _CallViewState();
@@ -87,8 +107,7 @@ class _CallViewState extends State<_CallView> with SingleTickerProviderStateMixi
   @override
   Widget build(BuildContext context) {
     final accent = context.palette.accentPartner;
-    final name = widget.controller.peerName;
-    final initial = name.isNotEmpty ? name[0].toUpperCase() : '♥';
+    final name = widget.name;
     final active = widget.state.phase == CallPhase.active;
 
     return Material(
@@ -123,31 +142,10 @@ class _CallViewState extends State<_CallView> with SingleTickerProviderStateMixi
                     child: child,
                   );
                 },
-                child: Container(
-                  width: 132,
-                  height: 132,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        accent,
-                        Color.lerp(accent, Colors.black, 0.35)!,
-                      ],
-                    ),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    initial,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 54,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.white,
-                      letterSpacing: -1,
-                    ),
-                  ),
+                child: Avatar(
+                  seedText: name,
+                  imageFile: widget.avatarFile,
+                  radius: 66,
                 ),
               ),
               const SizedBox(height: 34),
