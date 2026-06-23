@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/profile/profile_store.dart';
 
@@ -28,6 +30,16 @@ void main() {
     var n = 0;
     s.addListener(() => n++);
     s.apply(p('Bob', DateTime.utc(2026, 1, 1)));
+    expect(n, 1);
+  });
+
+  test('avatar file is stored, read back, and notifies', () {
+    final s = ProfileStore();
+    var n = 0;
+    s.addListener(() => n++);
+    expect(s.avatarFileFor('bob'), isNull);
+    s.setAvatarFile('bob', File('/tmp/bob.jpg'));
+    expect(s.avatarFileFor('bob')!.path, '/tmp/bob.jpg');
     expect(n, 1);
   });
 }

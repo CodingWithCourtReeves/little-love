@@ -210,11 +210,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
     );
 
+    // The partner avatar for a room: the first other member's profile image,
+    // falling back to initials on the accent color.
+    Widget? avatarFor(Room r) {
+      final others = r.members.where((m) => m.username != _me);
+      if (others.isEmpty) return null;
+      final partner = others.first.username;
+      final p = profiles.forUsername(partner);
+      final seed = (p?.displayName?.isNotEmpty ?? false)
+          ? p!.displayName!
+          : partner;
+      return Avatar(
+        seedText: seed,
+        imageFile: profiles.avatarFileFor(partner),
+        radius: 18,
+      );
+    }
+
     Widget item(Room r) => ConversationListItem(
       key: Key('home-room-${r.roomId}'),
       label: r.displayName(_me, nameFor: nameFor),
       selected: false,
       unread: _roomUnread(r.roomId, markers),
+      leading: avatarFor(r),
       onTap: () => _openRoom(r),
     );
 

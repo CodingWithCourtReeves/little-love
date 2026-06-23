@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -23,12 +25,26 @@ class PartnerProfile {
 class ProfileStore extends ChangeNotifier {
   final Map<String, PartnerProfile> _byUsername = {};
 
+  /// Decrypted partner avatar images, keyed by username. Populated after the
+  /// avatar blob is fetched + decrypted (the descriptor only names the blob).
+  final Map<String, File> _avatarFiles = {};
+
   PartnerProfile? forUsername(String username) => _byUsername[username];
+
+  /// The on-disk decrypted avatar for [username], or null until it's fetched.
+  File? avatarFileFor(String username) => _avatarFiles[username];
 
   void apply(PartnerProfile p) {
     final existing = _byUsername[p.username];
     if (existing != null && !p.updatedAt.isAfter(existing.updatedAt)) return;
     _byUsername[p.username] = p;
+    notifyListeners();
+  }
+
+  /// Record the decrypted avatar file for [username] and notify listeners so the
+  /// room list / chat header re-render with the image.
+  void setAvatarFile(String username, File file) {
+    _avatarFiles[username] = file;
     notifyListeners();
   }
 }

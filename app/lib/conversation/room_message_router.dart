@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../attachment/attachment_download.dart';
 import '../identity/current_identity.dart';
 import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
@@ -132,15 +133,28 @@ class RoomMessageRouter {
     );
     if (room == null) return;
     final me = await ref.read(currentIdentityProvider.future);
+    final store = ref.read(profileStoreProvider);
     await handleIncomingProfile(
       f,
       coupleRoom: room,
       me: me,
       selfUsername: account.username,
       cache: ref.read(roomKeyCacheProvider),
-      store: ref.read(profileStoreProvider),
+      store: store,
       receivedAt: DateTime.now().toUtc(),
     );
+    // Fetch + decrypt the partner's avatar blob (named by the descriptor) so the
+    // room list / chat header can render it. Cached by blob key, so an unchanged
+    // avatar resolves instantly on a reconnect.
+    final descriptor = store.forUsername(f.user)?.avatar;
+    if (descriptor != null) {
+      try {
+        final file = await fetchAndDecrypt(conn: conn, descriptor: descriptor);
+        store.setAvatarFile(f.user, file);
+      } catch (_) {
+        // Best-effort: keep the initials fallback if the blob can't be fetched.
+      }
+    }
   }
 
   /// Re-publish my own profile (display name + cached avatar) to my partner on
