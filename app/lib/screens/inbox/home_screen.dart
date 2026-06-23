@@ -24,6 +24,7 @@ import '../../conversation/room_message_router.dart';
 import '../../conversation/send_fanout.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
+import '../../identity/providers.dart';
 import '../../inbox/active_room_provider.dart';
 import '../../inbox/conversation_list_item.dart';
 import '../../inbox/inbox_state.dart';
@@ -79,6 +80,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
     ref.watch(badgeSyncProvider(_me));
 
+    // The live local account, so the app-bar avatar reflects a freshly-set
+    // photo/display name the moment ProfileScreen saves (which invalidates
+    // accountProvider). Falls back to the account passed in at construction.
+    final self = ref.watch(accountProvider).valueOrNull ?? widget.account;
+
     // A notification tap (or any out-of-tree caller) requests a room by id.
     // Consume the command and push its conversation, unless it's already on
     // screen. Resetting the signal must be deferred — Riverpod forbids mutating
@@ -125,7 +131,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const ProfileScreen()),
             ),
-            child: Center(child: Avatar(seedText: _me, radius: 16)),
+            child: Center(
+              child: Avatar(
+                seedText: (self.displayName?.isNotEmpty ?? false)
+                    ? self.displayName!
+                    : _me,
+                imageFile: self.avatarPath != null
+                    ? File(self.avatarPath!)
+                    : null,
+                radius: 16,
+              ),
+            ),
           ),
         ),
         title: Text('@$_me'),
