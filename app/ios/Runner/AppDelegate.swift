@@ -1,12 +1,16 @@
+import AVFoundation
 import CallKit
 import Flutter
 import PushKit
 import UIKit
 import UserNotifications
+import WebRTC
 import flutter_callkit_incoming
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, PKPushRegistryDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, PKPushRegistryDelegate,
+  CallkitIncomingAppDelegate
+{
   private var pushChannel: FlutterMethodChannel?
   /// A room id captured from a notification tap that cold-launched the app,
   /// held until Dart asks for it once the inbox is ready.
@@ -26,7 +30,39 @@ import flutter_callkit_incoming
     registry.delegate = self
     registry.desiredPushTypes = [.voIP]
     self.voipRegistry = registry
+
+    // Hand WebRTC's audio session to CallKit: WebRTC must NOT auto-activate the
+    // session; CallKit owns activation so audio routes to the system-chosen
+    // output (earpiece, speaker, AirPods, Bluetooth, CarPlay). We enable audio
+    // only in the CallKit `didActivate` callback below.
+    let rtcAudio = RTCAudioSession.sharedInstance()
+    rtcAudio.useManualAudio = true
+    rtcAudio.isAudioEnabled = false
+
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // MARK: - CallkitIncomingAppDelegate (audio session + action fulfilment)
+
+  // The plugin already forwards accept/decline/end to Dart via its event stream
+  // (our CallController handles the call logic there). When we conform to this
+  // protocol the plugin stops auto-fulfilling the CXActions, so we just fulfil
+  // them here to complete the CallKit transaction.
+  func onAccept(_ call: Call, _ action: CXAnswerCallAction) { action.fulfill() }
+  func onDecline(_ call: Call, _ action: CXEndCallAction) { action.fulfill() }
+  func onEnd(_ call: Call, _ action: CXEndCallAction) { action.fulfill() }
+  func onTimeOut(_ call: Call) {}
+
+  func didActivateAudioSession(_ audioSession: AVAudioSession) {
+    let rtc = RTCAudioSession.sharedInstance()
+    rtc.audioSessionDidActivate(audioSession)
+    rtc.isAudioEnabled = true
+  }
+
+  func didDeactivateAudioSession(_ audioSession: AVAudioSession) {
+    let rtc = RTCAudioSession.sharedInstance()
+    rtc.audioSessionDidDeactivate(audioSession)
+    rtc.isAudioEnabled = false
   }
 
   // MARK: - PushKit (VoIP)
