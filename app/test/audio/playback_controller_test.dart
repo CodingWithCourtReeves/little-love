@@ -104,6 +104,29 @@ void main() {
     expect(fake.playing, isTrue);
   });
 
+  test('a failed load is swallowed and leaves the memo replayable', () async {
+    final fake = FakePlayer();
+    var calls = 0;
+    final c = VoicePlaybackController(
+      backend: fake,
+      resolvePath: (d, conn) async {
+        calls++;
+        if (calls == 1) throw Exception('download failed');
+        return '/tmp/${d.blobKey}.m4a';
+      },
+    );
+    final a = _audio('a');
+    // First tap: resolve throws — must not propagate, and must not leave the
+    // memo stuck "active" (so the button is live for a retry).
+    await c.toggle(a, null);
+    expect(c.isPlaying, isFalse);
+    expect(c.activeBlobKey, isNull);
+    // Second tap: resolve succeeds, plays.
+    await c.toggle(a, null);
+    expect(fake.playing, isTrue);
+    expect(c.activeBlobKey, 'a');
+  });
+
   test('cycleSpeed walks 1.0 -> 1.5 -> 2.0 -> 1.0', () {
     final c = VoicePlaybackController(
       backend: FakePlayer(),

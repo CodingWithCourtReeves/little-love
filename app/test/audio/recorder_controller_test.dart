@@ -81,21 +81,24 @@ void main() {
     expect(c.state, RecorderState.recording);
   });
 
-  test('auto-stop at maxDuration delivers the recording, not discards it', () async {
-    final be = FakeBackend();
-    VoiceRecording? delivered;
-    final c = VoiceRecorderController(
-      backend: be,
-      tempPathFactory: () async => '/tmp/voice_test.m4a',
-      maxDuration: Duration.zero,
-      onMaxDuration: (rec) => delivered = rec,
-    );
-    await c.start();
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    expect(delivered, isNotNull);
-    expect(delivered!.waveform.length, 64);
-    expect(c.state, RecorderState.stopped);
-  });
+  test(
+    'auto-stop at maxDuration delivers the recording, not discards it',
+    () async {
+      final be = FakeBackend();
+      VoiceRecording? delivered;
+      final c = VoiceRecorderController(
+        backend: be,
+        tempPathFactory: () async => '/tmp/voice_test.m4a',
+        maxDuration: Duration.zero,
+        onMaxDuration: (rec) => delivered = rec,
+      );
+      await c.start();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(delivered, isNotNull);
+      expect(delivered!.waveform.length, 64);
+      expect(c.state, RecorderState.stopped);
+    },
+  );
 
   test('lock moves recording -> locked', () async {
     final c = VoiceRecorderController(

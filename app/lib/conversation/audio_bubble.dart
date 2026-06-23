@@ -10,7 +10,7 @@ import 'recording_overlay.dart' show formatElapsed;
 /// progress fill, elapsed/total time, and a playback-speed badge. Playback is
 /// owned by the shared [VoicePlaybackController] so only one memo plays at a
 /// time.
-class AudioBubble extends StatelessWidget {
+class AudioBubble extends StatefulWidget {
   const AudioBubble({
     super.key,
     required this.descriptor,
@@ -25,64 +25,103 @@ class AudioBubble extends StatelessWidget {
   final LiveConnection? conn;
 
   @override
+  State<AudioBubble> createState() => _AudioBubbleState();
+}
+
+class _AudioBubbleState extends State<AudioBubble> {
+  bool _wasActive = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onControllerChanged);
+    _wasActive = _isActive;
+  }
+
+  @override
+  void didUpdateWidget(AudioBubble old) {
+    super.didUpdateWidget(old);
+    if (old.controller != widget.controller) {
+      old.controller.removeListener(_onControllerChanged);
+      widget.controller.addListener(_onControllerChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  bool get _isActive =>
+      widget.controller.activeBlobKey == widget.descriptor.blobKey;
+
+  // The shared controller notifies on every position tick of the ONE playing
+  // memo. A bubble only needs to rebuild if it is (or just stopped being) the
+  // active one — inactive bubbles are fully static, so skip them.
+  void _onControllerChanged() {
+    final active = _isActive;
+    if (!active && !_wasActive) return;
+    _wasActive = active;
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (context, _) {
-        final active = controller.activeBlobKey == descriptor.blobKey;
-        final playing = active && controller.isPlaying;
-        final total = Duration(milliseconds: descriptor.durationMs ?? 0);
-        final progress = (active && total.inMilliseconds > 0)
-            ? controller.position.inMilliseconds / total.inMilliseconds
-            : 0.0;
-        // Match the enclosing bubble's text colour so the controls/waveform
-        // read on both palettes (the "mine" bubble is light pink in light mode,
-        // so white would vanish).
-        final fg = isMe
-            ? context.palette.bubbleUserText
-            : context.palette.textPrimary;
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                key: const Key('audio-play'),
-                color: fg,
-                icon: Icon(playing ? Icons.pause : Icons.play_arrow),
-                onPressed: conn == null
-                    ? null
-                    : () => controller.toggle(descriptor, conn),
-              ),
-              _Waveform(
-                peaks: descriptor.waveform ?? const [],
-                progress: progress.clamp(0.0, 1.0),
-                color: fg,
-                onSeekFraction: (frac) {
-                  if (active && total > Duration.zero) {
-                    controller.seek(total * frac);
-                  }
-                },
-              ),
-              const SizedBox(width: 8),
-              Text(
-                formatElapsed(active ? controller.position : total),
+    final controller = widget.controller;
+    final descriptor = widget.descriptor;
+    final active = _isActive;
+    final playing = active && controller.isPlaying;
+    final total = Duration(milliseconds: descriptor.durationMs ?? 0);
+    final progress = (active && total.inMilliseconds > 0)
+        ? controller.position.inMilliseconds / total.inMilliseconds
+        : 0.0;
+    // Match the enclosing bubble's text colour so the controls/waveform read on
+    // both palettes (the "mine" bubble is light pink in light mode, so white
+    // would vanish).
+    final fg = widget.isMe
+        ? context.palette.bubbleUserText
+        : context.palette.textPrimary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            key: const Key('audio-play'),
+            color: fg,
+            icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+            onPressed: widget.conn == null
+                ? null
+                : () => controller.toggle(descriptor, widget.conn),
+          ),
+          _Waveform(
+            peaks: descriptor.waveform ?? const [],
+            progress: progress.clamp(0.0, 1.0),
+            color: fg,
+            onSeekFraction: (frac) {
+              if (active && total > Duration.zero) {
+                controller.seek(total * frac);
+              }
+            },
+          ),
+          const SizedBox(width: 8),
+          Text(
+            formatElapsed(active ? controller.position : total),
+            style: TextStyle(color: fg, fontSize: 12),
+          ),
+          const SizedBox(width: 8),
+          if (active)
+            GestureDetector(
+              key: const Key('audio-speed'),
+              onTap: controller.cycleSpeed,
+              child: Text(
+                '${_fmtSpeed(controller.speed)}×',
                 style: TextStyle(color: fg, fontSize: 12),
               ),
-              const SizedBox(width: 8),
-              if (active)
-                GestureDetector(
-                  key: const Key('audio-speed'),
-                  onTap: controller.cycleSpeed,
-                  child: Text(
-                    '${_fmtSpeed(controller.speed)}×',
-                    style: TextStyle(color: fg, fontSize: 12),
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
+            ),
+        ],
+      ),
     );
   }
 

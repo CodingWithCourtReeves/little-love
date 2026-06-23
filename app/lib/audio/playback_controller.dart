@@ -118,13 +118,23 @@ class VoicePlaybackController extends ChangeNotifier {
       return;
     }
     await _p.pause();
-    final path = await _resolve(d, conn);
-    _activeBlobKey = d.blobKey;
-    _position = Duration.zero;
-    await _p.setFilePath(path);
-    await _p.setSpeed(_speed);
-    await _p.play();
-    notifyListeners();
+    try {
+      final path = await _resolve(d, conn);
+      _activeBlobKey = d.blobKey;
+      _position = Duration.zero;
+      await _p.setFilePath(path);
+      await _p.setSpeed(_speed);
+      await _p.play();
+      notifyListeners();
+    } catch (e) {
+      // Fetch/decrypt/load failed (dropped connection, blob 404, decrypt
+      // error). Don't leave the memo stuck "active" — reset so the play button
+      // stays live for a retry instead of silently doing nothing forever.
+      debugPrint('voice playback failed: $e');
+      _activeBlobKey = null;
+      _isPlaying = false;
+      notifyListeners();
+    }
   }
 
   Future<void> seek(Duration to) => _p.seek(to);

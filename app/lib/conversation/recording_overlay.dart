@@ -49,7 +49,7 @@ class RecordingStrip extends StatelessWidget {
             )
           else
             const SizedBox(width: 14),
-          const _PulsingDot(),
+          const Icon(Icons.circle, color: Colors.red, size: 11),
           const SizedBox(width: 8),
           Text(
             formatElapsed(elapsed),
@@ -77,13 +77,6 @@ class RecordingStrip extends StatelessWidget {
       ),
     );
   }
-}
-
-class _PulsingDot extends StatelessWidget {
-  const _PulsingDot();
-  @override
-  Widget build(BuildContext context) =>
-      const Icon(Icons.circle, color: Colors.red, size: 11);
 }
 
 /// A live recording waveform: amplitude peaks drawn as centred bars, newest on
@@ -129,7 +122,7 @@ class _LiveWaveformPainter extends CustomPainter {
     final startX = size.width - shown.length * slot;
     for (var i = 0; i < shown.length; i++) {
       final x = startX + i * slot + barW / 2;
-      final h = (peaks.isEmpty ? 0.0 : (shown[i] / 31.0)) * size.height;
+      final h = (shown[i] / 31.0) * size.height;
       final half = (h < 2 ? 2 : h) / 2;
       canvas.drawLine(
         Offset(x, size.height / 2 - half),

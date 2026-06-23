@@ -55,22 +55,29 @@ class AttachmentDescriptor {
     if (waveform != null) 'waveform': waveform,
   };
 
-  factory AttachmentDescriptor.fromJson(Map<String, Object?> j) =>
-      AttachmentDescriptor(
-        blobKey: j['blob_key']! as String,
-        contentKeyB64: j['content_key']! as String,
-        nonceB64: j['nonce']! as String,
-        mime: j['mime']! as String,
-        filename: (j['filename'] as String?) ?? '',
-        size: (j['size'] as num).toInt(),
-        width: (j['width'] as num?)?.toInt() ?? 0,
-        height: (j['height'] as num?)?.toInt() ?? 0,
-        durationMs: (j['duration_ms'] as num?)?.toInt(),
-        thumbB64: (j['thumb'] as String?) ?? '',
-        waveform: (j['waveform'] as List?)
-            ?.map((e) => (e as num).toInt())
-            .toList(),
-      );
+  factory AttachmentDescriptor.fromJson(Map<String, Object?> j) {
+    final mime = j['mime']! as String;
+    return AttachmentDescriptor(
+      blobKey: j['blob_key']! as String,
+      contentKeyB64: j['content_key']! as String,
+      nonceB64: j['nonce']! as String,
+      mime: mime,
+      filename: (j['filename'] as String?) ?? '',
+      size: (j['size'] as num).toInt(),
+      width: (j['width'] as num?)?.toInt() ?? 0,
+      height: (j['height'] as num?)?.toInt() ?? 0,
+      durationMs: (j['duration_ms'] as num?)?.toInt(),
+      // Audio carries no thumbnail; for image/video keep the fail-fast
+      // (a missing thumb is a corrupt descriptor) rather than deferring the
+      // crash to render time inside decodeThumb.
+      thumbB64: mime.startsWith('audio/')
+          ? ((j['thumb'] as String?) ?? '')
+          : j['thumb']! as String,
+      waveform: (j['waveform'] as List?)
+          ?.map((e) => (e as num).toInt())
+          .toList(),
+    );
+  }
 }
 
 /// Encrypt a thumbnail JPEG into a self-contained wire string:

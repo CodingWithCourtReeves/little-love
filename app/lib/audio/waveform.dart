@@ -14,6 +14,13 @@ List<int> downsampleWaveform(List<double> amplitudes, {int buckets = 64}) {
   for (var b = 0; b < buckets; b++) {
     final start = (b * per).floor();
     final end = b == buckets - 1 ? amplitudes.length : ((b + 1) * per).floor();
+    if (end <= start) {
+      // Upsampling (fewer samples than buckets): the window is empty, so take
+      // the nearest sample instead of leaving the bucket at the silence floor —
+      // otherwise a short memo renders an almost-flat waveform.
+      out[b] = _normalize(amplitudes[start.clamp(0, amplitudes.length - 1)]);
+      continue;
+    }
     // Peak (max amplitude) within the window, like Telegram's bar waveform.
     var peak = _floorDb;
     for (var i = start; i < end && i < amplitudes.length; i++) {

@@ -32,5 +32,13 @@ void main() {
     test('silence (empty input) is a flat zero waveform', () {
       expect(downsampleWaveform([], buckets: 64), List.filled(64, 0));
     });
+
+    test('a short recording fills every bucket (no interior gaps)', () {
+      // Fewer samples than buckets must upsample, not leave most buckets at 0
+      // (a sub-6s memo otherwise renders a near-flat waveform).
+      final out = downsampleWaveform(List.filled(5, -5.0), buckets: 64);
+      expect(out.length, 64);
+      expect(out.every((p) => p > 0), isTrue);
+    });
   });
 }

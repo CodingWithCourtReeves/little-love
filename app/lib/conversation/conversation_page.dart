@@ -205,18 +205,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// flushes these (with the composer text as the last item's caption).
   final List<StagedAttachment> _staged = [];
 
-  /// Drives the hold-to-record voice memo flow. Rebuilds the composer on every
-  /// state/elapsed change so the recording overlay timer ticks. [_cancelArmed]
-  /// tracks whether the current drag has crossed the slide-to-cancel threshold.
+  /// Drives the hold-to-record voice memo flow. A [ListenableBuilder] in the
+  /// composer listens to this, so its frequent (timer + amplitude) ticks rebuild
+  /// only the composer rather than the whole page. [_cancelArmed] tracks whether
+  /// the current drag has crossed the slide-to-cancel threshold; [_startFuture]
+  /// is the in-flight start() so a quick release can't race it.
   late final VoiceRecorderController _recorder = VoiceRecorderController(
     // Hitting the 5-minute cap sends the memo rather than dropping it.
     onMaxDuration: (rec) => widget.onSendVoice?.call(rec),
-  )..addListener(_onRecorderChanged);
+  );
   bool _cancelArmed = false;
-
-  void _onRecorderChanged() {
-    if (mounted) setState(() {});
-  }
+  Future<bool>? _startFuture;
 
   /// The live long-press reaction/actions overlay, if one is showing. Tracked
   /// so it can be torn down in [dispose] — otherwise popping the page mid-
@@ -322,7 +321,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _controller.dispose();
-    _recorder.removeListener(_onRecorderChanged);
     _recorder.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _typingStop?.cancel();
@@ -1414,116 +1412,122 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             mainAxisSize: MainAxisSize.min,
             children: [
               if (_staged.isNotEmpty) _stagingTray(),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  // The pill: one rounded glass surface holding the attach
-                  // action (inside-left, bottom-pinned) and the text field.
-                  // Bottom alignment keeps the attach glyph on the last line as
-                  // the field grows, instead of drifting to the vertical center.
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(22),
-                      child: BackdropFilter(
-                        // Apple-style material: blur the messages behind, then
-                        // lift their saturation back up (ColorFilter implements
-                        // ImageFilter, so compose() chains it over the blur) so
-                        // the glass stays luminous instead of going muddy.
-                        filter: ImageFilter.compose(
-                          outer: const ColorFilter.matrix(_glassSaturation),
-                          inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                        ),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: context.palette.bgSurface.withValues(
-                              alpha: 0.55,
-                            ),
-                            borderRadius: BorderRadius.circular(22),
-                            // Hairline all the way around so the glass edge
-                            // reads crisply against messages passing behind it.
-                            border: Border.all(
-                              color: context.palette.textPrimary.withValues(
-                                alpha: 0.10,
-                              ),
-                              width: 0.5,
-                            ),
+              // Scope recorder-driven rebuilds (timer + live waveform fire
+              // ~15×/sec) to the composer only, so the message list isn't
+              // re-sorted/re-itemized on every tick while recording.
+              ListenableBuilder(
+                listenable: _recorder,
+                builder: (context, _) => Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    // The pill: one rounded glass surface holding the attach
+                    // action (inside-left, bottom-pinned) and the text field.
+                    // Bottom alignment keeps the attach glyph on the last line as
+                    // the field grows, instead of drifting to the vertical center.
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(22),
+                        child: BackdropFilter(
+                          // Apple-style material: blur the messages behind, then
+                          // lift their saturation back up (ColorFilter implements
+                          // ImageFilter, so compose() chains it over the blur) so
+                          // the glass stays luminous instead of going muddy.
+                          filter: ImageFilter.compose(
+                            outer: const ColorFilter.matrix(_glassSaturation),
+                            inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
                           ),
-                          // Recording keeps the pill in place — only its
-                          // content swaps to the live waveform strip.
-                          child:
-                              _recorder.state == RecorderState.recording ||
-                                  _recorder.state == RecorderState.locked
-                              ? _recordingStrip()
-                              : Row(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    if (widget.onPickMedia != null)
-                                      IconButton(
-                                        key: const Key('composer-attach'),
-                                        onPressed: _pickMedia,
-                                        icon: Icon(
-                                          Icons.attach_file,
-                                          color: context.palette.textMuted,
-                                          size: 22,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: context.palette.bgSurface.withValues(
+                                alpha: 0.55,
+                              ),
+                              borderRadius: BorderRadius.circular(22),
+                              // Hairline all the way around so the glass edge
+                              // reads crisply against messages passing behind it.
+                              border: Border.all(
+                                color: context.palette.textPrimary.withValues(
+                                  alpha: 0.10,
+                                ),
+                                width: 0.5,
+                              ),
+                            ),
+                            // Recording keeps the pill in place — only its
+                            // content swaps to the live waveform strip.
+                            child:
+                                _recorder.state == RecorderState.recording ||
+                                    _recorder.state == RecorderState.locked
+                                ? _recordingStrip()
+                                : Row(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      if (widget.onPickMedia != null)
+                                        IconButton(
+                                          key: const Key('composer-attach'),
+                                          onPressed: _pickMedia,
+                                          icon: Icon(
+                                            Icons.attach_file,
+                                            color: context.palette.textMuted,
+                                            size: 22,
+                                          ),
+                                          tooltip: 'Attach a photo or video',
                                         ),
-                                        tooltip: 'Attach a photo or video',
-                                      ),
-                                    Expanded(
-                                      child: Shortcuts(
-                                        shortcuts: shortcuts,
-                                        child: Actions(
-                                          actions: {
-                                            _SendIntent:
-                                                CallbackAction<_SendIntent>(
-                                                  onInvoke: (_) {
-                                                    _submitFromIntent();
-                                                    return null;
-                                                  },
-                                                ),
-                                          },
-                                          child: TextField(
-                                            key: const Key('composer'),
-                                            controller: _controller,
-                                            onChanged: _onComposerChanged,
-                                            minLines: 1,
-                                            maxLines: 8,
-                                            keyboardType:
-                                                TextInputType.multiline,
-                                            textInputAction:
-                                                TextInputAction.newline,
-                                            decoration: InputDecoration(
-                                              isDense: true,
-                                              hintText: 'Message',
-                                              hintStyle: TextStyle(
-                                                color:
-                                                    context.palette.textMuted,
-                                              ),
-                                              border: InputBorder.none,
-                                              // Lead padding only when the attach
-                                              // button isn't there to provide it.
-                                              contentPadding:
-                                                  EdgeInsets.fromLTRB(
-                                                    widget.onPickMedia != null
-                                                        ? 0
-                                                        : 16,
-                                                    11,
-                                                    16,
-                                                    11,
+                                      Expanded(
+                                        child: Shortcuts(
+                                          shortcuts: shortcuts,
+                                          child: Actions(
+                                            actions: {
+                                              _SendIntent:
+                                                  CallbackAction<_SendIntent>(
+                                                    onInvoke: (_) {
+                                                      _submitFromIntent();
+                                                      return null;
+                                                    },
                                                   ),
+                                            },
+                                            child: TextField(
+                                              key: const Key('composer'),
+                                              controller: _controller,
+                                              onChanged: _onComposerChanged,
+                                              minLines: 1,
+                                              maxLines: 8,
+                                              keyboardType:
+                                                  TextInputType.multiline,
+                                              textInputAction:
+                                                  TextInputAction.newline,
+                                              decoration: InputDecoration(
+                                                isDense: true,
+                                                hintText: 'Message',
+                                                hintStyle: TextStyle(
+                                                  color:
+                                                      context.palette.textMuted,
+                                                ),
+                                                border: InputBorder.none,
+                                                // Lead padding only when the attach
+                                                // button isn't there to provide it.
+                                                contentPadding:
+                                                    EdgeInsets.fromLTRB(
+                                                      widget.onPickMedia != null
+                                                          ? 0
+                                                          : 16,
+                                                      11,
+                                                      16,
+                                                      11,
+                                                    ),
+                                              ),
                                             ),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                  ],
-                                ),
+                                    ],
+                                  ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  _trailingButton(),
-                ],
+                    const SizedBox(width: 8),
+                    _trailingButton(),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1637,7 +1641,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       onLongPressStart: enabled
           ? (_) async {
               _cancelArmed = false;
-              if (!await _recorder.start() && mounted) {
+              _startFuture = _recorder.start();
+              if (!await _startFuture! && mounted) {
                 _showMicPermissionDenied();
               }
             }
@@ -1654,6 +1659,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           : null,
       onLongPressEnd: enabled
           ? (_) async {
+              // A quick tap-and-release can fire before the async start() has
+              // flipped state to recording; await it first so stop() doesn't
+              // no-op and silently drop (and orphan) the capture.
+              await _startFuture;
               // Locked recording is finished via the overlay's stop/send
               // buttons, not the release of this press.
               if (_recorder.state == RecorderState.locked) return;
