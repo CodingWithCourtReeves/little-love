@@ -50,6 +50,28 @@ void main() {
     expect(gotEnv, 'sandbox');
   });
 
+  test('onVoipToken fires with token and native environment', () async {
+    final svc = PushService();
+    String? gotToken;
+    String? gotEnv;
+    svc.onVoipToken((t, env) {
+      gotToken = t;
+      gotEnv = env;
+    });
+    await messenger.handlePlatformMessage(
+      channel.name,
+      channel.codec.encodeMethodCall(
+        const MethodCall('onVoipToken', {
+          'token': 'voipcafe',
+          'environment': 'production',
+        }),
+      ),
+      (_) {},
+    );
+    expect(gotToken, 'voipcafe');
+    expect(gotEnv, 'production');
+  });
+
   test('onTap fires when native invokes onTap', () async {
     final svc = PushService();
     String? got;

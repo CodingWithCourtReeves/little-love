@@ -1,20 +1,130 @@
+import AVFoundation
+import CallKit
 import Flutter
+import PushKit
 import UIKit
 import UserNotifications
+import WebRTC
+import flutter_callkit_incoming
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, PKPushRegistryDelegate,
+  CallkitIncomingAppDelegate
+{
   private var pushChannel: FlutterMethodChannel?
   /// A room id captured from a notification tap that cold-launched the app,
   /// held until Dart asks for it once the inbox is ready.
   private var pendingLaunchRoomId: String?
+  /// PushKit registry for VoIP (call) wakes — distinct from the alert APNs
+  /// registration above. Retained for the app's lifetime.
+  private var voipRegistry: PKPushRegistry?
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     UNUserNotificationCenter.current().delegate = self
+    // Register for VoIP pushes. The token arrives in `didUpdate` and is sent to
+    // Dart (which registers it server-side as a `voip`-kind token).
+    let registry = PKPushRegistry(queue: .main)
+    registry.delegate = self
+    registry.desiredPushTypes = [.voIP]
+    self.voipRegistry = registry
+
+    // Hand WebRTC's audio session to CallKit: WebRTC must NOT auto-activate the
+    // session; CallKit owns activation so audio routes to the system-chosen
+    // output (earpiece, speaker, AirPods, Bluetooth, CarPlay). We enable audio
+    // only in the CallKit `didActivate` callback below.
+    let rtcAudio = RTCAudioSession.sharedInstance()
+    rtcAudio.useManualAudio = true
+    rtcAudio.isAudioEnabled = false
+
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // MARK: - CallkitIncomingAppDelegate (audio session + action fulfilment)
+
+  // The plugin already forwards accept/decline/end to Dart via its event stream
+  // (our CallController handles the call logic there). When we conform to this
+  // protocol the plugin stops auto-fulfilling the CXActions, so we just fulfil
+  // them here to complete the CallKit transaction.
+  func onAccept(_ call: Call, _ action: CXAnswerCallAction) { action.fulfill() }
+  func onDecline(_ call: Call, _ action: CXEndCallAction) { action.fulfill() }
+  func onEnd(_ call: Call, _ action: CXEndCallAction) { action.fulfill() }
+  func onTimeOut(_ call: Call) {}
+
+  func didActivateAudioSession(_ audioSession: AVAudioSession) {
+    let rtc = RTCAudioSession.sharedInstance()
+    rtc.audioSessionDidActivate(audioSession)
+    rtc.isAudioEnabled = true
+  }
+
+  func didDeactivateAudioSession(_ audioSession: AVAudioSession) {
+    let rtc = RTCAudioSession.sharedInstance()
+    rtc.audioSessionDidDeactivate(audioSession)
+    rtc.isAudioEnabled = false
+  }
+
+  // MARK: - PushKit (VoIP)
+
+  func pushRegistry(
+    _ registry: PKPushRegistry, didUpdate credentials: PKPushCredentials, for type: PKPushType
+  ) {
+    guard type == .voIP else { return }
+    let hex = credentials.token.map { String(format: "%02x", $0) }.joined()
+    // Let the CallKit plugin know the token too (its own bookkeeping)...
+    SwiftFlutterCallkitIncomingPlugin.sharedInstance?.setDevicePushTokenVoIP(hex)
+    // ...and hand it to Dart for server registration, with the APNs environment
+    // resolved the same way as the alert token (same provisioning profile).
+    pushChannel?.invokeMethod(
+      "onVoipToken",
+      arguments: ["token": hex, "environment": Self.apnsEnvironment()])
+  }
+
+  func pushRegistry(
+    _ registry: PKPushRegistry, didInvalidatePushTokenFor type: PKPushType
+  ) {
+    guard type == .voIP else { return }
+    pushChannel?.invokeMethod("onVoipTokenInvalidated", arguments: nil)
+  }
+
+  /// A VoIP push arrived — wakes the app even from a cold start. iOS 13+ REQUIRES
+  /// that every VoIP push report a CallKit incoming call and call `completion()`,
+  /// or the app is killed and VoIP delivery is eventually disabled. So we ALWAYS
+  /// show CallKit here (the plugin reports it to the system), then complete.
+  func pushRegistry(
+    _ registry: PKPushRegistry,
+    didReceiveIncomingPushWith payload: PKPushPayload,
+    for type: PKPushType,
+    completion: @escaping () -> Void
+  ) {
+    guard type == .voIP else {
+      completion()
+      return
+    }
+    let dict = payload.dictionaryPayload
+    let callId = (dict["call_id"] as? String) ?? UUID().uuidString
+    let roomId = (dict["room_id"] as? String) ?? ""
+    // Resolve the caller name LOCALLY (never from the push) to keep call
+    // metadata off APNs — E2EE/privacy posture, same as our content-free message
+    // pushes. A couple has exactly one partner, so the app stashes their name in
+    // the shared App Group when known; we read it here on the wake.
+    let caller =
+      UserDefaults(suiteName: "group.dev.littlelove.littlelove")?
+      .string(forKey: "partner_name") ?? "Partner"
+
+    let info: [String: Any?] = [
+      "id": callId,
+      "nameCaller": caller,
+      "handle": caller,
+      "type": 0,  // 0 = audio call
+      "extra": ["room_id": roomId, "call_id": callId],
+      "ios": ["handleType": "generic", "supportsVideo": false],
+    ]
+    SwiftFlutterCallkitIncomingPlugin.sharedInstance?.showCallkitIncoming(
+      flutter_callkit_incoming.Data(args: info), fromPushKit: true)
+    // Give CallKit a beat to present before completing (per plugin guidance).
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { completion() }
   }
 
   // NOTE: universal links (`https://…/pair/<code>`) are NOT handled here. This
@@ -34,10 +144,23 @@ import UserNotifications
         let room = self.pendingLaunchRoomId
         self.pendingLaunchRoomId = nil
         result(room)
+      case "apnsEnvironment":
+        // The APNs environment (sandbox/production) for this build's tokens,
+        // resolved from the embedded profile. Used to register the VoIP token,
+        // which shares the alert token's environment.
+        result(Self.apnsEnvironment())
       case "setPalette":
         if let key = call.arguments as? String {
           UserDefaults(suiteName: "group.dev.littlelove.littlelove")?
             .set(key, forKey: "selected_palette")
+        }
+        result(nil)
+      case "setPartnerName":
+        // Stash the partner's display name locally so a VoIP-wake CallKit screen
+        // can name the caller without the push ever carrying it (E2EE/privacy).
+        if let name = call.arguments as? String {
+          UserDefaults(suiteName: "group.dev.littlelove.littlelove")?
+            .set(name, forKey: "partner_name")
         }
         result(nil)
       case "setBadge":
@@ -77,7 +200,9 @@ import UserNotifications
 
   override func application(
     _ application: UIApplication,
-    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    // Foundation.Data — qualified because `import flutter_callkit_incoming` also
+    // brings a `Data` model type into scope, making the bare name ambiguous.
+    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Foundation.Data
   ) {
     let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
     pushChannel?.invokeMethod(
@@ -93,7 +218,7 @@ import UserNotifications
   private static func apnsEnvironment() -> String {
     guard
       let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
-      let data = try? Data(contentsOf: url),
+      let data = try? Foundation.Data(contentsOf: url),
       // .isoLatin1 maps every byte 0–255 to a scalar (never nil); the profile is
       // a binary CMS blob, so .ascii/.utf8 would fail on the signature bytes and
       // drop us to the production fallback — registering sandbox tokens as prod.

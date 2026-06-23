@@ -20,10 +20,29 @@ pub struct ApnsConfig {
     pub key_p8: String,
     pub key_id: String,
     pub team_id: String,
-    /// APNs topic — the app bundle id.
+    /// APNs topic — the app bundle id. Used for alert (message) pushes.
     pub topic: String,
+    /// APNs topic for VoIP pushes — the bundle id suffixed with `.voip`. iOS
+    /// requires VoIP pushes to use this distinct topic (and a distinct
+    /// push-type). Defaults to `{topic}.voip`; override with `APNS_VOIP_TOPIC`.
+    pub voip_topic: String,
     /// `sandbox` (dev builds) or `production`.
     pub environment: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TurnConfig {
+    /// Cloudflare TURN key id; used in the `generate-ice-servers` URL path.
+    pub key_id: String,
+    /// Bearer token authorizing `generate-ice-servers` for that key.
+    pub api_token: String,
+    /// Credential TTL in seconds. Set comfortably longer than the longest
+    /// expected call; clients can refresh mid-call via `setConfiguration()`.
+    pub ttl_secs: u64,
+    /// When set, the server returns this JSON `iceServers` blob verbatim instead
+    /// of calling Cloudflare — a local coturn / offline stand-in. Mirrors the
+    /// `R2_ENDPOINT` → MinIO override pattern.
+    pub ice_override: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +51,7 @@ pub struct ServerConfig {
     pub database_url: Option<String>,
     pub r2: Option<R2Config>,
     pub apns: Option<ApnsConfig>,
+    pub turn: Option<TurnConfig>,
 }
 
 impl ServerConfig {
@@ -43,21 +63,42 @@ impl ServerConfig {
         let database_url = env::var("DATABASE_URL").ok().filter(|s| !s.is_empty());
         let r2 = Self::r2_from_env();
         let apns = Self::apns_from_env();
+        let turn = Self::turn_from_env();
         Self {
             port,
             database_url,
             r2,
             apns,
+            turn,
         }
+    }
+
+    pub fn turn_from_env() -> Option<TurnConfig> {
+        let get = |k: &str| env::var(k).ok().filter(|s| !s.is_empty());
+        Some(TurnConfig {
+            key_id: get("TURN_KEY_ID")?,
+            api_token: get("TURN_API_TOKEN")?,
+            // 2h: a credential is fetched fresh per call, so this bounds the
+            // leak/abuse blast radius far better than Cloudflare's 24h example
+            // while still exceeding any normal call. Marathon calls refresh
+            // mid-session via `setConfiguration()`. Override with TURN_TTL_SECS.
+            ttl_secs: get("TURN_TTL_SECS")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(7_200),
+            ice_override: get("TURN_ICE_OVERRIDE"),
+        })
     }
 
     fn apns_from_env() -> Option<ApnsConfig> {
         let get = |k: &str| env::var(k).ok().filter(|s| !s.is_empty());
+        let topic = get("APNS_TOPIC")?;
+        let voip_topic = get("APNS_VOIP_TOPIC").unwrap_or_else(|| format!("{topic}.voip"));
         Some(ApnsConfig {
             key_p8: get("APNS_KEY_P8")?,
             key_id: get("APNS_KEY_ID")?,
             team_id: get("APNS_TEAM_ID")?,
-            topic: get("APNS_TOPIC")?,
+            topic,
+            voip_topic,
             environment: get("APNS_ENV").unwrap_or_else(|| "sandbox".to_string()),
         })
     }
@@ -138,10 +179,14 @@ mod tests {
         ] {
             std::env::set_var(k, v);
         }
+        // Exercise the derived voip_topic default deterministically.
+        std::env::remove_var("APNS_VOIP_TOPIC");
         let cfg = ServerConfig::from_env();
         let apns = cfg.apns.expect("apns config Some when all vars set");
         assert_eq!(apns.key_id, "KEY123");
         assert_eq!(apns.topic, "dev.littlelove.littlelove");
+        // voip_topic defaults to the alert topic + ".voip" when unset.
+        assert_eq!(apns.voip_topic, "dev.littlelove.littlelove.voip");
         assert_eq!(apns.environment, "sandbox");
         for k in [
             "APNS_KEY_P8",
@@ -181,5 +226,50 @@ mod tests {
             std::env::remove_var(k);
         }
         assert!(ServerConfig::from_env().r2.is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn turn_from_env_reads_key_and_token() {
+        std::env::set_var("TURN_KEY_ID", "k123");
+        std::env::set_var("TURN_API_TOKEN", "tok");
+        std::env::remove_var("TURN_TTL_SECS");
+        std::env::remove_var("TURN_ICE_OVERRIDE");
+        let cfg = ServerConfig::turn_from_env().expect("turn config Some when key+token set");
+        assert_eq!(cfg.key_id, "k123");
+        assert_eq!(cfg.api_token, "tok");
+        assert_eq!(cfg.ttl_secs, 7_200);
+        assert!(cfg.ice_override.is_none());
+        std::env::remove_var("TURN_KEY_ID");
+        std::env::remove_var("TURN_API_TOKEN");
+    }
+
+    #[test]
+    #[serial]
+    fn turn_ttl_and_override_are_read() {
+        std::env::set_var("TURN_KEY_ID", "k123");
+        std::env::set_var("TURN_API_TOKEN", "tok");
+        std::env::set_var("TURN_TTL_SECS", "120");
+        std::env::set_var("TURN_ICE_OVERRIDE", r#"{"iceServers":[]}"#);
+        let cfg = ServerConfig::turn_from_env().expect("turn config Some");
+        assert_eq!(cfg.ttl_secs, 120);
+        assert_eq!(cfg.ice_override.as_deref(), Some(r#"{"iceServers":[]}"#));
+        for k in [
+            "TURN_KEY_ID",
+            "TURN_API_TOKEN",
+            "TURN_TTL_SECS",
+            "TURN_ICE_OVERRIDE",
+        ] {
+            std::env::remove_var(k);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn turn_config_absent_when_vars_missing() {
+        for k in ["TURN_KEY_ID", "TURN_API_TOKEN"] {
+            std::env::remove_var(k);
+        }
+        assert!(ServerConfig::turn_from_env().is_none());
     }
 }

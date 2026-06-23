@@ -4,6 +4,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Default `kind` for a `RegisterPush` frame that omits it (older clients).
+fn default_token_kind() -> String {
+    crate::push_tokens::KIND_ALERT.to_string()
+}
+
 /// Day-1 legacy inbound frames (deprecated; preserved only for the on-disk
 /// migration test harness). New v0.2 client frames use the kind-tagged
 /// `RoomClientFrame` (see below).
@@ -119,6 +124,12 @@ pub enum RoomClientFrame {
         device_id: String,
         apns_token: String,
         environment: String,
+        /// `alert` (message banners) or `voip` (PushKit call wake). Named
+        /// `token_kind` (not `kind`) because `kind` is the enum's serde tag.
+        /// Defaults to `alert` so older clients that omit it keep registering
+        /// alert tokens.
+        #[serde(default = "default_token_kind")]
+        token_kind: String,
     },
     /// Drop this device's APNs token (logout / permission revoked).
     UnregisterPush {
@@ -132,6 +143,41 @@ pub enum RoomClientFrame {
         room_id: String,
         typing: bool,
     },
+    /// Ask the server to mint short-lived ICE (STUN/TURN) credentials for a
+    /// call. Answered with `CallTurnGrant`. Reuses the authenticated WS rather
+    /// than a separate REST surface (mirrors the `RequestUpload` grant pattern).
+    CallTurnRequest {
+        call_id: String,
+    },
+
+    // ── Call signaling (spec §4) ────────────────────────────────────────────
+    // All SDP/ICE payloads are opaque ciphertext (encrypted under the per-call
+    // sig-key); the server forwards them blind, exactly like message bodies.
+    /// Caller → server: start a call. `offer` is the encrypted SDP offer.
+    CallInvite {
+        room_id: String,
+        call_id: String,
+        offer: String,
+    },
+    /// Callee → server: accept. `answer` is the encrypted SDP answer.
+    CallAnswer {
+        room_id: String,
+        call_id: String,
+        answer: String,
+    },
+    /// Either side → server: a trickled ICE candidate (encrypted).
+    CallIce {
+        room_id: String,
+        call_id: String,
+        candidate: String,
+    },
+    /// Either side → server: end/decline/cancel. `reason` ∈
+    /// {hangup, decline, busy, timeout, cancel}.
+    CallHangup {
+        room_id: String,
+        call_id: String,
+        reason: String,
+    },
     /// Publish my E2EE profile (display name + avatar ref). `envelope` is the
     /// base64 ciphertext, sealed with the pairwise room key; the server stores
     /// it opaquely and relays it to my partner.
@@ -143,7 +189,12 @@ pub enum RoomClientFrame {
 }
 
 /// Post-Authenticated server frames (spec §8.2).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// `Eq` is intentionally not derived: `CallTurnGrant.ice_servers` carries an
+/// arbitrary `serde_json::Value` (the Cloudflare response), which is `PartialEq`
+/// but not `Eq`. Nothing keys this enum in a hash/btree set, so `PartialEq`
+/// alone suffices.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind")]
 pub enum RoomServerFrame {
     Rooms {
@@ -247,6 +298,43 @@ pub enum RoomServerFrame {
         blob_key: String,
         url: String,
         expires_at: DateTime<Utc>,
+    },
+
+    /// Short-lived ICE servers for a call, in response to `CallTurnRequest`.
+    /// `ice_servers` is the Cloudflare `generate-ice-servers` object (or the
+    /// local-coturn override) passed straight into `RTCPeerConnection`. Not
+    /// E2EE-sensitive — it only authorizes relay use — so it is not encrypted.
+    CallTurnGrant {
+        call_id: String,
+        ice_servers: serde_json::Value,
+    },
+
+    // ── Call signaling forwarded to the partner (spec §4) ───────────────────
+    /// Forwarded to the callee. `from` is the caller's username; `offer` is the
+    /// encrypted SDP offer.
+    CallInvite {
+        room_id: String,
+        call_id: String,
+        from: String,
+        offer: String,
+    },
+    /// Forwarded to the caller. `answer` is the encrypted SDP answer.
+    CallAnswer {
+        room_id: String,
+        call_id: String,
+        answer: String,
+    },
+    /// Forwarded to the peer: a trickled ICE candidate (encrypted).
+    CallIce {
+        room_id: String,
+        call_id: String,
+        candidate: String,
+    },
+    /// Forwarded to the peer: end/decline/cancel.
+    CallHangup {
+        room_id: String,
+        call_id: String,
+        reason: String,
     },
 
     Error {
@@ -690,6 +778,7 @@ mod tests {
 
     #[test]
     fn parses_register_push_frame() {
+        // No `kind` field → defaults to "alert" (back-compat with older clients).
         let raw = r#"{"kind":"RegisterPush","device_id":"dev-1","apns_token":"abcd","environment":"sandbox"}"#;
         let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
         match frame {
@@ -697,11 +786,23 @@ mod tests {
                 device_id,
                 apns_token,
                 environment,
+                token_kind,
             } => {
                 assert_eq!(device_id, "dev-1");
                 assert_eq!(apns_token, "abcd");
                 assert_eq!(environment, "sandbox");
+                assert_eq!(token_kind, "alert");
             }
+            _ => panic!("expected RegisterPush"),
+        }
+    }
+
+    #[test]
+    fn parses_register_push_frame_with_voip_kind() {
+        let raw = r#"{"kind":"RegisterPush","device_id":"dev-1","apns_token":"abcd","environment":"sandbox","token_kind":"voip"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::RegisterPush { token_kind, .. } => assert_eq!(token_kind, "voip"),
             _ => panic!("expected RegisterPush"),
         }
     }
@@ -844,5 +945,72 @@ mod tests {
         };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"DownloadGranted""#));
+    }
+
+    #[test]
+    fn parses_call_turn_request_frame() {
+        let raw = r#"{"kind":"CallTurnRequest","call_id":"01JCALL"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        assert!(
+            matches!(frame, RoomClientFrame::CallTurnRequest { call_id } if call_id == "01JCALL")
+        );
+    }
+
+    #[test]
+    fn parses_call_invite_frame() {
+        let raw = r#"{"kind":"CallInvite","room_id":"01J","call_id":"01JCALL","offer":"ENCSDP"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::CallInvite {
+                room_id,
+                call_id,
+                offer,
+            } => {
+                assert_eq!(room_id, "01J");
+                assert_eq!(call_id, "01JCALL");
+                assert_eq!(offer, "ENCSDP");
+            }
+            _ => panic!("expected CallInvite"),
+        }
+    }
+
+    #[test]
+    fn parses_call_hangup_frame_with_reason() {
+        let raw = r#"{"kind":"CallHangup","room_id":"01J","call_id":"01JCALL","reason":"decline"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::CallHangup { reason, .. } => assert_eq!(reason, "decline"),
+            _ => panic!("expected CallHangup"),
+        }
+    }
+
+    #[test]
+    fn serializes_server_call_invite_with_from() {
+        let f = RoomServerFrame::CallInvite {
+            room_id: "01J".into(),
+            call_id: "01JCALL".into(),
+            from: "court".into(),
+            offer: "ENCSDP".into(),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"CallInvite""#));
+        assert!(s.contains(r#""from":"court""#));
+        assert!(s.contains(r#""offer":"ENCSDP""#));
+    }
+
+    #[test]
+    fn serializes_call_turn_grant_frame_with_ice_servers() {
+        let f = RoomServerFrame::CallTurnGrant {
+            call_id: "01JCALL".into(),
+            ice_servers: serde_json::json!({
+                "iceServers": [{ "urls": "turn:turn.example:3478", "username": "u", "credential": "c" }]
+            }),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"CallTurnGrant""#));
+        assert!(s.contains(r#""call_id":"01JCALL""#));
+        // ice_servers nests cleanly (not double-encoded as a string).
+        assert!(s.contains(r#""iceServers":[{"#));
+        assert!(s.contains(r#""urls":"turn:turn.example:3478""#));
     }
 }

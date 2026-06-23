@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../attachment/attachment_descriptor.dart';
 import '../attachment/attachment_download.dart';
+import '../calling/call_log.dart';
 import '../identity/current_identity.dart';
 import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
@@ -115,7 +116,13 @@ class RoomMessageRouter {
       case RoomErrorFrame():
       case UploadGrantedFrame():
       case DownloadGrantedFrame():
-        // Owned by LivePairingTransport / attachment upload+download flows.
+      case CallTurnGrantFrame():
+      case CallInviteFrame():
+      case CallAnswerFrame():
+      case CallIceFrame():
+      case CallHangupFrame():
+        // Owned by LivePairingTransport / attachment upload+download flows /
+        // the call controller (which subscribes to call frames directly).
         break;
     }
   }
@@ -302,6 +309,17 @@ class RoomMessageRouter {
         replayed: f.replayed,
         attachment: descriptor,
         sendStatus: sendStatus,
+      ),
+      // A call-log entry renders as a (currently text-style) timeline row.
+      CallContent(:final outcome, :final durationS) => Msg(
+        id: f.id,
+        from: f.from,
+        to: f.roomId,
+        body: callLogSummary(outcome, durationS),
+        ts: f.ts,
+        replayed: f.replayed,
+        sendStatus: sendStatus,
+        callOutcome: outcome,
       ),
       // Handled by the early returns above; here only for exhaustiveness.
       ReactionContent() => throw StateError('reaction handled above'),

@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod attachments;
+pub mod calls;
 pub mod config;
 pub mod invites;
 pub mod profiles;
@@ -9,6 +10,7 @@ pub mod r2;
 pub mod rooms;
 pub mod routing;
 pub mod store;
+pub mod turn;
 pub mod well_known;
 pub mod wire;
 pub mod ws;

@@ -18,6 +18,7 @@ class Msg {
     this.attachment,
     this.linkPreview,
     this.reactions = const {},
+    this.callOutcome,
   });
 
   final String id;
@@ -50,6 +51,12 @@ class Msg {
   /// their own messages.
   final Map<String, String> reactions;
 
+  /// Set when this message is a call-log entry (`kind:"call"`): the call outcome
+  /// — completed | missed | declined | cancelled | busy | failed. Drives a
+  /// distinct call-row UI (missed/declined render in red). Ingest-time only,
+  /// like [attachment]; re-derived from the body on the server replay.
+  final String? callOutcome;
+
   factory Msg.fromJson(Map<String, Object?> json) {
     return Msg(
       id: json['id'] as String,
@@ -81,6 +88,7 @@ class Msg {
     AttachmentDescriptor? attachment,
     LinkPreview? linkPreview,
     Map<String, String>? reactions,
+    String? callOutcome,
   }) {
     return Msg(
       id: id ?? this.id,
@@ -94,6 +102,7 @@ class Msg {
       attachment: attachment ?? this.attachment,
       linkPreview: linkPreview ?? this.linkPreview,
       reactions: reactions ?? this.reactions,
+      callOutcome: callOutcome ?? this.callOutcome,
     );
   }
 }

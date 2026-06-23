@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../attachment/attachment_descriptor.dart';
 import '../audio/playback_provider.dart';
+import '../calling/call_controller.dart';
 import '../inbox/room.dart';
 import '../profile/avatar.dart';
 import '../profile/profile_store.dart';
@@ -92,7 +93,7 @@ class ChatInfoPage extends ConsumerWidget {
         body: Column(
           children: [
             _header(context, name, avatarFile),
-            _actionRow(context),
+            _actionRow(context, ref),
             const SizedBox(height: 8),
             _settings(context),
             const SizedBox(height: 8),
@@ -189,11 +190,23 @@ class ChatInfoPage extends ConsumerWidget {
     onRename?.call(newName);
   }
 
-  Widget _actionRow(BuildContext context) {
+  Widget _actionRow(BuildContext context, WidgetRef ref) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _action(context, 'chat-info-call', Icons.call, 'Call', 'Calls'),
+        _action(
+          context,
+          'chat-info-call',
+          Icons.call,
+          'Call',
+          'Calls',
+          onTap: () {
+            // Close the info page, then place the call — the CallOverlay shows
+            // the in-app call UI once it's dialing.
+            Navigator.of(context).pop();
+            ref.read(callControllerProvider).placeCall(room.roomId);
+          },
+        ),
         const SizedBox(width: 28),
         _action(
           context,
@@ -213,12 +226,13 @@ class ChatInfoPage extends ConsumerWidget {
     String key,
     IconData icon,
     String label,
-    String feature,
-  ) {
+    String feature, {
+    VoidCallback? onTap,
+  }) {
     final p = context.palette;
     return GestureDetector(
       key: Key(key),
-      onTap: () => showLoveToast(context, '$feature are coming soon'),
+      onTap: onTap ?? () => showLoveToast(context, '$feature are coming soon'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
