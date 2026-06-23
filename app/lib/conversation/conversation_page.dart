@@ -722,52 +722,59 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         child: Stack(
           children: [
             Positioned.fill(
-              child: ListView.builder(
-                controller: _scrollController,
-                reverse: true,
-                // Drag the chat down to dismiss the keyboard (Telegram-style),
-                // and — crucially — keep scrolling through history available
-                // while the keyboard is up instead of snapping it shut the
-                // instant you touch the list.
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                // Reserve room for the floating glass composer so the newest
-                // message clears it (reverse:true → bottom padding is the
-                // visual bottom). Height is measured from the live bar; the
-                // keyboard inset is added on top since the composer rides above
-                // the keyboard (auto-resize is off — see keyboardInset above).
-                padding: EdgeInsets.only(
-                  left: 16,
-                  right: 16,
-                  top: 12 + MediaQuery.of(context).padding.top + kToolbarHeight,
-                  bottom: _composerHeight + 12 + keyboardInset,
+              // Tap the chat to dismiss the keyboard (Telegram-style). A real
+              // onTap — not a TapRegion — only fires on a tap that isn't a
+              // drag: the list's vertical-drag recognizer wins the gesture
+              // arena during a scroll, so scrolling up keeps the keyboard up.
+              // Opaque so taps land on the wallpaper gutters and empty space
+              // too, not just on message bubbles.
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+                child: ListView.builder(
+                  controller: _scrollController,
+                  reverse: true,
+                  // Reserve room for the floating glass composer so the newest
+                  // message clears it (reverse:true → bottom padding is the
+                  // visual bottom). Height is measured from the live bar; the
+                  // keyboard inset is added on top since the composer rides above
+                  // the keyboard (auto-resize is off — see keyboardInset above).
+                  padding: EdgeInsets.only(
+                    left: 16,
+                    right: 16,
+                    top:
+                        12 +
+                        MediaQuery.of(context).padding.top +
+                        kToolbarHeight,
+                    bottom: _composerHeight + 12 + keyboardInset,
+                  ),
+                  itemCount: items.length,
+                  // Relocate existing keyed rows by identity when an insert
+                  // shifts indices, so the delegate reuses them instead of
+                  // rebuilding the visible list (the receive-time flash).
+                  findChildIndexCallback: (key) {
+                    final value = (key as ValueKey<String>).value;
+                    final idx = items.indexWhere((it) => _rowKey(it) == value);
+                    return idx < 0 ? null : idx;
+                  },
+                  itemBuilder: (_, i) {
+                    final item = items[i];
+                    final child = switch (item) {
+                      _BubbleItem(:final msg) => _bubble(
+                        msg,
+                        me,
+                        status.inBubble[msg.id],
+                        status.failedRun[msg.id],
+                      ),
+                      _DayItem(:final day) => _daySeparator(day),
+                      _GapItem(:final time) => _gapHeader(time),
+                    };
+                    return KeyedSubtree(
+                      key: ValueKey(_rowKey(item)),
+                      child: child,
+                    );
+                  },
                 ),
-                itemCount: items.length,
-                // Relocate existing keyed rows by identity when an insert
-                // shifts indices, so the delegate reuses them instead of
-                // rebuilding the visible list (the receive-time flash).
-                findChildIndexCallback: (key) {
-                  final value = (key as ValueKey<String>).value;
-                  final idx = items.indexWhere((it) => _rowKey(it) == value);
-                  return idx < 0 ? null : idx;
-                },
-                itemBuilder: (_, i) {
-                  final item = items[i];
-                  final child = switch (item) {
-                    _BubbleItem(:final msg) => _bubble(
-                      msg,
-                      me,
-                      status.inBubble[msg.id],
-                      status.failedRun[msg.id],
-                    ),
-                    _DayItem(:final day) => _daySeparator(day),
-                    _GapItem(:final time) => _gapHeader(time),
-                  };
-                  return KeyedSubtree(
-                    key: ValueKey(_rowKey(item)),
-                    child: child,
-                  );
-                },
               ),
             ),
             // Dark scrim across the very top — behind the status bar and app
@@ -1400,8 +1407,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     //
     // No tap-to-dismiss TapRegion wraps this: it fired on the pointer-down
     // that begins a scroll, snapping the keyboard shut the instant you touched
-    // the list. Dismissal is the list's drag-down instead
-    // (keyboardDismissBehavior: onDrag).
+    // the list. Tap-to-dismiss now lives on the message list as a GestureDetector
+    // onTap, which loses the gesture arena to a scroll drag — so you can scroll
+    // history with the keyboard up.
     return SafeArea(
       top: false,
       child: Padding(
