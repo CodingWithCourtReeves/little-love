@@ -21,7 +21,11 @@ void main() {
     });
 
     test('active.hangup → ended(completed)', () {
-      final s = idle.placeCall('c1').remoteAnswered().iceConnected().hangup('hangup');
+      final s = idle
+          .placeCall('c1')
+          .remoteAnswered()
+          .iceConnected()
+          .hangup('hangup');
       expect(s.phase, CallPhase.ended);
       expect(s.outcome, CallOutcome.completed);
     });
@@ -49,7 +53,10 @@ void main() {
     });
 
     test('ringing.hangup(decline) → ended(declined)', () {
-      expect(idle.incoming('c1').hangup('decline').outcome, CallOutcome.declined);
+      expect(
+        idle.incoming('c1').hangup('decline').outcome,
+        CallOutcome.declined,
+      );
     });
 
     test('ringing.timeout → ended(missed)', () {

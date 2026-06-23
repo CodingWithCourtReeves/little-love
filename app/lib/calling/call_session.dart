@@ -42,9 +42,10 @@ class CallSession {
     };
     pc.onConnectionState = (state) => _connectionStates.add(state);
     // Mic capture — audio only.
-    final stream = await navigator.mediaDevices.getUserMedia(
-      <String, dynamic>{'audio': true, 'video': false},
-    );
+    final stream = await navigator.mediaDevices.getUserMedia(<String, dynamic>{
+      'audio': true,
+      'video': false,
+    });
     _localStream = stream;
     for (final track in stream.getAudioTracks()) {
       await pc.addTrack(track, stream);
@@ -95,7 +96,8 @@ class CallSession {
 
   /// Mute/unmute the local mic.
   void setMicEnabled(bool enabled) {
-    for (final t in _localStream?.getAudioTracks() ?? const <MediaStreamTrack>[]) {
+    for (final t
+        in _localStream?.getAudioTracks() ?? const <MediaStreamTrack>[]) {
       t.enabled = enabled;
     }
   }

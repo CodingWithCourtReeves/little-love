@@ -38,7 +38,11 @@ void main() {
       'call_id': 'c1',
       'ice_servers': <String, Object?>{
         'iceServers': <Object?>[
-          <String, Object?>{'urls': 'turn:t', 'username': 'u', 'credential': 'c'},
+          <String, Object?>{
+            'urls': 'turn:t',
+            'username': 'u',
+            'credential': 'c',
+          },
         ],
       },
     });
@@ -48,54 +52,60 @@ void main() {
     expect(servers.single['username'], 'u');
   });
 
-  test('fetchIceServers sends a request and returns the granted servers', () async {
-    final conn = _FakeConn();
-    final future = fetchIceServers(conn, 'call-1');
+  test(
+    'fetchIceServers sends a request and returns the granted servers',
+    () async {
+      final conn = _FakeConn();
+      final future = fetchIceServers(conn, 'call-1');
 
-    // The request frame is sent synchronously before the first await.
-    expect(conn.sent, hasLength(1));
-    final sent = conn.sent.single as Map<String, Object?>;
-    expect(sent['kind'], 'CallTurnRequest');
-    expect(sent['call_id'], 'call-1');
+      // The request frame is sent synchronously before the first await.
+      expect(conn.sent, hasLength(1));
+      final sent = conn.sent.single as Map<String, Object?>;
+      expect(sent['kind'], 'CallTurnRequest');
+      expect(sent['call_id'], 'call-1');
 
-    conn.ctrl.add(
-      const CallTurnGrantFrame(
-        callId: 'call-1',
-        iceServers: <String, Object?>{
-          'iceServers': <Object?>[
-            <String, Object?>{'urls': 'stun:s'},
-            <String, Object?>{
-              'urls': 'turn:t',
-              'username': 'u',
-              'credential': 'c',
-            },
-          ],
-        },
-      ),
-    );
+      conn.ctrl.add(
+        const CallTurnGrantFrame(
+          callId: 'call-1',
+          iceServers: <String, Object?>{
+            'iceServers': <Object?>[
+              <String, Object?>{'urls': 'stun:s'},
+              <String, Object?>{
+                'urls': 'turn:t',
+                'username': 'u',
+                'credential': 'c',
+              },
+            ],
+          },
+        ),
+      );
 
-    final servers = await future;
-    expect(servers, hasLength(2));
-    expect(servers[1]['urls'], 'turn:t');
-    expect(servers[1]['credential'], 'c');
-  });
+      final servers = await future;
+      expect(servers, hasLength(2));
+      expect(servers[1]['urls'], 'turn:t');
+      expect(servers[1]['credential'], 'c');
+    },
+  );
 
-  test('ignores a grant for a different call_id and times out to empty', () async {
-    final conn = _FakeConn();
-    final future = fetchIceServers(
-      conn,
-      'call-1',
-      timeout: const Duration(milliseconds: 50),
-    );
+  test(
+    'ignores a grant for a different call_id and times out to empty',
+    () async {
+      final conn = _FakeConn();
+      final future = fetchIceServers(
+        conn,
+        'call-1',
+        timeout: const Duration(milliseconds: 50),
+      );
 
-    conn.ctrl.add(
-      const CallTurnGrantFrame(
-        callId: 'other-call',
-        iceServers: <String, Object?>{'iceServers': <Object?>[]},
-      ),
-    );
+      conn.ctrl.add(
+        const CallTurnGrantFrame(
+          callId: 'other-call',
+          iceServers: <String, Object?>{'iceServers': <Object?>[]},
+        ),
+      );
 
-    final servers = await future;
-    expect(servers, isEmpty);
-  });
+      final servers = await future;
+      expect(servers, isEmpty);
+    },
+  );
 }

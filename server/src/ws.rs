@@ -464,7 +464,10 @@ async fn handle_call_turn_request(
     };
 
     let ice_servers = if !paired {
-        warn!("CallTurnRequest from unpaired account {}; withholding relay", me.username);
+        warn!(
+            "CallTurnRequest from unpaired account {}; withholding relay",
+            me.username
+        );
         empty()
     } else {
         match state.turn.as_ref() {
@@ -511,7 +514,11 @@ async fn forward_call_to_partner(state: &AppState, me: &AccountRecord, frame: Ro
             );
             state.routing.deliver(&partner, frame).await;
         }
-        Ok(None) => warn!("call: {} from {} but no partner", frame_kind(&frame), me.username),
+        Ok(None) => warn!(
+            "call: {} from {} but no partner",
+            frame_kind(&frame),
+            me.username
+        ),
         Err(e) => warn!("forward_call_to_partner: partner lookup failed: {e}"),
     }
 }
@@ -644,8 +651,7 @@ async fn notify_call(
             call_id: Some(call_id.to_string()),
         };
         if let SendOutcome::DropToken = sender.send(&msg).await {
-            if let Err(e) =
-                delete_token_value(store.pool(), callee_account_id, &t.apns_token).await
+            if let Err(e) = delete_token_value(store.pool(), callee_account_id, &t.apns_token).await
             {
                 warn!("notify_call: delete_token_value failed: {e}");
             }

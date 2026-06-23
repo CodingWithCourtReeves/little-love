@@ -9,13 +9,16 @@ Uint8List _roomKey(int seed) =>
     Uint8List.fromList(List<int>.generate(32, (i) => (i + seed) & 0xff));
 
 void main() {
-  test('deriveSigKey is deterministic for the same room key + call id', () async {
-    final k = _roomKey(1);
-    final a = await deriveSigKey(k, 'call-1');
-    final b = await deriveSigKey(k, 'call-1');
-    expect(a, equals(b));
-    expect(a.length, 32);
-  });
+  test(
+    'deriveSigKey is deterministic for the same room key + call id',
+    () async {
+      final k = _roomKey(1);
+      final a = await deriveSigKey(k, 'call-1');
+      final b = await deriveSigKey(k, 'call-1');
+      expect(a, equals(b));
+      expect(a.length, 32);
+    },
+  );
 
   test('deriveSigKey differs per call id and per room key', () async {
     final k = _roomKey(1);
@@ -57,7 +60,11 @@ void main() {
 
   test('outbound call frames carry the right kind + fields', () {
     expect(
-      const CallInviteClientFrame(roomId: 'r1', callId: 'c1', offer: 'O').toJson(),
+      const CallInviteClientFrame(
+        roomId: 'r1',
+        callId: 'c1',
+        offer: 'O',
+      ).toJson(),
       <String, Object?>{
         'kind': 'CallInvite',
         'room_id': 'r1',
@@ -66,8 +73,11 @@ void main() {
       },
     );
     expect(
-      const CallHangupClientFrame(roomId: 'r1', callId: 'c1', reason: 'decline')
-          .toJson()['reason'],
+      const CallHangupClientFrame(
+        roomId: 'r1',
+        callId: 'c1',
+        reason: 'decline',
+      ).toJson()['reason'],
       'decline',
     );
   });

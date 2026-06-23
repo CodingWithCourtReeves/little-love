@@ -80,10 +80,7 @@ pub async fn tokens_for_account(
 
 /// All `voip` (PushKit) tokens for an account. Used to wake the recipient's
 /// device(s) for an incoming call.
-pub async fn voip_tokens_for(
-    pool: &PgPool,
-    account_id: i64,
-) -> anyhow::Result<Vec<DeviceToken>> {
+pub async fn voip_tokens_for(pool: &PgPool, account_id: i64) -> anyhow::Result<Vec<DeviceToken>> {
     tokens_of_kind(pool, account_id, KIND_VOIP).await
 }
 

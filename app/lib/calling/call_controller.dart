@@ -39,8 +39,9 @@ class CallController {
 
   final Ref _ref;
 
-  final ValueNotifier<CallState> state =
-      ValueNotifier<CallState>(const CallState.idle());
+  final ValueNotifier<CallState> state = ValueNotifier<CallState>(
+    const CallState.idle(),
+  );
 
   CallSession? _session;
   Uint8List? _sigKey;
@@ -57,11 +58,9 @@ class CallController {
 
   static const _uuid = Uuid();
 
-  LiveConnection? get _conn =>
-      _ref.read(liveConnectionProvider).valueOrNull;
+  LiveConnection? get _conn => _ref.read(liveConnectionProvider).valueOrNull;
 
-  String? get _selfUsername =>
-      _ref.read(accountProvider).valueOrNull?.username;
+  String? get _selfUsername => _ref.read(accountProvider).valueOrNull?.username;
 
   /// The partner's display name for the call UI (the only other room member).
   String get peerName => _peerUsername ?? 'Partner';
@@ -93,8 +92,11 @@ class CallController {
     final offer = await _session!.createOffer();
     final encOffer = await encryptSignal(_sigKey!, offer);
     _conn?.send(
-      CallInviteClientFrame(roomId: roomId, callId: callId, offer: encOffer)
-          .toJson(),
+      CallInviteClientFrame(
+        roomId: roomId,
+        callId: callId,
+        offer: encOffer,
+      ).toJson(),
     );
 
     // Native outgoing-call UI.
@@ -110,8 +112,11 @@ class CallController {
     final roomId = _roomId;
     if (callId == null || roomId == null) return;
     _conn?.send(
-      CallHangupClientFrame(roomId: roomId, callId: callId, reason: reason)
-          .toJson(),
+      CallHangupClientFrame(
+        roomId: roomId,
+        callId: callId,
+        reason: reason,
+      ).toJson(),
     );
     await _end(reason);
   }
@@ -178,8 +183,11 @@ class CallController {
     final answer = await _session!.acceptOffer(offerSdp);
     final encAnswer = await encryptSignal(_sigKey!, answer);
     _conn?.send(
-      CallAnswerClientFrame(roomId: roomId, callId: _callId!, answer: encAnswer)
-          .toJson(),
+      CallAnswerClientFrame(
+        roomId: roomId,
+        callId: _callId!,
+        answer: encAnswer,
+      ).toJson(),
     );
     _pendingOffer = null;
   }
@@ -203,7 +211,12 @@ class CallController {
 
   Future<void> _onFrame(RoomServerFrame f) async {
     switch (f) {
-      case CallInviteFrame(:final roomId, :final callId, :final from, :final offer):
+      case CallInviteFrame(
+        :final roomId,
+        :final callId,
+        :final from,
+        :final offer,
+      ):
         await _onIncomingInvite(roomId, callId, from, offer);
       case CallAnswerFrame(:final callId, :final answer):
         if (callId != _callId || _sigKey == null) return;
@@ -218,7 +231,10 @@ class CallController {
         await _session?.addRemoteCandidate(_decodeCandidate(json));
       case CallHangupFrame(:final callId, :final reason):
         if (callId != _callId) return;
-        await _end(reason, emitLog: false); // remote ended; they log it if caller
+        await _end(
+          reason,
+          emitLog: false,
+        ); // remote ended; they log it if caller
       default:
         break;
     }
@@ -235,12 +251,17 @@ class CallController {
     if (state.value.phase == CallPhase.dialing) {
       final self = _selfUsername;
       if (self != null && glareIWin(self, from)) return; // keep ours
-      await _end('cancel'); // we lost — drop ours, fall through to accept theirs
+      await _end(
+        'cancel',
+      ); // we lost — drop ours, fall through to accept theirs
     } else if (state.value.phase != CallPhase.idle) {
       // Busy with another call.
       _conn?.send(
-        CallHangupClientFrame(roomId: roomId, callId: callId, reason: 'busy')
-            .toJson(),
+        CallHangupClientFrame(
+          roomId: roomId,
+          callId: callId,
+          reason: 'busy',
+        ).toJson(),
       );
       return;
     }
@@ -273,8 +294,11 @@ class CallController {
         _encodeCandidate(CallSession.encodeCandidate(c)),
       );
       _conn?.send(
-        CallIceClientFrame(roomId: roomId, callId: callId, candidate: enc)
-            .toJson(),
+        CallIceClientFrame(
+          roomId: roomId,
+          callId: callId,
+          candidate: enc,
+        ).toJson(),
       );
     });
     session.onConnectionState.listen((s) {
@@ -292,9 +316,15 @@ class CallController {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  Future<Uint8List?> _deriveSigKey(Room room, Member peer, String callId) async {
+  Future<Uint8List?> _deriveSigKey(
+    Room room,
+    Member peer,
+    String callId,
+  ) async {
     final me = await _ref.read(currentIdentityProvider.future);
-    final roomKey = await _ref.read(roomKeyCacheProvider).getOrDeriveFor(
+    final roomKey = await _ref
+        .read(roomKeyCacheProvider)
+        .getOrDeriveFor(
           roomId: room.roomId,
           peerX25519PubBase64: peer.x25519PubBase64,
           me: me,
@@ -395,13 +425,13 @@ class CallController {
   }
 
   CallKitParams _callKitParams(String callId, String caller) => CallKitParams(
-        id: callId,
-        nameCaller: caller,
-        handle: caller,
-        type: 0, // audio
-        extra: <String, dynamic>{'room_id': _roomId, 'call_id': callId},
-        ios: const IOSParams(handleType: 'generic', supportsVideo: false),
-      );
+    id: callId,
+    nameCaller: caller,
+    handle: caller,
+    type: 0, // audio
+    extra: <String, dynamic>{'room_id': _roomId, 'call_id': callId},
+    ios: const IOSParams(handleType: 'generic', supportsVideo: false),
+  );
 
   // Candidate JSON is stringified to ride inside the encrypted signaling payload.
   String _encodeCandidate(Map<String, dynamic> json) => jsonEncode(json);

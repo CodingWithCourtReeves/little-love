@@ -43,7 +43,9 @@ sealed class MessageContent {
               outcome: (j['outcome'] as String?) ?? 'completed',
               durationS: (j['duration_s'] as num?)?.toInt() ?? 0,
               startedAt:
-                  DateTime.tryParse((j['started_at'] as String?) ?? '')?.toUtc() ??
+                  DateTime.tryParse(
+                    (j['started_at'] as String?) ?? '',
+                  )?.toUtc() ??
                   DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
             );
           case 'text':

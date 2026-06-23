@@ -25,7 +25,8 @@ class CallOverlay extends ConsumerWidget {
     return ValueListenableBuilder<CallState>(
       valueListenable: controller.state,
       builder: (context, state, _) {
-        final show = state.phase == CallPhase.dialing ||
+        final show =
+            state.phase == CallPhase.dialing ||
             state.phase == CallPhase.connecting ||
             state.phase == CallPhase.active;
         if (!show) return const SizedBox.shrink();
@@ -62,7 +63,8 @@ class _CallView extends StatefulWidget {
   State<_CallView> createState() => _CallViewState();
 }
 
-class _CallViewState extends State<_CallView> with SingleTickerProviderStateMixin {
+class _CallViewState extends State<_CallView>
+    with SingleTickerProviderStateMixin {
   bool _muted = false;
   bool _speaker = false;
   late final AnimationController _breath = AnimationController(
@@ -251,8 +253,8 @@ class _ControlButton extends StatelessWidget {
     final fill = danger
         ? const Color(0xFFC0455B)
         : active
-            ? accent
-            : Colors.white.withValues(alpha: 0.10);
+        ? accent
+        : Colors.white.withValues(alpha: 0.10);
     final border = active || danger
         ? Colors.transparent
         : Colors.white.withValues(alpha: 0.16);

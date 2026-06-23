@@ -254,7 +254,12 @@ mod tests {
         let cfg = ServerConfig::turn_from_env().expect("turn config Some");
         assert_eq!(cfg.ttl_secs, 120);
         assert_eq!(cfg.ice_override.as_deref(), Some(r#"{"iceServers":[]}"#));
-        for k in ["TURN_KEY_ID", "TURN_API_TOKEN", "TURN_TTL_SECS", "TURN_ICE_OVERRIDE"] {
+        for k in [
+            "TURN_KEY_ID",
+            "TURN_API_TOKEN",
+            "TURN_TTL_SECS",
+            "TURN_ICE_OVERRIDE",
+        ] {
             std::env::remove_var(k);
         }
     }

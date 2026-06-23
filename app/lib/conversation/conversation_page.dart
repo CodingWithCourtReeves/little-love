@@ -700,7 +700,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 shape: BoxShape.circle,
                 color: context.palette.bgSurface.withValues(alpha: 0.7),
               ),
-              child: Icon(Icons.call, color: context.palette.textMuted, size: 20),
+              child: Icon(
+                Icons.call,
+                color: context.palette.textMuted,
+                size: 20,
+              ),
             ),
             onPressed: () {
               // The CallOverlay shows the in-app call UI automatically once the

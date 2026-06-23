@@ -42,10 +42,7 @@ class LittleLoveApp extends ConsumerWidget {
       // pointer-passthrough until a call is live.
       builder: (context, child) => Stack(
         fit: StackFit.expand,
-        children: [
-          child ?? const SizedBox.shrink(),
-          const CallOverlay(),
-        ],
+        children: [child ?? const SizedBox.shrink(), const CallOverlay()],
       ),
       home: const AuthGate(),
     );
