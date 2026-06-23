@@ -30,6 +30,14 @@ gets its own `API_PORT` (7707 + offset), `POSTGRES_PORT` (5432 + offset),
 and `COMPOSE_PROJECT_NAME`, so multiple worktrees can run their stacks
 side by side without colliding. `source scripts/dev-env.sh` to load them.
 
+**Caveat:** only `API_PORT`/`POSTGRES_PORT`/`COMPOSE_PROJECT_NAME` are offset.
+MinIO's ports (9000/9001) and the reserved ngrok domains are **fixed**, so only
+one worktree's blob-store stack / tunnels can run at a time. A second
+`dev-up`/`dev-phones` fails with "port is already allocated"; free it by
+stopping the other worktree's MinIO (`docker stop
+<other-COMPOSE_PROJECT_NAME>-minio-1` — reversible, no data loss), not by
+tearing it down.
+
 ### Local backend (simulator / desktop)
 
 - `./scripts/dev-up.sh` — `docker compose up` for postgres + minio, writes
@@ -78,6 +86,13 @@ for transient "Connection reset by peer" / `installcoordination_proxy`
 errors that `ios-deploy.sh` retries through: trust the final "App
 installed" line. An **unchanged `databaseUUID`** across installs confirms
 app data + keychain were preserved (no forced re-signup).
+
+A green `flutter test` / `flutter analyze` does **not** prove an iOS build
+works: the host VM never compiles federated plugin implementations (e.g.
+`record_linux`), but the iOS kernel snapshot does, so a newly-added plugin can
+break `flutter build ios` while tests pass. Build to a device before claiming a
+plugin works; a stale transitive federated package is pinnable via
+`dependency_overrides` (iOS-safe when only the `*_darwin` impl actually runs).
 
 #### Target devices
 
