@@ -296,18 +296,28 @@ pub fn sign_invite_consume_b64(sk: &SigningKey, canonical_token: &[u8]) -> Strin
     B64.encode(sig)
 }
 
-/// Read a single WS text frame as JSON. Panics if the next item is not text.
+/// Read the next meaningful WS text frame as JSON, skipping async `Presence`
+/// frames and heartbeat Ping/Pong. Panics on any other non-text item.
 pub async fn next_frame(sock: &mut Ws) -> serde_json::Value {
-    let next = tokio::time::timeout(std::time::Duration::from_secs(10), sock.next())
-        .await
-        .expect("timed out waiting for a frame (10s)")
-        .expect("stream open")
-        .expect("recv ok");
-    let text = match next {
-        WsMessage::Text(t) => t,
-        other => panic!("expected text, got {other:?}"),
-    };
-    serde_json::from_str(&text).expect("valid JSON")
+    loop {
+        let next = tokio::time::timeout(std::time::Duration::from_secs(10), sock.next())
+            .await
+            .expect("timed out waiting for a frame (10s)")
+            .expect("stream open")
+            .expect("recv ok");
+        let text = match next {
+            WsMessage::Text(t) => t,
+            // Heartbeat control frames aren't test payload.
+            WsMessage::Ping(_) | WsMessage::Pong(_) => continue,
+            other => panic!("expected text, got {other:?}"),
+        };
+        let v: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
+        // `Presence` is async and can interleave at any point; skip it as noise.
+        if v["kind"] == "Presence" {
+            continue;
+        }
+        return v;
+    }
 }
 
 /// Consume the immediate post-Authenticated `Rooms` frame (which every

@@ -194,7 +194,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
 
     let mut upload_rl = WindowRateLimiter::new(UPLOAD_RL_WINDOW, UPLOAD_RL_MAX);
     let mut typing_rl = WindowRateLimiter::new(TYPING_RL_WINDOW, TYPING_RL_MAX);
-    let mut ping = tokio::time::interval(PING_INTERVAL);
+    // First tick after a full interval (not immediately) so we never ping a
+    // client the instant it connects.
+    let mut ping =
+        tokio::time::interval_at(tokio::time::Instant::now() + PING_INTERVAL, PING_INTERVAL);
     ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_seen = tokio::time::Instant::now();
     loop {
