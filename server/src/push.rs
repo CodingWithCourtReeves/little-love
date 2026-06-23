@@ -75,7 +75,7 @@ pub fn classify(code: u16, reason: Option<&str>) -> SendOutcome {
 
 use a2::{
     Client, ClientConfig, DefaultNotificationBuilder, Endpoint, NotificationBuilder,
-    NotificationOptions, PushType,
+    NotificationOptions,
 };
 use std::sync::Arc;
 use tracing::warn;
@@ -133,7 +133,7 @@ impl PushSender for ApnsSender {
             PushKind::Alert => {
                 let options = NotificationOptions {
                     apns_topic: Some(self.topic_for(PushKind::Alert)),
-                    apns_push_type: Some(PushType::Alert),
+                    apns_push_type: Some(apns_push_type(PushKind::Alert)),
                     // Coalesce a burst in the same room into one banner (the badge
                     // still climbs) instead of stacking N identical "your partner
                     // sent…" rows. room_id is a 26-char ULID, well under the
@@ -157,7 +157,7 @@ impl PushSender for ApnsSender {
                 // wakes independently.
                 let options = NotificationOptions {
                     apns_topic: Some(self.topic_for(PushKind::Voip)),
-                    apns_push_type: Some(PushType::Voip),
+                    apns_push_type: Some(apns_push_type(PushKind::Voip)),
                     ..Default::default()
                 };
                 DefaultNotificationBuilder::new().build(msg.token.as_str(), options)
