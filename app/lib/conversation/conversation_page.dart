@@ -963,8 +963,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // A call-log entry: a side-aligned pill (outgoing → right, incoming → left,
     // Telegram-style) keeping our phone glyphs. Missed/declined show red.
     if (m.callOutcome != null) {
-      final missed =
-          m.callOutcome == 'missed' || m.callOutcome == 'declined';
+      final missed = m.callOutcome == 'missed' || m.callOutcome == 'declined';
       final accent = missed
           ? const Color(0xFFC0455B)
           : context.palette.accentSage;
@@ -991,9 +990,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
-                  color: missed
-                      ? accent
-                      : context.palette.textMuted,
+                  color: missed ? accent : context.palette.textMuted,
                 ),
               ),
             ],
