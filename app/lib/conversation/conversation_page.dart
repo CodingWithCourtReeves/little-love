@@ -960,8 +960,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   Widget _bubbleContent(Msg m, String me, _Marker? marker) {
     final mine = m.from == me;
-    // A call-log entry renders as a centered system-style chip — distinct from
-    // chat bubbles. Missed/declined calls show a red phone-missed icon.
+    // A call-log entry: a side-aligned pill (outgoing → right, incoming → left,
+    // Telegram-style) keeping our phone glyphs. Missed/declined show red.
     if (m.callOutcome != null) {
       final missed =
           m.callOutcome == 'missed' || m.callOutcome == 'declined';
@@ -972,9 +972,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           ? Icons.phone_missed
           : (mine ? Icons.call_made : Icons.call_received);
       final label = m.body.replaceFirst('📞 ', '');
-      return Center(
+      return Align(
+        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 5),
+          margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
             color: context.palette.bgSurface.withValues(alpha: 0.65),
