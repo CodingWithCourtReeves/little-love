@@ -63,6 +63,9 @@ class CallController {
   String? get _selfUsername =>
       _ref.read(accountProvider).valueOrNull?.username;
 
+  /// The partner's display name for the call UI (the only other room member).
+  String get peerName => _peerUsername ?? 'Partner';
+
   // ── Public API ────────────────────────────────────────────────────────────
 
   /// Place an outgoing call in [roomId].

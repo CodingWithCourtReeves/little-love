@@ -1,15 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import '../theme/app_palette.dart';
 import 'call_controller.dart';
 import 'call_state.dart';
 
 /// App-root overlay that shows the in-app call UI on BOTH sides whenever a call
-/// is live (dialing / connecting / active), so the caller and callee see the
-/// same screen. CallKit still owns the ring and the system/lock-screen/CarPlay
-/// UI; this is the in-app view when you're looking at the phone.
-///
-/// Mounted once via `MaterialApp.builder` so it floats above all routes.
+/// is live (dialing / connecting / active), so caller and callee see the same
+/// screen. CallKit still owns the ring and the system/lock-screen/CarPlay UI;
+/// this is the in-app view when you're looking at the phone.
 class CallOverlay extends ConsumerWidget {
   const CallOverlay({super.key});
 
@@ -19,13 +21,13 @@ class CallOverlay extends ConsumerWidget {
     return ValueListenableBuilder<CallState>(
       valueListenable: controller.state,
       builder: (context, state, _) {
-        // Ringing (incoming, pre-accept) is owned by CallKit's native screen;
-        // we only take over once the user is in the call.
         final show = state.phase == CallPhase.dialing ||
             state.phase == CallPhase.connecting ||
             state.phase == CallPhase.active;
         if (!show) return const SizedBox.shrink();
-        return Positioned.fill(child: _CallView(controller: controller, state: state));
+        return Positioned.fill(
+          child: _CallView(controller: controller, state: state),
+        );
       },
     );
   }
@@ -40,77 +42,249 @@ class _CallView extends StatefulWidget {
   State<_CallView> createState() => _CallViewState();
 }
 
-class _CallViewState extends State<_CallView> {
+class _CallViewState extends State<_CallView> with SingleTickerProviderStateMixin {
   bool _muted = false;
+  bool _speaker = false;
+  late final AnimationController _breath = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2600),
+  )..repeat(reverse: true);
+
+  Timer? _ticker;
+  DateTime? _connectedAt;
+  Duration _elapsed = Duration.zero;
+
+  @override
+  void didUpdateWidget(covariant _CallView old) {
+    super.didUpdateWidget(old);
+    _syncTimer();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTimer();
+  }
+
+  void _syncTimer() {
+    if (widget.state.phase == CallPhase.active && _ticker == null) {
+      _connectedAt = DateTime.now();
+      _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) {
+          setState(() => _elapsed = DateTime.now().difference(_connectedAt!));
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    _breath.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final accent = context.palette.accentPartner;
+    final name = widget.controller.peerName;
+    final initial = name.isNotEmpty ? name[0].toUpperCase() : '♥';
+    final active = widget.state.phase == CallPhase.active;
+
     return Material(
-      color: const Color(0xFF1A1326),
-      child: SafeArea(
-        child: Column(
-          children: [
-            const Spacer(),
-            const Icon(Icons.favorite, color: Colors.white70, size: 72),
-            const SizedBox(height: 24),
-            Text(
-              _statusLabel(widget.state.phase),
-              style: const TextStyle(color: Colors.white, fontSize: 22),
-            ),
-            const Spacer(),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _CircleButton(
-                  icon: _muted ? Icons.mic_off : Icons.mic,
-                  color: Colors.white24,
-                  onTap: () {
-                    setState(() => _muted = !_muted);
-                    widget.controller.toggleMute(_muted);
-                  },
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF211526), Color(0xFF15101D)],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              const Spacer(flex: 3),
+              // Breathing glow + avatar.
+              AnimatedBuilder(
+                animation: _breath,
+                builder: (context, child) {
+                  final t = active ? 0.0 : _breath.value;
+                  return Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: accent.withValues(alpha: 0.20 + 0.22 * t),
+                          blurRadius: 48 + 26 * t,
+                          spreadRadius: 6 + 10 * t,
+                        ),
+                      ],
+                    ),
+                    child: child,
+                  );
+                },
+                child: Container(
+                  width: 132,
+                  height: 132,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        accent,
+                        Color.lerp(accent, Colors.black, 0.35)!,
+                      ],
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    initial,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 54,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
+                      letterSpacing: -1,
+                    ),
+                  ),
                 ),
-                _CircleButton(
-                  icon: Icons.call_end,
-                  color: Colors.red,
-                  onTap: () => widget.controller.hangup(),
+              ),
+              const SizedBox(height: 34),
+              Text(
+                name,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 30,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: -0.6,
+                  color: Color(0xFFF3ECF1),
                 ),
-              ],
-            ),
-            const SizedBox(height: 48),
-          ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                _statusLabel(),
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 15,
+                  letterSpacing: 0.3,
+                  color: const Color(0xFFF3ECF1).withValues(alpha: 0.55),
+                ),
+              ),
+              const Spacer(flex: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _ControlButton(
+                    icon: _muted ? Icons.mic_off : Icons.mic,
+                    label: 'mute',
+                    active: _muted,
+                    accent: accent,
+                    onTap: () {
+                      setState(() => _muted = !_muted);
+                      widget.controller.toggleMute(_muted);
+                    },
+                  ),
+                  const SizedBox(width: 26),
+                  _ControlButton(
+                    icon: _speaker ? Icons.volume_up : Icons.hearing,
+                    label: _speaker ? 'speaker' : 'audio',
+                    active: _speaker,
+                    accent: accent,
+                    onTap: () async {
+                      setState(() => _speaker = !_speaker);
+                      await Helper.setSpeakerphoneOn(_speaker);
+                    },
+                  ),
+                  const SizedBox(width: 26),
+                  _ControlButton(
+                    icon: Icons.call_end,
+                    label: 'end',
+                    accent: accent,
+                    danger: true,
+                    onTap: () => widget.controller.hangup(),
+                  ),
+                ],
+              ),
+              const Spacer(flex: 1),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  String _statusLabel(CallPhase phase) => switch (phase) {
-        CallPhase.dialing => 'Calling…',
-        CallPhase.connecting => 'Connecting…',
-        CallPhase.active => 'Connected',
-        _ => '',
-      };
+  String _statusLabel() {
+    switch (widget.state.phase) {
+      case CallPhase.dialing:
+        return 'Calling…';
+      case CallPhase.connecting:
+        return 'Connecting…';
+      case CallPhase.active:
+        final m = _elapsed.inMinutes.toString().padLeft(2, '0');
+        final s = (_elapsed.inSeconds % 60).toString().padLeft(2, '0');
+        return '$m:$s';
+      default:
+        return '';
+    }
+  }
 }
 
-class _CircleButton extends StatelessWidget {
-  const _CircleButton({
+class _ControlButton extends StatelessWidget {
+  const _ControlButton({
     required this.icon,
-    required this.color,
+    required this.label,
+    required this.accent,
     required this.onTap,
+    this.active = false,
+    this.danger = false,
   });
+
   final IconData icon;
-  final Color color;
+  final String label;
+  final Color accent;
   final VoidCallback onTap;
+  final bool active;
+  final bool danger;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 68,
-        height: 68,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        child: Icon(icon, color: Colors.white, size: 30),
-      ),
+    final size = danger ? 72.0 : 64.0;
+    final fill = danger
+        ? const Color(0xFFC0455B)
+        : active
+            ? accent
+            : Colors.white.withValues(alpha: 0.10);
+    final border = active || danger
+        ? Colors.transparent
+        : Colors.white.withValues(alpha: 0.16);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              color: fill,
+              shape: BoxShape.circle,
+              border: Border.all(color: border, width: 1),
+            ),
+            child: Icon(icon, color: Colors.white, size: danger ? 32 : 27),
+          ),
+        ),
+        const SizedBox(height: 9),
+        Text(
+          label,
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 12,
+            letterSpacing: 0.4,
+            color: const Color(0xFFF3ECF1).withValues(alpha: 0.55),
+          ),
+        ),
+      ],
     );
   }
 }
