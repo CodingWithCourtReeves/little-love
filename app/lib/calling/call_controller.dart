@@ -14,6 +14,7 @@ import '../identity/current_identity.dart';
 import '../identity/providers.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/room.dart';
+import '../outbox/outbox_drain.dart';
 import '../outbox/outbox_store.dart';
 import '../wire/frames.dart';
 import '../wire/live_connection.dart';
@@ -408,6 +409,9 @@ class CallController {
       roomId: roomId,
       bodies: frame.bodies,
     );
+    // Kick the outbox so the call-log actually sends now (enqueue alone just
+    // persists it; the drain is what pushes it over the wire).
+    await _ref.read(outboxDrainProvider).kick();
   }
 
   void _fail() {
