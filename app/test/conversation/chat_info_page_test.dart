@@ -136,7 +136,7 @@ void main() {
 
     await tester.tap(find.text('Voice'));
     await tester.pumpAndSettle();
-    expect(find.text('Voice messages are coming soon'), findsOneWidget);
+    expect(find.text('No voice messages yet'), findsOneWidget);
 
     await tester.tap(find.text('Links'));
     await tester.pumpAndSettle();
