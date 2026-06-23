@@ -744,6 +744,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                       me,
                       status.inBubble[msg.id],
                       status.failedRun[msg.id],
+                      showTail: _showTail(items, i),
                     ),
                     _DayItem(:final day) => _daySeparator(day),
                     _GapItem(:final time) => _gapHeader(time),
@@ -806,10 +807,30 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  Widget _bubble(Msg m, String me, _Marker? marker, List<String>? failedIds) {
+  /// Whether the bubble at [i] carries the curled tail. iMessage/Telegram only
+  /// tail the *last* message of a same-sender run — the visually lowest one.
+  /// [items] is newest-first (the list is `reverse: true`), so the bubble below
+  /// a given row is at `i - 1`; a row is the bottom of its run when nothing
+  /// same-sender sits beneath it (start of list, a different sender, or a
+  /// day/gap separator).
+  static bool _showTail(List<_Item> items, int i) {
+    final item = items[i];
+    if (item is! _BubbleItem) return false;
+    if (i == 0) return true;
+    final below = items[i - 1];
+    return !(below is _BubbleItem && below.msg.from == item.msg.from);
+  }
+
+  Widget _bubble(
+    Msg m,
+    String me,
+    _Marker? marker,
+    List<String>? failedIds, {
+    required bool showTail,
+  }) {
     final mine = m.from == me;
     // The sent/sending marker (if any) is drawn inside the bubble itself.
-    Widget content = _bubbleContent(m, me, marker);
+    Widget content = _bubbleContent(m, me, marker, showTail: showTail);
     // Long-press → context menu (reactions + Copy/Delete); double-tap →
     // default reaction. Wraps both text and media bubbles; the media bubble's
     // own tap-to-open still wins for a plain tap (deferToChild).
@@ -934,13 +955,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
   );
 
-  Widget _bubbleContent(Msg m, String me, _Marker? marker) {
+  Widget _bubbleContent(
+    Msg m,
+    String me,
+    _Marker? marker, {
+    required bool showTail,
+  }) {
     final mine = m.from == me;
     if (m.attachment != null) {
       final att = m.attachment!;
       // Voice memos read as a chat bubble (same background + tail as text),
       // with the player inside; images keep their edge-to-edge media tile.
-      if (att.isAudio) return _audioBubble(m, mine, marker, att);
+      if (att.isAudio) {
+        return _audioBubble(m, mine, marker, att, showTail: showTail);
+      }
       return Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: Padding(
@@ -1007,6 +1035,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 color: bubbleColor,
                 border: bubbleBorder,
                 mine: mine,
+                showTail: showTail,
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
@@ -1029,8 +1058,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     Msg m,
     bool mine,
     _Marker? marker,
-    AttachmentDescriptor att,
-  ) {
+    AttachmentDescriptor att, {
+    required bool showTail,
+  }) {
     final showSenderLabel = !mine && widget.room.members.length >= 3;
     final bubbleColor = mine
         ? context.palette.bubbleUserBg
@@ -1083,6 +1113,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 color: bubbleColor,
                 border: context.palette.borderSoft,
                 mine: mine,
+                showTail: showTail,
               ),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(6, 4, 10, 6),
@@ -2620,11 +2651,16 @@ class _BubbleBackground extends CustomPainter {
     required this.color,
     required this.border,
     required this.mine,
+    this.showTail = true,
   });
 
   final Color color;
   final Color border;
   final bool mine;
+
+  /// Only the last bubble of a same-sender run wears the curled tail; the rest
+  /// of the run gets a plain rounded corner where the tail would be.
+  final bool showTail;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2655,6 +2691,21 @@ class _BubbleBackground extends CustomPainter {
     final h = size.height;
     final path = Path();
     if (mine) {
+      if (!showTail) {
+        // Tail-less: a plain 15px rounded corner where the tail would curl.
+        // Body bounds stay 0..(w-5) so the run lines up with its tailed sibling.
+        path
+          ..moveTo(15, h)
+          ..cubicTo(8, h, 0, h - 8, 0, h - 15) // bottom-left corner
+          ..lineTo(0, 15)
+          ..cubicTo(0, 8, 8, 0, 15, 0) // top-left corner
+          ..lineTo(w - 20, 0)
+          ..cubicTo(w - 12, 0, w - 5, 8, w - 5, 15) // top-right corner
+          ..lineTo(w - 5, h - 15)
+          ..cubicTo(w - 5, h - 8, w - 13, h, w - 20, h) // bottom-right corner
+          ..close();
+        return path;
+      }
       // Tail at the bottom-right; mirror of the received geometry (x -> w - x).
       path
         ..moveTo(w - 20, h)
@@ -2670,6 +2721,20 @@ class _BubbleBackground extends CustomPainter {
         ..cubicTo(w - 15, h - 1, w - 18, h, w - 20, h) // rejoin bottom edge
         ..close();
     } else {
+      if (!showTail) {
+        // Tail-less received: plain rounded corner; body stays 5..w.
+        path
+          ..moveTo(w - 15, h)
+          ..cubicTo(w - 8, h, w, h - 8, w, h - 15) // bottom-right corner
+          ..lineTo(w, 15)
+          ..cubicTo(w, 8, w - 8, 0, w - 15, 0) // top-right corner
+          ..lineTo(20, 0)
+          ..cubicTo(12, 0, 5, 8, 5, 15) // top-left corner
+          ..lineTo(5, h - 15)
+          ..cubicTo(5, h - 8, 13, h, 20, h) // bottom-left corner
+          ..close();
+        return path;
+      }
       // Tail at the bottom-left (received).
       path
         ..moveTo(20, h)
@@ -2690,7 +2755,10 @@ class _BubbleBackground extends CustomPainter {
 
   @override
   bool shouldRepaint(_BubbleBackground old) =>
-      old.color != color || old.border != border || old.mine != mine;
+      old.color != color ||
+      old.border != border ||
+      old.mine != mine ||
+      old.showTail != showTail;
 }
 
 class _PlayBadge extends StatelessWidget {
