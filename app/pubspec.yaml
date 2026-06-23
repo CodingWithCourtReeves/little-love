@@ -37,6 +37,8 @@ dependencies:
   path_provider: ^2.1.2
   path: ^1.9.0
   uuid: ^4.4.0
+  record: ^5.1.2
+  just_audio: ^0.9.40
   cryptography: ^2.7.0
   emoji_picker_flutter: ^4.0.0
   bip39: ^1.0.6

@@ -35,6 +35,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>LittleLove uses the camera to scan a partner's pairing code.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>LittleLove uses the microphone to record voice messages for your partner.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>LittleLove saves photos and videos your partner sent to your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
