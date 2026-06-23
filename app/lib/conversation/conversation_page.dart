@@ -610,8 +610,15 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // Re-measure the floating composer after this frame paints so the list's
     // reserved bottom padding tracks the bar as it grows/shrinks.
     SchedulerBinding.instance.addPostFrameCallback((_) => _measureComposer());
+    // Keyboard height. We keep the wallpaper full-bleed behind the keyboard
+    // (Telegram-style) by turning off Scaffold's auto-resize and instead
+    // lifting the composer + the list's reserved bottom by this inset
+    // ourselves — otherwise the resized body leaves a black band where the
+    // transparent scaffold shows through as the keyboard slides.
+    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
     return Scaffold(
       backgroundColor: Colors.transparent,
+      resizeToAvoidBottomInset: false,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -718,14 +725,22 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
               child: ListView.builder(
                 controller: _scrollController,
                 reverse: true,
+                // Drag the chat down to dismiss the keyboard (Telegram-style),
+                // and — crucially — keep scrolling through history available
+                // while the keyboard is up instead of snapping it shut the
+                // instant you touch the list.
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
                 // Reserve room for the floating glass composer so the newest
                 // message clears it (reverse:true → bottom padding is the
-                // visual bottom). Height is measured from the live bar.
+                // visual bottom). Height is measured from the live bar; the
+                // keyboard inset is added on top since the composer rides above
+                // the keyboard (auto-resize is off — see keyboardInset above).
                 padding: EdgeInsets.only(
                   left: 16,
                   right: 16,
                   top: 12 + MediaQuery.of(context).padding.top + kToolbarHeight,
-                  bottom: _composerHeight + 12,
+                  bottom: _composerHeight + 12 + keyboardInset,
                 ),
                 itemCount: items.length,
                 // Relocate existing keyed rows by identity when an insert
@@ -778,7 +793,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             ),
             Positioned(
               right: 16,
-              bottom: _composerHeight + 16,
+              bottom: _composerHeight + 16 + keyboardInset,
               child: AnimatedOpacity(
                 duration: const Duration(milliseconds: 150),
                 opacity: _atBottom ? 0 : 1,
@@ -798,7 +813,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             ),
             Align(
               alignment: Alignment.bottomCenter,
-              child: KeyedSubtree(key: _composerKey, child: _composer()),
+              // Lift the composer above the keyboard (auto-resize is off). The
+              // inset sits outside the measured key so _composerHeight stays
+              // the bar's intrinsic height and doesn't churn as the keyboard
+              // animates.
+              child: Padding(
+                padding: EdgeInsets.only(bottom: keyboardInset),
+                child: KeyedSubtree(key: _composerKey, child: _composer()),
+              ),
             ),
           ],
         ),
@@ -1371,139 +1393,141 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       const SingleActivator(LogicalKeyboardKey.enter, control: true):
           const _SendIntent(),
     };
-    return TapRegion(
-      onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
-      // Floating frosted pill — no full-width slab. The message list scrolls
-      // straight up behind the composer with wallpaper showing through the
-      // gutters; the glass lives in the pill itself (and the idle mic), so it
-      // reads as a translucent chip hovering over the chat, Telegram-style.
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_staged.isNotEmpty) _stagingTray(),
-              // Scope recorder-driven rebuilds (timer + live waveform fire
-              // ~15×/sec) to the composer only, so the message list isn't
-              // re-sorted/re-itemized on every tick while recording.
-              ListenableBuilder(
-                listenable: _recorder,
-                builder: (context, _) => Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    // The pill: one rounded glass surface holding the attach
-                    // action (inside-left, bottom-pinned) and the text field.
-                    // Bottom alignment keeps the attach glyph on the last line as
-                    // the field grows, instead of drifting to the vertical center.
-                    Expanded(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(22),
-                        child: BackdropFilter(
-                          // Apple-style material: blur the messages behind, then
-                          // lift their saturation back up (ColorFilter implements
-                          // ImageFilter, so compose() chains it over the blur) so
-                          // the glass stays luminous instead of going muddy.
-                          filter: ImageFilter.compose(
-                            outer: const ColorFilter.matrix(_glassSaturation),
-                            inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                          ),
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: context.palette.bgSurface.withValues(
-                                alpha: 0.55,
-                              ),
-                              borderRadius: BorderRadius.circular(22),
-                              // Hairline all the way around so the glass edge
-                              // reads crisply against messages passing behind it.
-                              border: Border.all(
-                                color: context.palette.textPrimary.withValues(
-                                  alpha: 0.10,
-                                ),
-                                width: 0.5,
-                              ),
+    // Floating frosted pill — no full-width slab. The message list scrolls
+    // straight up behind the composer with wallpaper showing through the
+    // gutters; the glass lives in the pill itself (and the idle mic), so it
+    // reads as a translucent chip hovering over the chat, Telegram-style.
+    //
+    // No tap-to-dismiss TapRegion wraps this: it fired on the pointer-down
+    // that begins a scroll, snapping the keyboard shut the instant you touched
+    // the list. Dismissal is the list's drag-down instead
+    // (keyboardDismissBehavior: onDrag).
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_staged.isNotEmpty) _stagingTray(),
+            // Scope recorder-driven rebuilds (timer + live waveform fire
+            // ~15×/sec) to the composer only, so the message list isn't
+            // re-sorted/re-itemized on every tick while recording.
+            ListenableBuilder(
+              listenable: _recorder,
+              builder: (context, _) => Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  // The pill: one rounded glass surface holding the attach
+                  // action (inside-left, bottom-pinned) and the text field.
+                  // Bottom alignment keeps the attach glyph on the last line as
+                  // the field grows, instead of drifting to the vertical center.
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(22),
+                      child: BackdropFilter(
+                        // Apple-style material: blur the messages behind, then
+                        // lift their saturation back up (ColorFilter implements
+                        // ImageFilter, so compose() chains it over the blur) so
+                        // the glass stays luminous instead of going muddy.
+                        filter: ImageFilter.compose(
+                          outer: const ColorFilter.matrix(_glassSaturation),
+                          inner: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                        ),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: context.palette.bgSurface.withValues(
+                              alpha: 0.55,
                             ),
-                            // Recording keeps the pill in place — only its
-                            // content swaps to the live waveform strip.
-                            child:
-                                _recorder.state == RecorderState.recording ||
-                                    _recorder.state == RecorderState.locked
-                                ? _recordingStrip()
-                                : Row(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      if (widget.onPickMedia != null)
-                                        IconButton(
-                                          key: const Key('composer-attach'),
-                                          onPressed: _pickMedia,
-                                          icon: Icon(
-                                            Icons.attach_file,
-                                            color: context.palette.textMuted,
-                                            size: 22,
-                                          ),
-                                          tooltip: 'Attach a photo or video',
+                            borderRadius: BorderRadius.circular(22),
+                            // Hairline all the way around so the glass edge
+                            // reads crisply against messages passing behind it.
+                            border: Border.all(
+                              color: context.palette.textPrimary.withValues(
+                                alpha: 0.10,
+                              ),
+                              width: 0.5,
+                            ),
+                          ),
+                          // Recording keeps the pill in place — only its
+                          // content swaps to the live waveform strip.
+                          child:
+                              _recorder.state == RecorderState.recording ||
+                                  _recorder.state == RecorderState.locked
+                              ? _recordingStrip()
+                              : Row(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    if (widget.onPickMedia != null)
+                                      IconButton(
+                                        key: const Key('composer-attach'),
+                                        onPressed: _pickMedia,
+                                        icon: Icon(
+                                          Icons.attach_file,
+                                          color: context.palette.textMuted,
+                                          size: 22,
                                         ),
-                                      Expanded(
-                                        child: Shortcuts(
-                                          shortcuts: shortcuts,
-                                          child: Actions(
-                                            actions: {
-                                              _SendIntent:
-                                                  CallbackAction<_SendIntent>(
-                                                    onInvoke: (_) {
-                                                      _submitFromIntent();
-                                                      return null;
-                                                    },
-                                                  ),
-                                            },
-                                            child: TextField(
-                                              key: const Key('composer'),
-                                              controller: _controller,
-                                              onChanged: _onComposerChanged,
-                                              minLines: 1,
-                                              maxLines: 8,
-                                              keyboardType:
-                                                  TextInputType.multiline,
-                                              textInputAction:
-                                                  TextInputAction.newline,
-                                              decoration: InputDecoration(
-                                                isDense: true,
-                                                hintText: 'Message',
-                                                hintStyle: TextStyle(
-                                                  color:
-                                                      context.palette.textMuted,
+                                        tooltip: 'Attach a photo or video',
+                                      ),
+                                    Expanded(
+                                      child: Shortcuts(
+                                        shortcuts: shortcuts,
+                                        child: Actions(
+                                          actions: {
+                                            _SendIntent:
+                                                CallbackAction<_SendIntent>(
+                                                  onInvoke: (_) {
+                                                    _submitFromIntent();
+                                                    return null;
+                                                  },
                                                 ),
-                                                border: InputBorder.none,
-                                                // Lead padding only when the attach
-                                                // button isn't there to provide it.
-                                                contentPadding:
-                                                    EdgeInsets.fromLTRB(
-                                                      widget.onPickMedia != null
-                                                          ? 0
-                                                          : 16,
-                                                      11,
-                                                      16,
-                                                      11,
-                                                    ),
+                                          },
+                                          child: TextField(
+                                            key: const Key('composer'),
+                                            controller: _controller,
+                                            onChanged: _onComposerChanged,
+                                            minLines: 1,
+                                            maxLines: 8,
+                                            keyboardType:
+                                                TextInputType.multiline,
+                                            textInputAction:
+                                                TextInputAction.newline,
+                                            decoration: InputDecoration(
+                                              isDense: true,
+                                              hintText: 'Message',
+                                              hintStyle: TextStyle(
+                                                color:
+                                                    context.palette.textMuted,
                                               ),
+                                              border: InputBorder.none,
+                                              // Lead padding only when the attach
+                                              // button isn't there to provide it.
+                                              contentPadding:
+                                                  EdgeInsets.fromLTRB(
+                                                    widget.onPickMedia != null
+                                                        ? 0
+                                                        : 16,
+                                                    11,
+                                                    16,
+                                                    11,
+                                                  ),
                                             ),
                                           ),
                                         ),
                                       ),
-                                    ],
-                                  ),
-                          ),
+                                    ),
+                                  ],
+                                ),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    _trailingButton(),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  _trailingButton(),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
