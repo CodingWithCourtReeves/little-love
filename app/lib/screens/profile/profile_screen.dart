@@ -33,7 +33,9 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   final _nameCtl = TextEditingController();
-  bool _seeded = false;
+  // The last display name we pushed into the field. Lets us reseed when the
+  // account updates externally without clobbering an in-progress edit.
+  String _seededName = '';
   bool _busy = false;
 
   @override
@@ -59,10 +61,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           if (account == null) {
             return const Center(child: Text('No account on this device.'));
           }
-          if (!_seeded) {
-            _nameCtl.text = account.displayName ?? '';
-            _seeded = true;
+          final loaded = account.displayName ?? '';
+          // Reseed only when the field hasn't been touched since our last seed,
+          // so an external account update is reflected but an in-progress edit
+          // is never clobbered.
+          if (_nameCtl.text == _seededName && _nameCtl.text != loaded) {
+            _nameCtl.text = loaded;
           }
+          _seededName = loaded;
           return _content(account);
         },
       ),
