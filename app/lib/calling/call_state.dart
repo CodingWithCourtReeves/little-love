@@ -1,7 +1,7 @@
-/// Pure call state machine (spec §5). No timers, sockets, or I/O — every
-/// transition is a method that returns the next [CallState] or throws
-/// [StateError] on an illegal transition. The controller (D5) drives it from
-/// signaling + CallKit events and performs the side effects.
+// Pure call state machine (spec §5). No timers, sockets, or I/O — every
+// transition is a method that returns the next [CallState] or throws
+// [StateError] on an illegal transition. The controller (D5) drives it from
+// signaling + CallKit events and performs the side effects.
 
 enum CallPhase { idle, dialing, ringing, connecting, active, ended }
 

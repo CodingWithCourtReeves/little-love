@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../calling/call_log.dart';
 import '../identity/current_identity.dart';
 import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
@@ -216,6 +217,16 @@ class RoomMessageRouter {
         ts: f.ts,
         replayed: f.replayed,
         attachment: descriptor,
+        sendStatus: sendStatus,
+      ),
+      // A call-log entry renders as a (currently text-style) timeline row.
+      CallContent(:final outcome, :final durationS) => Msg(
+        id: f.id,
+        from: f.from,
+        to: f.roomId,
+        body: callLogSummary(outcome, durationS),
+        ts: f.ts,
+        replayed: f.replayed,
         sendStatus: sendStatus,
       ),
       // Handled by the early returns above; here only for exhaustiveness.

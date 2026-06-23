@@ -37,6 +37,15 @@ sealed class MessageContent {
             );
           case 'delete':
             return DeleteContent(targetId: (j['target'] as String?) ?? '');
+          case 'call':
+            return CallContent(
+              callId: (j['call_id'] as String?) ?? '',
+              outcome: (j['outcome'] as String?) ?? 'completed',
+              durationS: (j['duration_s'] as num?)?.toInt() ?? 0,
+              startedAt:
+                  DateTime.tryParse((j['started_at'] as String?) ?? '')?.toUtc() ??
+                  DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+            );
           case 'text':
             final p = j['preview'];
             return TextContent(
@@ -104,6 +113,39 @@ class DeleteContent extends MessageContent {
 
   @override
   String encode() => jsonEncode({'v': 1, 'kind': 'delete', 'target': targetId});
+}
+
+/// A call-log entry — the record of a completed/missed/declined call. Emitted
+/// as an ordinary E2EE message through the existing send path when a call ends,
+/// so it persists, syncs, badges, and replays with zero new server storage. The
+/// receiver renders a call row (direction relative to `from`) and dedupes by
+/// [callId] so a both-sides-emit race collapses to one entry.
+class CallContent extends MessageContent {
+  const CallContent({
+    required this.callId,
+    required this.outcome,
+    required this.durationS,
+    required this.startedAt,
+  });
+
+  final String callId;
+
+  /// One of: completed, missed, declined, cancelled, busy, failed.
+  final String outcome;
+
+  /// Connected duration in seconds (0 for unconnected calls).
+  final int durationS;
+  final DateTime startedAt;
+
+  @override
+  String encode() => jsonEncode({
+    'v': 1,
+    'kind': 'call',
+    'call_id': callId,
+    'outcome': outcome,
+    'duration_s': durationS,
+    'started_at': startedAt.toUtc().toIso8601String(),
+  });
 }
 
 class FileContent extends MessageContent {
