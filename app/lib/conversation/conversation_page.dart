@@ -17,6 +17,7 @@ import '../attachment/attachment_descriptor.dart';
 import '../attachment/attachment_download.dart';
 import '../attachment/staged_attachment.dart';
 import '../attachment/thumbnail.dart';
+import '../audio/recorder_controller.dart';
 import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
 import '../inbox/room.dart';
@@ -32,6 +33,7 @@ import 'chat_info_page.dart';
 import 'link_preview.dart';
 import 'message_store.dart';
 import 'presence_state.dart';
+import 'recording_overlay.dart';
 import 'typing_state.dart';
 
 typedef SendCallback = void Function(String text);
@@ -105,6 +107,7 @@ class ConversationPage extends ConsumerStatefulWidget {
     this.onCancelSend,
     this.onTyping,
     this.onOpenAttachment,
+    this.onSendVoice,
   });
 
   final Room room;
@@ -142,6 +145,10 @@ class ConversationPage extends ConsumerStatefulWidget {
 
   /// Tapped a received/sent media tile to open it full-screen.
   final OpenAttachmentCallback? onOpenAttachment;
+
+  /// Send a recorded voice memo (encrypt + upload + fan out as kind:"audio").
+  /// Null disables the composer mic's record gesture.
+  final Future<void> Function(VoiceRecording rec)? onSendVoice;
 
   String get roomId => room.roomId;
 
@@ -194,6 +201,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// Media picked but not yet sent, shown as a tray above the composer. Send
   /// flushes these (with the composer text as the last item's caption).
   final List<StagedAttachment> _staged = [];
+
+  /// Drives the hold-to-record voice memo flow. Rebuilds the composer on every
+  /// state/elapsed change so the recording overlay timer ticks. [_cancelArmed]
+  /// tracks whether the current drag has crossed the slide-to-cancel threshold.
+  late final VoiceRecorderController _recorder = VoiceRecorderController()
+    ..addListener(_onRecorderChanged);
+  bool _cancelArmed = false;
+
+  void _onRecorderChanged() {
+    if (mounted) setState(() {});
+  }
 
   /// The live long-press reaction/actions overlay, if one is showing. Tracked
   /// so it can be torn down in [dispose] — otherwise popping the page mid-
@@ -299,6 +317,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _controller.dispose();
+    _recorder.removeListener(_onRecorderChanged);
+    _recorder.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _typingStop?.cancel();
     _typingHeartbeat?.cancel();
@@ -1300,9 +1320,23 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             mainAxisSize: MainAxisSize.min,
             children: [
               if (_staged.isNotEmpty) _stagingTray(),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
+              if (_recorder.state == RecorderState.recording ||
+                  _recorder.state == RecorderState.locked)
+                RecordingOverlay(
+                  elapsed: _recorder.elapsed,
+                  locked: _recorder.state == RecorderState.locked,
+                  cancelArmed: _cancelArmed,
+                  // Locked mode: trash discards, send stops + fans out.
+                  onStop: () => _recorder.cancel(),
+                  onSend: () async {
+                    final rec = await _recorder.stop();
+                    if (rec != null) await widget.onSendVoice?.call(rec);
+                  },
+                )
+              else
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
                   // The pill: one rounded glass surface holding the attach
                   // action (inside-left, bottom-pinned) and the text field.
                   // Bottom alignment keeps the attach glyph on the last line as
@@ -1440,12 +1474,59 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  /// Idle-state mic affordance. Voice notes aren't implemented yet, so the tap
-  /// just signals that they're coming rather than leaving a dead control. A
-  /// frosted glass circle (matching the pill) anchors it over the wallpaper.
+  /// Idle-state mic affordance. Press-and-hold to record a voice memo,
+  /// Telegram-style: slide left past the threshold to cancel, slide up to lock
+  /// for hands-free recording, release to stop + send. When [onSendVoice] is
+  /// null the gesture is disabled and a tap just signals it's unavailable.
   Widget _micButton() {
-    return ClipOval(
+    final enabled = widget.onSendVoice != null;
+    return GestureDetector(
       key: const Key('composer-mic'),
+      onTap: enabled
+          ? null
+          : () => ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Voice messages are coming soon'),
+                duration: Duration(seconds: 2),
+              ),
+            ),
+      onLongPressStart: enabled
+          ? (_) {
+              _cancelArmed = false;
+              _recorder.start();
+            }
+          : null,
+      onLongPressMoveUpdate: enabled
+          ? (d) {
+              final dx = d.offsetFromOrigin.dx;
+              final dy = d.offsetFromOrigin.dy;
+              if (dy < -80) _recorder.lock();
+              if (_cancelArmed != (dx < -80)) {
+                setState(() => _cancelArmed = dx < -80);
+              }
+            }
+          : null,
+      onLongPressEnd: enabled
+          ? (_) async {
+              // Locked recording is finished via the overlay's stop/send
+              // buttons, not the release of this press.
+              if (_recorder.state == RecorderState.locked) return;
+              if (_cancelArmed) {
+                await _recorder.cancel();
+              } else {
+                final rec = await _recorder.stop();
+                if (rec != null) await widget.onSendVoice?.call(rec);
+              }
+            }
+          : null,
+      child: _micGlassCircle(),
+    );
+  }
+
+  /// The frosted glass circle visual (matching the composer pill) used as the
+  /// mic affordance.
+  Widget _micGlassCircle() {
+    return ClipOval(
       child: BackdropFilter(
         filter: ImageFilter.compose(
           outer: const ColorFilter.matrix(_glassSaturation),
@@ -1456,25 +1537,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           shape: const CircleBorder(
             side: BorderSide(color: Color(0x1AFFFFFF), width: 0.5),
           ),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Voice messages are coming soon'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            },
-            child: SizedBox(
-              width: 44,
-              height: 44,
-              child: Icon(
-                Icons.mic,
-                color: context.palette.textMuted,
-                size: 24,
-              ),
-            ),
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Icon(Icons.mic, color: context.palette.textMuted, size: 24),
           ),
         ),
       ),
