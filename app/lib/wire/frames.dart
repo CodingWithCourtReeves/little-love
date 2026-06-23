@@ -203,6 +203,12 @@ sealed class RoomServerFrame {
           user: json['user']! as String,
           online: (json['online'] as bool?) ?? false,
         );
+      case 'Profile':
+        return ProfileFrame(
+          user: json['user']! as String,
+          envelopeB64: json['envelope']! as String,
+          avatarKey: json['avatar_key'] as String?,
+        );
       case 'UploadGranted':
         return UploadGrantedFrame(
           requestId: json['request_id']! as String,
@@ -349,6 +355,19 @@ class PresenceFrame extends RoomServerFrame {
   const PresenceFrame({required this.user, required this.online});
   final String user;
   final bool online;
+}
+
+/// Relayed partner profile: [user] published a new E2EE profile. [envelopeB64]
+/// is opaque ciphertext (decoded + decrypted with the pairwise room key).
+class ProfileFrame extends RoomServerFrame {
+  const ProfileFrame({
+    required this.user,
+    required this.envelopeB64,
+    this.avatarKey,
+  });
+  final String user;
+  final String envelopeB64;
+  final String? avatarKey;
 }
 
 class UploadGrantedFrame extends RoomServerFrame {
@@ -546,5 +565,19 @@ class TypingClientFrame {
     'kind': 'Typing',
     'room_id': roomId,
     'typing': typing,
+  };
+}
+
+/// Publish my E2EE profile to the server (relayed to my partner). [envelopeB64]
+/// is the base64 ciphertext sealed with the pairwise room key.
+class PublishProfileFrame {
+  const PublishProfileFrame({required this.envelopeB64, this.avatarKey});
+  final String envelopeB64;
+  final String? avatarKey;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'PublishProfile',
+    'envelope': envelopeB64,
+    'avatar_key': avatarKey,
   };
 }
