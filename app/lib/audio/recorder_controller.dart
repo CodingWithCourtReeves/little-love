@@ -80,9 +80,12 @@ class VoiceRecorderController extends ChangeNotifier {
 
   Duration get elapsed => _watch?.elapsed ?? Duration.zero;
 
-  Future<void> start() async {
-    if (_state != RecorderState.idle) return;
-    if (!await _backend.hasPermission()) return;
+  /// Begin recording. Returns false (and stays idle) if already recording or
+  /// microphone permission is denied, so the caller can surface that instead of
+  /// failing silently.
+  Future<bool> start() async {
+    if (_state != RecorderState.idle) return false;
+    if (!await _backend.hasPermission()) return false;
     _path = await _tempPath();
     _amplitudes.clear();
     await _backend.start(_path!);
@@ -94,6 +97,7 @@ class VoiceRecorderController extends ChangeNotifier {
     });
     _state = RecorderState.recording;
     notifyListeners();
+    return true;
   }
 
   void lock() {

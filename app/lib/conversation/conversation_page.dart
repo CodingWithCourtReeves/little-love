@@ -1495,8 +1495,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final enabled = widget.onSendVoice != null;
     return GestureDetector(
       key: const Key('composer-mic'),
+      // Opaque so the whole 44×44 circle reliably receives tap + long-press,
+      // not just the painted glyph.
+      behavior: HitTestBehavior.opaque,
+      // Tap = hands-free recording (WhatsApp / new-Telegram): start, then lock
+      // so the overlay shows stop/send/trash without holding. Press-and-hold
+      // (below) remains the release-to-send gesture.
       onTap: enabled
-          ? null
+          ? () async {
+              if (await _recorder.start()) {
+                _recorder.lock();
+              } else if (mounted) {
+                _showMicPermissionDenied();
+              }
+            }
           : () => ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text('Voice messages are coming soon'),
@@ -1504,9 +1516,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
               ),
             ),
       onLongPressStart: enabled
-          ? (_) {
+          ? (_) async {
               _cancelArmed = false;
-              _recorder.start();
+              if (!await _recorder.start() && mounted) {
+                _showMicPermissionDenied();
+              }
             }
           : null,
       onLongPressMoveUpdate: enabled
@@ -1533,6 +1547,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             }
           : null,
       child: _micGlassCircle(),
+    );
+  }
+
+  /// Surface a denied/undetermined mic permission instead of failing silently
+  /// (the recorder just stays idle, which otherwise reads as a dead button).
+  void _showMicPermissionDenied() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Microphone access is off — turn it on in Settings to send voice '
+          'messages.',
+        ),
+        duration: Duration(seconds: 3),
+      ),
     );
   }
 

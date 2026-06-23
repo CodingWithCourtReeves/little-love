@@ -3,13 +3,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/audio/recorder_controller.dart';
 
 class FakeBackend implements RecorderBackend {
+  FakeBackend({this.permission = true});
+  final bool permission;
   final _amp = StreamController<double>.broadcast();
   bool started = false;
   bool stopped = false;
   String? lastPath;
 
   @override
-  Future<bool> hasPermission() async => true;
+  Future<bool> hasPermission() async => permission;
   @override
   Future<void> start(String path) async {
     started = true;
@@ -36,9 +38,20 @@ void main() {
       tempPathFactory: () async => '/tmp/voice_test.m4a',
     );
     expect(c.state, RecorderState.idle);
-    await c.start();
+    expect(await c.start(), isTrue);
     expect(c.state, RecorderState.recording);
     expect(be.started, isTrue);
+  });
+
+  test('start returns false and stays idle when permission is denied', () async {
+    final be = FakeBackend(permission: false);
+    final c = VoiceRecorderController(
+      backend: be,
+      tempPathFactory: () async => '/tmp/voice_test.m4a',
+    );
+    expect(await c.start(), isFalse);
+    expect(c.state, RecorderState.idle);
+    expect(be.started, isFalse);
   });
 
   test('lock moves recording -> locked', () async {
