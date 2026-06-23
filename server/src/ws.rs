@@ -503,6 +503,26 @@ async fn forward_call_to_partner(state: &AppState, me: &AccountRecord, frame: Ro
     let Some(store) = state.store.as_ref() else {
         return;
     };
+    // Apply-layer authorization: the sender must actually belong to the room the
+    // frame names. Both partners share the room key, so without this a misbehaving
+    // client could inject answer/ice/hangup frames naming an arbitrary room.
+    if let Some(room_id) = frame_room_id(&frame) {
+        match is_member(store.pool(), room_id, me.id).await {
+            Ok(true) => {}
+            Ok(false) => {
+                warn!(
+                    "call: {} from {} for room {room_id} it's not a member of; dropping",
+                    frame_kind(&frame),
+                    me.username,
+                );
+                return;
+            }
+            Err(e) => {
+                warn!("forward_call_to_partner: is_member failed: {e}");
+                return;
+            }
+        }
+    }
     match partner_username_for(store.pool(), me.id).await {
         Ok(Some(partner)) => {
             let online = state.routing.is_online(&partner).await;
@@ -533,6 +553,17 @@ fn frame_kind(f: &RoomServerFrame) -> &'static str {
     }
 }
 
+/// The `room_id` a call frame names, for the apply-layer membership check.
+fn frame_room_id(f: &RoomServerFrame) -> Option<&str> {
+    match f {
+        RoomServerFrame::CallInvite { room_id, .. }
+        | RoomServerFrame::CallAnswer { room_id, .. }
+        | RoomServerFrame::CallIce { room_id, .. }
+        | RoomServerFrame::CallHangup { room_id, .. } => Some(room_id.as_str()),
+        _ => None,
+    }
+}
+
 /// Caller starts a call: forward the encrypted offer to the partner's open
 /// sessions, hold it for a woken cold-start callee, and fire a VoIP push.
 async fn handle_call_invite(
@@ -545,6 +576,22 @@ async fn handle_call_invite(
     let Some(store) = state.store.as_ref() else {
         return;
     };
+    // Apply-layer authorization: the caller must belong to the room it's
+    // inviting in (the partner derives the per-call sig-key from this room's key).
+    match is_member(store.pool(), &room_id, me.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            warn!(
+                "call: CallInvite from {} for room {room_id} it's not a member of; dropping",
+                me.username
+            );
+            return;
+        }
+        Err(e) => {
+            warn!("handle_call_invite: is_member failed: {e}");
+            return;
+        }
+    }
     let partner = match partner_account_id_for(store.pool(), me.id).await {
         Ok(Some(p)) => p,
         Ok(None) => return, // unpaired: no one to call

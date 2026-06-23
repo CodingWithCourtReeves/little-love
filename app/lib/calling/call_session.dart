@@ -58,7 +58,9 @@ class CallSession {
     await _ensurePc();
     final offer = await _pc!.createOffer(<String, dynamic>{});
     await _pc!.setLocalDescription(offer);
-    return offer.sdp!;
+    final sdp = offer.sdp;
+    if (sdp == null) throw StateError('WebRTC produced a null offer SDP');
+    return sdp;
   }
 
   /// Callee: apply the remote offer and produce an answer (sets local + remote).
@@ -67,7 +69,9 @@ class CallSession {
     await _pc!.setRemoteDescription(RTCSessionDescription(remoteSdp, 'offer'));
     final answer = await _pc!.createAnswer(<String, dynamic>{});
     await _pc!.setLocalDescription(answer);
-    return answer.sdp!;
+    final sdp = answer.sdp;
+    if (sdp == null) throw StateError('WebRTC produced a null answer SDP');
+    return sdp;
   }
 
   /// Caller: apply the remote answer.

@@ -59,14 +59,40 @@ async fn main() -> Result<()> {
     } else {
         tracing::warn!("TURN_* env unset; calls fall back to direct/STUN connectivity");
     }
+    // Bound the Cloudflare `generate-ice-servers` call so a slow/unreachable TURN
+    // endpoint can't stall the WS session that awaits it.
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .connect_timeout(std::time::Duration::from_secs(4))
+        .build()
+        .unwrap_or_else(|e| {
+            tracing::warn!("reqwest client build failed ({e}); using default (no timeout)");
+            reqwest::Client::new()
+        });
+    let pending_calls = std::sync::Arc::new(littlelove_api::calls::PendingCalls::new());
+
+    // Sweep expired held call invites periodically. Without this they only clear
+    // opportunistically when the next CallInvite arrives, so a quiet server would
+    // hold stale entries indefinitely.
+    {
+        let pending = std::sync::Arc::clone(&pending_calls);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                tick.tick().await;
+                pending.expire_due(std::time::Instant::now());
+            }
+        });
+    }
+
     let state = AppState {
         routing: Routing::new(),
         store,
         r2,
         push,
         turn: cfg.turn.clone(),
-        http: reqwest::Client::new(),
-        pending_calls: std::sync::Arc::new(littlelove_api::calls::PendingCalls::new()),
+        http,
+        pending_calls,
     };
     let app = Router::new()
         .route("/health", get(health))
