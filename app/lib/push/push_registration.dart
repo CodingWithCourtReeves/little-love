@@ -49,16 +49,51 @@ class PushRegistration {
   final DeviceIdStore _deviceIdStore;
   String? _lastToken;
   String? _lastEnvironment;
+  String? _lastVoipToken;
+  String? _lastVoipEnvironment;
 
   void start() {
     _push.onToken((hexToken, environment) {
       _lastToken = hexToken;
       _lastEnvironment = environment;
-      _sendRegister(hexToken, environment);
+      _sendRegister(hexToken, environment, 'alert');
     });
+    // Secondary path: if the native push arrives once the channel is ready.
+    _push.onVoipToken((hexToken, environment) {
+      _lastVoipToken = hexToken;
+      _lastVoipEnvironment = environment;
+      _sendRegister(hexToken, environment, 'voip');
+    });
+    // Primary path: pull the VoIP token from the plugin once it's available.
+    // PKPushRegistry delivers it within ~1s of launch, possibly before this
+    // listener existed, so the native push alone can be missed.
+    _pullVoipToken();
   }
 
-  Future<void> _sendRegister(String hexToken, String environment) async {
+  /// Fetch the buffered PushKit token and register it. Retries a few times
+  /// because the token may not have arrived from `PKPushRegistry` yet.
+  Future<void> _pullVoipToken({int attempt = 0}) async {
+    final token = await _push.voipToken();
+    if (token != null && token.isNotEmpty) {
+      final env = await _push.apnsEnvironment();
+      _lastVoipToken = token;
+      _lastVoipEnvironment = env;
+      await _sendRegister(token, env, 'voip');
+      return;
+    }
+    if (attempt < 5) {
+      Future<void>.delayed(
+        Duration(milliseconds: 500 * (attempt + 1)),
+        () => _pullVoipToken(attempt: attempt + 1),
+      );
+    }
+  }
+
+  Future<void> _sendRegister(
+    String hexToken,
+    String environment,
+    String tokenKind,
+  ) async {
     final conn = _ref.read(liveConnectionProvider).valueOrNull;
     if (conn == null) return;
     final deviceId = await stableDeviceId(_deviceIdStore);
@@ -67,15 +102,19 @@ class PushRegistration {
         deviceId: deviceId,
         apnsToken: hexToken,
         environment: environment,
+        tokenKind: tokenKind,
       ).toJson(),
     );
   }
 
-  /// Re-send the last known token (call on reconnect / app resume).
+  /// Re-send the last known tokens (call on reconnect / app resume).
   Future<void> resend() async {
     final t = _lastToken;
     final env = _lastEnvironment;
-    if (t != null && env != null) await _sendRegister(t, env);
+    if (t != null && env != null) await _sendRegister(t, env, 'alert');
+    final vt = _lastVoipToken;
+    final venv = _lastVoipEnvironment;
+    if (vt != null && venv != null) await _sendRegister(vt, venv, 'voip');
   }
 
   Future<void> unregister() async {

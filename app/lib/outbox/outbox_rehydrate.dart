@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../calling/call_log.dart';
 import '../conversation/message_content.dart';
 import '../conversation/message_store.dart';
 import '../conversation/room_key_cache.dart';
@@ -105,6 +106,11 @@ Future<void> rehydrateOutbox({
       AudioContent(:final descriptor, :final caption) => (
         caption ?? '',
         descriptor,
+        null,
+      ),
+      CallContent(:final outcome, :final durationS) => (
+        callLogSummary(outcome, durationS),
+        null,
         null,
       ),
       ReactionContent() => ('', null, null), // handled by the continue above

@@ -33,6 +33,9 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_svg: ^2.0.10
   web_socket_channel: ^3.0.0
+  # Voice calling: P2P WebRTC media engine + native CallKit/PushKit UI.
+  flutter_webrtc: ^0.12.0
+  flutter_callkit_incoming: ^2.0.0
   toml: ^0.16.0
   path_provider: ^2.1.2
   path: ^1.9.0
@@ -98,6 +101,7 @@ flutter:
 
   assets:
     - assets/icons/
+    - assets/audio/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

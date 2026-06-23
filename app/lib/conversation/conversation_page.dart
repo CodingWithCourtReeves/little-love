@@ -6,6 +6,8 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
+
+import '../calling/call_controller.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
@@ -715,6 +717,28 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           ),
         ),
         actions: [
+          IconButton(
+            key: const Key('call-button'),
+            icon: Container(
+              width: 34,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: context.palette.bgSurface.withValues(alpha: 0.7),
+              ),
+              child: Icon(
+                Icons.call,
+                color: context.palette.textMuted,
+                size: 20,
+              ),
+            ),
+            onPressed: () {
+              // The CallOverlay shows the in-app call UI automatically once the
+              // call is dialing.
+              ref.read(callControllerProvider).placeCall(widget.roomId);
+            },
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: GestureDetector(
@@ -1012,6 +1036,44 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   Widget _bubbleContent(Msg m, String me, _Marker? marker) {
     final mine = m.from == me;
+    // A call-log entry: a side-aligned pill (outgoing → right, incoming → left,
+    // Telegram-style) keeping our phone glyphs. Missed/declined show red.
+    if (m.callOutcome != null) {
+      final missed = m.callOutcome == 'missed' || m.callOutcome == 'declined';
+      final accent = missed
+          ? const Color(0xFFC0455B)
+          : context.palette.accentSage;
+      final icon = missed
+          ? Icons.phone_missed
+          : (mine ? Icons.call_made : Icons.call_received);
+      final label = m.body.replaceFirst('📞 ', '');
+      return Align(
+        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: context.palette.bgSurface.withValues(alpha: 0.65),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15, color: accent),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: missed ? accent : context.palette.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     if (m.attachment != null) {
       final att = m.attachment!;
       // Voice memos read as a chat bubble (same background + tail as text),

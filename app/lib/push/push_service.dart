@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 
 /// Dart side of the native push bridge (`little_love/push`). Wraps permission
 /// requests, the cold-launch room handoff, the host→Dart token/tap events, and
@@ -30,10 +31,30 @@ class PushService {
   Future<void> setPalette(String key) =>
       _channel.invokeMethod<void>('setPalette', key);
 
+  /// Stash the partner's display name in the shared App Group so a VoIP-wake
+  /// CallKit screen can name the caller locally — the name never rides the push
+  /// (keeps call metadata off APNs, matching content-free message pushes).
+  Future<void> setPartnerName(String name) =>
+      _channel.invokeMethod<void>('setPartnerName', name);
+
   /// Set the app-icon badge to the current unread count. Pushes set it for the
   /// background/quit case; this clears/decrements it as the user reads.
   Future<void> setBadge(int count) =>
       _channel.invokeMethod<void>('setBadge', count);
+
+  /// The APNs environment (`sandbox`/`production`) for this build, resolved
+  /// natively from the embedded profile. Used to register the VoIP token.
+  Future<String> apnsEnvironment() async =>
+      (await _channel.invokeMethod<String>('apnsEnvironment')) ?? 'sandbox';
+
+  /// The PushKit VoIP device token, pulled from the CallKit plugin (which
+  /// buffers it from `PKPushRegistry`). Empty/null until PushKit delivers it —
+  /// callers retry. This pull avoids the native push→Dart race where the early
+  /// `didUpdate` fires before the Dart handler is listening.
+  Future<String?> voipToken() async {
+    final token = await FlutterCallkitIncoming.getDevicePushTokenVoIP();
+    return token is String ? token : token?.toString();
+  }
 
   /// Register a callback for APNs token delivery / refresh. The environment
   /// (`sandbox` / `production`) is resolved natively from the signing profile.
@@ -43,6 +64,14 @@ class PushService {
   /// Register a callback for a live notification tap (app already running).
   void onTap(void Function(String roomId) cb) => _onTap = cb;
 
+  /// Register a callback for PushKit VoIP token delivery / refresh. Distinct
+  /// from [onToken]: a device has separate alert and VoIP tokens. Environment is
+  /// resolved natively from the same signing profile.
+  void onVoipToken(void Function(String hexToken, String environment) cb) =>
+      _onVoipToken = cb;
+
+  void Function(String hexToken, String environment)? _onVoipToken;
+
   Future<Object?> _onCall(MethodCall call) async {
     switch (call.method) {
       case 'onToken':
@@ -50,6 +79,12 @@ class PushService {
         final t = args?['token'] as String?;
         final env = args?['environment'] as String? ?? 'sandbox';
         if (t != null) _onToken?.call(t, env);
+        return null;
+      case 'onVoipToken':
+        final args = call.arguments as Map?;
+        final t = args?['token'] as String?;
+        final env = args?['environment'] as String? ?? 'sandbox';
+        if (t != null) _onVoipToken?.call(t, env);
         return null;
       case 'onTap':
         final r = call.arguments as String?;
