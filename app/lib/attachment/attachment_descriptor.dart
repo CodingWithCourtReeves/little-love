@@ -18,6 +18,7 @@ class AttachmentDescriptor {
     required this.height,
     required this.durationMs,
     required this.thumbB64,
+    this.waveform,
   });
 
   final String blobKey;
@@ -31,7 +32,14 @@ class AttachmentDescriptor {
   final int? durationMs;
   final String thumbB64;
 
+  /// For `kind:"audio"`: ~64 amplitude peaks (0..31) drawn as the static bar
+  /// waveform. Null for non-audio attachments. Rides inside the already-
+  /// encrypted descriptor, so no separate blob is needed.
+  final List<int>? waveform;
+
   bool get isVideo => mime.startsWith('video/');
+
+  bool get isAudio => mime.startsWith('audio/');
 
   Map<String, Object?> toJson() => {
     'blob_key': blobKey,
@@ -44,6 +52,7 @@ class AttachmentDescriptor {
     'height': height,
     if (durationMs != null) 'duration_ms': durationMs,
     'thumb': thumbB64,
+    if (waveform != null) 'waveform': waveform,
   };
 
   factory AttachmentDescriptor.fromJson(Map<String, Object?> j) =>
@@ -57,7 +66,10 @@ class AttachmentDescriptor {
         width: (j['width'] as num?)?.toInt() ?? 0,
         height: (j['height'] as num?)?.toInt() ?? 0,
         durationMs: (j['duration_ms'] as num?)?.toInt(),
-        thumbB64: j['thumb']! as String,
+        thumbB64: (j['thumb'] as String?) ?? '',
+        waveform: (j['waveform'] as List?)
+            ?.map((e) => (e as num).toInt())
+            .toList(),
       );
 }
 
