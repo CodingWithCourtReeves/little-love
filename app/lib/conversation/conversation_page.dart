@@ -17,6 +17,7 @@ import '../attachment/attachment_descriptor.dart';
 import '../attachment/attachment_download.dart';
 import '../attachment/staged_attachment.dart';
 import '../attachment/thumbnail.dart';
+import '../audio/playback_provider.dart';
 import '../audio/recorder_controller.dart';
 import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
@@ -29,6 +30,7 @@ import '../wallpaper/wallpaper_controller.dart';
 import '../wallpaper/wallpaper_screen.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
+import 'audio_bubble.dart';
 import 'chat_info_page.dart';
 import 'link_preview.dart';
 import 'message_store.dart';
@@ -961,16 +963,25 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   Widget _bubbleContent(Msg m, String me, _Marker? marker) {
     final mine = m.from == me;
     if (m.attachment != null) {
+      final att = m.attachment!;
+      final child = att.isAudio
+          ? AudioBubble(
+              descriptor: att,
+              isMe: mine,
+              controller: ref.read(voicePlaybackControllerProvider),
+              conn: ref.read(liveConnectionProvider).asData?.value,
+            )
+          : _MediaBubble(
+              msg: m,
+              isMe: mine,
+              marker: marker,
+              onOpen: () => widget.onOpenAttachment?.call(att),
+            );
       return Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
-          child: _MediaBubble(
-            msg: m,
-            isMe: mine,
-            marker: marker,
-            onOpen: () => widget.onOpenAttachment?.call(m.attachment!),
-          ),
+          child: child,
         ),
       );
     }
