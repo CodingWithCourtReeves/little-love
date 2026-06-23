@@ -52,6 +52,7 @@ class CallController {
   DateTime? _startedAt;
   String? _pendingOffer; // encrypted offer awaiting CallKit accept (incoming)
   Timer? _ringTimer;
+  bool _ending = false; // re-entrancy guard for _end (see below)
 
   StreamSubscription<CallEvent?>? _ckSub;
   StreamSubscription<RoomServerFrame>? _frameSub;
@@ -359,23 +360,30 @@ class CallController {
   /// End the call: tear down WebRTC + CallKit, record the outcome, and (caller
   /// only) emit the call-log message.
   Future<void> _end(String reason) async {
+    // Re-entrancy guard: endAllCalls() below fires a CallKit "ended" event that
+    // re-enters via onEvent → hangup → _end. Without this, that re-entrant call
+    // would _reset() our fields before _emitCallLog runs, dropping the log.
+    if (_ending) return;
     if (state.value.isEnded || state.value.phase == CallPhase.idle) {
       _reset();
       return;
     }
+    _ending = true;
     _ringTimer?.cancel();
     final wasOutgoing = state.value.direction == CallDirection.outgoing;
     final ended = state.value.hangup(reason);
     state.value = ended;
-    await FlutterCallkitIncoming.endAllCalls();
-    await _session?.dispose();
 
-    // The caller is the single authoritative emitter — so exactly one call-log
-    // is written regardless of which side hung up.
+    // Emit the call-log FIRST (caller only — the single authoritative emitter,
+    // so exactly one entry regardless of who hung up), while our fields are
+    // still intact, then tear down CallKit + WebRTC.
     if (wasOutgoing && ended.outcome != null) {
       await _emitCallLog(ended.outcome!);
     }
+    await FlutterCallkitIncoming.endAllCalls();
+    await _session?.dispose();
     _reset();
+    _ending = false;
   }
 
   Future<void> _emitCallLog(CallOutcome outcome) async {
