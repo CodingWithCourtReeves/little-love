@@ -473,6 +473,12 @@ async fn handle_call_turn_request(
             }
         }
     };
+    let n = ice_servers
+        .get("iceServers")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    info!("call: CallTurnGrant for call={call_id} ({n} ice servers)");
     let _ = tx.send(RoomServerFrame::CallTurnGrant {
         call_id: call_id.to_string(),
         ice_servers,
@@ -488,10 +494,27 @@ async fn forward_call_to_partner(state: &AppState, me: &AccountRecord, frame: Ro
     };
     match partner_username_for(store.pool(), me.id).await {
         Ok(Some(partner)) => {
+            let online = state.routing.is_online(&partner).await;
+            info!(
+                "call: forwarding {} from {} -> {} (online={online})",
+                frame_kind(&frame),
+                me.username,
+                partner
+            );
             state.routing.deliver(&partner, frame).await;
         }
-        Ok(None) => {}
+        Ok(None) => warn!("call: {} from {} but no partner", frame_kind(&frame), me.username),
         Err(e) => warn!("forward_call_to_partner: partner lookup failed: {e}"),
+    }
+}
+
+fn frame_kind(f: &RoomServerFrame) -> &'static str {
+    match f {
+        RoomServerFrame::CallInvite { .. } => "CallInvite",
+        RoomServerFrame::CallAnswer { .. } => "CallAnswer",
+        RoomServerFrame::CallIce { .. } => "CallIce",
+        RoomServerFrame::CallHangup { .. } => "CallHangup",
+        _ => "other",
     }
 }
 
@@ -536,6 +559,11 @@ async fn handle_call_invite(
     );
 
     // Forward to any open partner sessions (foreground case).
+    let online = state.routing.is_online(&partner_username).await;
+    info!(
+        "call: CallInvite from {} -> {} call={call_id} (partner online={online})",
+        me.username, partner_username
+    );
     state
         .routing
         .deliver(

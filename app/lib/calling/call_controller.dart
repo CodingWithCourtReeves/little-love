@@ -169,7 +169,10 @@ class CallController {
     _session = CallSession(iceServers: ice);
     _wireSession();
 
-    final answer = await _session!.acceptOffer(offer);
+    // `offer` is the encrypted wire string — decrypt to the raw SDP before
+    // handing it to WebRTC.
+    final offerSdp = await decryptSignal(_sigKey!, offer);
+    final answer = await _session!.acceptOffer(offerSdp);
     final encAnswer = await encryptSignal(_sigKey!, answer);
     _conn?.send(
       CallAnswerClientFrame(roomId: roomId, callId: _callId!, answer: encAnswer)
