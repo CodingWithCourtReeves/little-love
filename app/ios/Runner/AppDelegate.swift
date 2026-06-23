@@ -145,7 +145,9 @@ import flutter_callkit_incoming
 
   override func application(
     _ application: UIApplication,
-    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    // Foundation.Data — qualified because `import flutter_callkit_incoming` also
+    // brings a `Data` model type into scope, making the bare name ambiguous.
+    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Foundation.Data
   ) {
     let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
     pushChannel?.invokeMethod(
@@ -161,7 +163,7 @@ import flutter_callkit_incoming
   private static func apnsEnvironment() -> String {
     guard
       let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
-      let data = try? Data(contentsOf: url),
+      let data = try? Foundation.Data(contentsOf: url),
       // .isoLatin1 maps every byte 0–255 to a scalar (never nil); the profile is
       // a binary CMS blob, so .ascii/.utf8 would fail on the signature bytes and
       // drop us to the production fallback — registering sandbox tokens as prod.
