@@ -22,6 +22,7 @@ import '../audio/recorder_controller.dart';
 import '../audio/waveform.dart';
 import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
+import '../inbox/read_state_provider.dart';
 import '../inbox/room.dart';
 import '../inbox/select_room.dart';
 import '../profile/avatar.dart';
@@ -616,6 +617,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // ourselves — otherwise the resized body leaves a black band where the
     // transparent scaffold shows through as the keyboard slides.
     final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
+    // Unread waiting in the user's *other* threads — badged on the back button
+    // so partner activity elsewhere isn't invisible while you're in this chat.
+    final unreadElsewhere = ref.watch(
+      unreadElsewhereCountProvider((
+        me: widget.selfUsername,
+        roomId: widget.room.roomId,
+      )),
+    );
     return Scaffold(
       backgroundColor: Colors.transparent,
       resizeToAvoidBottomInset: false,
@@ -635,19 +644,30 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 key: const Key('room-back-button'),
                 tooltip: 'Back',
                 onPressed: () => Navigator.of(context).maybePop(),
-                icon: Container(
-                  width: 34,
-                  height: 34,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: context.palette.bgSurface.withValues(alpha: 0.7),
-                  ),
-                  child: Icon(
-                    Icons.arrow_back_ios_new,
-                    color: context.palette.textPrimary,
-                    size: 18,
-                  ),
+                icon: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: context.palette.bgSurface.withValues(alpha: 0.7),
+                      ),
+                      child: Icon(
+                        Icons.arrow_back_ios_new,
+                        color: context.palette.textPrimary,
+                        size: 18,
+                      ),
+                    ),
+                    if (unreadElsewhere > 0)
+                      Positioned(
+                        top: -3,
+                        right: -3,
+                        child: _unreadBadge(unreadElsewhere),
+                      ),
+                  ],
                 ),
               )
             : null,
@@ -830,6 +850,33 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Small red count badge for the back button — unread waiting in other
+  /// threads. iOS system red, white count, capped at "9+".
+  static Widget _unreadBadge(int count) {
+    final label = count > 9 ? '9+' : '$count';
+    return Container(
+      key: const Key('back-unread-badge'),
+      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: const BoxDecoration(
+        color: Color(0xFFFF3B30),
+        borderRadius: BorderRadius.all(Radius.circular(999)),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontFamily: 'Inter',
+          color: Colors.white,
+          fontSize: 10,
+          height: 1.0,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );

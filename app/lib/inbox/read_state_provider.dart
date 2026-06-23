@@ -84,3 +84,29 @@ final totalUnreadProvider = Provider.family<int, String>((ref, selfUsername) {
   }
   return total;
 });
+
+/// Count of unread incoming messages in rooms *other than [roomId]*. Drives the
+/// conversation back-button badge — "while I'm in this thread, how many messages
+/// are waiting in my other threads." Excludes the user's own ([me]) messages and
+/// the named room (the conversation passes its own id, so the room you're in
+/// never counts even before its auto-read lands). Keyed by the (me, roomId)
+/// record so the family caches per conversation.
+///
+/// Deliberately does *not* watch `activeRoomProvider`: the conversation clears
+/// that on dispose, which would dirty this provider during teardown and leave a
+/// pending refresh. Taking the room id as a parameter sidesteps that entirely.
+final unreadElsewhereCountProvider =
+    Provider.family<int, ({String me, String roomId})>((ref, key) {
+      final rooms = ref.watch(inboxStateProvider).rooms;
+      final lastRead = ref.watch(readStateProvider);
+      var total = 0;
+      for (final r in rooms) {
+        if (r.roomId == key.roomId) continue;
+        final marker = lastRead[r.roomId];
+        for (final m in ref.watch(messageStoreProvider(r.roomId))) {
+          if (m.from == key.me) continue;
+          if (marker == null || m.ts.isAfter(marker)) total++;
+        }
+      }
+      return total;
+    });

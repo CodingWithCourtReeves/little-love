@@ -10,6 +10,8 @@ import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
 
+import '../support/test_read_state.dart';
+
 final _account = LocalAccount(
   username: 'court',
   ed25519PubBase64: 'AAA',
@@ -51,6 +53,7 @@ ProviderContainer _container() {
     overrides: [
       accountProvider.overrideWith((_) async => _account),
       httpClientProvider.overrideWithValue(http.Client()),
+      hermeticReadStateStore(),
     ],
   );
   addTearDown(c.dispose);

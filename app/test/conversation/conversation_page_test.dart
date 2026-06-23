@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +13,7 @@ import 'package:littlelove/conversation/typing_state.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
+import 'package:littlelove/inbox/read_state_store.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/theme/app_palette.dart';
 import 'package:littlelove/wallpaper/wallpaper_background.dart';
@@ -39,6 +42,13 @@ final _account = LocalAccount(
   createdAt: DateTime.utc(2026, 6, 9),
 );
 
+// ConversationPage now watches unread-elsewhere (for the back-button badge),
+// which hydrates the read-state store. Point it at an empty temp dir so tests
+// stay hermetic instead of reading the dev machine's real read_state.json.
+final _readStateStore = ReadStateStore(
+  homeDirectory: Directory.systemTemp.createTempSync('conv_test_rs'),
+);
+
 void main() {
   testWidgets('renders inbound and outbound bubbles distinctly', (
     tester,
@@ -47,6 +57,7 @@ void main() {
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
       ],
     );
     addTearDown(container.dispose);
@@ -98,6 +109,7 @@ void main() {
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
       ],
     );
     addTearDown(container.dispose);
@@ -142,6 +154,7 @@ void main() {
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
       ],
     );
     addTearDown(container.dispose);
@@ -171,6 +184,7 @@ void main() {
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
       ],
     );
     addTearDown(container.dispose);
@@ -205,6 +219,7 @@ void main() {
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
       ],
     );
     addTearDown(container.dispose);
@@ -235,6 +250,7 @@ void main() {
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
       ],
     );
     addTearDown(container.dispose);
@@ -264,6 +280,7 @@ void main() {
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
       ],
     );
     addTearDown(container.dispose);
@@ -304,6 +321,7 @@ void main() {
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
       ],
     );
     addTearDown(container.dispose);
@@ -347,6 +365,7 @@ void main() {
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
       ],
     );
     addTearDown(container.dispose);
@@ -390,6 +409,7 @@ void main() {
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
       ],
     );
     addTearDown(container.dispose);
@@ -440,6 +460,7 @@ void main() {
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
       ],
     );
     addTearDown(container.dispose);
@@ -491,6 +512,7 @@ void main() {
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
       ],
     );
     addTearDown(container.dispose);
@@ -532,6 +554,72 @@ void main() {
     );
   });
 
+  testWidgets('back button badges unread waiting in other rooms', (
+    tester,
+  ) async {
+    final tmp = Directory.systemTemp.createTempSync('conv_badge_test');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(
+          ReadStateStore(homeDirectory: tmp),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    // The room on screen plus a second thread with an unread partner message.
+    final roomB = Room(
+      roomId: 'roomB',
+      name: 'Date ideas',
+      members: _roomA().members,
+      createdAt: DateTime.utc(2026, 6, 8),
+    );
+    container.read(inboxStateProvider.notifier).setRooms([_roomA(), roomB]);
+    container
+        .read(messageStoreProvider('roomB').notifier)
+        .add(
+          Msg(
+            id: 'b1',
+            from: 'kaitlyn',
+            to: 'court',
+            body: 'pick a restaurant?',
+            ts: DateTime.utc(2026, 6, 9, 17, 5),
+          ),
+        );
+
+    final navKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          navigatorKey: navKey,
+          home: const Scaffold(),
+        ),
+      ),
+    );
+    // Push the conversation so the back button (and thus its badge) exists.
+    navKey.currentState!.push(
+      MaterialPageRoute<void>(
+        builder: (_) => ConversationPage(
+          room: _roomA(),
+          selfUsername: 'court',
+          onSend: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final badge = find.byKey(const Key('back-unread-badge'));
+    expect(badge, findsOneWidget);
+    expect(
+      find.descendant(of: badge, matching: find.text('1')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('typing re-asserts true on a heartbeat, then stops when idle', (
     tester,
   ) async {
@@ -540,6 +628,7 @@ void main() {
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
       ],
     );
     addTearDown(container.dispose);

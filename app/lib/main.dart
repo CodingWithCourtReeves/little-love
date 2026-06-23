@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'conversation/incoming_banner_host.dart';
 import 'inbox/mock_fixtures.dart';
 import 'screens/auth/auth_gate.dart';
 import 'theme/app_palette.dart';
@@ -33,6 +34,10 @@ class LittleLoveApp extends ConsumerWidget {
     return MaterialApp(
       title: 'LittleLove',
       theme: buildAppTheme(palette),
+      // Float the cross-room "new message" banner above every route, so partner
+      // activity in another thread surfaces no matter which chat is on screen.
+      builder: (context, child) =>
+          IncomingBannerHost(child: child ?? const SizedBox.shrink()),
       home: const AuthGate(),
     );
   }
