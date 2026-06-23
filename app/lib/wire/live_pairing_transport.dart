@@ -91,7 +91,11 @@ class LivePairingTransport implements PairingTransport {
           PresenceFrame() ||
           UploadGrantedFrame() ||
           DownloadGrantedFrame() ||
-          CallTurnGrantFrame():
+          CallTurnGrantFrame() ||
+          CallInviteFrame() ||
+          CallAnswerFrame() ||
+          CallIceFrame() ||
+          CallHangupFrame():
         break;
     }
   }

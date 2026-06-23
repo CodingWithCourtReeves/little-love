@@ -102,8 +102,12 @@ class RoomMessageRouter {
       case UploadGrantedFrame():
       case DownloadGrantedFrame():
       case CallTurnGrantFrame():
+      case CallInviteFrame():
+      case CallAnswerFrame():
+      case CallIceFrame():
+      case CallHangupFrame():
         // Owned by LivePairingTransport / attachment upload+download flows /
-        // call setup (fetchIceServers awaits CallTurnGrant directly).
+        // the call controller (which subscribes to call frames directly).
         break;
     }
   }

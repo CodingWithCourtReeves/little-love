@@ -223,6 +223,31 @@ sealed class RoomServerFrame {
               (json['ice_servers'] as Map?)?.cast<String, Object?>() ??
               const <String, Object?>{},
         );
+      case 'CallInvite':
+        return CallInviteFrame(
+          roomId: json['room_id']! as String,
+          callId: json['call_id']! as String,
+          from: json['from']! as String,
+          offer: json['offer']! as String,
+        );
+      case 'CallAnswer':
+        return CallAnswerFrame(
+          roomId: json['room_id']! as String,
+          callId: json['call_id']! as String,
+          answer: json['answer']! as String,
+        );
+      case 'CallIce':
+        return CallIceFrame(
+          roomId: json['room_id']! as String,
+          callId: json['call_id']! as String,
+          candidate: json['candidate']! as String,
+        );
+      case 'CallHangup':
+        return CallHangupFrame(
+          roomId: json['room_id']! as String,
+          callId: json['call_id']! as String,
+          reason: json['reason']! as String,
+        );
       case 'Error':
         return RoomErrorFrame(
           code: json['code']! as String,
@@ -390,6 +415,58 @@ class CallTurnGrantFrame extends RoomServerFrame {
   const CallTurnGrantFrame({required this.callId, required this.iceServers});
   final String callId;
   final Map<String, Object?> iceServers;
+}
+
+/// Incoming call from the partner. [offer] is the encrypted SDP offer; [from] is
+/// the caller's username. Routed to the call controller (not the message router).
+class CallInviteFrame extends RoomServerFrame {
+  const CallInviteFrame({
+    required this.roomId,
+    required this.callId,
+    required this.from,
+    required this.offer,
+  });
+  final String roomId;
+  final String callId;
+  final String from;
+  final String offer;
+}
+
+/// The partner accepted: [answer] is the encrypted SDP answer.
+class CallAnswerFrame extends RoomServerFrame {
+  const CallAnswerFrame({
+    required this.roomId,
+    required this.callId,
+    required this.answer,
+  });
+  final String roomId;
+  final String callId;
+  final String answer;
+}
+
+/// A trickled ICE candidate from the peer ([candidate] is encrypted).
+class CallIceFrame extends RoomServerFrame {
+  const CallIceFrame({
+    required this.roomId,
+    required this.callId,
+    required this.candidate,
+  });
+  final String roomId;
+  final String callId;
+  final String candidate;
+}
+
+/// The peer ended/declined/cancelled the call. [reason] ∈
+/// {hangup, decline, busy, timeout, cancel}.
+class CallHangupFrame extends RoomServerFrame {
+  const CallHangupFrame({
+    required this.roomId,
+    required this.callId,
+    required this.reason,
+  });
+  final String roomId;
+  final String callId;
+  final String reason;
 }
 
 // ---------- Outbound (client → server) ----------
@@ -581,5 +658,82 @@ class CallTurnRequestFrame {
   Map<String, Object?> toJson() => <String, Object?>{
     'kind': 'CallTurnRequest',
     'call_id': callId,
+  };
+}
+
+/// Caller → server: start a call. [offer] is the encrypted SDP offer.
+class CallInviteClientFrame {
+  const CallInviteClientFrame({
+    required this.roomId,
+    required this.callId,
+    required this.offer,
+  });
+  final String roomId;
+  final String callId;
+  final String offer;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'CallInvite',
+    'room_id': roomId,
+    'call_id': callId,
+    'offer': offer,
+  };
+}
+
+/// Callee → server: accept. [answer] is the encrypted SDP answer.
+class CallAnswerClientFrame {
+  const CallAnswerClientFrame({
+    required this.roomId,
+    required this.callId,
+    required this.answer,
+  });
+  final String roomId;
+  final String callId;
+  final String answer;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'CallAnswer',
+    'room_id': roomId,
+    'call_id': callId,
+    'answer': answer,
+  };
+}
+
+/// Either side → server: a trickled ICE candidate ([candidate] is encrypted).
+class CallIceClientFrame {
+  const CallIceClientFrame({
+    required this.roomId,
+    required this.callId,
+    required this.candidate,
+  });
+  final String roomId;
+  final String callId;
+  final String candidate;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'CallIce',
+    'room_id': roomId,
+    'call_id': callId,
+    'candidate': candidate,
+  };
+}
+
+/// Either side → server: end/decline/cancel. [reason] ∈
+/// {hangup, decline, busy, timeout, cancel}.
+class CallHangupClientFrame {
+  const CallHangupClientFrame({
+    required this.roomId,
+    required this.callId,
+    required this.reason,
+  });
+  final String roomId;
+  final String callId;
+  final String reason;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'CallHangup',
+    'room_id': roomId,
+    'call_id': callId,
+    'reason': reason,
   };
 }
