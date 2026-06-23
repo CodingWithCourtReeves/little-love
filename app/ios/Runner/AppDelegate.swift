@@ -102,6 +102,11 @@ import flutter_callkit_incoming
         let room = self.pendingLaunchRoomId
         self.pendingLaunchRoomId = nil
         result(room)
+      case "apnsEnvironment":
+        // The APNs environment (sandbox/production) for this build's tokens,
+        // resolved from the embedded profile. Used to register the VoIP token,
+        // which shares the alert token's environment.
+        result(Self.apnsEnvironment())
       case "setPalette":
         if let key = call.arguments as? String {
           UserDefaults(suiteName: "group.dev.littlelove.littlelove")?

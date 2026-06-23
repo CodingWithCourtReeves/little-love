@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 
 /// Dart side of the native push bridge (`little_love/push`). Wraps permission
 /// requests, the cold-launch room handoff, the host→Dart token/tap events, and
@@ -34,6 +35,20 @@ class PushService {
   /// background/quit case; this clears/decrements it as the user reads.
   Future<void> setBadge(int count) =>
       _channel.invokeMethod<void>('setBadge', count);
+
+  /// The APNs environment (`sandbox`/`production`) for this build, resolved
+  /// natively from the embedded profile. Used to register the VoIP token.
+  Future<String> apnsEnvironment() async =>
+      (await _channel.invokeMethod<String>('apnsEnvironment')) ?? 'sandbox';
+
+  /// The PushKit VoIP device token, pulled from the CallKit plugin (which
+  /// buffers it from `PKPushRegistry`). Empty/null until PushKit delivers it —
+  /// callers retry. This pull avoids the native push→Dart race where the early
+  /// `didUpdate` fires before the Dart handler is listening.
+  Future<String?> voipToken() async {
+    final token = await FlutterCallkitIncoming.getDevicePushTokenVoIP();
+    return token is String ? token : token?.toString();
+  }
 
   /// Register a callback for APNs token delivery / refresh. The environment
   /// (`sandbox` / `production`) is resolved natively from the signing profile.
