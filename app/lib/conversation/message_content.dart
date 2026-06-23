@@ -24,6 +24,12 @@ sealed class MessageContent {
               AttachmentDescriptor.fromJson(j),
               caption: (cap == null || cap.isEmpty) ? null : cap,
             );
+          case 'audio':
+            final cap = j['caption'] as String?;
+            return AudioContent(
+              AttachmentDescriptor.fromJson(j),
+              caption: (cap == null || cap.isEmpty) ? null : cap,
+            );
           case 'reaction':
             return ReactionContent(
               targetId: (j['target'] as String?) ?? '',
@@ -112,6 +118,24 @@ class FileContent extends MessageContent {
   String encode() => jsonEncode({
     'v': 1,
     'kind': 'file',
+    if (caption != null && caption!.isNotEmpty) 'caption': caption,
+    ...descriptor.toJson(),
+  });
+}
+
+/// A voice memo. Same wire shape as [FileContent] but rendered as an audio
+/// player bubble. The [AttachmentDescriptor] carries the AAC `.m4a` blob key,
+/// per-file key, duration, and the 64-peak waveform. Full audio bytes live in
+/// R2; only the descriptor rides in the encrypted body.
+class AudioContent extends MessageContent {
+  const AudioContent(this.descriptor, {this.caption});
+  final AttachmentDescriptor descriptor;
+  final String? caption;
+
+  @override
+  String encode() => jsonEncode({
+    'v': 1,
+    'kind': 'audio',
     if (caption != null && caption!.isNotEmpty) 'caption': caption,
     ...descriptor.toJson(),
   });
