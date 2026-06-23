@@ -143,15 +143,18 @@ void main() {
     expect(find.text('No links yet'), findsOneWidget);
   });
 
-  testWidgets('the stubbed action buttons toast "coming soon"', (tester) async {
+  testWidgets('the still-stubbed action buttons toast "coming soon"', (
+    tester,
+  ) async {
     final c = ProviderContainer();
     addTearDown(c.dispose);
     await tester.pumpWidget(_app(c));
     await tester.pump();
 
-    await tester.tap(find.byKey(const Key('chat-info-call')));
+    // Call is now wired to place a real call; Video/Search remain stubbed.
+    await tester.tap(find.byKey(const Key('chat-info-video')));
     await tester.pump();
-    expect(find.text('Calls are coming soon'), findsOneWidget);
+    expect(find.text('Video calls are coming soon'), findsOneWidget);
 
     // Let the toast's auto-dismiss timer + fade run out so it doesn't leak.
     await tester.pump(const Duration(seconds: 2));
