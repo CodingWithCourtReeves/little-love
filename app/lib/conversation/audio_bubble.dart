@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../attachment/attachment_descriptor.dart';
 import '../audio/playback_controller.dart';
+import '../theme/app_palette.dart';
 import '../wire/live_connection.dart';
 import 'recording_overlay.dart' show formatElapsed;
 
@@ -34,7 +35,12 @@ class AudioBubble extends StatelessWidget {
         final progress = (active && total.inMilliseconds > 0)
             ? controller.position.inMilliseconds / total.inMilliseconds
             : 0.0;
-        final fg = isMe ? Colors.white : Theme.of(context).colorScheme.primary;
+        // Match the enclosing bubble's text colour so the controls/waveform
+        // read on both palettes (the "mine" bubble is light pink in light mode,
+        // so white would vanish).
+        final fg = isMe
+            ? context.palette.bubbleUserText
+            : context.palette.textPrimary;
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           child: Row(

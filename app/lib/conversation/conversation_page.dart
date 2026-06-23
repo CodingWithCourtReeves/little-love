@@ -964,24 +964,19 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final mine = m.from == me;
     if (m.attachment != null) {
       final att = m.attachment!;
-      final child = att.isAudio
-          ? AudioBubble(
-              descriptor: att,
-              isMe: mine,
-              controller: ref.read(voicePlaybackControllerProvider),
-              conn: ref.read(liveConnectionProvider).asData?.value,
-            )
-          : _MediaBubble(
-              msg: m,
-              isMe: mine,
-              marker: marker,
-              onOpen: () => widget.onOpenAttachment?.call(att),
-            );
+      // Voice memos read as a chat bubble (same background + tail as text),
+      // with the player inside; images keep their edge-to-edge media tile.
+      if (att.isAudio) return _audioBubble(m, mine, marker, att);
       return Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
-          child: child,
+          child: _MediaBubble(
+            msg: m,
+            isMe: mine,
+            marker: marker,
+            onOpen: () => widget.onOpenAttachment?.call(att),
+          ),
         ),
       );
     }
@@ -1045,6 +1040,91 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                   vertical: 10,
                 ),
                 child: _bubbleBody(m, mine, marker),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A voice memo rendered inside a chat bubble — same [_BubbleBackground]
+  /// (colour + tail + border) as a text message, with the audio player on top
+  /// and the hh:mm timestamp + status marker tucked bottom-right.
+  Widget _audioBubble(
+    Msg m,
+    bool mine,
+    _Marker? marker,
+    AttachmentDescriptor att,
+  ) {
+    final showSenderLabel = !mine && widget.room.members.length >= 3;
+    final bubbleColor = mine
+        ? context.palette.bubbleUserBg
+        : context.palette.bubblePartnerBg;
+    final meta = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          _formatHm(m.ts.toLocal()),
+          style: TextStyle(
+            fontSize: 10,
+            color: mine
+                ? context.palette.bubbleUserText.withValues(alpha: 0.55)
+                : context.palette.textMuted,
+          ),
+        ),
+        if (marker != null) ...[
+          const SizedBox(width: 4),
+          _markerWidget(marker, context.palette),
+        ],
+      ],
+    );
+    return Align(
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          if (showSenderLabel)
+            Padding(
+              padding: const EdgeInsets.only(left: 14, top: 4),
+              child: Text(
+                m.from,
+                key: Key('sender-label-${m.id}'),
+                style: TextStyle(
+                  fontFamily: 'JetBrainsMono',
+                  fontSize: 10,
+                  letterSpacing: 1.0,
+                  color: _senderColor(m.from),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            child: CustomPaint(
+              key: Key('bubble-bg-${m.clientMsgId ?? m.id}'),
+              painter: _BubbleBackground(
+                color: bubbleColor,
+                border: context.palette.borderSoft,
+                mine: mine,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(6, 4, 10, 6),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    AudioBubble(
+                      descriptor: att,
+                      isMe: mine,
+                      controller: ref.read(voicePlaybackControllerProvider),
+                      conn: ref.read(liveConnectionProvider).asData?.value,
+                    ),
+                    meta,
+                  ],
+                ),
               ),
             ),
           ),
