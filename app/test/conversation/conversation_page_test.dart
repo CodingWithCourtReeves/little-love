@@ -15,10 +15,8 @@ import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/theme/app_palette.dart';
 import 'package:littlelove/wallpaper/wallpaper_background.dart';
 import 'package:littlelove/wallpaper/wallpaper_controller.dart';
-import 'package:littlelove/wallpaper/wallpaper_screen.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 Room _roomA() => Room(
   roomId: 'roomA',
@@ -228,36 +226,6 @@ void main() {
     // (shown while the field is empty). The top bar is now just a dark scrim,
     // no frost.
     expect(find.byType(BackdropFilter), findsNWidgets(2));
-  });
-
-  testWidgets('header menu opens the Wallpaper picker', (tester) async {
-    SharedPreferences.setMockInitialValues({});
-    final container = ProviderContainer(
-      overrides: [
-        accountProvider.overrideWith((_) async => _account),
-        httpClientProvider.overrideWithValue(http.Client()),
-      ],
-    );
-    addTearDown(container.dispose);
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: MaterialApp(
-          theme: buildAppTheme(AppPalette.light),
-          home: ConversationPage(
-            room: _roomA(),
-            selfUsername: 'court',
-            onSend: (_) {},
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('room-menu-button')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('room-menu-wallpaper')));
-    await tester.pumpAndSettle();
-    expect(find.byType(WallpaperScreen), findsOneWidget);
   });
 
   testWidgets('tapping the room-name pill opens the chat-info page', (

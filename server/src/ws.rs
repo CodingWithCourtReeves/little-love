@@ -24,6 +24,7 @@ use crate::invites::{
     create_invite_record, default_expiry, lookup_invite, mark_consumed, qr_png_base64,
     room_for_invite, InviteState,
 };
+use crate::profiles::{profile_for_account, upsert_profile};
 use crate::push::{PushMessage, PushSender, SendOutcome};
 use crate::push_tokens::{delete_token, delete_token_value, tokens_for_account, upsert_token};
 use crate::rooms::{
@@ -303,6 +304,13 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     } else {
                         warn!("typing rate limit hit for {}", me.username);
                     }
+                }
+                Ok(RoomClientFrame::PublishProfile {
+                    envelope,
+                    avatar_key,
+                }) => {
+                    handle_publish_profile(&state, &me, &envelope, avatar_key.as_deref(), &tx)
+                        .await;
                 }
                 Ok(RoomClientFrame::RequestUpload {
                     request_id,
@@ -1008,6 +1016,53 @@ async fn handle_typing(state: &AppState, me: &AccountRecord, room_id: &str, typi
     }
 }
 
+/// Persist my profile ciphertext and relay it to my linked partner. Authorized
+/// by the `accounts.partner_account_id` link — the same authority presence uses.
+/// The server stores `envelope` opaquely; it never decodes the profile. Writing
+/// only ever touches my own row (`me.id`) and relays only to my own partner, so
+/// there is no cross-account action to authorize at the apply layer.
+async fn handle_publish_profile(
+    state: &AppState,
+    me: &AccountRecord,
+    envelope_b64: &str,
+    avatar_key: Option<&str>,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return,
+    };
+    let envelope = match B64.decode(envelope_b64) {
+        Ok(b) => b,
+        Err(_) => {
+            send_error(tx, error_codes::BAD_CODE, "");
+            return;
+        }
+    };
+    if let Err(e) = upsert_profile(store.pool(), me.id, &envelope, avatar_key).await {
+        warn!("upsert_profile: {e}");
+        send_error(tx, "Internal", "");
+        return;
+    }
+    match partner_username_for(store.pool(), me.id).await {
+        Ok(Some(partner)) => {
+            state
+                .routing
+                .deliver(
+                    &partner,
+                    RoomServerFrame::Profile {
+                        user: me.username.clone(),
+                        envelope: envelope_b64.to_string(),
+                        avatar_key: avatar_key.map(str::to_string),
+                    },
+                )
+                .await;
+        }
+        Ok(None) => {} // not paired yet — stored, relayed when they pair/connect
+        Err(e) => warn!("partner_username_for (publish_profile): {e}"),
+    }
+}
+
 /// On connect: tell my partner I'm online, and tell my freshly-connected
 /// session whether my partner is currently online. The partner is resolved from
 /// the authoritative `accounts.partner_account_id` link, so presence is only
@@ -1060,9 +1115,21 @@ async fn announce_presence_on_connect(
         .await;
     let partner_online = state.routing.is_online(&partner).await;
     let _ = tx.send(RoomServerFrame::Presence {
-        user: partner,
+        user: partner.clone(),
         online: partner_online,
     });
+    // Replay my partner's latest profile, if any, to this fresh session so the
+    // room list / chat header can render their display name + avatar at once.
+    // (Durable, unlike presence — modeled on the presence relay otherwise.)
+    if let Ok(Some(partner_id)) = partner_account_id_for(store.pool(), me.id).await {
+        if let Ok(Some(p)) = profile_for_account(store.pool(), partner_id).await {
+            let _ = tx.send(RoomServerFrame::Profile {
+                user: partner,
+                envelope: B64.encode(&p.envelope),
+                avatar_key: p.avatar_key,
+            });
+        }
+    }
 }
 
 /// On disconnect: once the user's *last* session has gone, tell their partner

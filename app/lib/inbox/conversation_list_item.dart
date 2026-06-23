@@ -11,6 +11,7 @@ class ConversationListItem extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.unread = false,
+    this.leading,
   });
 
   final String label;
@@ -19,6 +20,9 @@ class ConversationListItem extends StatelessWidget {
 
   /// Whether this room has unread incoming messages — draws a trailing dot.
   final bool unread;
+
+  /// Optional leading widget (the partner's avatar) shown before the label.
+  final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
@@ -43,6 +47,7 @@ class ConversationListItem extends StatelessWidget {
           ),
           child: Row(
             children: [
+              if (leading != null) ...[leading!, const SizedBox(width: 12)],
               Expanded(
                 child: Text(
                   label,

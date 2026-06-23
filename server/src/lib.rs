@@ -3,6 +3,7 @@ pub mod attachments;
 pub mod calls;
 pub mod config;
 pub mod invites;
+pub mod profiles;
 pub mod push;
 pub mod push_tokens;
 pub mod r2;

@@ -2,14 +2,20 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../attachment/attachment_descriptor.dart';
+import '../attachment/attachment_download.dart';
 import '../calling/call_log.dart';
 import '../identity/current_identity.dart';
+import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/select_room.dart';
 import '../inbox/room.dart';
 import '../outbox/outbox_store.dart';
 import '../pairing/encryption.dart';
+import '../profile/profile_publish_cache.dart';
+import '../profile/profile_service.dart';
+import '../profile/profile_store.dart';
 import '../wire/frames.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
@@ -67,6 +73,11 @@ class RoomMessageRouter {
         for (final r in mapped) {
           _subscribe(r.roomId);
         }
+        // Re-assert my own profile to the partner now that the room list (and
+        // thus the couple room) is known. Covers a pre-pairing edit and every
+        // reconnect; idempotent + latest-wins on the receiver. Reuses the cached
+        // avatar descriptor, so no photo re-upload.
+        unawaited(_republishMyProfile());
 
       case RoomCreatedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
@@ -98,6 +109,9 @@ class RoomMessageRouter {
         // Server-authoritative partner online/offline, keyed by username.
         ref.read(presenceProvider(user).notifier).setOnline(online);
 
+      case ProfileFrame():
+        await _ingestProfile(f);
+
       case InviteCreatedFrame():
       case RoomErrorFrame():
       case UploadGrantedFrame():
@@ -111,6 +125,83 @@ class RoomMessageRouter {
         // the call controller (which subscribes to call frames directly).
         break;
     }
+  }
+
+  /// Decrypt a relayed partner profile and apply it to the ProfileStore. The
+  /// pairwise key is salted by the canonical couple-room id (see [coupleRoomFor]),
+  /// so we resolve the same room the publisher used. A Profile can arrive before
+  /// the room list reconciles; if so we drop it — the connect-time replay (and
+  /// any later live publish) re-delivers it once the room is present.
+  Future<void> _ingestProfile(ProfileFrame f) async {
+    final account = await ref.read(accountProvider.future);
+    if (account == null) return;
+    final room = coupleRoomFor(
+      ref.read(inboxStateProvider).rooms,
+      account.username,
+    );
+    if (room == null) return;
+    final me = await ref.read(currentIdentityProvider.future);
+    final store = ref.read(profileStoreProvider);
+    await handleIncomingProfile(
+      f,
+      coupleRoom: room,
+      me: me,
+      selfUsername: account.username,
+      cache: ref.read(roomKeyCacheProvider),
+      store: store,
+      receivedAt: DateTime.now().toUtc(),
+    );
+    // Fetch + decrypt the partner's avatar blob (named by the descriptor) so the
+    // room list / chat header can render it. Cached by blob key, so an unchanged
+    // avatar resolves instantly on a reconnect.
+    final descriptor = store.forUsername(f.user)?.avatar;
+    if (descriptor != null) {
+      try {
+        final file = await fetchAndDecrypt(conn: conn, descriptor: descriptor);
+        store.setAvatarFile(f.user, file);
+      } catch (_) {
+        // Best-effort: keep the initials fallback if the blob can't be fetched.
+      }
+    }
+  }
+
+  /// Re-publish my own profile (display name + cached avatar) to my partner on
+  /// connect. No-ops before pairing or when nothing has been set.
+  Future<void> _republishMyProfile() async {
+    final account = await ref.read(accountProvider.future);
+    if (account == null) return;
+    if (account.displayName == null && account.avatarPath == null) return;
+    final conn = ref.read(liveConnectionProvider).valueOrNull;
+    final rooms = ref.read(inboxStateProvider).rooms;
+    final room = coupleRoomFor(rooms, account.username);
+    if (conn == null || room == null) return;
+    final cache = ref.read(profilePublishCacheProvider);
+    // Upload the avatar on connect if it hasn't landed yet (e.g. the upload
+    // failed earlier on a flaky connection). This is the stable post-connect
+    // window, so a previously-stuck photo finally syncs here. Best-effort: fall
+    // back to whatever's cached if this attempt also fails.
+    AttachmentDescriptor? avatar;
+    try {
+      avatar = await ensureAvatarUploaded(
+        conn: conn,
+        room: room,
+        avatarPath: account.avatarPath,
+        cache: cache,
+      );
+    } catch (_) {
+      avatar = await cache.avatar();
+    }
+    final me = await ref.read(currentIdentityProvider.future);
+    await assembleAndPublishProfile(
+      conn: conn,
+      rooms: rooms,
+      selfUsername: account.username,
+      displayName: account.displayName,
+      me: me,
+      keyCache: ref.read(roomKeyCacheProvider),
+      avatar: avatar,
+      avatarKey: avatar?.blobKey,
+    );
   }
 
   void _upsertRoom(String roomId, String name, List<Member> members) {

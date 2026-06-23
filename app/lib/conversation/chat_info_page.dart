@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../attachment/attachment_descriptor.dart';
 import '../audio/playback_provider.dart';
 import '../inbox/room.dart';
+import '../profile/avatar.dart';
+import '../profile/profile_store.dart';
 import '../theme/app_palette.dart';
 import '../theme/love_toast.dart';
 import '../wire/live_connection.dart';
@@ -25,17 +28,35 @@ class ChatInfoPage extends ConsumerWidget {
     super.key,
     required this.room,
     required this.selfUsername,
+    this.onRename,
   });
 
   final Room room;
   final String selfUsername;
 
+  /// Renames the room; null when the room can't be renamed (e.g. the bare
+  /// partner DM). When set, a "Rename chat" row appears here.
+  final void Function(String newName)? onRename;
+
   static Route<void> route({
     required Room room,
     required String selfUsername,
+    void Function(String newName)? onRename,
   }) => MaterialPageRoute<void>(
-    builder: (_) => ChatInfoPage(room: room, selfUsername: selfUsername),
+    builder: (_) => ChatInfoPage(
+      room: room,
+      selfUsername: selfUsername,
+      onRename: onRename,
+    ),
   );
+
+  /// The partner's username — the room's one other member — or null.
+  String? _partnerUsername() {
+    for (final m in room.members) {
+      if (m.username != selfUsername) return m.username;
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -54,7 +75,15 @@ class ChatInfoPage extends ConsumerWidget {
       for (final m in messages.reversed)
         if (_linkUrl(m) != null) m,
     ];
-    final name = room.displayName(selfUsername);
+    final profiles = ref.watch(profileStoreProvider);
+    final partner = _partnerUsername();
+    final partnerProfile = partner != null
+        ? profiles.forUsername(partner)
+        : null;
+    final avatarFile = partner != null ? profiles.avatarFileFor(partner) : null;
+    final name = (partnerProfile?.displayName?.isNotEmpty ?? false)
+        ? partnerProfile!.displayName!
+        : room.displayName(selfUsername);
     return DefaultTabController(
       length: 3,
       child: Scaffold(
@@ -62,8 +91,10 @@ class ChatInfoPage extends ConsumerWidget {
         appBar: AppBar(title: const Text('Info')),
         body: Column(
           children: [
-            _header(context, name),
+            _header(context, name, avatarFile),
             _actionRow(context),
+            const SizedBox(height: 8),
+            _settings(context),
             const SizedBox(height: 8),
             TabBar(
               labelColor: p.accentUser,
@@ -92,31 +123,13 @@ class ChatInfoPage extends ConsumerWidget {
     );
   }
 
-  Widget _header(BuildContext context, String name) {
+  Widget _header(BuildContext context, String name, File? avatarFile) {
     final p = context.palette;
-    final initial = name.isEmpty ? '?' : name.characters.first.toUpperCase();
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: Column(
         children: [
-          Container(
-            width: 84,
-            height: 84,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: p.accentUser.withValues(alpha: 0.18),
-              border: Border.all(color: p.accentUser, width: 1.5),
-            ),
-            child: Text(
-              initial,
-              style: TextStyle(
-                fontSize: 36,
-                fontWeight: FontWeight.w500,
-                color: p.accentUser,
-              ),
-            ),
-          ),
+          Avatar(seedText: name, imageFile: avatarFile, radius: 42),
           const SizedBox(height: 12),
           Text(
             name,
@@ -132,6 +145,48 @@ class ChatInfoPage extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// Room settings moved off the chat header. Rename only — wallpaper lives on
+  /// the profile page, not here.
+  Widget _settings(BuildContext context) {
+    final p = context.palette;
+    if (onRename == null) return const SizedBox.shrink();
+    return ListTile(
+      key: const Key('chat-info-rename'),
+      leading: Icon(Icons.edit_outlined, color: p.accentUser),
+      title: const Text('Rename chat'),
+      onTap: () => _rename(context),
+    );
+  }
+
+  Future<void> _rename(BuildContext context) async {
+    final controller = TextEditingController(text: room.name);
+    final newName = await showDialog<String?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename chat'),
+        content: TextField(
+          key: const Key('rename-dialog-field'),
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Chat name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('rename-dialog-save'),
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (newName == null) return;
+    onRename?.call(newName);
   }
 
   Widget _actionRow(BuildContext context) {

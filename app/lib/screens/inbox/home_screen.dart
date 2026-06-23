@@ -25,7 +25,7 @@ import '../../conversation/room_message_router.dart';
 import '../../conversation/send_fanout.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
-import '../../identity/sign_out.dart';
+import '../../identity/providers.dart';
 import '../../inbox/active_room_provider.dart';
 import '../../inbox/conversation_list_item.dart';
 import '../../inbox/inbox_state.dart';
@@ -33,6 +33,8 @@ import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
 import '../../outbox/outbox_drain.dart';
 import '../../outbox/outbox_store.dart';
+import '../../profile/avatar.dart';
+import '../../profile/profile_store.dart';
 import '../../push/push_bootstrap.dart';
 import '../../theme/app_palette.dart';
 import '../../wire/frames.dart';
@@ -40,6 +42,7 @@ import '../../wire/live_connection.dart';
 import '../../wire/message.dart';
 import '../create_chat/create_channel_sheet.dart';
 import '../pair/pairing_screen.dart';
+import '../profile/profile_screen.dart';
 
 /// Signed-in root: the conversation list is home. Tapping a room pushes a
 /// [ConversationPage]; back pops here. When there are no rooms, the body is the
@@ -81,6 +84,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
     ref.watch(badgeSyncProvider(_me));
 
+    // The live local account, so the app-bar avatar reflects a freshly-set
+    // photo/display name the moment ProfileScreen saves (which invalidates
+    // accountProvider). Falls back to the account passed in at construction.
+    final self = ref.watch(accountProvider).valueOrNull ?? widget.account;
+
     // A notification tap (or any out-of-tree caller) requests a room by id.
     // Consume the command and push its conversation, unless it's already on
     // screen. Resetting the signal must be deferred — Riverpod forbids mutating
@@ -120,6 +128,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       appBar: AppBar(
         backgroundColor: context.palette.bgSurface,
         elevation: 0,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 12),
+          child: GestureDetector(
+            key: const Key('home-open-profile'),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const ProfileScreen()),
+            ),
+            child: Center(
+              child: Avatar(
+                seedText: (self.displayName?.isNotEmpty ?? false)
+                    ? self.displayName!
+                    : _me,
+                imageFile: self.avatarPath != null
+                    ? File(self.avatarPath!)
+                    : null,
+                radius: 16,
+              ),
+            ),
+          ),
+        ),
         title: Text('@$_me'),
         actions: [
           if (inbox.rooms.isNotEmpty)
@@ -133,18 +161,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               // state's PairingScreen, never behind [+].
               onPressed: () => showCreateChannelSheet(context, ref),
             ),
-          PopupMenuButton<String>(
-            key: const Key('home-menu'),
-            onSelected: (value) {
-              if (value == 'signout') _confirmSignOut();
-            },
-            itemBuilder: (_) => [
-              const PopupMenuItem<String>(
-                value: 'signout',
-                child: Text('Sign out'),
-              ),
-            ],
-          ),
         ],
       ),
       body: _body(inbox.rooms),
@@ -178,6 +194,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _roomList(List<Room> rooms) {
     final markers = ref.watch(readStateProvider);
+    final profiles = ref.watch(profileStoreProvider);
+    String? nameFor(String username) =>
+        profiles.forUsername(username)?.displayName;
     List<Room> bucket(RoomShape shape) =>
         rooms.where((r) => r.shape(_me) == shape).toList()
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -195,11 +214,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
     );
 
+    // The partner avatar for a room: the first other member's profile image,
+    // falling back to initials on the accent color.
+    Widget? avatarFor(Room r) {
+      final others = r.members.where((m) => m.username != _me);
+      if (others.isEmpty) return null;
+      final partner = others.first.username;
+      final p = profiles.forUsername(partner);
+      final seed = (p?.displayName?.isNotEmpty ?? false)
+          ? p!.displayName!
+          : partner;
+      return Avatar(
+        seedText: seed,
+        imageFile: profiles.avatarFileFor(partner),
+        radius: 18,
+      );
+    }
+
     Widget item(Room r) => ConversationListItem(
       key: Key('home-room-${r.roomId}'),
-      label: r.displayName(_me),
+      label: r.displayName(_me, nameFor: nameFor),
       selected: false,
       unread: _roomUnread(r.roomId, markers),
+      leading: avatarFor(r),
       onTap: () => _openRoom(r),
     );
 
@@ -234,41 +271,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           onOpenAttachment: (descriptor) =>
               _openAttachment(ref, room, context, descriptor),
           onSendVoice: (rec) => _sendVoice(ref, room, context, rec),
-          onRename: (newName) {
-            final conn = ref.read(liveConnectionProvider).asData?.value;
-            conn?.send(
-              RenameRoomFrame(roomId: room.roomId, name: newName).toJson(),
-            );
-          },
+          // The partner DM is unnamed by definition; renaming it would give it a
+          // name and flip it into a chat room (RoomShape derives from the name),
+          // destroying the DM. Only named channels are renameable.
+          onRename: room.shape(_me) == RoomShape.partner
+              ? null
+              : (newName) {
+                  final conn = ref.read(liveConnectionProvider).asData?.value;
+                  conn?.send(
+                    RenameRoomFrame(
+                      roomId: room.roomId,
+                      name: newName,
+                    ).toJson(),
+                  );
+                },
         ),
       ),
     );
     _chatOnStack = false;
-  }
-
-  Future<void> _confirmSignOut() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: const Text('Sign out?'),
-        content: const Text(
-          'This removes this account and its messages from this device. You '
-          'can sign back in with your recovery phrase.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            key: const Key('confirm-signout'),
-            onPressed: () => Navigator.of(dialogCtx).pop(true),
-            child: const Text('Sign out'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) await signOut(ref);
   }
 
   // ---- send/retry/media wiring moved verbatim from inbox_shell.dart ----

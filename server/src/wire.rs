@@ -178,6 +178,14 @@ pub enum RoomClientFrame {
         call_id: String,
         reason: String,
     },
+    /// Publish my E2EE profile (display name + avatar ref). `envelope` is the
+    /// base64 ciphertext, sealed with the pairwise room key; the server stores
+    /// it opaquely and relays it to my partner.
+    PublishProfile {
+        envelope: String,
+        #[serde(default)]
+        avatar_key: Option<String>,
+    },
 }
 
 /// Post-Authenticated server frames (spec §8.2).
@@ -267,6 +275,16 @@ pub enum RoomServerFrame {
     Presence {
         user: String,
         online: bool,
+    },
+
+    /// Relayed profile: `user` published a new profile. Delivered to the linked
+    /// partner on publish and on connect (latest stored). `envelope` is opaque
+    /// base64 ciphertext, sealed with the pairwise room key.
+    Profile {
+        user: String,
+        envelope: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        avatar_key: Option<String>,
     },
 
     UploadGranted {

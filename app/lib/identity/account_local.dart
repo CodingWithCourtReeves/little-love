@@ -9,6 +9,8 @@ class LocalAccount {
     required this.ed25519PubBase64,
     required this.x25519PubBase64,
     required this.createdAt,
+    this.displayName,
+    this.avatarPath,
   });
 
   final String username;
@@ -16,11 +18,30 @@ class LocalAccount {
   final String x25519PubBase64;
   final DateTime createdAt;
 
+  /// Editable, partner-visible name. Null → fall back to `@username`.
+  final String? displayName;
+
+  /// Local filesystem path to my own avatar image (the squared JPEG). Null when
+  /// unset. Not synced as a path — only the encrypted blob ref is shared.
+  final String? avatarPath;
+
+  LocalAccount copyWith({String? displayName, String? avatarPath}) =>
+      LocalAccount(
+        username: username,
+        ed25519PubBase64: ed25519PubBase64,
+        x25519PubBase64: x25519PubBase64,
+        createdAt: createdAt,
+        displayName: displayName ?? this.displayName,
+        avatarPath: avatarPath ?? this.avatarPath,
+      );
+
   Map<String, Object?> toJson() => <String, Object?>{
     'username': username,
     'ed25519_pub': ed25519PubBase64,
     'x25519_pub': x25519PubBase64,
     'created_at': createdAt.toUtc().toIso8601String(),
+    if (displayName != null) 'display_name': displayName,
+    if (avatarPath != null) 'avatar_path': avatarPath,
   };
 
   factory LocalAccount.fromJson(Map<String, Object?> json) => LocalAccount(
@@ -28,6 +49,8 @@ class LocalAccount {
     ed25519PubBase64: json['ed25519_pub']! as String,
     x25519PubBase64: json['x25519_pub']! as String,
     createdAt: DateTime.parse(json['created_at']! as String).toUtc(),
+    displayName: json['display_name'] as String?,
+    avatarPath: json['avatar_path'] as String?,
   );
 }
 
