@@ -99,4 +99,44 @@ void main() {
     );
     expect(conn.sent, isEmpty);
   });
+
+  group('coupleRoomFor', () {
+    Room room(String id, String name, List<String> usernames) => Room(
+      roomId: id,
+      name: name,
+      members: [
+        for (final u in usernames)
+          Member(username: u, ed25519PubBase64: 'e', x25519PubBase64: 'x-$u'),
+      ],
+      createdAt: DateTime.utc(2026, 6, 10),
+    );
+
+    test('picks a shared room even when it is a NAMED channel (no DM)', () {
+      // The couple renamed their DM away; only named channels remain.
+      final rooms = [
+        room('01B-date', 'date-ideas', ['court', 'kaitlyn']),
+        room('01A-info', 'info', ['court', 'kaitlyn']),
+      ];
+      // Lowest roomId wins, deterministically, regardless of name.
+      expect(coupleRoomFor(rooms, 'court')!.roomId, '01A-info');
+    });
+
+    test('agrees across both partners (same room id from either side)', () {
+      final rooms = [
+        room('01A-info', 'info', ['court', 'kaitlyn']),
+        room('01B-date', 'date-ideas', ['court', 'kaitlyn']),
+      ];
+      expect(
+        coupleRoomFor(rooms, 'court')!.roomId,
+        coupleRoomFor(rooms, 'kaitlyn')!.roomId,
+      );
+    });
+
+    test('null when no room is shared with a partner', () {
+      final rooms = [
+        room('01A-solo', '', ['court']),
+      ];
+      expect(coupleRoomFor(rooms, 'court'), isNull);
+    });
+  });
 }

@@ -14,15 +14,23 @@ String? _peerX25519(Room room, String selfUsername) {
   return null;
 }
 
-/// The canonical 1:1 partner room used to seal/relay profiles. The envelope key
-/// is salted by room id, so the publisher and receiver MUST pick the same room.
-/// Couples have exactly one unnamed 2-member DM ([RoomShape.partner]); if more
-/// than one matched, the earliest-created wins so both sides agree deterministically.
+/// The canonical room used to seal/relay profiles. The envelope key is salted by
+/// room id, so the publisher and receiver MUST pick the same room. This app is
+/// couples-only — every room is the same two people — so ANY room shared with
+/// the partner works; we pick the lowest `roomId` (server-assigned, identical on
+/// both devices) so both sides deterministically agree. Crucially this does NOT
+/// require an unnamed DM: a couple whose only rooms are named channels still
+/// syncs profiles. Returns null only when no room is shared with a partner yet.
 Room? coupleRoomFor(Iterable<Room> rooms, String selfUsername) {
-  final partners =
-      rooms.where((r) => r.shape(selfUsername) == RoomShape.partner).toList()
-        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-  return partners.isEmpty ? null : partners.first;
+  final shared =
+      rooms
+          .where(
+            (r) =>
+                r.members.where((m) => m.username != selfUsername).length == 1,
+          )
+          .toList()
+        ..sort((a, b) => a.roomId.compareTo(b.roomId));
+  return shared.isEmpty ? null : shared.first;
 }
 
 /// Seal [data] with the pairwise key and send it to the server (relayed to the

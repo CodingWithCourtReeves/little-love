@@ -157,4 +157,45 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
   });
+
+  testWidgets('rename row is hidden without onRename (the partner DM)', (
+    tester,
+  ) async {
+    final c = ProviderContainer();
+    addTearDown(c.dispose);
+    await tester.pumpWidget(_app(c)); // _app passes no onRename
+    await tester.pump();
+    expect(find.byKey(const Key('chat-info-rename')), findsNothing);
+  });
+
+  testWidgets('rename row shows + fires when onRename is provided (channel)', (
+    tester,
+  ) async {
+    final c = ProviderContainer();
+    addTearDown(c.dispose);
+    String? renamed;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: c,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ChatInfoPage(
+            room: _room(),
+            selfUsername: 'court',
+            onRename: (n) => renamed = n,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('chat-info-rename')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('rename-dialog-field')),
+      'Trip planning',
+    );
+    await tester.tap(find.byKey(const Key('rename-dialog-save')));
+    await tester.pumpAndSettle();
+    expect(renamed, 'Trip planning');
+  });
 }

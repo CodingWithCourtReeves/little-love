@@ -172,17 +172,25 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     if (text.isEmpty) return;
     FocusScope.of(context).unfocus();
     setState(() => _busy = true);
+    final LocalAccount updated;
     try {
-      final updated = account.copyWith(displayName: text);
+      updated = account.copyWith(displayName: text);
       await ref.read(accountLocalStoreProvider).save(updated);
       ref.invalidate(accountProvider);
-      await _publish(updated);
-      _toast('Saved');
     } catch (_) {
       _toast("Couldn't save");
-    } finally {
       if (mounted) setState(() => _busy = false);
+      return;
     }
+    // Sync to the partner is best-effort; the name is already saved locally.
+    var synced = true;
+    try {
+      await _publish(updated);
+    } catch (_) {
+      synced = false;
+    }
+    _toast(synced ? 'Saved' : 'Saved — will sync when connected');
+    if (mounted) setState(() => _busy = false);
   }
 
   Future<void> _pickAvatar(LocalAccount account) async {
@@ -192,9 +200,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
     if (picked == null) return;
     setState(() => _busy = true);
+    final LocalAccount updated;
+    final Uint8List squared;
+    // Phase 1: the local update. This is what "update photo" means to the user;
+    // if it fails, that's the real failure.
     try {
       final raw = await picked.readAsBytes();
-      final squared = _squareJpeg(raw, 512);
+      squared = _squareJpeg(raw, 512);
       final dir = await getApplicationDocumentsDirectory();
       final path =
           '${dir.path}/avatar_${DateTime.now().millisecondsSinceEpoch}.jpg';
@@ -206,16 +218,27 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           await File(old).delete();
         } catch (_) {}
       }
-      final updated = account.copyWith(avatarPath: path);
+      updated = account.copyWith(avatarPath: path);
       await ref.read(accountLocalStoreProvider).save(updated);
       ref.invalidate(accountProvider);
-      await _publishAvatar(updated, squared);
-      _toast('Photo updated');
     } catch (_) {
       _toast("Couldn't update photo");
-    } finally {
       if (mounted) setState(() => _busy = false);
+      return;
     }
+    // Phase 2: sync to the partner (encrypt → upload → publish). Best-effort —
+    // a network/upload failure does NOT mean the photo didn't update; it just
+    // hasn't synced yet. It retries on the next edit or reconnect.
+    var synced = true;
+    try {
+      await _publishAvatar(updated, squared);
+    } catch (_) {
+      synced = false;
+    }
+    _toast(
+      synced ? 'Photo updated' : 'Photo updated — will sync when connected',
+    );
+    if (mounted) setState(() => _busy = false);
   }
 
   /// Center-crop to a square and resize to [size]², encoded as JPEG.

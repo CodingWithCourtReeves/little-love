@@ -267,12 +267,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           onOpenAttachment: (descriptor) =>
               _openAttachment(ref, room, context, descriptor),
           onSendVoice: (rec) => _sendVoice(ref, room, context, rec),
-          onRename: (newName) {
-            final conn = ref.read(liveConnectionProvider).asData?.value;
-            conn?.send(
-              RenameRoomFrame(roomId: room.roomId, name: newName).toJson(),
-            );
-          },
+          // The partner DM is unnamed by definition; renaming it would give it a
+          // name and flip it into a chat room (RoomShape derives from the name),
+          // destroying the DM. Only named channels are renameable.
+          onRename: room.shape(_me) == RoomShape.partner
+              ? null
+              : (newName) {
+                  final conn = ref.read(liveConnectionProvider).asData?.value;
+                  conn?.send(
+                    RenameRoomFrame(
+                      roomId: room.roomId,
+                      name: newName,
+                    ).toJson(),
+                  );
+                },
         ),
       ),
     );
