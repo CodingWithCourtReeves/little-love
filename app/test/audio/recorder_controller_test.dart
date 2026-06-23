@@ -43,16 +43,19 @@ void main() {
     expect(be.started, isTrue);
   });
 
-  test('start returns false and stays idle when permission is denied', () async {
-    final be = FakeBackend(permission: false);
-    final c = VoiceRecorderController(
-      backend: be,
-      tempPathFactory: () async => '/tmp/voice_test.m4a',
-    );
-    expect(await c.start(), isFalse);
-    expect(c.state, RecorderState.idle);
-    expect(be.started, isFalse);
-  });
+  test(
+    'start returns false and stays idle when permission is denied',
+    () async {
+      final be = FakeBackend(permission: false);
+      final c = VoiceRecorderController(
+        backend: be,
+        tempPathFactory: () async => '/tmp/voice_test.m4a',
+      );
+      expect(await c.start(), isFalse);
+      expect(c.state, RecorderState.idle);
+      expect(be.started, isFalse);
+    },
+  );
 
   test('lock moves recording -> locked', () async {
     final c = VoiceRecorderController(
