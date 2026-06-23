@@ -55,7 +55,7 @@ needs a physical device.
 
 Tags matching `v*` (e.g., `v0.1.0-day1a`) trigger `.github/workflows/release.yml`, which builds:
 
-- A container image to `ghcr.io/codingwithcourtreeves/littlelove-api:<tag>` (deployed to Railway by `deploy.yml`).
+- A container image to `docker.io/codingwithcourt/littlelove-api:<tag>` (deployed to Railway by `deploy.yml`).
 - `LittleLove-<version>.dmg` (macOS).
 - `LittleLove-<version>.msi` (Windows).
 

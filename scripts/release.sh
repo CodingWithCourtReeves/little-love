@@ -3,7 +3,7 @@
 #
 # Replaces the old release.yml. Does what that workflow did, from your Mac:
 #   1. tag the current commit (vX.Y.Z) and push it
-#   2. build + push the linux/amd64 server image to ghcr (Railway runs amd64)
+#   2. build + push the linux/amd64 server image to Docker Hub (Railway runs amd64)
 #   3. redeploy prod on Railway (service is pinned to :latest)
 #
 # iOS distribution is intentionally NOT here — that stays manual (Xcode /
@@ -14,15 +14,15 @@
 #
 # One-time prerequisites:
 #   - Docker Desktop running (provides buildx + linux/amd64 emulation).
-#   - Logged into ghcr with a PAT that has write:packages, e.g.:
-#       echo "$GHCR_PAT" | docker login ghcr.io -u CodingWithCourtReeves --password-stdin
+#   - Logged into Docker Hub with an access token that has write access, e.g.:
+#       echo "$DOCKERHUB_TOKEN" | docker login -u codingwithcourt --password-stdin
 #   - Railway CLI linked to the prod service (this repo dir already is):
 #       railway link --project <id> --service littlelove-api --environment production
 set -euo pipefail
 
 VERSION="${1:?usage: scripts/release.sh <version>  (e.g. 0.4.0)}"
 TAG="v${VERSION}"
-IMAGE="ghcr.io/codingwithcourtreeves/littlelove-api"
+IMAGE="docker.io/codingwithcourt/littlelove-api"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"

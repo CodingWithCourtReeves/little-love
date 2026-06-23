@@ -89,7 +89,7 @@ fi
 
 # ---------- 4. littlelove-api service ----------
 
-API_IMAGE="ghcr.io/codingwithcourtreeves/littlelove-api:latest"
+API_IMAGE="docker.io/codingwithcourt/littlelove-api:latest"
 if railway service "$API_SERVICE_NAME" >/dev/null 2>&1; then
   echo "→ $API_SERVICE_NAME already exists, skipping create"
 else
@@ -154,7 +154,7 @@ else
   echo "       gh secret set RAILWAY_PROJECT_ID  # value: see 'railway status --json' → .id"
 fi
 echo
-echo "  2. Trigger the 'release' workflow with a version (builds + pushes GHCR image)."
+echo "  2. Trigger the 'release' workflow with a version (builds + pushes Docker Hub image)."
 echo "  3. Trigger the 'deploy' workflow with that tag."
 echo "  4. Verify: curl https://<railway-domain>/health"
 echo "  5. Add the custom domain:"
