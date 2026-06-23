@@ -71,6 +71,12 @@ pub struct AppState {
     pub store: Option<Store>,
     pub r2: Option<crate::r2::R2Presigner>,
     pub push: Option<Arc<dyn PushSender>>,
+    /// TURN credential config (Cloudflare key or local override). `None` →
+    /// calls fall back to whatever STUN/direct connectivity they can manage.
+    pub turn: Option<crate::config::TurnConfig>,
+    /// Shared HTTP client for the Cloudflare `generate-ice-servers` call.
+    /// `reqwest::Client` is internally `Arc`, so cloning `AppState` is cheap.
+    pub http: reqwest::Client,
 }
 
 /// WSS close code for auth failures (spec §3.3 step 6).
@@ -327,6 +333,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                         }
                     }
                 }
+                Ok(RoomClientFrame::CallTurnRequest { call_id }) => {
+                    handle_call_turn_request(&state, &call_id, &tx).await;
+                }
                 Err(e) => warn!("invalid frame from {}: {e}", me.username),
                 }
             }
@@ -342,6 +351,37 @@ fn send_error(tx: &mpsc::UnboundedSender<RoomServerFrame>, code: &str, message: 
     let _ = tx.send(RoomServerFrame::Error {
         code: code.to_string(),
         message: message.to_string(),
+    });
+}
+
+/// Mint ICE credentials for a call and return them to the requesting session.
+///
+/// On any failure (no TURN config, or the Cloudflare call errors) we still send
+/// a `CallTurnGrant` with an empty `iceServers` list rather than an error: the
+/// client can still attempt a direct/host-candidate connection, and a relay
+/// failure should degrade, not abort call setup.
+async fn handle_call_turn_request(
+    state: &AppState,
+    call_id: &str,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let empty = || serde_json::json!({ "iceServers": [] });
+    let ice_servers = match state.turn.as_ref() {
+        Some(cfg) => match crate::turn::ice_servers(cfg, &state.http).await {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("TURN credential mint failed for call {call_id}: {e}");
+                empty()
+            }
+        },
+        None => {
+            warn!("CallTurnRequest but TURN is not configured");
+            empty()
+        }
+    };
+    let _ = tx.send(RoomServerFrame::CallTurnGrant {
+        call_id: call_id.to_string(),
+        ice_servers,
     });
 }
 

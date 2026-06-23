@@ -72,6 +72,8 @@ pub fn build_app_with_push(
         store,
         r2: Some(test_presigner()),
         push,
+        turn: None,
+        http: reqwest::Client::new(),
     };
     Router::new()
         .route("/accounts", post(create_account))

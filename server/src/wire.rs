@@ -132,10 +132,21 @@ pub enum RoomClientFrame {
         room_id: String,
         typing: bool,
     },
+    /// Ask the server to mint short-lived ICE (STUN/TURN) credentials for a
+    /// call. Answered with `CallTurnGrant`. Reuses the authenticated WS rather
+    /// than a separate REST surface (mirrors the `RequestUpload` grant pattern).
+    CallTurnRequest {
+        call_id: String,
+    },
 }
 
 /// Post-Authenticated server frames (spec §8.2).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// `Eq` is intentionally not derived: `CallTurnGrant.ice_servers` carries an
+/// arbitrary `serde_json::Value` (the Cloudflare response), which is `PartialEq`
+/// but not `Eq`. Nothing keys this enum in a hash/btree set, so `PartialEq`
+/// alone suffices.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind")]
 pub enum RoomServerFrame {
     Rooms {
@@ -229,6 +240,15 @@ pub enum RoomServerFrame {
         blob_key: String,
         url: String,
         expires_at: DateTime<Utc>,
+    },
+
+    /// Short-lived ICE servers for a call, in response to `CallTurnRequest`.
+    /// `ice_servers` is the Cloudflare `generate-ice-servers` object (or the
+    /// local-coturn override) passed straight into `RTCPeerConnection`. Not
+    /// E2EE-sensitive — it only authorizes relay use — so it is not encrypted.
+    CallTurnGrant {
+        call_id: String,
+        ice_servers: serde_json::Value,
     },
 
     Error {
@@ -826,5 +846,30 @@ mod tests {
         };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"DownloadGranted""#));
+    }
+
+    #[test]
+    fn parses_call_turn_request_frame() {
+        let raw = r#"{"kind":"CallTurnRequest","call_id":"01JCALL"}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        assert!(
+            matches!(frame, RoomClientFrame::CallTurnRequest { call_id } if call_id == "01JCALL")
+        );
+    }
+
+    #[test]
+    fn serializes_call_turn_grant_frame_with_ice_servers() {
+        let f = RoomServerFrame::CallTurnGrant {
+            call_id: "01JCALL".into(),
+            ice_servers: serde_json::json!({
+                "iceServers": [{ "urls": "turn:turn.example:3478", "username": "u", "credential": "c" }]
+            }),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"CallTurnGrant""#));
+        assert!(s.contains(r#""call_id":"01JCALL""#));
+        // ice_servers nests cleanly (not double-encoded as a string).
+        assert!(s.contains(r#""iceServers":[{"#));
+        assert!(s.contains(r#""urls":"turn:turn.example:3478""#));
     }
 }

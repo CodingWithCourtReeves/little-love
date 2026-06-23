@@ -54,11 +54,18 @@ async fn main() -> Result<()> {
             None
         }
     };
+    if cfg.turn.is_some() {
+        tracing::info!("TURN configured; voice-call ICE credentials enabled");
+    } else {
+        tracing::warn!("TURN_* env unset; calls fall back to direct/STUN connectivity");
+    }
     let state = AppState {
         routing: Routing::new(),
         store,
         r2,
         push,
+        turn: cfg.turn.clone(),
+        http: reqwest::Client::new(),
     };
     let app = Router::new()
         .route("/health", get(health))
