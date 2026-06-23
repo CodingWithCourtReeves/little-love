@@ -81,12 +81,13 @@ class VoicePlaybackController extends ChangeNotifier {
       _duration = v ?? Duration.zero;
       notifyListeners();
     });
-    // On completion just_audio parks at the end with playing still latched, so
-    // a follow-up play() is a no-op and the button looks stuck. Rewind to the
-    // start and sit paused so the next tap replays from the beginning.
+    // On completion just_audio parks at the end with `playing` still latched.
+    // Explicitly pause (else seeking back to 0 would resume → infinite loop),
+    // then rewind so a tap replays from the beginning and the button is live.
     _p.onCompleted.listen((_) {
       _isPlaying = false;
       _position = Duration.zero;
+      _p.pause();
       _p.seek(Duration.zero);
       notifyListeners();
     });

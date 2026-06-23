@@ -11,10 +11,9 @@ class FakePlayer implements PlayerBackend {
   double speed = 1.0;
   Duration? lastSeek;
 
-  void complete() {
-    playing = false;
-    _completed.add(null);
-  }
+  // Real just_audio leaves `playing` latched true on completion (it parks at
+  // the end), so the controller must explicitly pause — emit only the event.
+  void complete() => _completed.add(null);
 
   @override
   Future<void> setFilePath(String path) async => loadedPath = path;
@@ -93,9 +92,11 @@ void main() {
     );
     final a = _audio('a');
     await c.toggle(a, null);
+    expect(fake.playing, isTrue);
     fake.complete();
     await Future<void>.delayed(Duration.zero);
-    // Completion rewinds to the start and parks paused, so the button is live.
+    // Completion must actually pause the player (no auto-loop) and rewind.
+    expect(fake.playing, isFalse);
     expect(c.isPlaying, isFalse);
     expect(fake.lastSeek, Duration.zero);
     // Tapping again replays (it's still the active memo, now paused at 0).
