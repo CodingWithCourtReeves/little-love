@@ -106,6 +106,21 @@ pub async fn partner_account_id_for(pool: &PgPool, account_id: i64) -> sqlx::Res
     Ok(row.and_then(|(p,)| p))
 }
 
+/// The username of `account_id`'s partner, if paired. Resolved from the
+/// authoritative `accounts.partner_account_id` link — never client-supplied, so
+/// presence can only ever be shared with the real partner.
+pub async fn partner_username_for(pool: &PgPool, account_id: i64) -> sqlx::Result<Option<String>> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT p.username FROM accounts a
+         JOIN accounts p ON a.partner_account_id = p.id
+         WHERE a.id = $1",
+    )
+    .bind(account_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(u,)| u))
+}
+
 /// Fetch the integer `accounts.id` for a username. Returns `None` if no such
 /// account exists.
 pub async fn account_id_by_username(pool: &PgPool, username: &str) -> sqlx::Result<Option<i64>> {

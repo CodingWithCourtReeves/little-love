@@ -6,6 +6,7 @@ import 'package:littlelove/conversation/chat_info_page.dart';
 import 'package:littlelove/conversation/conversation_page.dart';
 import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_store.dart';
+import 'package:littlelove/conversation/presence_state.dart';
 import 'package:littlelove/conversation/typing_state.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
@@ -286,6 +287,46 @@ void main() {
     await tester.tap(find.byKey(const Key('room-title-pill')));
     await tester.pumpAndSettle();
     expect(find.byType(ChatInfoPage), findsOneWidget);
+  });
+
+  testWidgets('title pill shows partner presence (offline → online)', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // Default: the partner (kaitlyn) reads as offline.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('room-title-pill')),
+        matching: find.text('offline'),
+      ),
+      findsOneWidget,
+    );
+
+    // Partner comes online → the line flips.
+    container.read(presenceProvider('kaitlyn').notifier).setOnline(true);
+    await tester.pump();
+    expect(find.text('online'), findsOneWidget);
+    expect(find.text('offline'), findsNothing);
   });
 
   testWidgets('partner typing shows a typing line inside the title pill', (

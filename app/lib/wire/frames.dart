@@ -198,6 +198,11 @@ sealed class RoomServerFrame {
           from: json['from']! as String,
           typing: (json['typing'] as bool?) ?? false,
         );
+      case 'Presence':
+        return PresenceFrame(
+          user: json['user']! as String,
+          online: (json['online'] as bool?) ?? false,
+        );
       case 'UploadGranted':
         return UploadGrantedFrame(
           requestId: json['request_id']! as String,
@@ -336,6 +341,14 @@ class TypingFrame extends RoomServerFrame {
   final String roomId;
   final String from;
   final bool typing;
+}
+
+/// Partner presence: [user] just came online or went offline. Server pushes
+/// this only to the user's linked partner; never persisted.
+class PresenceFrame extends RoomServerFrame {
+  const PresenceFrame({required this.user, required this.online});
+  final String user;
+  final bool online;
 }
 
 class UploadGrantedFrame extends RoomServerFrame {

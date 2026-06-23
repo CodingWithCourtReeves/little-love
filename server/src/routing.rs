@@ -42,6 +42,11 @@ impl Routing {
         }
     }
 
+    /// Whether `username` has at least one open session — i.e. is online.
+    pub async fn is_online(&self, username: &str) -> bool {
+        self.inner.read().await.contains_key(username)
+    }
+
     /// Fan-out a frame to every open session for `username`. Returns the
     /// number of sessions the frame was queued for. Closed senders are
     /// pruned implicitly on the next register/unregister.
@@ -76,6 +81,17 @@ mod tests {
     async fn deliver_returns_zero_when_offline() {
         let r = Routing::new();
         assert_eq!(r.deliver("kaitlyn", err_frame()).await, 0);
+    }
+
+    #[tokio::test]
+    async fn is_online_tracks_sessions() {
+        let r = Routing::new();
+        assert!(!r.is_online("kaitlyn").await);
+        let (tx, _rx) = mpsc::unbounded_channel();
+        r.register("kaitlyn".into(), tx.clone()).await;
+        assert!(r.is_online("kaitlyn").await);
+        r.unregister("kaitlyn", &tx).await;
+        assert!(!r.is_online("kaitlyn").await);
     }
 
     #[tokio::test]

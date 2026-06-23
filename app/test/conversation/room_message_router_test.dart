@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/conversation/message_content.dart';
 import 'package:littlelove/conversation/message_store.dart';
+import 'package:littlelove/conversation/presence_state.dart';
 import 'package:littlelove/conversation/room_message_router.dart';
 import 'package:littlelove/conversation/typing_state.dart';
 import 'package:littlelove/crypto/ecdh.dart';
@@ -534,6 +535,23 @@ void main() {
     );
     await Future<void>.delayed(const Duration(milliseconds: 20));
     expect(container.read(typingProvider('room1')), isFalse);
+  });
+
+  test('an inbound Presence frame flips the partner online flag', () async {
+    final me = await deriveIdentity(seedA);
+    final conn = _FakeConn();
+    final container = await _container(conn: conn, me: me);
+    container.read(roomMessageRouterProvider);
+
+    expect(container.read(presenceProvider('kaitlyn')), isFalse);
+
+    conn.emit(const PresenceFrame(user: 'kaitlyn', online: true));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(container.read(presenceProvider('kaitlyn')), isTrue);
+
+    conn.emit(const PresenceFrame(user: 'kaitlyn', online: false));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(container.read(presenceProvider('kaitlyn')), isFalse);
   });
 
   test('a live partner message clears the typing flag atomically', () async {

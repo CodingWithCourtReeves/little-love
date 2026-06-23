@@ -31,6 +31,7 @@ import '../wire/message.dart';
 import 'chat_info_page.dart';
 import 'link_preview.dart';
 import 'message_store.dart';
+import 'presence_state.dart';
 import 'typing_state.dart';
 
 typedef SendCallback = void Function(String text);
@@ -543,6 +544,15 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _GapItem(:final time) => 'gap-${time.toIso8601String()}',
   };
 
+  /// The partner's username — the room's one other member — or null for a solo
+  /// room (no partner yet). Drives the presence line in the title pill.
+  String? _partnerUsername() {
+    for (final m in widget.room.members) {
+      if (m.username != widget.selfUsername) return m.username;
+    }
+    return null;
+  }
+
   Color _senderColor(String username) {
     if (username == widget.selfUsername) return context.palette.accentUser;
     // Stable hash → one of three accents per spec §7.5 (sage / mauve / wine).
@@ -656,7 +666,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                     color: context.palette.textPrimary,
                   ),
                 ),
-                _PartnerStatusLine(roomId: widget.roomId),
+                _PartnerStatusLine(
+                  roomId: widget.roomId,
+                  partner: _partnerUsername(),
+                ),
               ],
             ),
           ),
@@ -1493,31 +1506,60 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 /// message list — which otherwise nudged the list on send.
 /// The status line under the room name in the title pill. Shows "typing" with
 /// animated dots while the partner is composing; otherwise the partner's
-/// presence (online / last seen), once that lands. Empty until then.
+/// online / offline presence. Empty when there's no partner (a solo room).
 class _PartnerStatusLine extends ConsumerWidget {
-  const _PartnerStatusLine({required this.roomId});
+  const _PartnerStatusLine({required this.roomId, required this.partner});
   final String roomId;
+  final String? partner;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final typing = ref.watch(typingProvider(roomId));
-    if (!typing) return const SizedBox.shrink();
+    if (typing) {
+      return Row(
+        key: const Key('typing-indicator'),
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'typing',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 11,
+              letterSpacing: 0.3,
+              fontWeight: FontWeight.w500,
+              color: context.palette.accentSage,
+            ),
+          ),
+          const SizedBox(width: 5),
+          const _PulsingDots(),
+        ],
+      );
+    }
+    if (partner == null) return const SizedBox.shrink();
+    final online = ref.watch(presenceProvider(partner!));
+    final tone = online
+        ? context.palette.accentSage
+        : context.palette.textMuted;
     return Row(
-      key: const Key('typing-indicator'),
+      key: const Key('presence-indicator'),
       mainAxisSize: MainAxisSize.min,
       children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: tone),
+        ),
+        const SizedBox(width: 5),
         Text(
-          'typing',
+          online ? 'online' : 'offline',
           style: TextStyle(
             fontFamily: 'Inter',
             fontSize: 11,
             letterSpacing: 0.3,
             fontWeight: FontWeight.w500,
-            color: context.palette.accentSage,
+            color: tone,
           ),
         ),
-        const SizedBox(width: 5),
-        const _PulsingDots(),
       ],
     );
   }
