@@ -1,0 +1,21 @@
+{
+  // Cloudflare Pages config for littlelove.dev (the marketing site).
+  // Run wrangler from this directory (web/). Static assets live in public/;
+  // Pages Functions live in functions/ (sibling of public/, per Pages layout).
+  //
+  // Local dev:   wrangler pages dev          (reads this config; serves public/ + functions/)
+  // Deploy:      wrangler pages deploy        (reads this config)
+  //
+  // RESEND_API_KEY is a secret, NOT set here. Use `wrangler pages secret put
+  // RESEND_API_KEY` (and `.dev.vars` for local dev). See DEPLOY.md.
+  "name": "littlelove",
+  "pages_build_output_dir": "./public",
+  "compatibility_date": "2026-06-24",
+
+  // Non-secret defaults for the contact Function (functions/api/contact.js).
+  // CONTACT_FROM must be a Resend-verified sender on littlelove.dev.
+  "vars": {
+    "CONTACT_TO": "privacy@littlelove.dev",
+    "CONTACT_FROM": "LittleLove <noreply@littlelove.dev>"
+  }
+}
