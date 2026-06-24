@@ -84,13 +84,15 @@ abstract class MessageDb {
   }
 
   static Future<void> onUpgrade(Database db, int oldV, int newV) async {
-    // Additive migrations land here as the schema evolves. The store is a
-    // rebuildable projection, so a gnarly change may instead bump
-    // `schemaVersion`, DROP the affected tables here, and let the next connect
-    // re-seed from a full replay.
+    // NB: the CLAUDE.md "schema-only migrations" rule governs the server's
+    // Postgres SQL migrations. This is the local SQLCipher *cache*, a rebuildable
+    // projection of the server stream — so a deterministic backfill that reads
+    // only its own already-local rows is safe here (and far better UX than
+    // dropping the table and forcing a full re-replay on next launch). A future
+    // gnarly change may instead DROP the affected tables and let replay re-seed.
     if (oldV < 2) {
       await _createFts(db);
-      // Backfill the index from rows already persisted under v1.
+      // Seed the new FTS index from rows already persisted under v1.
       await db.execute(
         'INSERT INTO messages_fts(rowid, body) '
         'SELECT rowid, body FROM messages WHERE deleted = 0',
@@ -382,6 +384,12 @@ class SqliteMessageDb implements MessageDb {
   @override
   Future<void> clear() async {
     await _db.delete('messages');
+    // Authoritatively empty the FTS index too — don't rely solely on the
+    // per-row DELETE triggers — so no decrypted plaintext lingers in the FTS
+    // shadow tables for the next account on this device.
+    await _db.execute(
+      "INSERT INTO messages_fts(messages_fts) VALUES('delete-all')",
+    );
     await _db.delete('room_sync');
     await _db.delete('tombstones');
   }

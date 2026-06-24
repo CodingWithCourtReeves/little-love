@@ -333,6 +333,15 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     if (!mounted) return;
     setState(() => _highlightedId = messageId);
 
+    // The message set is stable during the focus op, so compute the target's
+    // index in the reversed list once (not per retry frame).
+    final sorted = [...ref.read(messageStoreProvider(widget.roomId))]
+      ..sort((a, b) => a.ts.compareTo(b.ts));
+    final items = _itemize(sorted).reversed.toList();
+    final idx = items.indexWhere(
+      (it) => it is _BubbleItem && it.msg.id == messageId,
+    );
+
     for (var attempt = 0; attempt < 12; attempt++) {
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted || !_scrollController.hasClients) return;
@@ -345,15 +354,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         );
         break;
       }
+      if (idx < 0) break;
       // Target not built yet: jump toward its index's proportional offset to
       // bring its region into the build window, then retry on the next frame.
-      final sorted = [...ref.read(messageStoreProvider(widget.roomId))]
-        ..sort((a, b) => a.ts.compareTo(b.ts));
-      final items = _itemize(sorted).reversed.toList();
-      final idx = items.indexWhere(
-        (it) => it is _BubbleItem && it.msg.id == messageId,
-      );
-      if (idx < 0) break;
       final pos = _scrollController.position;
       final frac = items.length <= 1 ? 0.0 : idx / (items.length - 1);
       _scrollController.jumpTo(
