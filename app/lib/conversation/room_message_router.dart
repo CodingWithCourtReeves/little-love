@@ -108,9 +108,10 @@ class RoomMessageRouter {
         // frame is always "the partner is typing" in this room.
         ref.read(typingProvider(roomId).notifier).setTyping(typing);
 
-      case PresenceFrame(:final user, :final online):
-        // Server-authoritative partner online/offline, keyed by username.
-        ref.read(presenceProvider(user).notifier).setOnline(online);
+      case PresenceFrame(:final user, :final online, :final lastSeen):
+        // Server-authoritative partner online/offline + last-seen, keyed by
+        // username. `lastSeen` is set only when offline.
+        ref.read(presenceProvider(user).notifier).set(online, lastSeen: lastSeen);
 
       case ProfileFrame():
         await _ingestProfile(f);
