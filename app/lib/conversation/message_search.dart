@@ -1,3 +1,29 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'message_db.dart';
+
+/// In-channel search: ranked hits within [roomId] for [query]. Empty query →
+/// empty (so the results list clears as the field empties).
+final channelSearchProvider =
+    FutureProvider.family<List<SearchHit>, ({String roomId, String query})>((
+      ref,
+      a,
+    ) async {
+      if (a.query.trim().isEmpty) return const [];
+      final db = await ref.watch(messageDbProvider.future);
+      return db.search(a.query, roomId: a.roomId);
+    });
+
+/// Global search: ranked hits across every room for [query].
+final globalSearchProvider = FutureProvider.family<List<SearchHit>, String>((
+  ref,
+  query,
+) async {
+  if (query.trim().isEmpty) return const [];
+  final db = await ref.watch(messageDbProvider.future);
+  return db.search(query);
+});
+
 /// One ranked search result over the local message store.
 class SearchHit {
   const SearchHit({
