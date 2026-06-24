@@ -73,7 +73,7 @@ class RoomMessageRouter {
         // an empty list reads as "unpaired" rather than "still loading".
         ref.read(inboxSyncedProvider.notifier).state = true;
         for (final r in mapped) {
-          _subscribe(r.roomId);
+          await _subscribe(r.roomId);
         }
         // Re-assert my own profile to the partner now that the room list (and
         // thus the couple room) is known. Covers a pre-pairing edit and every
@@ -83,11 +83,11 @@ class RoomMessageRouter {
 
       case RoomCreatedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
-        _subscribe(roomId);
+        await _subscribe(roomId);
 
       case InviteConsumedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
-        _subscribe(roomId);
+        await _subscribe(roomId);
 
       case RoomRenamedFrame(:final roomId, :final name):
         ref.read(inboxStateProvider.notifier).renameRoom(roomId, name);
@@ -226,9 +226,21 @@ class RoomMessageRouter {
     ref.read(inboxStateProvider.notifier).setRooms(current);
   }
 
-  void _subscribe(String roomId) {
+  Future<void> _subscribe(String roomId) async {
     if (!_subscribed.add(roomId)) return;
-    conn.send(SubscribeFrame(roomId: roomId, sinceMessageId: null).toJson());
+    final db = await ref.read(messageDbProvider.future);
+    // Hydrate the in-memory store from the local projection so history is on
+    // screen instantly (and offline). MUST complete before the Subscribe is
+    // sent, so server replay frames land on top of the hydrated buffer rather
+    // than racing it — the server doesn't replay until it gets the Subscribe.
+    final cached = await db.messagesFor(roomId);
+    if (cached.isNotEmpty) {
+      ref.read(messageStoreProvider(roomId).notifier).setAll(cached);
+    }
+    // Resume from the local high-water-mark: the server replays only the delta
+    // (null on first run → a full seed).
+    final hwm = await db.highWaterMark(roomId);
+    conn.send(SubscribeFrame(roomId: roomId, sinceMessageId: hwm).toJson());
   }
 
   Future<void> _ingestMessage(MessageFrame f) async {

@@ -1172,4 +1172,53 @@ void main() {
 
     expect(await messageDb.messagesFor('room1'), isEmpty);
   });
+
+  test('subscribe hydrates the store from MessageDb and sends HWM as '
+      'sinceMessageId', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final messageDb = await _ffiMessageDb();
+    // Pre-seed two persisted rows for room1 (cold-launch local history).
+    for (final id in ['01A', '01B']) {
+      await messageDb.upsert(
+        Msg(
+          id: id,
+          from: 'kaitlyn',
+          to: 'room1',
+          body: 'cached $id',
+          ts: DateTime.utc(2026, 6, 10, 12),
+        ),
+        roomId: 'room1',
+      );
+    }
+    final container = await _container(conn: conn, me: me, messageDb: messageDb);
+    container.read(roomMessageRouterProvider);
+
+    conn.emit(
+      RoomsFrame(
+        rooms: [
+          RoomDetail(
+            roomId: 'room1',
+            name: '',
+            members: [_member('court', me), _member('kaitlyn', peer)],
+            createdAt: DateTime.utc(2026, 6, 10),
+          ),
+        ],
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    // Store hydrated from the DB.
+    expect(
+      container.read(messageStoreProvider('room1')).map((m) => m.id),
+      ['01A', '01B'],
+    );
+    // Subscribe carried the high-water-mark as the delta anchor.
+    final subs = conn.sent
+        .cast<Map<String, Object?>>()
+        .where((m) => m['kind'] == 'Subscribe')
+        .toList();
+    expect(subs.single['since_message_id'], '01B');
+  });
 }
