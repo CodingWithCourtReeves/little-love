@@ -558,6 +558,56 @@ void main() {
     expect(container.read(incomingBannerProvider), isNull);
   });
 
+  test('no banner for a call-log entry in a non-active room', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final container = await _container(conn: conn, me: me);
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        name: 'Date ideas',
+        members: [_member('court', me), _member('kaitlyn', peer)],
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
+    container.read(roomMessageRouterProvider);
+
+    final key = await deriveRoomKey(
+      me: peer,
+      peerX25519Pub: me.x25519PublicKey,
+      roomId: 'room1',
+    );
+    // A call ends → a CallContent log is emitted as a normal message. It must
+    // not pop a "new message" banner in a room you're not viewing.
+    final body = await encryptOutgoing(
+      key,
+      CallContent(
+        callId: 'call-1',
+        outcome: 'completed',
+        durationS: 154,
+        startedAt: DateTime.utc(2026, 6, 10, 12),
+      ).encode(),
+    );
+
+    conn.emit(
+      MessageFrame(
+        id: 'm1',
+        roomId: 'room1',
+        from: 'kaitlyn',
+        ts: DateTime.utc(2026, 6, 10, 12),
+        body: body,
+        replayed: false,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    expect(container.read(incomingBannerProvider), isNull);
+    // The call row itself still lands in the timeline.
+    expect(container.read(messageStoreProvider('room1')), hasLength(1));
+  });
+
   test('no banner for a replayed message', () async {
     final me = await deriveIdentity(seedA);
     final peer = await deriveIdentity(seedB);

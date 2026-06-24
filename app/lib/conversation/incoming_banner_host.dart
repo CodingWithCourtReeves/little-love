@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../inbox/active_room_provider.dart';
 import '../theme/app_palette.dart';
@@ -129,7 +130,15 @@ class _IncomingBannerHostState extends ConsumerState<IncomingBannerHost>
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Row(
                 children: [
-                  const Text('💬', style: TextStyle(fontSize: 20)),
+                  SvgPicture.asset(
+                    'assets/icons/message-heart.svg',
+                    width: 22,
+                    height: 22,
+                    colorFilter: ColorFilter.mode(
+                      palette.accentUser,
+                      BlendMode.srcIn,
+                    ),
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(

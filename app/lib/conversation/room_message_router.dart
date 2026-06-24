@@ -353,10 +353,12 @@ class RoomMessageRouter {
           // for a message we just watched arrive. The watermark in sendMarkRead
           // already covers this message since it's in the store before this runs.
           markRoomRead(ref, f.roomId);
-        } else {
+        } else if (content is! CallContent) {
           // A live message in a room that isn't on screen: pop an in-app banner
           // so partner activity in another thread isn't invisible while you're
-          // reading a different one.
+          // reading a different one. A call-log entry (emitted when a call ends)
+          // is deliberately excluded — banner-ing "call ended" in another room
+          // is just noise, not a message you need to go read.
           _showIncomingBanner(room, f, content);
         }
       } else {
