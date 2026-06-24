@@ -143,7 +143,7 @@ void main() {
     expect(find.text('No links yet'), findsOneWidget);
   });
 
-  testWidgets('the still-stubbed action buttons toast "coming soon"', (
+  testWidgets('the search action opens the in-channel search page', (
     tester,
   ) async {
     final c = ProviderContainer();
@@ -151,14 +151,12 @@ void main() {
     await tester.pumpWidget(_app(c));
     await tester.pump();
 
-    // Call + Video are now wired to place real calls; Search remains stubbed.
+    // Call + Video place real calls; Search now opens the search page (no
+    // stubbed actions remain). The empty query touches no DB, so no override
+    // is needed here.
     await tester.tap(find.byKey(const Key('chat-info-search')));
-    await tester.pump();
-    expect(find.text('Search are coming soon'), findsOneWidget);
-
-    // Let the toast's auto-dismiss timer + fade run out so it doesn't leak.
-    await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('message-search-field')), findsOneWidget);
   });
 
   testWidgets('rename row is hidden without onRename (the partner DM)', (

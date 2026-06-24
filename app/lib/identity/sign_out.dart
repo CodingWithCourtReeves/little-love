@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../conversation/message_db.dart';
 import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/read_state_provider.dart';
@@ -28,6 +29,13 @@ Future<void> signOut(WidgetRef ref) async {
   // the callback (the await itself is safe before the disposal below).
   final outboxFuture = ref.read(outboxStoreProvider.future);
   await outboxFuture.then((s) => s.clear()).catchError((_) {});
+
+  // Same reasoning for the local decrypted-message store: it's a single
+  // device-global SQLCipher DB (`<app-support>/messages.db`, not account-scoped),
+  // so a new account on this device could otherwise read the previous user's
+  // plaintext history. Await it, best-effort.
+  final messageDbFuture = ref.read(messageDbProvider.future);
+  await messageDbFuture.then((db) => db.clear()).catchError((_) {});
 
   // 1. Persisted identity + per-account data.
   if (username != null) {

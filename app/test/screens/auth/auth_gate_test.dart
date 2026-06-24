@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/conversation/message_db.dart';
+import 'package:littlelove/conversation/message_search.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/keystore.dart';
 import 'package:littlelove/identity/providers.dart';
@@ -14,6 +16,7 @@ import 'package:littlelove/pairing/pairing_transport.dart';
 import 'package:littlelove/screens/auth/auth_gate.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/live_connection.dart';
+import 'package:littlelove/wire/message.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../outbox/memory_outbox_store.dart';
@@ -44,6 +47,33 @@ class _FakeReadStateStore implements ReadStateStore {
   Future<void> save(Map<String, DateTime> state) async {}
   @override
   Future<void> clear() async {}
+}
+
+/// No-op message store so sign-out's `clear()` doesn't hit the keychain/ffi
+/// under the widget-test binding.
+class _FakeMessageDb implements MessageDb {
+  @override
+  Future<void> clear() async {}
+  @override
+  Future<void> upsert(Msg msg, {required String roomId}) async {}
+  @override
+  Future<List<Msg>> messagesFor(String roomId) async => const [];
+  @override
+  Future<void> reconcile(String clientMsgId, Msg server) async {}
+  @override
+  Future<void> applyDelete(String t, {required String requestedBy}) async {}
+  @override
+  Future<void> applyReaction(String t, String u, String e) async {}
+  @override
+  Future<void> markRead(List<String> ids) async {}
+  @override
+  Future<String?> highWaterMark(String roomId) async => null;
+  @override
+  Future<List<SearchHit>> search(
+    String query, {
+    String? roomId,
+    int limit = 50,
+  }) async => const [];
 }
 
 class _StubStore implements AccountLocalStore {
@@ -129,6 +159,7 @@ void main() {
           keystoreProvider.overrideWithValue(keystore),
           readStateStoreProvider.overrideWithValue(_FakeReadStateStore()),
           outboxStoreProvider.overrideWith((_) async => MemoryOutboxStore()),
+          messageDbProvider.overrideWith((_) async => _FakeMessageDb()),
           // No real socket.
           liveConnectionProvider.overrideWith(
             (_) => Completer<LiveConnection>().future,

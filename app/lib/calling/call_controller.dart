@@ -225,8 +225,14 @@ class CallController with WidgetsBindingObserver {
   // ── Public API ────────────────────────────────────────────────────────────
 
   /// Place an outgoing call in [roomId]. Pass [video] for a video call.
+  /// Starting or answering a call dismisses the keyboard: the CallOverlay layers
+  /// above the still-mounted chat, so a focused composer would otherwise keep
+  /// the OS keyboard up over the call screen.
+  void _dismissKeyboard() => FocusManager.instance.primaryFocus?.unfocus();
+
   Future<void> placeCall(String roomId, {bool video = false}) async {
     if (state.value.phase != CallPhase.idle) return;
+    _dismissKeyboard();
     final self = _selfUsername;
     final rp = _roomAndPeer(roomId, self);
     if (self == null || rp == null) return;
@@ -337,6 +343,7 @@ class CallController with WidgetsBindingObserver {
   /// Callee accepted (foreground in-app, or after a VoIP wake). Needs the
   /// encrypted offer, delivered over the WS as a CallInvite.
   Future<void> _onCallKitAccept(String? callId) async {
+    _dismissKeyboard();
     final offer = _pendingOffer;
     final roomId = _roomId;
     final peer = _peerUsername;

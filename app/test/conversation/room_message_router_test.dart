@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/conversation/incoming_banner_provider.dart';
 import 'package:littlelove/conversation/message_content.dart';
+import 'package:littlelove/conversation/message_db.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/conversation/presence_state.dart';
 import 'package:littlelove/conversation/room_message_router.dart';
@@ -21,6 +22,7 @@ import 'package:littlelove/pairing/encryption.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/live_connection.dart';
 import 'package:littlelove/wire/message.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../outbox/memory_outbox_store.dart';
 
@@ -40,21 +42,40 @@ class _FakeConn implements LiveConnection {
   void emit(RoomServerFrame f) => _ctl.add(f);
 }
 
+Future<MessageDb> _ffiMessageDb() async {
+  final db = await databaseFactory.openDatabase(
+    inMemoryDatabasePath,
+    options: OpenDatabaseOptions(
+      version: MessageDb.schemaVersion,
+      onCreate: MessageDb.onCreate,
+      onUpgrade: MessageDb.onUpgrade,
+    ),
+  );
+  addTearDown(db.close);
+  return MessageDb.test(db);
+}
+
 Future<ProviderContainer> _container({
   required LiveConnection conn,
   required DerivedIdentity me,
   OutboxStore? outbox,
+  MessageDb? messageDb,
 }) async {
+  // The router write-through path resolves the message DB on every ingest, so
+  // every test needs an in-memory one to avoid hitting the keychain/filesystem.
+  final db = messageDb ?? await _ffiMessageDb();
   final container = ProviderContainer(
     overrides: [
       liveConnectionProvider.overrideWith((_) async => conn),
       currentIdentityProvider.overrideWith((_) async => me),
+      messageDbProvider.overrideWith((_) async => db),
       if (outbox != null) outboxStoreProvider.overrideWith((_) async => outbox),
     ],
   );
   addTearDown(container.dispose);
   await container.read(liveConnectionProvider.future);
   await container.read(currentIdentityProvider.future);
+  await container.read(messageDbProvider.future);
   if (outbox != null) await container.read(outboxStoreProvider.future);
   return container;
 }
@@ -66,6 +87,11 @@ Member _member(String username, DerivedIdentity id) => Member(
 );
 
 void main() {
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  });
+
   final seedA = Uint8List.fromList(List<int>.generate(16, (i) => i + 1));
   final seedB = Uint8List.fromList(List<int>.generate(16, (i) => i + 101));
 
@@ -1055,4 +1081,156 @@ void main() {
       expect(await outbox.lookup('cli-1'), isNull);
     },
   );
+
+  test('an ingested partner message is persisted to MessageDb', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final messageDb = await _ffiMessageDb();
+    final container = await _container(
+      conn: conn,
+      me: me,
+      messageDb: messageDb,
+    );
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        name: '',
+        members: [_member('court', me), _member('kaitlyn', peer)],
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
+    container.read(roomMessageRouterProvider);
+
+    final key = await deriveRoomKey(
+      me: peer,
+      peerX25519Pub: me.x25519PublicKey,
+      roomId: 'room1',
+    );
+    final body = await encryptOutgoing(key, 'hello from partner');
+
+    conn.emit(
+      MessageFrame(
+        id: 'm1',
+        roomId: 'room1',
+        from: 'kaitlyn',
+        ts: DateTime.utc(2026, 6, 10, 12),
+        body: body,
+        replayed: false,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    final persisted = await messageDb.messagesFor('room1');
+    expect(persisted.map((m) => m.body), contains('hello from partner'));
+  });
+
+  test('an inbound delete soft-deletes in MessageDb', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final messageDb = await _ffiMessageDb();
+    final container = await _container(
+      conn: conn,
+      me: me,
+      messageDb: messageDb,
+    );
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        name: '',
+        members: [_member('court', me), _member('kaitlyn', peer)],
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
+    container.read(roomMessageRouterProvider);
+
+    final key = await deriveRoomKey(
+      me: peer,
+      peerX25519Pub: me.x25519PublicKey,
+      roomId: 'room1',
+    );
+    // Ingest a message, then a delete naming it.
+    conn.emit(
+      MessageFrame(
+        id: 'target-1',
+        roomId: 'room1',
+        from: 'kaitlyn',
+        ts: DateTime.utc(2026, 6, 10, 12),
+        body: await encryptOutgoing(key, const TextContent('oops').encode()),
+        replayed: false,
+      ),
+    );
+    conn.emit(
+      MessageFrame(
+        id: 'delete-1',
+        roomId: 'room1',
+        from: 'kaitlyn',
+        ts: DateTime.utc(2026, 6, 10, 12, 1),
+        body: await encryptOutgoing(
+          key,
+          const DeleteContent(targetId: 'target-1').encode(),
+        ),
+        replayed: false,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(await messageDb.messagesFor('room1'), isEmpty);
+  });
+
+  test('subscribe hydrates the store from MessageDb and sends HWM as '
+      'sinceMessageId', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final messageDb = await _ffiMessageDb();
+    // Pre-seed two persisted rows for room1 (cold-launch local history).
+    for (final id in ['01A', '01B']) {
+      await messageDb.upsert(
+        Msg(
+          id: id,
+          from: 'kaitlyn',
+          to: 'room1',
+          body: 'cached $id',
+          ts: DateTime.utc(2026, 6, 10, 12),
+        ),
+        roomId: 'room1',
+      );
+    }
+    final container = await _container(
+      conn: conn,
+      me: me,
+      messageDb: messageDb,
+    );
+    container.read(roomMessageRouterProvider);
+
+    conn.emit(
+      RoomsFrame(
+        rooms: [
+          RoomDetail(
+            roomId: 'room1',
+            name: '',
+            members: [_member('court', me), _member('kaitlyn', peer)],
+            createdAt: DateTime.utc(2026, 6, 10),
+          ),
+        ],
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    // Store hydrated from the DB.
+    expect(container.read(messageStoreProvider('room1')).map((m) => m.id), [
+      '01A',
+      '01B',
+    ]);
+    // Subscribe carried the high-water-mark as the delta anchor.
+    final subs = conn.sent
+        .cast<Map<String, Object?>>()
+        .where((m) => m['kind'] == 'Subscribe')
+        .toList();
+    expect(subs.single['since_message_id'], '01B');
+  });
 }

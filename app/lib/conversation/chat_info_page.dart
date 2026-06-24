@@ -17,6 +17,7 @@ import '../theme/love_toast.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
 import 'audio_bubble.dart';
+import 'message_search_page.dart';
 import 'message_store.dart';
 
 /// Telegram-style chat-info page, reached by tapping the room name in a chat.
@@ -39,11 +40,13 @@ class ChatInfoPage extends ConsumerWidget {
   /// partner DM). When set, a "Rename chat" row appears here.
   final void Function(String newName)? onRename;
 
-  static Route<void> route({
+  /// Pops a message id when the user picks an in-channel search result (so the
+  /// conversation beneath can scroll to it); pops null on a plain back.
+  static Route<String> route({
     required Room room,
     required String selfUsername,
     void Function(String newName)? onRename,
-  }) => MaterialPageRoute<void>(
+  }) => MaterialPageRoute<String>(
     builder: (_) => ChatInfoPage(
       room: room,
       selfUsername: selfUsername,
@@ -222,7 +225,22 @@ class ChatInfoPage extends ConsumerWidget {
           },
         ),
         const SizedBox(width: 28),
-        _action(context, 'chat-info-search', Icons.search, 'Search', 'Search'),
+        _action(
+          context,
+          'chat-info-search',
+          Icons.search,
+          'Search',
+          'Search',
+          onTap: () async {
+            final messageId = await Navigator.of(context).push(
+              MessageSearchPage.route(room: room, selfUsername: selfUsername),
+            );
+            if (messageId == null) return;
+            // Pop the info page with the chosen id; the conversation below
+            // receives it and scrolls to that message.
+            if (context.mounted) Navigator.of(context).pop(messageId);
+          },
+        ),
       ],
     );
   }

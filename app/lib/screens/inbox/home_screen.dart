@@ -28,6 +28,7 @@ import '../../identity/current_identity.dart';
 import '../../identity/providers.dart';
 import '../../inbox/active_room_provider.dart';
 import '../../inbox/conversation_list_item.dart';
+import '../../inbox/global_search_page.dart';
 import '../../inbox/inbox_state.dart';
 import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
@@ -152,6 +153,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         actions: [
           if (inbox.rooms.isNotEmpty)
             IconButton(
+              key: const Key('home-search'),
+              icon: const Icon(Icons.search),
+              tooltip: 'Search messages',
+              onPressed: () => Navigator.of(context).push(
+                GlobalSearchPage.route(
+                  onOpen: (roomId, messageId) {
+                    Room? room;
+                    for (final r in inbox.rooms) {
+                      if (r.roomId == roomId) {
+                        room = r;
+                        break;
+                      }
+                    }
+                    // Close the search page, then open the room focused on
+                    // the result.
+                    Navigator.of(context).pop();
+                    if (room != null) {
+                      _openRoom(room, focusMessageId: messageId);
+                    }
+                  },
+                ),
+              ),
+            ),
+          if (inbox.rooms.isNotEmpty)
+            IconButton(
               key: const Key('home-new-chat'),
               icon: const Icon(Icons.add),
               tooltip: 'New channel',
@@ -250,7 +276,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Future<void> _openRoom(Room room) async {
+  Future<void> _openRoom(Room room, {String? focusMessageId}) async {
     _chatOnStack = true;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -258,6 +284,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           key: ValueKey(room.roomId),
           room: room,
           selfUsername: _me,
+          focusMessageId: focusMessageId,
           onSend: (text) => _sendEncrypted(ref, room, text),
           onRetry: (clientMsgId) => _retry(ref, clientMsgId),
           onPickMedia: () => _pickMedia(context),
