@@ -369,6 +369,7 @@ a { color: inherit; text-decoration: none; }
 }
 .contact__field::placeholder { color: var(--text-muted); }
 .contact__field:focus { outline: none; border-color: var(--accent-user); }
+.contact__textarea { resize: vertical; min-height: 7rem; line-height: 1.5; font-size: 1rem; }
 .contact__hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
 .contact__send { width: 100%; margin-top: 0.2rem; }
 .contact__status { margin-top: 1rem; font-size: 0.92rem; min-height: 1.4em; color: var(--sage); }
