@@ -66,7 +66,7 @@
       <a href="#privacy">Privacy</a>
       <a href="#together">Features</a>
       <a href="#code">The code</a>
-      <a class="btn btn--ghost btn--sm" href="#get" data-cta="nav">Join the alpha</a>
+      <a class="btn btn--ghost btn--sm" href="#get" data-cta="nav">Request access</a>
     </nav>
     <button class="theme-toggle" type="button" aria-label="Switch light / dark" title="Switch light / dark">
       <svg class="theme-toggle__sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="12" y1="2.5" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21.5"/><line x1="2.5" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21.5" y2="12"/><line x1="5.1" y1="5.1" x2="6.8" y2="6.8"/><line x1="17.2" y1="17.2" x2="18.9" y2="18.9"/><line x1="5.1" y1="18.9" x2="6.8" y2="17.2"/><line x1="17.2" y1="6.8" x2="18.9" y2="5.1"/></g></svg>
@@ -95,7 +95,7 @@
         </p>
         <div class="hero__actions">
           <a class="btn btn--primary" href="#get" data-cta="hero">
-            Join the alpha on TestFlight
+            Request alpha access
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </a>
           <a class="btn btn--quiet" href="#privacy">See how it stays private</a>
@@ -145,12 +145,13 @@
 
       <ul class="negations reveal" data-reveal-delay="120">
         <li><span class="negations__no">No</span> ads. <em>We don&rsquo;t have anything to sell, including you.</em></li>
-        <li><span class="negations__no">No</span> trackers. <em>No analytics SDK in the app or the server. We checked the code.</em></li>
+        <li><span class="negations__no">No</span> trackers. <em>No analytics or behavioral profiling in the app or on the server.</em></li>
         <li><span class="negations__no">No</span> AI. <em>Nothing reads your conversation to &ldquo;improve&rdquo; anything.</em></li>
       </ul>
 
       <p class="metadata-line reveal" data-reveal-delay="200">
-        And we don&rsquo;t track <em>who</em> you talk to, or <em>when</em>. There&rsquo;s no one to sell it to anyway.
+        We keep the routing data needed to deliver your messages. We don&rsquo;t
+        use it to profile your relationship, target ads, or measure engagement.
       </p>
 
       <p class="primitives mono reveal" data-reveal-delay="260" title="The actual primitives LittleLove uses">
@@ -185,11 +186,11 @@
         <h2 class="h2">Close the distance.<br/>Keep it private.</h2>
         <p class="lede">
           A voice note waiting when she wakes up. A call no one else can hear.
-          The boring stuff and the good-morning texts, all in one room
-          that&rsquo;s only yours, across town or across time zones.
+          The boring stuff and the good-morning texts, organized into channels
+          that belong to the two of you, across town or across time zones.
         </p>
         <ul class="chiplist">
-          <li>Channels for travel, daily life, the house</li>
+          <li>One partner, with channels for every part of life</li>
           <li>Voice notes across time zones</li>
           <li>Calls &amp; video, just the two of you</li>
         </ul>
@@ -203,8 +204,8 @@
         <h2 class="h2">Encrypted all the way through. Not just text.</h2>
         <p class="lede">
           Photos and video. Voice memos. Voice and video calls. Every one of them
-          end-to-end encrypted with the same primitives as your messages,
-          built in from the start, never bolted on after.
+          end-to-end encrypted from the start, so the server relays content it
+          cannot read.
         </p>
       </div>
 
@@ -264,7 +265,7 @@
           this is my vision of that spot, for Kaitlyn and me.&rdquo;
         </blockquote>
         <p class="signature">Court</p>
-        <p class="couple-disarm">No venture capital. No advertising. The hosting bill has our name on it.</p>
+        <p class="couple-disarm">No venture capital. No advertising. We build it, run it, and use it ourselves.</p>
       </div>
     </section>
 
@@ -287,15 +288,18 @@
 
         <div class="codeblock reveal" data-reveal-delay="140" aria-hidden="true">
           <div class="codeblock__bar"><span></span><span></span><span></span><em class="mono">crypto/src/ecdh.rs</em></div>
-          <pre class="mono"><code><span class="c-com">// the room key is derived on-device. the server</span>
-<span class="c-com">// never imports this module, so it can't.</span>
+          <pre class="mono"><code><span class="c-com">// both devices derive the same room key;</span>
+<span class="c-com">// neither sends the private key to the server.</span>
 <span class="c-kw">pub fn</span> <span class="c-fn">derive_room_key</span>(
-    ours: &amp;<span class="c-ty">StaticSecret</span>,
-    theirs: &amp;<span class="c-ty">PublicKey</span>,
+    my_x25519_priv: &amp;[u8; 32],
+    peer_x25519_pub: &amp;[u8; 32],
     room_id: &amp;<span class="c-ty">str</span>,
-) -&gt; <span class="c-ty">RoomKey</span> {
-    <span class="c-kw">let</span> shared = ours.<span class="c-fn">diffie_hellman</span>(theirs);
-    <span class="c-fn">hkdf</span>(shared, <span class="c-str">"littlelove.room"</span>, room_id)
+) -&gt; Result&lt;[u8; 32], EcdhError&gt; {
+    <span class="c-kw">let</span> secret = StaticSecret::from(*my_x25519_priv);
+    <span class="c-kw">let</span> peer = PublicKey::from(*peer_x25519_pub);
+    <span class="c-kw">let</span> shared = secret.<span class="c-fn">diffie_hellman</span>(&amp;peer);
+    <span class="c-com">// HKDF-SHA256 binds the key to this room.</span>
+    &hellip;
 }</code></pre>
         </div>
       </div>
@@ -308,24 +312,24 @@
         <h2 class="h2 h2--center">Come in. Close the door.</h2>
         <p class="lede lede--center">
           We&rsquo;re in a small TestFlight alpha and we&rsquo;d love your help
-          shaping it. Grab a spot, or send us a note.
+          shaping it. Send us your email to request an invite.
         </p>
-        <a class="btn btn--primary btn--lg" href="https://testflight.apple.com/" data-cta="footer">
-          Join the alpha on TestFlight
+        <a class="btn btn--primary btn--lg" href="#contact" data-cta="footer">
+          Request an alpha invite
         </a>
 
         <form class="contact" id="contact" novalidate>
-          <p class="contact__label mono">Or drop us a line</p>
+          <p class="contact__label mono">Request access or drop us a line</p>
           <div class="contact__row">
             <input class="contact__field" type="email" name="email" placeholder="you@example.com" autocomplete="email" required aria-label="Your email" />
-            <textarea class="contact__field contact__textarea" name="message" placeholder="Say hi, ask anything…" aria-label="Your message" rows="4"></textarea>
+            <textarea class="contact__field contact__textarea" name="message" placeholder="Anything you&rsquo;d like us to know? (optional)" aria-label="Your message" rows="4"></textarea>
             <!-- honeypot -->
             <input class="contact__hp" type="text" name="company" tabindex="-1" autocomplete="off" aria-hidden="true" />
             <label class="contact__age">
               <input type="checkbox" name="age" />
               <span>Yes, I&rsquo;m 18 or older.</span>
             </label>
-            <button class="btn btn--primary contact__send" type="submit">Send</button>
+            <button class="btn btn--primary contact__send" type="submit">Send request</button>
           </div>
           <p class="contact__status" role="status" aria-live="polite"></p>
         </form>
@@ -345,7 +349,7 @@
       <a href="https://github.com/CodingWithCourtReeves/little-love">Code</a>
       <a href="/privacy/">Privacy</a>
       <a href="/terms/">Terms</a>
-      <a href="#get">Join the alpha</a>
+      <a href="#get">Request access</a>
     </nav>
     <p class="foot__fine mono">© <span data-year>2026</span> LittleLove · littlelove.dev</p>
   </footer>
