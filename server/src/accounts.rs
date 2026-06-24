@@ -9,6 +9,7 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 
 use crate::ws::AppState;
 
@@ -145,6 +146,31 @@ pub async fn lookup_ed25519_pub(
             .fetch_optional(store.pool())
             .await?;
     Ok(row.map(|(b,)| b))
+}
+
+/// Stamp `accounts.last_seen_at = now()` for `account_id`. Called when a
+/// WebSocket session opens and when the account's last session closes, so the
+/// partner can see "last seen …" while this account is offline.
+pub async fn touch_last_seen(pool: &PgPool, account_id: i64) -> sqlx::Result<()> {
+    sqlx::query("UPDATE accounts SET last_seen_at = now() WHERE id = $1")
+        .bind(account_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Read `accounts.last_seen_at` for `account_id`. `None` if the account has
+/// never had a session (column is NULL).
+pub async fn last_seen_for(
+    pool: &PgPool,
+    account_id: i64,
+) -> sqlx::Result<Option<DateTime<Utc>>> {
+    let row: Option<(Option<DateTime<Utc>>,)> =
+        sqlx::query_as("SELECT last_seen_at FROM accounts WHERE id = $1")
+            .bind(account_id)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.and_then(|(t,)| t))
 }
 
 /// Full account record needed by post-handshake handlers (CreateInvite,
