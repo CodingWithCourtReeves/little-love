@@ -368,9 +368,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     room_id,
                     call_id,
                     offer,
+                    video,
                 }) => {
                     if call_rl.allow() {
-                        handle_call_invite(&state, &me, room_id, call_id, offer).await;
+                        handle_call_invite(&state, &me, room_id, call_id, offer, video).await;
                     } else {
                         warn!("call invite rate limit hit for {}", me.username);
                         send_error(&tx, error_codes::RATE_LIMITED, "");
@@ -572,6 +573,7 @@ async fn handle_call_invite(
     room_id: String,
     call_id: String,
     offer: String,
+    video: bool,
 ) {
     let Some(store) = state.store.as_ref() else {
         return;
@@ -616,6 +618,7 @@ async fn handle_call_invite(
             room_id: room_id.clone(),
             from: me.username.clone(),
             offer: offer.clone(),
+            video,
             expires_at: now + crate::calls::PENDING_TTL,
         },
     );
@@ -635,13 +638,14 @@ async fn handle_call_invite(
                 call_id: call_id.clone(),
                 from: me.username.clone(),
                 offer,
+                video,
             },
         )
         .await;
 
     // Wake the partner's device(s) via VoIP push (background / killed case).
     if let Some(sender) = state.push.clone() {
-        notify_call(&sender, store, partner, &room_id, &call_id).await;
+        notify_call(&sender, store, partner, &room_id, &call_id, video).await;
     }
 }
 
@@ -680,6 +684,7 @@ async fn notify_call(
     callee_account_id: i64,
     room_id: &str,
     call_id: &str,
+    video: bool,
 ) {
     let tokens = match crate::push_tokens::voip_tokens_for(store.pool(), callee_account_id).await {
         Ok(t) => t,
@@ -696,6 +701,7 @@ async fn notify_call(
             badge: 0,
             push_type: crate::push::PushKind::Voip,
             call_id: Some(call_id.to_string()),
+            video,
         };
         if let SendOutcome::DropToken = sender.send(&msg).await {
             if let Err(e) = delete_token_value(store.pool(), callee_account_id, &t.apns_token).await
@@ -1135,6 +1141,7 @@ async fn deliver_pending_calls(
             call_id: p.call_id,
             from: p.from,
             offer: p.offer,
+            video: p.video,
         });
     }
 }
@@ -1748,6 +1755,7 @@ async fn notify_recipient(
             badge,
             push_type: crate::push::PushKind::Alert,
             call_id: None,
+            video: false,
         };
         let outcome = sender.send(&msg).await;
         tracing::debug!(

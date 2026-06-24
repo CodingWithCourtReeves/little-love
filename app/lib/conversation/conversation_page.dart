@@ -52,6 +52,18 @@ typedef ReactCallback = void Function(String targetMessageId, String emoji);
 /// double-tap default.
 const _quickReactions = ['❤️', '👍', '😂', '😮', '😢', '🙏'];
 
+/// The soft circular chip behind a header action icon (video/audio call).
+Widget _headerCircleIcon(BuildContext context, IconData icon) => Container(
+  width: 34,
+  height: 34,
+  alignment: Alignment.center,
+  decoration: BoxDecoration(
+    shape: BoxShape.circle,
+    color: context.palette.bgSurface.withValues(alpha: 0.7),
+  ),
+  child: Icon(icon, color: context.palette.textMuted, size: 20),
+);
+
 class _SendIntent extends Intent {
   const _SendIntent();
 }
@@ -690,47 +702,61 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           ),
         ),
         actions: [
-          IconButton(
-            key: const Key('call-button'),
-            icon: Container(
-              width: 34,
-              height: 34,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: context.palette.bgSurface.withValues(alpha: 0.7),
-              ),
-              child: Icon(
-                Icons.call,
-                color: context.palette.textMuted,
-                size: 20,
-              ),
-            ),
-            onPressed: () {
-              // The CallOverlay shows the in-app call UI automatically once the
-              // call is dialing.
-              ref.read(callControllerProvider).placeCall(widget.roomId);
-            },
-          ),
+          // One explicit row of equal 34px slots with equal gaps, so the video
+          // button, the call button and the avatar are evenly spaced (laying them
+          // out as separate AppBar actions left the IconButton sizing uneven).
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: GestureDetector(
-              key: const Key('room-header-avatar'),
-              behavior: HitTestBehavior.opaque,
-              onTap: () => Navigator.of(context).push(
-                ChatInfoPage.route(
-                  room: widget.room,
-                  selfUsername: widget.selfUsername,
-                  onRename: widget.onRename,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: IconButton(
+                    key: const Key('video-call-button'),
+                    padding: EdgeInsets.zero,
+                    icon: _headerCircleIcon(context, Icons.videocam),
+                    onPressed: () {
+                      ref
+                          .read(callControllerProvider)
+                          .placeCall(widget.roomId, video: true);
+                    },
+                  ),
                 ),
-              ),
-              child: Center(
-                child: Avatar(
-                  seedText: partnerSeed,
-                  imageFile: partnerAvatar,
-                  radius: 17,
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: IconButton(
+                    key: const Key('call-button'),
+                    padding: EdgeInsets.zero,
+                    icon: _headerCircleIcon(context, Icons.call),
+                    onPressed: () {
+                      // The CallOverlay shows the in-app call UI automatically
+                      // once the call is dialing.
+                      ref.read(callControllerProvider).placeCall(widget.roomId);
+                    },
+                  ),
                 ),
-              ),
+                const SizedBox(width: 12),
+                GestureDetector(
+                  key: const Key('room-header-avatar'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => Navigator.of(context).push(
+                    ChatInfoPage.route(
+                      room: widget.room,
+                      selfUsername: widget.selfUsername,
+                      onRename: widget.onRename,
+                    ),
+                  ),
+                  child: Avatar(
+                    seedText: partnerSeed,
+                    imageFile: partnerAvatar,
+                    radius: 17,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -967,10 +993,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       final accent = missed
           ? const Color(0xFFC0455B)
           : context.palette.accentSage;
-      final icon = missed
-          ? Icons.phone_missed
-          : (mine ? Icons.call_made : Icons.call_received);
-      final label = m.body.replaceFirst('📞 ', '');
+      // The call type is carried by the body's leading glyph (📹 video / 📞
+      // audio), set in call_log.dart. Use our own branded SVG for each.
+      final isVideo = m.body.startsWith('📹');
+      final icon = isVideo
+          ? 'assets/icons/call-video.svg'
+          : 'assets/icons/call-audio.svg';
+      final label = m.body.replaceFirst(RegExp(r'^(📞|📹)\s*'), '');
       return Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: Container(
@@ -983,7 +1012,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 15, color: accent),
+              SvgPicture.asset(
+                icon,
+                height: 15,
+                colorFilter: ColorFilter.mode(accent, BlendMode.srcIn),
+              ),
               const SizedBox(width: 7),
               Text(
                 label,

@@ -17,6 +17,7 @@ class CallState {
     this.callId,
     this.direction,
     this.outcome,
+    this.isVideo = false,
   });
 
   /// The initial, callless state.
@@ -26,6 +27,10 @@ class CallState {
   final String? callId;
   final CallDirection? direction;
 
+  /// Whether this is a video call (vs audio-only) — drives which call screen the
+  /// overlay renders. Preserved across every transition.
+  final bool isVideo;
+
   /// Set only when [phase] is [CallPhase.ended].
   final CallOutcome? outcome;
 
@@ -33,12 +38,13 @@ class CallState {
   bool get isEnded => phase == CallPhase.ended;
 
   // ── Outgoing ────────────────────────────────────────────────────────────
-  CallState placeCall(String callId) {
+  CallState placeCall(String callId, {bool video = false}) {
     _require(CallPhase.idle, 'placeCall');
     return CallState._(
       phase: CallPhase.dialing,
       callId: callId,
       direction: CallDirection.outgoing,
+      isVideo: video,
     );
   }
 
@@ -48,18 +54,33 @@ class CallState {
   }
 
   // ── Incoming ────────────────────────────────────────────────────────────
-  CallState incoming(String callId) {
+  CallState incoming(String callId, {bool video = false}) {
     _require(CallPhase.idle, 'incoming');
     return CallState._(
       phase: CallPhase.ringing,
       callId: callId,
       direction: CallDirection.incoming,
+      isVideo: video,
     );
   }
 
   CallState accept() {
     _require(CallPhase.ringing, 'accept');
     return _to(CallPhase.connecting);
+  }
+
+  /// Demote a would-be video call to audio (the local camera was denied /
+  /// unavailable). Valid only before the call ends.
+  CallState markAudioOnly() {
+    if (isEnded || phase == CallPhase.idle) {
+      throw StateError('markAudioOnly not valid from $phase');
+    }
+    return CallState._(
+      phase: phase,
+      callId: callId,
+      direction: direction,
+      outcome: outcome,
+    );
   }
 
   // ── Media ───────────────────────────────────────────────────────────────
@@ -119,14 +140,19 @@ class CallState {
       phase == CallPhase.ringing ||
       phase == CallPhase.connecting;
 
-  CallState _to(CallPhase p) =>
-      CallState._(phase: p, callId: callId, direction: direction);
+  CallState _to(CallPhase p) => CallState._(
+    phase: p,
+    callId: callId,
+    direction: direction,
+    isVideo: isVideo,
+  );
 
   CallState _ended(CallOutcome o) => CallState._(
     phase: CallPhase.ended,
     callId: callId,
     direction: direction,
     outcome: o,
+    isVideo: isVideo,
   );
 
   void _require(CallPhase expected, String op) {

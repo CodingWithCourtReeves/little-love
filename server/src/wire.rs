@@ -154,10 +154,15 @@ pub enum RoomClientFrame {
     // All SDP/ICE payloads are opaque ciphertext (encrypted under the per-call
     // sig-key); the server forwards them blind, exactly like message bodies.
     /// Caller → server: start a call. `offer` is the encrypted SDP offer.
+    /// `video` marks a video call (vs audio-only) — not secret, only used to
+    /// shape the callee's native CallKit screen on a cold wake. Defaults false
+    /// so older clients that omit it read as audio.
     CallInvite {
         room_id: String,
         call_id: String,
         offer: String,
+        #[serde(default)]
+        video: bool,
     },
     /// Callee → server: accept. `answer` is the encrypted SDP answer.
     CallAnswer {
@@ -311,12 +316,14 @@ pub enum RoomServerFrame {
 
     // ── Call signaling forwarded to the partner (spec §4) ───────────────────
     /// Forwarded to the callee. `from` is the caller's username; `offer` is the
-    /// encrypted SDP offer.
+    /// encrypted SDP offer. `video` marks a video call (see the client variant).
     CallInvite {
         room_id: String,
         call_id: String,
         from: String,
         offer: String,
+        #[serde(default)]
+        video: bool,
     },
     /// Forwarded to the caller. `answer` is the encrypted SDP answer.
     CallAnswer {
@@ -958,6 +965,7 @@ mod tests {
 
     #[test]
     fn parses_call_invite_frame() {
+        // No `video` key → defaults to false (older clients / audio calls).
         let raw = r#"{"kind":"CallInvite","room_id":"01J","call_id":"01JCALL","offer":"ENCSDP"}"#;
         let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
         match frame {
@@ -965,11 +973,23 @@ mod tests {
                 room_id,
                 call_id,
                 offer,
+                video,
             } => {
                 assert_eq!(room_id, "01J");
                 assert_eq!(call_id, "01JCALL");
                 assert_eq!(offer, "ENCSDP");
+                assert!(!video);
             }
+            _ => panic!("expected CallInvite"),
+        }
+    }
+
+    #[test]
+    fn parses_call_invite_frame_with_video() {
+        let raw = r#"{"kind":"CallInvite","room_id":"01J","call_id":"01JCALL","offer":"ENC","video":true}"#;
+        let frame: RoomClientFrame = serde_json::from_str(raw).unwrap();
+        match frame {
+            RoomClientFrame::CallInvite { video, .. } => assert!(video),
             _ => panic!("expected CallInvite"),
         }
     }
@@ -991,6 +1011,7 @@ mod tests {
             call_id: "01JCALL".into(),
             from: "court".into(),
             offer: "ENCSDP".into(),
+            video: false,
         };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"CallInvite""#));

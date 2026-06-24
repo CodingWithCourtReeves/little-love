@@ -214,6 +214,12 @@ class ChatInfoPage extends ConsumerWidget {
           Icons.videocam,
           'Video',
           'Video calls',
+          onTap: () {
+            Navigator.of(context).pop();
+            ref
+                .read(callControllerProvider)
+                .placeCall(room.roomId, video: true);
+          },
         ),
         const SizedBox(width: 28),
         _action(context, 'chat-info-search', Icons.search, 'Search', 'Search'),
