@@ -40,8 +40,8 @@ Connect the repo in the Cloudflare dashboard (or `npx wrangler pages deploy web`
 | Var | Notes |
 |---|---|
 | `RESEND_API_KEY` | **Secret.** From the Resend dashboard. |
-| `CONTACT_TO` | Where notes land. Default `hello@littlelove.dev`. |
-| `CONTACT_FROM` | A Resend-verified sender. Default `LittleLove <hello@littlelove.dev>`. |
+| `CONTACT_TO` | Where notes land. Default `privacy@littlelove.dev` (routed to Court's Gmail via Cloudflare Email Routing). |
+| `CONTACT_FROM` | A Resend-verified sender on `littlelove.dev`. Default `LittleLove <noreply@littlelove.dev>`. |
 
 ### DNS
 

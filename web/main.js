@@ -91,7 +91,7 @@
         form.reset();
         setStatus("Got it. We'll be in touch. 💜", false);
       } catch {
-        setStatus("Something went wrong. Email us at hello@littlelove.dev?", true);
+        setStatus("Something went wrong. Email us at privacy@littlelove.dev?", true);
       } finally {
         btn.disabled = false;
       }

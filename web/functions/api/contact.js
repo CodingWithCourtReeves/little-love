@@ -4,8 +4,8 @@
  *
  * Required env (Pages → Settings → Variables, mark RESEND_API_KEY as a secret):
  *   RESEND_API_KEY   Resend API key (secret)
- *   CONTACT_TO       where the note lands         (default hello@littlelove.dev)
- *   CONTACT_FROM     a Resend-verified sender      (default "LittleLove <hello@littlelove.dev>")
+ *   CONTACT_TO       where the note lands         (default privacy@littlelove.dev)
+ *   CONTACT_FROM     a Resend-verified sender      (default "LittleLove <noreply@littlelove.dev>")
  */
 
 const json = (status, body) =>
@@ -43,8 +43,8 @@ export async function onRequestPost({ request, env }) {
     return json(500, { error: "Mail not configured" });
   }
 
-  const to = env.CONTACT_TO || "hello@littlelove.dev";
-  const from = env.CONTACT_FROM || "LittleLove <hello@littlelove.dev>";
+  const to = env.CONTACT_TO || "privacy@littlelove.dev";
+  const from = env.CONTACT_FROM || "LittleLove <noreply@littlelove.dev>";
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
