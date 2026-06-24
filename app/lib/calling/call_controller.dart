@@ -227,6 +227,10 @@ class CallController with WidgetsBindingObserver {
   /// Place an outgoing call in [roomId]. Pass [video] for a video call.
   Future<void> placeCall(String roomId, {bool video = false}) async {
     if (state.value.phase != CallPhase.idle) return;
+    // Starting a call dismisses the keyboard: the CallOverlay layers above the
+    // still-mounted chat, so a focused composer would otherwise keep the OS
+    // keyboard up over the call screen.
+    FocusManager.instance.primaryFocus?.unfocus();
     final self = _selfUsername;
     final rp = _roomAndPeer(roomId, self);
     if (self == null || rp == null) return;
