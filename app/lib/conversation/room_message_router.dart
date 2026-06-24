@@ -21,6 +21,7 @@ import '../wire/live_connection.dart';
 import '../wire/message.dart';
 import 'incoming_banner_provider.dart';
 import 'message_content.dart';
+import 'message_db.dart';
 import 'message_store.dart';
 import 'presence_state.dart';
 import 'room_key_cache.dart';
@@ -100,6 +101,7 @@ class RoomMessageRouter {
 
       case ReadFrame(:final roomId, :final messageIds):
         ref.read(messageStoreProvider(roomId).notifier).markRead(messageIds);
+        unawaited(_persistRead(messageIds));
 
       case TypingFrame(:final roomId, :final typing):
         // 1:1 rooms: the only other member is the partner, so a relayed Typing
@@ -205,6 +207,11 @@ class RoomMessageRouter {
     );
   }
 
+  Future<void> _persistRead(List<String> ids) async {
+    final db = await ref.read(messageDbProvider.future);
+    await db.markRead(ids);
+  }
+
   void _upsertRoom(String roomId, String name, List<Member> members) {
     final current = ref.read(inboxStateProvider).rooms.toList();
     current.removeWhere((r) => r.roomId == roomId);
@@ -251,11 +258,13 @@ class RoomMessageRouter {
         ? const TextContent(cannotDecryptSentinel)
         : MessageContent.decode(plaintext);
     final store = ref.read(messageStoreProvider(f.roomId).notifier);
+    final db = await ref.read(messageDbProvider.future);
     // A reaction isn't a timeline bubble: apply it onto its target and stop.
     // The sender's own self-copy still rides the outbox, so drop that row on
     // echo just like a normal send (otherwise the drain resends it).
     if (content is ReactionContent) {
       store.applyReaction(content.targetId, f.from, content.emoji);
+      await db.applyReaction(content.targetId, f.from, content.emoji);
       if (f.clientMsgId != null) {
         final outbox = await ref.read(outboxStoreProvider.future);
         await outbox.remove(f.clientMsgId!);
@@ -269,6 +278,7 @@ class RoomMessageRouter {
     // on the sender's self-copy echo as a reaction.
     if (content is DeleteContent) {
       store.applyDelete(content.targetId, requestedBy: f.from);
+      await db.applyDelete(content.targetId, requestedBy: f.from);
       if (f.clientMsgId != null) {
         final outbox = await ref.read(outboxStoreProvider.future);
         await outbox.remove(f.clientMsgId!);
@@ -334,6 +344,7 @@ class RoomMessageRouter {
       final outbox = await ref.read(outboxStoreProvider.future);
       await outbox.remove(f.clientMsgId!);
       store.reconcile(f.clientMsgId!, msg);
+      await db.reconcile(f.clientMsgId!, msg);
     } else {
       // Sending ends typing: clear the partner's typing flag in the same
       // update that adds their message, so the typing bubble collapses and the
@@ -341,6 +352,7 @@ class RoomMessageRouter {
       // a separately-timed Typing:false frame) — which read as a flash.
       ref.read(typingProvider(f.roomId).notifier).setTyping(false);
       store.add(msg);
+      await db.upsert(msg, roomId: f.roomId);
       // `clientMsgId == null && !replayed` is precisely a live partner message
       // (my own live self-copy always carries a clientMsgId, handled above;
       // replays are covered by the open trigger and must not spam a MarkRead
