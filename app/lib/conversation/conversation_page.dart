@@ -173,6 +173,92 @@ class _EmojiComposerController extends TextEditingController {
   }
 }
 
+/// A message bubble's text: linkified (tappable URLs) with emoji runs sized up
+/// inline, the way iMessage shows emoji bigger than the words around them.
+///
+/// Stateful because each link needs a [TapGestureRecognizer], which must be
+/// disposed; building the spans once and rebuilding only when the body/styles
+/// change keeps recognizers from leaking on every parent rebuild.
+class _MessageBody extends StatefulWidget {
+  const _MessageBody({
+    required this.body,
+    required this.baseStyle,
+    required this.linkStyle,
+    required this.onOpenUrl,
+  });
+
+  final String body;
+  final TextStyle baseStyle;
+  final TextStyle linkStyle;
+  final void Function(String url) onOpenUrl;
+
+  @override
+  State<_MessageBody> createState() => _MessageBodyState();
+}
+
+class _MessageBodyState extends State<_MessageBody> {
+  final _recognizers = <TapGestureRecognizer>[];
+  late TextSpan _span;
+
+  @override
+  void initState() {
+    super.initState();
+    _span = _build();
+  }
+
+  @override
+  void didUpdateWidget(_MessageBody old) {
+    super.didUpdateWidget(old);
+    if (old.body != widget.body ||
+        old.baseStyle != widget.baseStyle ||
+        old.linkStyle != widget.linkStyle) {
+      _disposeRecognizers();
+      _span = _build();
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposeRecognizers();
+    super.dispose();
+  }
+
+  void _disposeRecognizers() {
+    for (final r in _recognizers) {
+      r.dispose();
+    }
+    _recognizers.clear();
+  }
+
+  TextSpan _build() {
+    final elements = linkify(
+      widget.body,
+      options: const LinkifyOptions(humanize: false, looseUrl: true),
+    );
+    final children = <InlineSpan>[];
+    for (final el in elements) {
+      if (el is LinkableElement) {
+        final recognizer = TapGestureRecognizer()
+          ..onTap = () => widget.onOpenUrl(el.url);
+        _recognizers.add(recognizer);
+        children.add(
+          TextSpan(
+            text: el.text,
+            style: widget.linkStyle,
+            recognizer: recognizer,
+          ),
+        );
+      } else {
+        children.addAll(_emojiAwareSpans(el.text, widget.baseStyle));
+      }
+    }
+    return TextSpan(children: children);
+  }
+
+  @override
+  Widget build(BuildContext context) => Text.rich(_span);
+}
+
 /// Conversation detail pane for a single room. Reads messages from
 /// `messageStoreProvider(roomId)` and the signed-in username from
 /// `accountProvider`. `onSend` is provided by the caller (inbox_shell) so
@@ -1455,45 +1541,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
-  /// Build the bubble body: linkified (tappable URLs) with emoji runs sized up
-  /// inline, the way iMessage shows emoji bigger than the words around them.
-  TextSpan _bodySpans(String body, TextStyle base, TextStyle linkStyle) {
-    final elements = linkify(
-      body,
-      options: const LinkifyOptions(humanize: false, looseUrl: true),
-    );
-    final children = <InlineSpan>[];
-    for (final el in elements) {
-      if (el is LinkableElement) {
-        children.add(
-          TextSpan(
-            text: el.text,
-            style: linkStyle,
-            recognizer: TapGestureRecognizer()..onTap = () => _openUrl(el.url),
-          ),
-        );
-      } else {
-        children.addAll(_emojiAwareSpans(el.text, base));
-      }
-    }
-    return TextSpan(children: children);
-  }
-
   Widget _bubbleBody(Msg m, bool mine, _Marker? marker) {
     final textColor = mine
         ? context.palette.bubbleUserText
         : context.palette.textPrimary;
-    final text = Text.rich(
-      _bodySpans(
-        m.body,
-        TextStyle(color: textColor, fontSize: _bodyFontSize),
-        TextStyle(
-          color: textColor,
-          fontSize: _bodyFontSize,
-          decoration: TextDecoration.underline,
-          decorationColor: textColor.withValues(alpha: 0.6),
-        ),
+    final text = _MessageBody(
+      body: m.body,
+      baseStyle: TextStyle(color: textColor, fontSize: _bodyFontSize),
+      linkStyle: TextStyle(
+        color: textColor,
+        fontSize: _bodyFontSize,
+        decoration: TextDecoration.underline,
+        decorationColor: textColor.withValues(alpha: 0.6),
       ),
+      onOpenUrl: _openUrl,
     );
     // Every bubble carries an hh:mm timestamp bottom-right; my bubbles add the
     // sent/sending marker just to the right of the time.
