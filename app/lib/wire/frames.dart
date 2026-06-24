@@ -235,6 +235,7 @@ sealed class RoomServerFrame {
           callId: json['call_id']! as String,
           from: json['from']! as String,
           offer: json['offer']! as String,
+          video: json['video'] == true,
         );
       case 'CallAnswer':
         return CallAnswerFrame(
@@ -444,11 +445,15 @@ class CallInviteFrame extends RoomServerFrame {
     required this.callId,
     required this.from,
     required this.offer,
+    this.video = false,
   });
   final String roomId;
   final String callId;
   final String from;
   final String offer;
+
+  /// Whether the caller started a video call (vs audio-only).
+  final bool video;
 }
 
 /// The partner accepted: [answer] is the encrypted SDP answer.
@@ -686,16 +691,22 @@ class CallInviteClientFrame {
     required this.roomId,
     required this.callId,
     required this.offer,
+    this.video = false,
   });
   final String roomId;
   final String callId;
   final String offer;
+
+  /// Whether this is a video call (vs audio-only). Not secret — only shapes the
+  /// callee's native CallKit screen on a cold wake.
+  final bool video;
 
   Map<String, Object?> toJson() => <String, Object?>{
     'kind': 'CallInvite',
     'room_id': roomId,
     'call_id': callId,
     'offer': offer,
+    'video': video,
   };
 }
 

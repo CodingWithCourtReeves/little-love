@@ -691,6 +691,28 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         ),
         actions: [
           IconButton(
+            key: const Key('video-call-button'),
+            icon: Container(
+              width: 34,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: context.palette.bgSurface.withValues(alpha: 0.7),
+              ),
+              child: Icon(
+                Icons.videocam,
+                color: context.palette.textMuted,
+                size: 20,
+              ),
+            ),
+            onPressed: () {
+              ref
+                  .read(callControllerProvider)
+                  .placeCall(widget.roomId, video: true);
+            },
+          ),
+          IconButton(
             key: const Key('call-button'),
             icon: Container(
               width: 34,

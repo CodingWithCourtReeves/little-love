@@ -151,10 +151,10 @@ void main() {
     await tester.pumpWidget(_app(c));
     await tester.pump();
 
-    // Call is now wired to place a real call; Video/Search remain stubbed.
-    await tester.tap(find.byKey(const Key('chat-info-video')));
+    // Call + Video are now wired to place real calls; Search remains stubbed.
+    await tester.tap(find.byKey(const Key('chat-info-search')));
     await tester.pump();
-    expect(find.text('Video calls are coming soon'), findsOneWidget);
+    expect(find.text('Search are coming soon'), findsOneWidget);
 
     // Let the toast's auto-dismiss timer + fade run out so it doesn't leak.
     await tester.pump(const Duration(seconds: 2));

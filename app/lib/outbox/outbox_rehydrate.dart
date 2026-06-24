@@ -108,8 +108,8 @@ Future<void> rehydrateOutbox({
         descriptor,
         null,
       ),
-      CallContent(:final outcome, :final durationS) => (
-        callLogSummary(outcome, durationS),
+      CallContent(:final outcome, :final durationS, :final video) => (
+        callLogSummary(outcome, durationS, video: video),
         null,
         null,
       ),

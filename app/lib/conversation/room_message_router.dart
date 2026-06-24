@@ -311,11 +311,11 @@ class RoomMessageRouter {
         sendStatus: sendStatus,
       ),
       // A call-log entry renders as a (currently text-style) timeline row.
-      CallContent(:final outcome, :final durationS) => Msg(
+      CallContent(:final outcome, :final durationS, :final video) => Msg(
         id: f.id,
         from: f.from,
         to: f.roomId,
-        body: callLogSummary(outcome, durationS),
+        body: callLogSummary(outcome, durationS, video: video),
         ts: f.ts,
         replayed: f.replayed,
         sendStatus: sendStatus,

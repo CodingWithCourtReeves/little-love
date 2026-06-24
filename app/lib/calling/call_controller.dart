@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -50,7 +51,18 @@ class CallController {
   String? _callId;
   String? _roomId;
   String? _peerUsername;
+  bool _video = false; // whether the current call is a video call
   DateTime? _startedAt;
+
+  // Latest remote stream + a relay that survives session recreation, so the
+  // video screen can render the partner's camera however late it subscribes.
+  MediaStream? _remoteStream;
+  final StreamController<MediaStream> _remoteStreamRelay =
+      StreamController<MediaStream>.broadcast();
+
+  /// Live debug stats line (TX/RX video resolution, fps, bitrate, limit reason)
+  /// for the on-screen overlay during a video call. Empty when no sample yet.
+  final ValueNotifier<String> debugStats = ValueNotifier<String>('');
   String? _pendingOffer; // encrypted offer awaiting CallKit accept (incoming)
   String?
   _pendingAcceptCallId; // accept tapped before the offer arrived (cold wake)
@@ -64,6 +76,16 @@ class CallController {
 
   static const _uuid = Uuid();
 
+  /// Native side-channel (shared with push) — used to tell iOS a video call is
+  /// active so it can default the audio route to the speaker on session activate.
+  static const _nativeChannel = MethodChannel('little_love/push');
+
+  void _setNativeVideoCall(bool active) {
+    _nativeChannel
+        .invokeMethod<void>('setVideoCallActive', active)
+        .catchError((_) {});
+  }
+
   LiveConnection? get _conn => _ref.read(liveConnectionProvider).valueOrNull;
 
   String? get _selfUsername => _ref.read(accountProvider).valueOrNull?.username;
@@ -71,10 +93,30 @@ class CallController {
   /// The partner's display name for the call UI (the only other room member).
   String get peerName => _peerUsername ?? 'Partner';
 
+  /// The local capture stream (mic + camera) for the self-preview, or null
+  /// before media starts.
+  MediaStream? get localStream => _session?.localStream;
+
+  /// The partner's stream once it arrives (null until their tracks land).
+  MediaStream? get remoteStream => _remoteStream;
+
+  /// Remote-stream updates for the video screen (replays nothing — read
+  /// [remoteStream] for the current value on subscribe).
+  Stream<MediaStream> get onRemoteStream => _remoteStreamRelay.stream;
+
+  /// Whether the local camera is actually capturing (false if denied / audio).
+  bool get hasLocalVideo => _session?.hasVideo ?? false;
+
+  /// Turn the local camera on/off mid-call.
+  void setCameraEnabled(bool enabled) => _session?.setCameraEnabled(enabled);
+
+  /// Flip between the front and back camera.
+  Future<void> switchCamera() async => _session?.switchCamera();
+
   // ── Public API ────────────────────────────────────────────────────────────
 
-  /// Place an outgoing call in [roomId].
-  Future<void> placeCall(String roomId) async {
+  /// Place an outgoing call in [roomId]. Pass [video] for a video call.
+  Future<void> placeCall(String roomId, {bool video = false}) async {
     if (state.value.phase != CallPhase.idle) return;
     final self = _selfUsername;
     final rp = _roomAndPeer(roomId, self);
@@ -85,29 +127,40 @@ class CallController {
     _callId = callId;
     _roomId = roomId;
     _peerUsername = peer.username;
+    _video = video;
     _startedAt = DateTime.now().toUtc();
-    state.value = state.value.placeCall(callId);
+    state.value = state.value.placeCall(callId, video: video);
 
     _sigKey = await _deriveSigKey(room, peer, callId);
     if (_sigKey == null) return _fail();
 
     final ice = await fetchIceServers(_conn!, callId);
-    _session = CallSession(iceServers: ice);
+    _session = CallSession(iceServers: ice, video: video);
     _wireSession();
 
     final offer = await _session!.createOffer();
+    // Asked for video but the camera was denied/unavailable → the session fell
+    // back to audio; advertise (and render) the call as audio to match.
+    if (video && !_session!.hasVideo) {
+      _video = false;
+      if (state.value.phase != CallPhase.ended) {
+        state.value = state.value.markAudioOnly();
+      }
+    }
+    _setNativeVideoCall(_video);
     final encOffer = await encryptSignal(_sigKey!, offer);
     _conn?.send(
       CallInviteClientFrame(
         roomId: roomId,
         callId: callId,
         offer: encOffer,
+        video: _video,
       ).toJson(),
     );
 
     // Native outgoing-call UI.
     await FlutterCallkitIncoming.startCall(
-      _callKitParams(callId, peer.username),
+      _callKitParams(callId, peer.username, video: _video),
     );
     // Caller-side ringback until the partner answers (or we give up / they decline).
     unawaited(_ringback.start());
@@ -138,6 +191,8 @@ class CallController {
     _ringTimer?.cancel();
     _ringback.stop();
     _session?.dispose();
+    _remoteStreamRelay.close();
+    debugStats.dispose();
     state.dispose();
   }
 
@@ -196,7 +251,7 @@ class CallController {
     if (_sigKey == null) return _fail();
 
     final ice = await fetchIceServers(_conn!, _callId!);
-    _session = CallSession(iceServers: ice);
+    _session = CallSession(iceServers: ice, video: _video);
     _wireSession();
 
     // `offer` is the encrypted wire string — decrypt to the raw SDP before
@@ -238,8 +293,9 @@ class CallController {
         :final callId,
         :final from,
         :final offer,
+        :final video,
       ):
-        await _onIncomingInvite(roomId, callId, from, offer);
+        await _onIncomingInvite(roomId, callId, from, offer, video);
       case CallAnswerFrame(:final callId, :final answer):
         if (callId != _callId || _sigKey == null) return;
         // The partner picked up — stop the dialing tone before any call audio
@@ -270,6 +326,7 @@ class CallController {
     String callId,
     String from,
     String offer,
+    bool video,
   ) async {
     // Glare: if we're already dialing our own call, the deterministic tiebreak
     // decides. If we lose, cancel ours and accept theirs; if we win, ignore.
@@ -294,14 +351,16 @@ class CallController {
     _callId = callId;
     _roomId = roomId;
     _peerUsername = from;
+    _video = video;
+    _setNativeVideoCall(video);
     _startedAt = DateTime.now().toUtc();
     _pendingOffer = offer;
-    state.value = const CallState.idle().incoming(callId);
+    state.value = const CallState.idle().incoming(callId, video: video);
 
     // Show the native incoming-call screen (also fired by the VoIP push on a
     // cold wake; same call_id de-dupes).
     await FlutterCallkitIncoming.showCallkitIncoming(
-      _callKitParams(callId, from),
+      _callKitParams(callId, from, video: video),
     );
     _startRingTimer();
 
@@ -317,6 +376,13 @@ class CallController {
 
   void _wireSession() {
     final session = _session!;
+    // Relay the partner's stream out to the video screen (and keep the latest
+    // for late subscribers).
+    session.onRemoteStream.listen((s) {
+      _remoteStream = s;
+      _remoteStreamRelay.add(s);
+    });
+    session.onStats.listen((s) => debugStats.value = s);
     session.onLocalCandidate.listen((c) async {
       final roomId = _roomId;
       final callId = _callId;
@@ -442,6 +508,7 @@ class CallController {
       outcome: outcome,
       duration: outcome == CallOutcome.completed ? duration : Duration.zero,
       startedAt: startedAt,
+      video: _video,
     ).encode();
     final me = await _ref.read(currentIdentityProvider.future);
     final clientMsgId = _uuid.v4();
@@ -475,6 +542,10 @@ class CallController {
     _callId = null;
     _roomId = null;
     _peerUsername = null;
+    _video = false;
+    _setNativeVideoCall(false);
+    _remoteStream = null;
+    debugStats.value = '';
     _startedAt = null;
     _pendingOffer = null;
     _pendingAcceptCallId = null;
@@ -482,13 +553,21 @@ class CallController {
     unawaited(_ringback.stop());
   }
 
-  CallKitParams _callKitParams(String callId, String caller) => CallKitParams(
+  CallKitParams _callKitParams(
+    String callId,
+    String caller, {
+    bool video = false,
+  }) => CallKitParams(
     id: callId,
     nameCaller: caller,
     handle: caller,
-    type: 0, // audio
-    extra: <String, dynamic>{'room_id': _roomId, 'call_id': callId},
-    ios: const IOSParams(handleType: 'generic', supportsVideo: false),
+    type: video ? 1 : 0, // 1 = video, 0 = audio
+    extra: <String, dynamic>{
+      'room_id': _roomId,
+      'call_id': callId,
+      'video': video,
+    },
+    ios: IOSParams(handleType: 'generic', supportsVideo: video),
   );
 
   // Candidate JSON is stringified to ride inside the encrypted signaling payload.

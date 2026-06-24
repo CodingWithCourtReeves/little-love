@@ -32,6 +32,9 @@ pub struct PushMessage {
     /// Carried as custom data on a Voip push so the client ties the CallKit UI
     /// to the incoming call. `None` for Alert pushes.
     pub call_id: Option<String>,
+    /// Whether a Voip push is for a video call → the native CallKit screen shows
+    /// the video affordance. Ignored for Alert pushes.
+    pub video: bool,
 }
 
 /// The `a2` push-type for a `PushKind`.
@@ -172,6 +175,12 @@ impl PushSender for ApnsSender {
         if let Some(call_id) = &msg.call_id {
             if let Err(e) = payload.add_custom_data("call_id", call_id) {
                 warn!("push: add_custom_data call_id failed: {e}");
+                return SendOutcome::Transient;
+            }
+            // Only meaningful alongside a call_id (Voip). Lets the woken client
+            // show the native video-call screen before any SDP is decrypted.
+            if let Err(e) = payload.add_custom_data("video", &msg.video) {
+                warn!("push: add_custom_data video failed: {e}");
                 return SendOutcome::Transient;
             }
         }

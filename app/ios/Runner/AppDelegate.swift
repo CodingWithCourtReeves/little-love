@@ -15,6 +15,12 @@ import flutter_callkit_incoming
   /// A room id captured from a notification tap that cold-launched the app,
   /// held until Dart asks for it once the inbox is ready.
   private var pendingLaunchRoomId: String?
+  /// Whether the current call is a video call. Set by Dart before the call
+  /// connects; read in `didActivateAudioSession` to default the route to the
+  /// speaker (hands-free) the instant CallKit activates the session — doing it
+  /// here is the only place that wins the race against CallKit, which resets the
+  /// route to the earpiece when it activates. The user can still toggle after.
+  private var videoCallActive = false
   /// PushKit registry for VoIP (call) wakes — distinct from the alert APNs
   /// registration above. Retained for the app's lifetime.
   private var voipRegistry: PKPushRegistry?
@@ -57,6 +63,18 @@ import flutter_callkit_incoming
     let rtc = RTCAudioSession.sharedInstance()
     rtc.audioSessionDidActivate(audioSession)
     rtc.isAudioEnabled = true
+    // Video calls are hands-free: force the speaker now that CallKit has
+    // activated the session. This is the deterministic spot — a Dart-side
+    // setSpeakerphoneOn during dialing gets reset by CallKit on activation.
+    if videoCallActive {
+      rtc.lockForConfiguration()
+      do {
+        try rtc.overrideOutputAudioPort(.speaker)
+      } catch {
+        NSLog("little_love: speaker override failed: \(error)")
+      }
+      rtc.unlockForConfiguration()
+    }
   }
 
   func didDeactivateAudioSession(_ audioSession: AVAudioSession) {
@@ -105,6 +123,10 @@ import flutter_callkit_incoming
     let dict = payload.dictionaryPayload
     let callId = (dict["call_id"] as? String) ?? UUID().uuidString
     let roomId = (dict["room_id"] as? String) ?? ""
+    // Whether this is a video call — shapes the native CallKit screen (the green
+    // video affordance) before any SDP is decrypted. Not secret; sent as plain
+    // custom data on the VoIP push.
+    let isVideo = (dict["video"] as? Bool) ?? false
     // Resolve the caller name LOCALLY (never from the push) to keep call
     // metadata off APNs — E2EE/privacy posture, same as our content-free message
     // pushes. A couple has exactly one partner, so the app stashes their name in
@@ -117,9 +139,9 @@ import flutter_callkit_incoming
       "id": callId,
       "nameCaller": caller,
       "handle": caller,
-      "type": 0,  // 0 = audio call
-      "extra": ["room_id": roomId, "call_id": callId],
-      "ios": ["handleType": "generic", "supportsVideo": false],
+      "type": isVideo ? 1 : 0,  // 1 = video, 0 = audio
+      "extra": ["room_id": roomId, "call_id": callId, "video": isVideo],
+      "ios": ["handleType": "generic", "supportsVideo": isVideo],
     ]
     SwiftFlutterCallkitIncomingPlugin.sharedInstance?.showCallkitIncoming(
       flutter_callkit_incoming.Data(args: info), fromPushKit: true)
@@ -154,6 +176,11 @@ import flutter_callkit_incoming
           UserDefaults(suiteName: "group.dev.littlelove.littlelove")?
             .set(key, forKey: "selected_palette")
         }
+        result(nil)
+      case "setVideoCallActive":
+        // Dart flags a video call so didActivateAudioSession can default to the
+        // speaker. Cleared when the call ends.
+        self.videoCallActive = (call.arguments as? Bool) ?? false
         result(nil)
       case "setPartnerName":
         // Stash the partner's display name locally so a VoIP-wake CallKit screen
