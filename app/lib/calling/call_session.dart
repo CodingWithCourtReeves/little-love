@@ -44,6 +44,20 @@ class CallSession {
   MediaStream? _localStream;
   bool _hasVideo = false;
 
+  // Peer-to-peer privacy channel (DTLS-encrypted; never touches the server).
+  RTCDataChannel? _privacy;
+  final _privacyCtl = StreamController<String>.broadcast();
+
+  // Camera enable bookkeeping: the user's intent vs a forced pause (while the
+  // partner is screen-recording). The track follows the force when set, else
+  // the user's intent.
+  bool _cameraIntent = true;
+  bool _cameraForcedOff = false;
+
+  /// Inbound privacy events from the peer (raw wire strings; decode with
+  /// [PrivacyEvent.decode]).
+  Stream<String> get onPrivacyEvent => _privacyCtl.stream;
+
   // Debug telemetry (video calls): periodic getStats sampling.
   Timer? _statsTimer;
   int _lastBytesSent = 0;
@@ -59,6 +73,12 @@ class CallSession {
   final _connectionStates =
       StreamController<RTCPeerConnectionState>.broadcast();
   final _remoteStreams = StreamController<MediaStream>.broadcast();
+  final _remoteVideoMuted = StreamController<bool>.broadcast();
+
+  /// Whether the partner's video track is muted (their camera off / paused) —
+  /// the UI shows a cover instead of the frozen last frame. Fires false on
+  /// unmute.
+  Stream<bool> get onRemoteVideoMuted => _remoteVideoMuted.stream;
 
   /// Local ICE candidates to trickle to the peer (encode + send as CallIce).
   Stream<RTCIceCandidate> get onLocalCandidate => _localCandidates.stream;
@@ -90,9 +110,30 @@ class CallSession {
       if (candidate.candidate != null) _localCandidates.add(candidate);
     };
     pc.onConnectionState = (state) => _connectionStates.add(state);
-    // Surface the partner's stream for the remote renderer.
+    // Surface the partner's stream for the remote renderer, and track when their
+    // video mutes (camera off) so the UI can cover the frozen frame.
     pc.onTrack = (event) {
       if (event.streams.isNotEmpty) _remoteStreams.add(event.streams.first);
+      if (event.track.kind == 'video') {
+        event.track.onMute = () {
+          if (!_remoteVideoMuted.isClosed) _remoteVideoMuted.add(true);
+        };
+        event.track.onUnMute = () {
+          if (!_remoteVideoMuted.isClosed) _remoteVideoMuted.add(false);
+        };
+      }
+    };
+
+    // Negotiated privacy channel — both sides create it with the same id before
+    // SDP, so no onDataChannel asymmetry. Carries screenshot/recording events
+    // peer-to-peer (E2EE via DTLS); must exist before the offer/answer so the
+    // m=application line is negotiated.
+    final dcInit = RTCDataChannelInit()
+      ..negotiated = true
+      ..id = 1;
+    _privacy = await pc.createDataChannel('privacy', dcInit);
+    _privacy!.onMessage = (msg) {
+      if (!_privacyCtl.isClosed) _privacyCtl.add(msg.text);
     };
 
     final stream = await _capture();
@@ -285,11 +326,36 @@ class CallSession {
   }
 
   /// Turn the local camera on/off (stops sending video without renegotiating).
+  /// Records the user's intent; a privacy force-off (partner recording) wins
+  /// while active, and the intent is restored when it lifts.
   void setCameraEnabled(bool enabled) {
+    _cameraIntent = enabled;
+    if (_cameraForcedOff) return;
+    _applyCameraEnabled(enabled);
+  }
+
+  /// Force the camera off while the partner is screen-recording (so their
+  /// recording captures nothing), restoring the user's intent when it stops.
+  void forceCameraOff(bool forced) {
+    if (forced == _cameraForcedOff) return;
+    _cameraForcedOff = forced;
+    _applyCameraEnabled(forced ? false : _cameraIntent);
+  }
+
+  void _applyCameraEnabled(bool enabled) {
     for (final t
         in _localStream?.getVideoTracks() ?? const <MediaStreamTrack>[]) {
       t.enabled = enabled;
     }
+  }
+
+  /// Send a privacy event to the peer (no-op if the channel isn't open yet).
+  void sendPrivacy(String text) {
+    final ch = _privacy;
+    if (ch == null || ch.state != RTCDataChannelState.RTCDataChannelOpen) {
+      return;
+    }
+    ch.send(RTCDataChannelMessage(text));
   }
 
   /// Flip between the front and back camera.
@@ -302,6 +368,9 @@ class CallSession {
   Future<void> dispose() async {
     _statsTimer?.cancel();
     await _statsCtl.close();
+    await _privacy?.close();
+    await _privacyCtl.close();
+    await _remoteVideoMuted.close();
     await _localStream?.dispose();
     await _pc?.close();
     await _pc?.dispose();

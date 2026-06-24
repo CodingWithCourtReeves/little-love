@@ -20,6 +20,7 @@ import '../outbox/outbox_store.dart';
 import '../wire/frames.dart';
 import '../wire/live_connection.dart';
 import 'call_log.dart';
+import 'call_privacy.dart';
 import 'call_session.dart';
 import 'call_signaling.dart';
 import 'call_state.dart';
@@ -38,6 +39,50 @@ class CallController {
   CallController(this._ref) {
     _attachCallKit();
     _attachFrames();
+    _privacyChannel.setMethodCallHandler(_onLocalPrivacy);
+  }
+
+  /// A capture happened on THIS device (from native): relay it to the partner
+  /// over the P2P privacy channel so their app can react.
+  Future<dynamic> _onLocalPrivacy(MethodCall call) async {
+    switch (call.method) {
+      case 'localScreenshot':
+        _session?.sendPrivacy(
+          const PrivacyEvent(PrivacyKind.screenshot).encode(),
+        );
+      case 'localRecording':
+        _session?.sendPrivacy(
+          PrivacyEvent(
+            PrivacyKind.recording,
+            active: call.arguments == true,
+          ).encode(),
+        );
+    }
+    return null;
+  }
+
+  /// A capture event arrived FROM the partner over the data channel.
+  void _onPeerPrivacy(String raw) {
+    final ev = PrivacyEvent.decode(raw);
+    if (ev == null) return;
+    switch (ev.kind) {
+      case PrivacyKind.screenshot:
+        _flashNotice('$peerName took a screenshot');
+      case PrivacyKind.recording:
+        partnerRecording.value = ev.active;
+        // Pause our outgoing camera while they record so it captures nothing.
+        _session?.forceCameraOff(ev.active);
+        if (ev.active) _flashNotice('$peerName is recording');
+    }
+  }
+
+  void _flashNotice(String text) {
+    privacyNotice.value = text;
+    _noticeTimer?.cancel();
+    _noticeTimer = Timer(
+      const Duration(seconds: 4),
+      () => privacyNotice.value = null,
+    );
   }
 
   final Ref _ref;
@@ -63,6 +108,22 @@ class CallController {
   /// Live debug stats line (TX/RX video resolution, fps, bitrate, limit reason)
   /// for the on-screen overlay during a video call. Empty when no sample yet.
   final ValueNotifier<String> debugStats = ValueNotifier<String>('');
+
+  /// True while the PARTNER is screen-recording. Drives a persistent banner and
+  /// force-pauses our outgoing camera so their recording captures nothing.
+  final ValueNotifier<bool> partnerRecording = ValueNotifier<bool>(false);
+
+  /// A transient privacy notice ("X took a screenshot"); null when nothing to
+  /// show. Auto-clears after a few seconds.
+  final ValueNotifier<String?> privacyNotice = ValueNotifier<String?>(null);
+  Timer? _noticeTimer;
+
+  /// True when the partner's camera is off/paused — the video screen shows a
+  /// clean cover instead of their frozen last frame.
+  final ValueNotifier<bool> peerVideoOff = ValueNotifier<bool>(false);
+
+  /// Native → Dart channel: capture-privacy events detected on THIS device.
+  static const _privacyChannel = MethodChannel('little_love/call_privacy');
   String? _pendingOffer; // encrypted offer awaiting CallKit accept (incoming)
   String?
   _pendingAcceptCallId; // accept tapped before the offer arrived (cold wake)
@@ -192,7 +253,11 @@ class CallController {
     _ringback.stop();
     _session?.dispose();
     _remoteStreamRelay.close();
+    _noticeTimer?.cancel();
     debugStats.dispose();
+    partnerRecording.dispose();
+    privacyNotice.dispose();
+    peerVideoOff.dispose();
     state.dispose();
   }
 
@@ -383,6 +448,8 @@ class CallController {
       _remoteStreamRelay.add(s);
     });
     session.onStats.listen((s) => debugStats.value = s);
+    session.onPrivacyEvent.listen(_onPeerPrivacy);
+    session.onRemoteVideoMuted.listen((m) => peerVideoOff.value = m);
     session.onLocalCandidate.listen((c) async {
       final roomId = _roomId;
       final callId = _callId;
@@ -546,6 +613,10 @@ class CallController {
     _setNativeVideoCall(false);
     _remoteStream = null;
     debugStats.value = '';
+    partnerRecording.value = false;
+    privacyNotice.value = null;
+    peerVideoOff.value = false;
+    _noticeTimer?.cancel();
     _startedAt = null;
     _pendingOffer = null;
     _pendingAcceptCallId = null;

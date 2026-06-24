@@ -21,6 +21,9 @@ import flutter_callkit_incoming
   /// here is the only place that wins the race against CallKit, which resets the
   /// route to the earpiece when it activates. The user can still toggle after.
   private var videoCallActive = false
+  /// Native → Dart channel for capture-privacy events (screenshot / screen
+  /// recording) detected on THIS device during a video call.
+  private var callPrivacyChannel: FlutterMethodChannel?
   /// PushKit registry for VoIP (call) wakes — distinct from the alert APNs
   /// registration above. Retained for the app's lifetime.
   private var voipRegistry: PKPushRegistry?
@@ -179,8 +182,15 @@ import flutter_callkit_incoming
         result(nil)
       case "setVideoCallActive":
         // Dart flags a video call so didActivateAudioSession can default to the
-        // speaker. Cleared when the call ends.
-        self.videoCallActive = (call.arguments as? Bool) ?? false
+        // speaker. Cleared when the call ends. Also gates capture-privacy
+        // observers to the duration of a video call.
+        let active = (call.arguments as? Bool) ?? false
+        self.videoCallActive = active
+        if active {
+          self.startCaptureObservers()
+        } else {
+          self.stopCaptureObservers()
+        }
         result(nil)
       case "setPartnerName":
         // Stash the partner's display name locally so a VoIP-wake CallKit screen
@@ -213,6 +223,44 @@ import flutter_callkit_incoming
       }
     }
     self.pushChannel = channel
+
+    // Native → Dart privacy channel (screenshot / screen-recording detection).
+    self.callPrivacyChannel = FlutterMethodChannel(
+      name: "little_love/call_privacy", binaryMessenger: messenger)
+  }
+
+  // MARK: - Capture privacy (screenshot + screen recording)
+
+  /// Start watching for this device capturing the call — only while a video call
+  /// is active. Screenshots can only be detected (not blocked); screen recording
+  /// is reported as it starts/stops so the partner can pause their video.
+  private func startCaptureObservers() {
+    let nc = NotificationCenter.default
+    nc.addObserver(
+      self, selector: #selector(onScreenshot),
+      name: UIApplication.userDidTakeScreenshotNotification, object: nil)
+    nc.addObserver(
+      self, selector: #selector(onCaptureChanged),
+      name: UIScreen.capturedDidChangeNotification, object: nil)
+    // Report the current state immediately — recording may already be running
+    // when the call connects.
+    onCaptureChanged()
+  }
+
+  private func stopCaptureObservers() {
+    let nc = NotificationCenter.default
+    nc.removeObserver(
+      self, name: UIApplication.userDidTakeScreenshotNotification, object: nil)
+    nc.removeObserver(
+      self, name: UIScreen.capturedDidChangeNotification, object: nil)
+  }
+
+  @objc private func onScreenshot() {
+    callPrivacyChannel?.invokeMethod("localScreenshot", arguments: nil)
+  }
+
+  @objc private func onCaptureChanged() {
+    callPrivacyChannel?.invokeMethod("localRecording", arguments: UIScreen.main.isCaptured)
   }
 
   private func requestPermission(_ result: @escaping FlutterResult) {

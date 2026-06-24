@@ -332,6 +332,10 @@ class _VideoCallViewState extends State<_VideoCallView> {
   // Self-preview position (top-right by default); dragged within the screen.
   Offset? _pipPos;
 
+  // Pinch-to-zoom / pan transform for the remote video (display-side only —
+  // doesn't change what's sent). Double-tap resets to fit.
+  final TransformationController _zoom = TransformationController();
+
   Timer? _ticker;
   DateTime? _connectedAt;
   Duration _elapsed = Duration.zero;
@@ -401,6 +405,7 @@ class _VideoCallViewState extends State<_VideoCallView> {
   void dispose() {
     _ticker?.cancel();
     _remoteSub?.cancel();
+    _zoom.dispose();
     _local.srcObject = null;
     _remote.srcObject = null;
     _local.dispose();
@@ -430,18 +435,36 @@ class _VideoCallViewState extends State<_VideoCallView> {
           return Stack(
             fit: StackFit.expand,
             children: [
-              // Remote video (or avatar fallback while it isn't flowing).
-              if (_ready && _remoteHasVideo)
-                RTCVideoView(
-                  _remote,
-                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                )
-              else
-                _AvatarBackdrop(
-                  name: widget.name,
-                  avatarFile: widget.avatarFile,
-                  accent: accent,
-                ),
+              // Remote video, or a clean avatar cover when it isn't flowing yet
+              // or the partner's camera is off (instead of a frozen last frame).
+              // Pinch to zoom / drag to pan; double-tap to reset to fit.
+              ValueListenableBuilder<bool>(
+                valueListenable: widget.controller.peerVideoOff,
+                builder: (context, peerOff, _) {
+                  if (_ready && _remoteHasVideo && !peerOff) {
+                    return GestureDetector(
+                      onDoubleTap: () => _zoom.value = Matrix4.identity(),
+                      child: InteractiveViewer(
+                        transformationController: _zoom,
+                        minScale: 1.0,
+                        maxScale: 5.0,
+                        clipBehavior: Clip.hardEdge,
+                        child: RTCVideoView(
+                          _remote,
+                          objectFit:
+                              RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                        ),
+                      ),
+                    );
+                  }
+                  return _AvatarBackdrop(
+                    name: widget.name,
+                    avatarFile: widget.avatarFile,
+                    accent: accent,
+                    subtitle: peerOff ? 'Camera off' : null,
+                  );
+                },
+              ),
 
               // Debug stats readout (TX/RX resolution · fps · bitrate · limit).
               // Debug builds only — gated out of release.
@@ -500,6 +523,31 @@ class _VideoCallViewState extends State<_VideoCallView> {
                 ),
               ),
 
+              // Privacy banners: persistent while the partner records (our
+              // camera is force-paused), plus a transient screenshot notice.
+              Positioned(
+                top: pad.top + 72,
+                left: 16,
+                right: 16,
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: widget.controller.partnerRecording,
+                  builder: (context, recording, _) {
+                    return ValueListenableBuilder<String?>(
+                      valueListenable: widget.controller.privacyNotice,
+                      builder: (context, notice, _) {
+                        final text = recording
+                            ? '${widget.name} is recording · your camera is hidden'
+                            : notice;
+                        if (text == null) return const SizedBox.shrink();
+                        return Center(
+                          child: _PrivacyBanner(text: text, danger: recording),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+
               // Draggable self-preview.
               if (_ready)
                 Positioned(
@@ -514,21 +562,32 @@ class _VideoCallViewState extends State<_VideoCallView> {
                     onPanUpdate: (d) => setState(() => _pipPos = pip + d.delta),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(16),
-                      child: _showSelfPreview
-                          ? RTCVideoView(
+                      // Reactive to the recording force-pause: cover the preview
+                      // instead of leaving a frozen self-frame.
+                      child: ValueListenableBuilder<bool>(
+                        valueListenable: widget.controller.partnerRecording,
+                        builder: (context, recording, _) {
+                          if (_showSelfPreview && !recording) {
+                            return RTCVideoView(
                               _local,
                               mirror: true,
                               objectFit: RTCVideoViewObjectFit
                                   .RTCVideoViewObjectFitCover,
-                            )
-                          : Container(
-                              color: Colors.black.withValues(alpha: 0.55),
-                              child: const Icon(
-                                Icons.videocam_off,
-                                color: Colors.white70,
-                                size: 30,
-                              ),
+                            );
+                          }
+                          return Container(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            alignment: Alignment.center,
+                            child: Icon(
+                              recording
+                                  ? Icons.shield_outlined
+                                  : Icons.videocam_off,
+                              color: Colors.white70,
+                              size: 28,
                             ),
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ),
@@ -620,6 +679,49 @@ class _VideoCallViewState extends State<_VideoCallView> {
   }
 }
 
+/// A capture-privacy banner: a red persistent pill while the partner records, or
+/// a neutral transient pill for a screenshot notice.
+class _PrivacyBanner extends StatelessWidget {
+  const _PrivacyBanner({required this.text, this.danger = false});
+  final String text;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: danger
+            ? const Color(0xFFC0455B).withValues(alpha: 0.94)
+            : Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            danger ? Icons.fiber_manual_record : Icons.photo_camera,
+            size: 15,
+            color: Colors.white,
+          ),
+          const SizedBox(width: 7),
+          Flexible(
+            child: Text(
+              text,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// The gradient + breathing-avatar backdrop shown behind a video call until the
 /// partner's camera is on screen (matches the voice-call palette).
 class _AvatarBackdrop extends StatelessWidget {
@@ -627,10 +729,14 @@ class _AvatarBackdrop extends StatelessWidget {
     required this.name,
     required this.avatarFile,
     required this.accent,
+    this.subtitle,
   });
   final String name;
   final File? avatarFile;
   final Color accent;
+
+  /// Optional line under the name (e.g. "Camera off").
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -670,6 +776,28 @@ class _AvatarBackdrop extends StatelessWidget {
                 color: Color(0xFFF3ECF1),
               ),
             ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.videocam_off,
+                    size: 15,
+                    color: Color(0x99F3ECF1),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    subtitle!,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      color: Color(0x99F3ECF1),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
