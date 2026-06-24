@@ -60,7 +60,7 @@ dependencies:
   video_player: ^2.11.1
   gal: ^2.3.2
   url_launcher: ^6.3.0
-  flutter_linkify: ^6.0.0
+  linkify: ^5.0.0
   html: ^0.15.4
   shared_preferences: ^2.3.2
   app_links: ^6.3.0
