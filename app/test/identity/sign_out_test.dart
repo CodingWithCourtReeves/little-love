@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/conversation/message_db.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/keystore.dart';
 import 'package:littlelove/identity/providers.dart';
@@ -11,6 +12,7 @@ import 'package:littlelove/identity/sign_out.dart';
 import 'package:littlelove/inbox/read_state_store.dart';
 import 'package:littlelove/outbox/outbox_store.dart';
 import 'package:littlelove/pairing/deep_link.dart';
+import 'package:littlelove/wire/message.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Pure-async stores (no `dart:io`): real file I/O never completes inside the
@@ -69,6 +71,32 @@ class _GatedOutbox implements OutboxStore {
   }) async {}
 }
 
+/// Records whether sign-out wiped the local message store. Like the outbox,
+/// the message DB is device-global (not account-scoped), so it MUST be cleared
+/// or a new account on this device could read the previous user's decrypted
+/// messages.
+class _FakeMessageDb implements MessageDb {
+  bool cleared = false;
+
+  @override
+  Future<void> clear() async => cleared = true;
+
+  @override
+  Future<void> upsert(Msg msg, {required String roomId}) async {}
+  @override
+  Future<List<Msg>> messagesFor(String roomId) async => const [];
+  @override
+  Future<void> reconcile(String clientMsgId, Msg server) async {}
+  @override
+  Future<void> applyDelete(String targetId, {required String requestedBy}) async {}
+  @override
+  Future<void> applyReaction(String t, String u, String e) async {}
+  @override
+  Future<void> markRead(List<String> ids) async {}
+  @override
+  Future<String?> highWaterMark(String roomId) async => null;
+}
+
 /// Mount a trivial Consumer purely to capture a real [WidgetRef] for
 /// [signOut], which the production caller (HomeScreen) passes from a widget.
 Future<WidgetRef> _mountRef(WidgetTester t, List<Override> overrides) async {
@@ -95,11 +123,12 @@ void main() {
   // zone (real platform-channel I/O never completes here).
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  List<Override> baseOverrides(OutboxStore outbox) => [
+  List<Override> baseOverrides(OutboxStore outbox, MessageDb messageDb) => [
     keystoreProvider.overrideWithValue(InMemoryKeystore()),
     accountLocalStoreProvider.overrideWithValue(_NoopAccountStore()),
     readStateStoreProvider.overrideWithValue(_NoopReadStateStore()),
     outboxStoreProvider.overrideWith((_) async => outbox),
+    messageDbProvider.overrideWith((_) async => messageDb),
   ];
 
   testWidgets('signOut does not complete until the outbox clear resolves', (
@@ -107,7 +136,7 @@ void main() {
   ) async {
     final gate = Completer<void>();
     final outbox = _GatedOutbox(gate.future);
-    final ref = await _mountRef(t, baseOverrides(outbox));
+    final ref = await _mountRef(t, baseOverrides(outbox, _FakeMessageDb()));
 
     var done = false;
     final fut = signOut(ref).then((_) => done = true);
@@ -127,9 +156,22 @@ void main() {
     expect(done, isTrue);
   });
 
+  testWidgets('signOut clears the local message store', (t) async {
+    final messageDb = _FakeMessageDb();
+    final ref = await _mountRef(
+      t,
+      baseOverrides(_GatedOutbox(Future<void>.value()), messageDb),
+    );
+
+    await signOut(ref);
+    await t.pumpAndSettle();
+
+    expect(messageDb.cleared, isTrue);
+  });
+
   testWidgets('signOut preserves a captured pair-link code', (t) async {
     final outbox = _GatedOutbox(Future<void>.value());
-    final ref = await _mountRef(t, baseOverrides(outbox));
+    final ref = await _mountRef(t, baseOverrides(outbox, _FakeMessageDb()));
 
     // The invitee flow is "tap /pair/<code> link → sign out of the old account
     // → sign up → auto-pair". The cold-launch link is pulled from the native
