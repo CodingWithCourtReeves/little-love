@@ -26,7 +26,10 @@
   if (toggle) {
     toggle.addEventListener("click", () => {
       const dark = root.classList.contains("theme-dark");
-      mode = dark ? "light" : "dark"; // explicit flip from whatever's showing
+      const want = dark ? "light" : "dark";
+      // If the chosen appearance already matches the system preference, store
+      // "auto" so the site keeps following the OS rather than being pinned.
+      mode = want === (sysDark.matches ? "dark" : "light") ? "auto" : want;
       localStorage.setItem(KEY, mode);
       apply(mode);
     });
@@ -76,7 +79,7 @@
       ev.preventDefault();
       const data = Object.fromEntries(new FormData(form).entries());
       if (data.company) return; // honeypot tripped, silently drop
-      if (!data.email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(data.email)) {
+      if (!data.email || !/^[^\s@,<>"';]+@[^\s@,<>"';]+\.[^\s@,<>"';]+$/.test(data.email)) {
         return setStatus("That email doesn't look right. Mind checking it?", true);
       }
       if (!data.age) {

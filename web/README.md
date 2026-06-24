@@ -48,6 +48,15 @@ Connect the repo in the Cloudflare dashboard (or `npx wrangler pages deploy web`
 Apex `littlelove.dev` → Cloudflare Pages (see `infra/cloudflare/dns.tf`).
 `api.littlelove.dev` is unrelated and stays gray-cloud DNS-only.
 
+### Rate-limit the contact endpoint (required before/at launch)
+
+`POST /api/contact` is public and sends mail via Resend, so it must be rate
+limited at the edge or it can be abused to burn the Resend quota. Add a
+Cloudflare rate-limiting rule on the path `/api/contact` (e.g. ~5 requests per
+minute per IP, action: block). The function also rejects requests whose `Origin`
+isn't `littlelove.dev`, but that is defense-in-depth, not a substitute for the
+edge rule.
+
 ## Dropping in real app GIFs
 
 The two phones in the "Every way to be together" section are CSS-rendered mocks

@@ -20,6 +20,18 @@ const escapeHtml = (s) =>
   );
 
 export async function onRequestPost({ request, env }) {
+  // Cheap defense-in-depth: reject requests from origins that aren't ours.
+  // (Not a substitute for an edge rate-limit rule on /api/contact, which is the
+  // real abuse control. See web/README.md.)
+  const origin = request.headers.get("Origin");
+  if (origin) {
+    let host = "";
+    try { host = new URL(origin).hostname; } catch {}
+    const ok = host === "littlelove.dev" || host.endsWith(".littlelove.dev")
+      || host.endsWith(".pages.dev") || host === "localhost";
+    if (!ok) return json(403, { error: "Forbidden" });
+  }
+
   let data;
   try {
     data = await request.json();
@@ -33,7 +45,10 @@ export async function onRequestPost({ request, env }) {
   const email = (data.email || "").trim();
   const message = (data.message || "").trim().slice(0, 4000);
 
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+  // Reject commas, angle brackets, quotes, semicolons, and whitespace so the
+  // value can't inject a second address or a display name into the Reply-To
+  // header when handed to Resend.
+  if (!/^[^\s@,<>"';]+@[^\s@,<>"';]+\.[^\s@,<>"';]+$/.test(email)) {
     return json(400, { error: "Invalid email" });
   }
 
