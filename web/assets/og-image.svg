@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1d1320"/>
+      <stop offset="1" stop-color="#181019"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="78%" cy="28%" r="55%">
+      <stop offset="0" stop-color="#A04A6A" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#A04A6A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="heart" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#C98EA3"/>
+      <stop offset="1" stop-color="#B6A0B2"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <g transform="translate(96, 150)">
+    <path d="M30 70S0 50 0 27A16 16 0 0 1 30 17 16 16 0 0 1 60 27C60 50 30 70 30 70Z" fill="url(#heart)"/>
+    <text x="80" y="52" font-family="Georgia, 'Times New Roman', serif" font-size="40" font-weight="600" fill="#F4EBEC">LittleLove</text>
+  </g>
+
+  <text x="96" y="330" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-size="86" fill="#F4EBEC">Just the two of you.</text>
+  <text x="96" y="430" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-size="86" fill="#C98EA3">Not even us.</text>
+
+  <text x="98" y="520" font-family="'Courier New', monospace" font-size="26" letter-spacing="2" fill="#8FB89A">END-TO-END ENCRYPTED  ·  BUILT FOR TWO</text>
+</svg>

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Open your invite — LittleLove</title>
+  <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="#F4EBEC" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#181019" media="(prefers-color-scheme: dark)" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Hanken+Grotesk:wght@400;500;600&family=Space+Mono&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .pair { min-height: 100vh; display: grid; place-items: center; text-align: center; padding: var(--pad); position: relative; }
+    .pair__glow { position: absolute; inset: -20% auto auto 50%; transform: translateX(-50%); width: 80vw; max-width: 700px; height: 500px; background: radial-gradient(ellipse at center, var(--glow-1), transparent 65%); filter: blur(30px); pointer-events: none; z-index: -1; }
+    .pair__card { max-width: 460px; display: grid; gap: 1.3rem; justify-items: center; }
+    .pair__seal { width: 76px; height: 76px; border-radius: 50%; background: linear-gradient(135deg, var(--accent-user), var(--accent-partner)); display: grid; place-items: center; color: #fff; box-shadow: var(--shadow-soft); }
+    .pair h1 { font-family: var(--font-display); font-weight: 500; font-size: clamp(1.9rem, 6vw, 2.8rem); line-height: 1.05; letter-spacing: -0.02em; }
+    .pair p { color: var(--text-muted); max-width: 36ch; }
+    .pair__hint { font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted); margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <div class="pair__glow" aria-hidden="true"></div>
+  <main class="pair">
+    <div class="pair__card">
+      <span class="pair__seal" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="34" height="34" fill="none"><path d="M12 20.5S3.5 14.8 3.5 9.2A4.7 4.7 0 0 1 12 6.3a4.7 4.7 0 0 1 8.5 2.9c0 5.6-8.5 11.3-8.5 11.3Z" fill="currentColor"/></svg>
+      </span>
+      <h1>Someone wants you in their&nbsp;LittleLove.</h1>
+      <p>Open this invite on your iPhone with LittleLove installed and you&rsquo;ll be paired automatically.</p>
+      <a class="btn btn--primary btn--lg" href="https://testflight.apple.com/">Get LittleLove</a>
+      <p class="pair__hint">Already have it? Tap the link again from your iPhone.</p>
+    </div>
+  </main>
+</body>
+</html>

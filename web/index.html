@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <title>LittleLove — A private messenger for two</title>
+  <meta name="description" content="An end-to-end encrypted messenger built for couples. Messages, voice notes, and calls that stay between you and your partner — we can't read any of it. Built by a couple, no VC, no ads, no AI." />
+  <link rel="canonical" href="https://littlelove.dev/" />
+
+  <!-- Open Graph / Twitter -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="LittleLove" />
+  <meta property="og:url" content="https://littlelove.dev/" />
+  <meta property="og:title" content="Just the two of you. No one else. Not even us." />
+  <meta property="og:description" content="An end-to-end encrypted messenger built for couples. Messages, voice notes, and calls that stay between you and your partner." />
+  <meta property="og:image" content="https://littlelove.dev/assets/og-image.png" />
+  <meta property="og:image:alt" content="LittleLove — a private messenger for two." />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Just the two of you. No one else. Not even us." />
+  <meta name="twitter:description" content="An end-to-end encrypted messenger built for couples." />
+  <meta name="twitter:image" content="https://littlelove.dev/assets/og-image.png" />
+
+  <meta name="theme-color" content="#F4EBEC" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#181019" media="(prefers-color-scheme: dark)" />
+
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+
+  <!-- Fonts. NOTE (launch polish): self-host these to drop the Google request,
+       in keeping with the "no third parties" voice. Fine for v1. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Hanken+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="/styles.css" />
+
+  <!-- Structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "LittleLove",
+    "applicationCategory": "CommunicationApplication",
+    "operatingSystem": "iOS",
+    "description": "An end-to-end encrypted messenger built for couples.",
+    "url": "https://littlelove.dev/",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+</head>
+
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="nav" aria-label="Primary">
+    <a class="nav__brand" href="/" aria-label="LittleLove home">
+      <span class="nav__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" aria-hidden="true">
+          <path d="M12 20.5S3.5 14.8 3.5 9.2A4.7 4.7 0 0 1 12 6.3a4.7 4.7 0 0 1 8.5 2.9c0 5.6-8.5 11.3-8.5 11.3Z" fill="currentColor"/>
+        </svg>
+      </span>
+      <span class="nav__word">LittleLove</span>
+    </a>
+    <nav class="nav__links">
+      <a href="#privacy">Privacy</a>
+      <a href="#together">Features</a>
+      <a href="#code">The code</a>
+      <a class="btn btn--ghost btn--sm" href="#get" data-cta="nav">Join the alpha</a>
+    </nav>
+    <button class="theme-toggle" type="button" aria-label="Switch light / dark" title="Switch light / dark">
+      <svg class="theme-toggle__sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="12" y1="2.5" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21.5"/><line x1="2.5" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21.5" y2="12"/><line x1="5.1" y1="5.1" x2="6.8" y2="6.8"/><line x1="17.2" y1="17.2" x2="18.9" y2="18.9"/><line x1="5.1" y1="18.9" x2="6.8" y2="17.2"/><line x1="17.2" y1="6.8" x2="18.9" y2="5.1"/></g></svg>
+      <svg class="theme-toggle__moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.3 6.3 0 0 0 9.2 9.2Z" fill="currentColor"/></svg>
+    </button>
+  </header>
+
+  <main id="main">
+
+    <!-- ───────────────────────── HERO ───────────────────────── -->
+    <section class="hero">
+      <div class="hero__grain" aria-hidden="true"></div>
+      <div class="hero__glow" aria-hidden="true"></div>
+
+      <div class="hero__copy reveal">
+        <p class="eyebrow"><span class="eyebrow__dot"></span>End-to-end encrypted · Built for two</p>
+        <h1 class="hero__title">
+          Just the two of you.<br />
+          <em>No one else.</em><br />
+          Not even us.
+        </h1>
+        <p class="hero__lede">
+          An end-to-end encrypted messenger built for couples. Your messages,
+          voice notes, and calls stay between you and your partner — and we
+          can&rsquo;t read any of it.
+        </p>
+        <div class="hero__actions">
+          <a class="btn btn--primary" href="#get" data-cta="hero">
+            Join the alpha on TestFlight
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <a class="btn btn--quiet" href="#privacy">See how it stays private</a>
+        </div>
+        <p class="hero__foot mono">iOS · invite-only alpha · open source</p>
+      </div>
+
+      <!-- Animated SVG / live chat mock: plaintext on the device, ciphertext on the wire -->
+      <div class="hero__stage reveal" data-reveal-delay="160" aria-hidden="true">
+        <div class="phone phone--hero">
+          <div class="phone__notch"></div>
+          <div class="phone__screen">
+            <div class="chat">
+              <div class="chat__day">today</div>
+              <div class="bubble bubble--in">Did you make it home okay? 💜</div>
+              <div class="bubble bubble--out">Just walked in. Call you in five.</div>
+              <div class="bubble bubble--in">Good. I missed your voice today.</div>
+              <div class="bubble bubble--out bubble--typing"><span></span><span></span><span></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="wire" role="presentation">
+          <div class="wire__label mono">what our server sees</div>
+          <div class="wire__cipher mono" data-cipher>k7Qe·9f1A·xR2m·░░░░·Lp8w·c4Vz·░░·Nq6</div>
+          <svg class="wire__lock" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <rect x="4.5" y="10.5" width="15" height="10" rx="2.4" fill="currentColor"/>
+            <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────────────────── THE GUARANTEE ─────────────────────── -->
+    <section class="band" id="privacy">
+      <div class="section-head reveal">
+        <p class="eyebrow eyebrow--sage"><span class="eyebrow__dot"></span>The guarantee</p>
+        <h2 class="h2">Not even we can read it.</h2>
+        <p class="lede">
+          Your messages are encrypted on your device and addressed to your
+          partner&rsquo;s device key &mdash; one our server never holds. What we
+          store is ciphertext we have no way to open. It isn&rsquo;t a setting,
+          and it isn&rsquo;t a promise. It&rsquo;s the only code path that exists.
+        </p>
+        <p class="microcaption mono">(that&rsquo;s what &ldquo;end-to-end encrypted&rdquo; means)</p>
+      </div>
+
+      <ul class="negations reveal" data-reveal-delay="120">
+        <li><span class="negations__no">No</span> ads. <em>We don&rsquo;t have anything to sell, including you.</em></li>
+        <li><span class="negations__no">No</span> trackers. <em>No analytics SDK in the app or the server. We checked the code.</em></li>
+        <li><span class="negations__no">No</span> AI. <em>Nothing reads your conversation to &ldquo;improve&rdquo; anything.</em></li>
+      </ul>
+
+      <p class="metadata-line reveal" data-reveal-delay="200">
+        And we don&rsquo;t track <em>who</em> you talk to, or <em>when</em>. There&rsquo;s no one to sell it to anyway.
+      </p>
+
+      <p class="primitives mono reveal" data-reveal-delay="260" title="The actual primitives LittleLove uses">
+        X25519 &middot; Ed25519 &middot; HKDF-SHA256 &middot; XChaCha20-Poly1305
+      </p>
+    </section>
+
+    <!-- ─────────────────── CLOSE THE DISTANCE (LDR) ─────────────────── -->
+    <section class="band band--distance" id="distance">
+      <div class="distance__art reveal" aria-hidden="true">
+        <svg viewBox="0 0 360 220" class="arc" role="presentation">
+          <defs>
+            <linearGradient id="arcGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" class="arc-stop-a"/>
+              <stop offset="1" class="arc-stop-b"/>
+            </linearGradient>
+          </defs>
+          <path class="arc__path" d="M40 168 Q180 30 320 168" fill="none" stroke="url(#arcGrad)" stroke-width="2.5" stroke-dasharray="6 9" stroke-linecap="round"/>
+          <g class="arc__pulse"><circle r="4.5"/></g>
+          <circle class="arc__dot arc__dot--a" cx="40" cy="168" r="9"/>
+          <circle class="arc__dot arc__dot--b" cx="320" cy="168" r="9"/>
+          <text x="40" y="196" class="arc__label mono" text-anchor="middle">you</text>
+          <text x="320" y="196" class="arc__label mono" text-anchor="middle">her</text>
+        </svg>
+      </div>
+      <div class="distance__copy reveal" data-reveal-delay="140">
+        <p class="eyebrow"><span class="eyebrow__dot"></span>Across any distance</p>
+        <h2 class="h2">Close the distance.<br/>Keep it private.</h2>
+        <p class="lede">
+          A voice note waiting when she wakes up. A call no one else can hear.
+          The boring stuff and the good-morning texts, all in one room
+          that&rsquo;s only yours &mdash; across town or across time zones.
+        </p>
+        <ul class="chiplist">
+          <li>Channels for travel, daily life, the house</li>
+          <li>Voice notes across time zones</li>
+          <li>Calls &amp; video, just the two of you</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ────────────── EVERYTHING'S ENCRYPTED (features + GIFs) ────────────── -->
+    <section class="band" id="together">
+      <div class="section-head reveal">
+        <p class="eyebrow eyebrow--sage"><span class="eyebrow__dot"></span>Every way to be together</p>
+        <h2 class="h2">Encrypted all the way through &mdash; not just text.</h2>
+        <p class="lede">
+          Photos and video. Voice memos. Voice and video calls. Every one of them
+          end-to-end encrypted with the same primitives as your messages &mdash;
+          built in from the start, never bolted on after.
+        </p>
+      </div>
+
+      <!-- APP GIF SLOTS. Drop a real screen recording in by replacing the
+           .phone__screen contents with: <img src="/assets/app/<name>.gif" alt="…">
+           The CSS-rendered mock below is the on-brand placeholder until then. -->
+      <div class="showcase reveal" data-reveal-delay="120">
+        <figure class="showcase__item">
+          <div class="phone">
+            <div class="phone__notch"></div>
+            <div class="phone__screen" data-gif-slot="conversation">
+              <div class="chat chat--full">
+                <div class="chat__day">deep dusk</div>
+                <div class="bubble bubble--in">listen to this 🎙️</div>
+                <div class="bubble bubble--in bubble--voice"><span class="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> 0:14</div>
+                <div class="bubble bubble--out">okay that made my whole night 💜</div>
+                <div class="bubble bubble--out bubble--read">read ✓✓</div>
+              </div>
+            </div>
+          </div>
+          <figcaption>Messages &amp; voice notes</figcaption>
+        </figure>
+
+        <figure class="showcase__item">
+          <div class="phone">
+            <div class="phone__notch"></div>
+            <div class="phone__screen phone__screen--call" data-gif-slot="call">
+              <div class="call">
+                <div class="call__avatar">K</div>
+                <div class="call__name">Kaitlyn</div>
+                <div class="call__status mono">encrypted call · 12:04</div>
+                <div class="call__controls">
+                  <span class="call__btn"></span>
+                  <span class="call__btn call__btn--end"></span>
+                  <span class="call__btn"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <figcaption>Voice &amp; video calls</figcaption>
+        </figure>
+      </div>
+      <p class="showcase__note mono reveal">All shipped. All end-to-end encrypted.</p>
+    </section>
+
+    <!-- ─────────────────────── BUILT BY A COUPLE ─────────────────────── -->
+    <section class="band band--couple" id="couple">
+      <div class="section-head section-head--narrow reveal">
+        <p class="eyebrow"><span class="eyebrow__dot"></span>No catch</p>
+        <h2 class="h2">Built by a couple. Not a tech giant.</h2>
+        <p class="lede">
+          We&rsquo;re two people who wanted a private place to talk &mdash; so we
+          built one, and we use it every day. No venture capital. No advertising.
+          No AI in the middle. The hosting bill has our name on it.
+        </p>
+        <p class="signature">— Court &amp; Kaitlyn</p>
+      </div>
+    </section>
+
+    <!-- ─────────────────────── READ THE CODE ─────────────────────── -->
+    <section class="band band--code" id="code">
+      <div class="code-grid">
+        <div class="section-head reveal">
+          <p class="eyebrow eyebrow--sage"><span class="eyebrow__dot"></span>Don&rsquo;t trust us</p>
+          <h2 class="h2">Read the code yourself.</h2>
+          <p class="lede">
+            You shouldn&rsquo;t have to take our word for it. The encryption that
+            keeps your messages between you is open for anyone to inspect. So
+            don&rsquo;t trust us &mdash; verify it.
+          </p>
+          <a class="btn btn--primary" href="https://github.com/CodingWithCourtReeves/little-love" data-cta="github">
+            Read the code on GitHub
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.94.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" fill="currentColor"/></svg>
+          </a>
+        </div>
+
+        <div class="codeblock reveal" data-reveal-delay="140" aria-hidden="true">
+          <div class="codeblock__bar"><span></span><span></span><span></span><em class="mono">crypto/src/ecdh.rs</em></div>
+          <pre class="mono"><code><span class="c-com">// the room key is derived on-device. the server</span>
+<span class="c-com">// never imports this module — it can't.</span>
+<span class="c-kw">pub fn</span> <span class="c-fn">derive_room_key</span>(
+    ours: &amp;<span class="c-ty">StaticSecret</span>,
+    theirs: &amp;<span class="c-ty">PublicKey</span>,
+    room_id: &amp;<span class="c-ty">str</span>,
+) -&gt; <span class="c-ty">RoomKey</span> {
+    <span class="c-kw">let</span> shared = ours.<span class="c-fn">diffie_hellman</span>(theirs);
+    <span class="c-fn">hkdf</span>(shared, <span class="c-str">"littlelove.room"</span>, room_id)
+}</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────────────────── GET / CONTACT ─────────────────────── -->
+    <section class="band band--get" id="get">
+      <div class="get__glow" aria-hidden="true"></div>
+      <div class="get__inner reveal">
+        <h2 class="h2 h2--center">Come in. Close the door.</h2>
+        <p class="lede lede--center">
+          We&rsquo;re in a small TestFlight alpha and we&rsquo;d love your help
+          shaping it. Grab a spot, or send us a note.
+        </p>
+        <a class="btn btn--primary btn--lg" href="https://testflight.apple.com/" data-cta="footer">
+          Join the alpha on TestFlight
+        </a>
+
+        <form class="contact" id="contact" novalidate>
+          <p class="contact__label mono">Or drop us a line —</p>
+          <div class="contact__row">
+            <input class="contact__field" type="email" name="email" placeholder="you@example.com" autocomplete="email" required aria-label="Your email" />
+            <input class="contact__field contact__field--grow" type="text" name="message" placeholder="Say hi, ask anything…" aria-label="Your message" required />
+            <!-- honeypot -->
+            <input class="contact__hp" type="text" name="company" tabindex="-1" autocomplete="off" aria-hidden="true" />
+            <button class="btn btn--primary contact__send" type="submit">Send</button>
+          </div>
+          <p class="contact__status" role="status" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="foot__brand">
+      <span class="nav__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M12 20.5S3.5 14.8 3.5 9.2A4.7 4.7 0 0 1 12 6.3a4.7 4.7 0 0 1 8.5 2.9c0 5.6-8.5 11.3-8.5 11.3Z" fill="currentColor"/></svg>
+      </span>
+      <span>LittleLove</span>
+    </div>
+    <p class="foot__line">A private messenger for two. Built by a couple, in the open.</p>
+    <nav class="foot__links">
+      <a href="https://github.com/CodingWithCourtReeves/little-love">Code</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#get">Join the alpha</a>
+    </nav>
+    <p class="foot__fine mono">© <span data-year>2026</span> LittleLove · littlelove.dev</p>
+  </footer>
+
+  <script src="/main.js" defer></script>
+</body>
+</html>
