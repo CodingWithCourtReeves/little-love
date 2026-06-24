@@ -5,12 +5,13 @@ import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../calling/call_controller.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_linkify/flutter_linkify.dart';
+import 'package:linkify/linkify.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -107,6 +108,71 @@ class _StatusModel {
   final Map<String, List<String>> failedRun;
 }
 
+/// How much larger inline emoji render than the surrounding text. iMessage
+/// shows emoji noticeably bigger than the words around them; this is the knob
+/// to tune that against it.
+const double _inlineEmojiScale = 1.3;
+
+/// True when rune [r] is in an emoji-ish codepoint range, or is a ZWJ /
+/// variation-selector / skin-tone modifier that only appears inside an emoji.
+bool _runeIsEmoji(int r) =>
+    (r >= 0x2600 && r <= 0x27BF) ||
+    (r >= 0x1F300 && r <= 0x1F6FF) ||
+    (r >= 0x1F900 && r <= 0x1F9FF) ||
+    (r >= 0x1FA70 && r <= 0x1FAFF) ||
+    (r >= 0x1F1E6 && r <= 0x1F1FF) ||
+    (r >= 0x1F3FB && r <= 0x1F3FF) ||
+    r == 0x200D ||
+    r == 0xFE0F;
+
+/// True when grapheme cluster [g] renders as an emoji (any constituent rune is
+/// emoji-ish), so it should be sized up inline.
+bool _graphemeIsEmoji(String g) => g.runes.any(_runeIsEmoji);
+
+/// Split [text] into spans, rendering runs of emoji [_inlineEmojiScale]× larger
+/// than the surrounding words. Consecutive emoji/text are grouped so we emit as
+/// few spans as possible. Shared by the bubble body and the live composer so
+/// what you type matches what you send.
+List<InlineSpan> _emojiAwareSpans(String text, TextStyle base) {
+  final spans = <InlineSpan>[];
+  final emojiStyle = base.copyWith(
+    fontSize: (base.fontSize ?? 14) * _inlineEmojiScale,
+  );
+  final run = StringBuffer();
+  bool? runIsEmoji;
+  void flush() {
+    if (run.isEmpty) return;
+    spans.add(
+      TextSpan(text: run.toString(), style: runIsEmoji! ? emojiStyle : base),
+    );
+    run.clear();
+  }
+
+  for (final g in text.characters) {
+    final isEmoji = _graphemeIsEmoji(g);
+    if (runIsEmoji != null && isEmoji != runIsEmoji) flush();
+    runIsEmoji = isEmoji;
+    run.write(g);
+  }
+  flush();
+  return spans;
+}
+
+/// Composer controller that renders emoji larger than the surrounding text as
+/// you type, mirroring the sent bubble (and iMessage). Overriding
+/// [buildTextSpan] is the supported hook for styled runs inside a [TextField].
+class _EmojiComposerController extends TextEditingController {
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    final base = style ?? const TextStyle();
+    return TextSpan(style: base, children: _emojiAwareSpans(text, base));
+  }
+}
+
 /// Conversation detail pane for a single room. Reads messages from
 /// `messageStoreProvider(roomId)` and the signed-in username from
 /// `accountProvider`. `onSend` is provided by the caller (inbox_shell) so
@@ -183,7 +249,7 @@ class ConversationPage extends ConsumerStatefulWidget {
 
 class _ConversationPageState extends ConsumerState<ConversationPage>
     with WidgetsBindingObserver {
-  final _controller = TextEditingController();
+  final _controller = _EmojiComposerController();
   final _scrollController = ScrollController();
 
   /// Message id to briefly highlight after a jump-to-message (from search).
@@ -1226,14 +1292,24 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final viewportFraction = MediaQuery.sizeOf(context).width * 0.78;
     final maxBubbleWidth = viewportFraction < 480 ? viewportFraction : 480.0;
     final showSenderLabel = !mine && widget.room.members.length >= 3;
-    if (_isEmojiOnly(m.body)) {
+    // iMessage-style "jumbomoji": a message of just 1–3 emoji renders large and
+    // bubble-less, with a single emoji biggest and shrinking toward three. 4+
+    // emoji fall through to a normal text bubble. Sizes are starting points to
+    // tune on-device against iMessage.
+    final emojiCount = _emojiOnlyCount(m.body);
+    if (emojiCount >= 1 && emojiCount <= 3) {
+      final emojiSize = switch (emojiCount) {
+        1 => 64.0,
+        2 => 52.0,
+        _ => 44.0,
+      };
       return Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 14),
           child: Text(
             m.body.trim(),
-            style: const TextStyle(fontSize: 48, height: 1.1),
+            style: TextStyle(fontSize: emojiSize, height: 1.1),
           ),
         ),
       );
@@ -1379,19 +1455,44 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
+  /// Build the bubble body: linkified (tappable URLs) with emoji runs sized up
+  /// inline, the way iMessage shows emoji bigger than the words around them.
+  TextSpan _bodySpans(String body, TextStyle base, TextStyle linkStyle) {
+    final elements = linkify(
+      body,
+      options: const LinkifyOptions(humanize: false, looseUrl: true),
+    );
+    final children = <InlineSpan>[];
+    for (final el in elements) {
+      if (el is LinkableElement) {
+        children.add(
+          TextSpan(
+            text: el.text,
+            style: linkStyle,
+            recognizer: TapGestureRecognizer()..onTap = () => _openUrl(el.url),
+          ),
+        );
+      } else {
+        children.addAll(_emojiAwareSpans(el.text, base));
+      }
+    }
+    return TextSpan(children: children);
+  }
+
   Widget _bubbleBody(Msg m, bool mine, _Marker? marker) {
     final textColor = mine
         ? context.palette.bubbleUserText
         : context.palette.textPrimary;
-    final text = Linkify(
-      text: m.body,
-      onOpen: (link) => _openUrl(link.url),
-      options: const LinkifyOptions(humanize: false, looseUrl: true),
-      style: TextStyle(color: textColor, fontSize: 16),
-      linkStyle: TextStyle(
-        color: textColor,
-        decoration: TextDecoration.underline,
-        decorationColor: textColor.withValues(alpha: 0.6),
+    final text = Text.rich(
+      _bodySpans(
+        m.body,
+        TextStyle(color: textColor, fontSize: _bodyFontSize),
+        TextStyle(
+          color: textColor,
+          fontSize: _bodyFontSize,
+          decoration: TextDecoration.underline,
+          decorationColor: textColor.withValues(alpha: 0.6),
+        ),
       ),
     );
     // Every bubble carries an hh:mm timestamp bottom-right; my bubbles add the
@@ -1606,28 +1707,28 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     return names[month - 1];
   }
 
-  /// True when every grapheme in the message is in an emoji-ish codepoint
-  /// range or is whitespace. Conservative: cap at 8 runes so a pasted wall
-  /// of emoji still renders as a normal bubble.
-  static bool _isEmojiOnly(String text) {
+  /// Base body text size for message bubbles and the composer. iMessage body
+  /// text is ~17pt; matching it also nudges inline emoji up a touch.
+  static const double _bodyFontSize = 17;
+
+  /// Number of visual emoji in [text] when it is emoji-only (whitespace
+  /// allowed), else 0. Counts grapheme clusters, not runes, so a ZWJ family,
+  /// flag, or skin-tone-modified emoji counts as one — matching what the eye
+  /// sees. iMessage only enlarges 1–3 emoji; the caller uses this both to gate
+  /// the jumbo treatment and to size it by count.
+  static int _emojiOnlyCount(String text) {
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return false;
-    final runes = trimmed.runes.toList();
-    if (runes.length > 8) return false;
-    for (final r in runes) {
-      final emoji =
-          (r >= 0x2600 && r <= 0x27BF) ||
-          (r >= 0x1F300 && r <= 0x1F6FF) ||
-          (r >= 0x1F900 && r <= 0x1F9FF) ||
-          (r >= 0x1FA70 && r <= 0x1FAFF) ||
-          (r >= 0x1F1E6 && r <= 0x1F1FF) ||
-          (r >= 0x1F3FB && r <= 0x1F3FF) ||
-          r == 0x200D ||
-          r == 0xFE0F;
+    if (trimmed.isEmpty) return 0;
+    for (final r in trimmed.runes) {
       final ws = r == 0x20 || r == 0x0A || r == 0x09;
-      if (!emoji && !ws) return false;
+      if (!_runeIsEmoji(r) && !ws) return 0;
     }
-    return true;
+    var count = 0;
+    for (final g in trimmed.characters) {
+      if (g.trim().isEmpty) continue;
+      count++;
+    }
+    return count;
   }
 
   Widget _composer() {
@@ -1731,12 +1832,24 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                                             key: const Key('composer'),
                                             controller: _controller,
                                             onChanged: _onComposerChanged,
+                                            // Match the bubble body (~17pt) so
+                                            // what you type is the size it sends
+                                            // at.
+                                            style: TextStyle(
+                                              fontSize: _bodyFontSize,
+                                              color:
+                                                  context.palette.textPrimary,
+                                            ),
                                             minLines: 1,
                                             maxLines: 8,
                                             keyboardType:
                                                 TextInputType.multiline,
                                             textInputAction:
                                                 TextInputAction.newline,
+                                            // Match iMessage/Telegram: capitalize
+                                            // the first letter of each sentence.
+                                            textCapitalization:
+                                                TextCapitalization.sentences,
                                             decoration: InputDecoration(
                                               isDense: true,
                                               hintText: 'Message',
