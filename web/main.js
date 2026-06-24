@@ -79,6 +79,9 @@
       if (!data.email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(data.email)) {
         return setStatus("That email doesn't look right. Mind checking it?", true);
       }
+      if (!data.age) {
+        return setStatus("Please confirm you're 18 or older.", true);
+      }
       const btn = form.querySelector(".contact__send");
       btn.disabled = true; setStatus("Sending…", false);
       try {
