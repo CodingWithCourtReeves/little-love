@@ -1,5 +1,5 @@
 /**
- * POST /api/contact — Cloudflare Pages Function.
+ * POST /api/contact: Cloudflare Pages Function.
  * Validates the form, then emails Court via Resend. No database, no storage.
  *
  * Required env (Pages → Settings → Variables, mark RESEND_API_KEY as a secret):
@@ -38,7 +38,7 @@ export async function onRequestPost({ request, env }) {
   }
 
   if (!env.RESEND_API_KEY) {
-    // Misconfigured deploy — fail loudly in logs, gently to the user.
+    // Misconfigured deploy: fail loudly in logs, gently to the user.
     console.error("RESEND_API_KEY is not set");
     return json(500, { error: "Mail not configured" });
   }
@@ -56,7 +56,7 @@ export async function onRequestPost({ request, env }) {
       from,
       to: [to],
       reply_to: email,
-      subject: `LittleLove — note from ${email}`,
+      subject: `LittleLove: note from ${email}`,
       text: `From: ${email}\n\n${message || "(no message)"}`,
       html: `<p><strong>From:</strong> ${escapeHtml(email)}</p><p>${escapeHtml(message || "(no message)").replace(/\n/g, "<br>")}</p>`,
     }),

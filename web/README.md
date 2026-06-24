@@ -1,4 +1,4 @@
-# littlelove.dev — marketing site
+# littlelove.dev marketing site
 
 Static site (plain HTML/CSS/JS) for the apex domain **`littlelove.dev`**, hosted
 on **Cloudflare Pages**. No build step. It also owns the iOS universal-link
@@ -64,5 +64,5 @@ or use a looping `<video>` with `muted autoplay playsinline`).
 ## Launch polish (not blocking)
 
 - Self-host the fonts (Fraunces / Hanken Grotesk / Space Mono) to drop the
-  Google Fonts request — consistent with the "no third parties" voice.
+  Google Fonts request, consistent with the "no third parties" voice.
 - Replace the placeholder TestFlight URL with the real public invite link.

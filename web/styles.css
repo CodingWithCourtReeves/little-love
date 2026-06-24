@@ -1,5 +1,5 @@
 /* ============================================================================
-   LittleLove — marketing site
+   LittleLove marketing site
    "The hour the lamps come on." Warm-dusk identity, mirrored from the app
    palette (app/lib/theme/app_palette.dart). Two voices: rose (you) + mauve
    (partner); sage is the quiet mark of verification.
@@ -12,9 +12,9 @@
   --bg-surface-alt: #E2D3D8;
   --text-primary: #2A1F2A;
   --text-muted: #7C6C78;
-  --accent-user: #A04A6A;     /* rose — you */
+  --accent-user: #A04A6A;     /* rose: you */
   --accent-user-soft: #C98EA3;
-  --accent-partner: #9C7E94;  /* mauve — partner */
+  --accent-partner: #9C7E94;  /* mauve: partner */
   --sage: #4F7A5E;            /* verification / trust */
   --border-soft: #D9C7CD;
   --warning: #B85C5C;

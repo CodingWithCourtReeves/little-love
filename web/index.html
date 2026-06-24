@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <title>LittleLove — A private messenger for two</title>
-  <meta name="description" content="An end-to-end encrypted messenger built for couples. Messages, voice notes, and calls that stay between you and your partner — we can't read any of it. Built by a couple, no VC, no ads, no AI." />
+  <title>LittleLove · A private messenger for two</title>
+  <meta name="description" content="An end-to-end encrypted messenger built for couples. Messages, voice notes, and calls that stay between you and your partner. We can't read any of it. Built by a couple, no VC, no ads, no AI." />
   <link rel="canonical" href="https://littlelove.dev/" />
 
   <!-- Open Graph / Twitter -->
@@ -15,7 +15,7 @@
   <meta property="og:title" content="Just the two of you. No one else. Not even us." />
   <meta property="og:description" content="An end-to-end encrypted messenger built for couples. Messages, voice notes, and calls that stay between you and your partner." />
   <meta property="og:image" content="https://littlelove.dev/assets/og-image.png" />
-  <meta property="og:image:alt" content="LittleLove — a private messenger for two." />
+  <meta property="og:image:alt" content="LittleLove, a private messenger for two." />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Just the two of you. No one else. Not even us." />
   <meta name="twitter:description" content="An end-to-end encrypted messenger built for couples." />
@@ -90,7 +90,7 @@
         </h1>
         <p class="hero__lede">
           An end-to-end encrypted messenger built for couples. Your messages,
-          voice notes, and calls stay between you and your partner — and we
+          voice notes, and calls stay between you and your partner, and we
           can&rsquo;t read any of it.
         </p>
         <div class="hero__actions">
@@ -136,7 +136,7 @@
         <h2 class="h2">Not even we can read it.</h2>
         <p class="lede">
           Your messages are encrypted on your device and addressed to your
-          partner&rsquo;s device key &mdash; one our server never holds. What we
+          partner&rsquo;s device key, one our server never holds. What we
           store is ciphertext we have no way to open. It isn&rsquo;t a setting,
           and it isn&rsquo;t a promise. It&rsquo;s the only code path that exists.
         </p>
@@ -182,7 +182,7 @@
         <p class="lede">
           A voice note waiting when she wakes up. A call no one else can hear.
           The boring stuff and the good-morning texts, all in one room
-          that&rsquo;s only yours &mdash; across town or across time zones.
+          that&rsquo;s only yours, across town or across time zones.
         </p>
         <ul class="chiplist">
           <li>Channels for travel, daily life, the house</li>
@@ -196,10 +196,10 @@
     <section class="band" id="together">
       <div class="section-head reveal">
         <p class="eyebrow eyebrow--sage"><span class="eyebrow__dot"></span>Every way to be together</p>
-        <h2 class="h2">Encrypted all the way through &mdash; not just text.</h2>
+        <h2 class="h2">Encrypted all the way through. Not just text.</h2>
         <p class="lede">
           Photos and video. Voice memos. Voice and video calls. Every one of them
-          end-to-end encrypted with the same primitives as your messages &mdash;
+          end-to-end encrypted with the same primitives as your messages,
           built in from the start, never bolted on after.
         </p>
       </div>
@@ -273,7 +273,7 @@
           <p class="lede">
             You shouldn&rsquo;t have to take our word for it. The encryption that
             keeps your messages between you is open for anyone to inspect. So
-            don&rsquo;t trust us &mdash; verify it.
+            don&rsquo;t trust us. Verify it.
           </p>
           <a class="btn btn--primary" href="https://github.com/CodingWithCourtReeves/little-love" data-cta="github">
             Read the code on GitHub
@@ -284,7 +284,7 @@
         <div class="codeblock reveal" data-reveal-delay="140" aria-hidden="true">
           <div class="codeblock__bar"><span></span><span></span><span></span><em class="mono">crypto/src/ecdh.rs</em></div>
           <pre class="mono"><code><span class="c-com">// the room key is derived on-device. the server</span>
-<span class="c-com">// never imports this module — it can't.</span>
+<span class="c-com">// never imports this module, so it can't.</span>
 <span class="c-kw">pub fn</span> <span class="c-fn">derive_room_key</span>(
     ours: &amp;<span class="c-ty">StaticSecret</span>,
     theirs: &amp;<span class="c-ty">PublicKey</span>,
@@ -311,7 +311,7 @@
         </a>
 
         <form class="contact" id="contact" novalidate>
-          <p class="contact__label mono">Or drop us a line —</p>
+          <p class="contact__label mono">Or drop us a line</p>
           <div class="contact__row">
             <input class="contact__field" type="email" name="email" placeholder="you@example.com" autocomplete="email" required aria-label="Your email" />
             <input class="contact__field contact__field--grow" type="text" name="message" placeholder="Say hi, ask anything…" aria-label="Your message" required />

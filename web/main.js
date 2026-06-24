@@ -1,4 +1,4 @@
-/* LittleLove marketing — progressive enhancement only. The page is fully
+/* LittleLove marketing: progressive enhancement only. The page is fully
    readable with JS disabled; this adds reveals, theme, and the contact form. */
 (() => {
   "use strict";
@@ -75,9 +75,9 @@
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       const data = Object.fromEntries(new FormData(form).entries());
-      if (data.company) return; // honeypot tripped — silently drop
+      if (data.company) return; // honeypot tripped, silently drop
       if (!data.email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(data.email)) {
-        return setStatus("That email doesn't look right — mind checking it?", true);
+        return setStatus("That email doesn't look right. Mind checking it?", true);
       }
       const btn = form.querySelector(".contact__send");
       btn.disabled = true; setStatus("Sending…", false);
@@ -89,7 +89,7 @@
         });
         if (!res.ok) throw new Error(String(res.status));
         form.reset();
-        setStatus("Got it — we'll be in touch. 💜", false);
+        setStatus("Got it. We'll be in touch. 💜", false);
       } catch {
         setStatus("Something went wrong. Email us at hello@littlelove.dev?", true);
       } finally {
