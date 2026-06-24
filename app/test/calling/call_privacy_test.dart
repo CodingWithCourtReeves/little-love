@@ -36,6 +36,14 @@ void main() {
     );
   });
 
+  test('reaction event carries its emoji', () {
+    final ev = PrivacyEvent.decode(
+      const PrivacyEvent(PrivacyKind.reaction, emoji: '❤️').encode(),
+    )!;
+    expect(ev.kind, PrivacyKind.reaction);
+    expect(ev.emoji, '❤️');
+  });
+
   test('malformed or unknown payloads decode to null, never throw', () {
     expect(PrivacyEvent.decode('not json'), isNull);
     expect(PrivacyEvent.decode('{}'), isNull);

@@ -88,6 +88,8 @@ class CallController with WidgetsBindingObserver {
       case PrivacyKind.camera:
         // The partner's camera turned on/off — cover their (frozen) frame.
         peerVideoOff.value = !ev.active;
+      case PrivacyKind.reaction:
+        if (!_reactionCtl.isClosed) _reactionCtl.add(ev.emoji ?? '❤️');
     }
   }
 
@@ -189,6 +191,26 @@ class CallController with WidgetsBindingObserver {
   /// Flip between the front and back camera.
   Future<void> switchCamera() async => _session?.switchCamera();
 
+  /// Whether the front camera is active (drives self-view mirroring).
+  bool get usingFrontCamera => _session?.usingFrontCamera ?? true;
+
+  /// Set the camera lens zoom (1.0 = none); the partner sees it too.
+  Future<void> setCameraZoom(double level) async => _session?.setZoom(level);
+
+  /// Emoji reactions to float on screen — fired both when we send one and when
+  /// the partner does. The screen animates a heart and buzzes a haptic.
+  final StreamController<String> _reactionCtl =
+      StreamController<String>.broadcast();
+  Stream<String> get onReaction => _reactionCtl.stream;
+
+  /// Send a tapped reaction to the partner (and show it locally).
+  void sendReaction([String emoji = '❤️']) {
+    if (!_reactionCtl.isClosed) _reactionCtl.add(emoji);
+    _session?.sendPrivacy(
+      PrivacyEvent(PrivacyKind.reaction, emoji: emoji).encode(),
+    );
+  }
+
   // ── Public API ────────────────────────────────────────────────────────────
 
   /// Place an outgoing call in [roomId]. Pass [video] for a video call.
@@ -269,6 +291,7 @@ class CallController with WidgetsBindingObserver {
     _ringback.stop();
     _session?.dispose();
     _remoteStreamRelay.close();
+    _reactionCtl.close();
     _noticeTimer?.cancel();
     debugStats.dispose();
     partnerRecording.dispose();

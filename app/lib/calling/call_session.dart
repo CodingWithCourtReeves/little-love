@@ -54,6 +54,11 @@ class CallSession {
   bool _cameraIntent = true;
   bool _pausedRecording = false;
   bool _pausedBackground = false;
+  bool _usingFront = true;
+
+  /// Whether the front camera is active (the self-view is mirrored for the front
+  /// camera, un-mirrored for the back).
+  bool get usingFrontCamera => _usingFront;
 
   /// Inbound privacy events from the peer (raw wire strings; decode with
   /// [PrivacyEvent.decode]).
@@ -373,11 +378,24 @@ class CallSession {
     ch.send(RTCDataChannelMessage(text));
   }
 
-  /// Flip between the front and back camera.
+  /// Flip between the front and back camera (resets zoom to the new lens's 1.0).
   Future<void> switchCamera() async {
     final tracks = _localStream?.getVideoTracks() ?? const <MediaStreamTrack>[];
     if (tracks.isEmpty) return;
     await Helper.switchCamera(tracks.first);
+    _usingFront = !_usingFront;
+  }
+
+  /// Set the camera zoom (1.0 = none). This is the real lens `videoZoomFactor`,
+  /// so the partner sees the zoom too; the native side clamps to the device max.
+  Future<void> setZoom(double level) async {
+    final tracks = _localStream?.getVideoTracks() ?? const <MediaStreamTrack>[];
+    if (tracks.isEmpty) return;
+    try {
+      await Helper.setZoom(tracks.first, level);
+    } catch (e) {
+      debugPrint('call: setZoom failed: $e');
+    }
   }
 
   Future<void> dispose() async {

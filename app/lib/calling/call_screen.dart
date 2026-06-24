@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
@@ -335,6 +337,19 @@ class _VideoCallViewState extends State<_VideoCallView> {
   bool _controlsShown = true;
   Timer? _hideTimer;
 
+  // Self full-screen: tap your preview to swap it into the main view (the
+  // partner moves to the small tile). Pinch then drives the real camera zoom, so
+  // the partner sees it too — handy for showing things with the back camera.
+  bool _selfMain = false;
+  double _camZoom = 1.0;
+  double _zoomBase = 1.0;
+  static const double _maxCamZoom = 8.0;
+
+  // Emoji reactions floating up the screen.
+  final List<Widget> _hearts = <Widget>[];
+  StreamSubscription<String>? _reactionSub;
+  final Random _rng = Random();
+
   // Self-preview position (top-right by default); dragged within the screen.
   Offset? _pipPos;
 
@@ -368,7 +383,29 @@ class _VideoCallViewState extends State<_VideoCallView> {
     });
     // Speaker routing is handled by the controller on the Connected transition
     // (CallKit owns the audio session until then).
+    _reactionSub = widget.controller.onReaction.listen(_spawnHeart);
     _syncTimer();
+  }
+
+  /// Float a heart up the screen and buzz a haptic (for sent and received).
+  void _spawnHeart(String emoji) {
+    HapticFeedback.lightImpact();
+    final key = UniqueKey();
+    setState(() {
+      _hearts.add(
+        _FloatingHeart(
+          key: key,
+          emoji: emoji,
+          startX: (_rng.nextDouble() * 1.2) - 0.6,
+          drift: (_rng.nextDouble() * 0.5) - 0.25,
+          onDone: () {
+            if (mounted) {
+              setState(() => _hearts.removeWhere((w) => w.key == key));
+            }
+          },
+        ),
+      );
+    });
   }
 
   void _bindStreams() {
@@ -424,11 +461,39 @@ class _VideoCallViewState extends State<_VideoCallView> {
     });
   }
 
+  /// Swap the main view between the partner (default) and your own camera.
+  void _swapMainPip() => setState(() => _selfMain = !_selfMain);
+
+  // Camera-zoom gesture (only while your own camera is the main view).
+  void _onZoomStart(ScaleStartDetails _) => _zoomBase = _camZoom;
+
+  void _onZoomUpdate(ScaleUpdateDetails d) {
+    final z = (_zoomBase * d.scale).clamp(1.0, _maxCamZoom);
+    if (z == _camZoom) return;
+    setState(() => _camZoom = z);
+    widget.controller.setCameraZoom(z);
+  }
+
+  void _onMainDoubleTap() {
+    if (_selfMain) {
+      setState(() => _camZoom = 1.0);
+      widget.controller.setCameraZoom(1.0);
+    } else {
+      _zoom.value = Matrix4.identity(); // reset remote display-zoom
+    }
+  }
+
+  void _resetZoomForFlip() {
+    _camZoom = 1.0;
+    _zoomBase = 1.0;
+  }
+
   @override
   void dispose() {
     _ticker?.cancel();
     _hideTimer?.cancel();
     _remoteSub?.cancel();
+    _reactionSub?.cancel();
     _zoom.dispose();
     _local.srcObject = null;
     _remote.srcObject = null;
@@ -443,6 +508,89 @@ class _VideoCallViewState extends State<_VideoCallView> {
   }
 
   bool get _showSelfPreview => _cameraOn && widget.controller.hasLocalVideo;
+
+  /// The main (full-screen) view: your own camera when swapped in, else the
+  /// partner. Falls back to a clean cover when video isn't available.
+  Widget _buildMainContent(Color accent) {
+    if (_selfMain) {
+      if (_showSelfPreview) {
+        return RTCVideoView(
+          _local,
+          mirror: widget.controller.usingFrontCamera,
+          objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+        );
+      }
+      return _AvatarBackdrop(
+        name: 'You',
+        avatarFile: null,
+        accent: accent,
+        subtitle: 'Camera off',
+      );
+    }
+    return ValueListenableBuilder<bool>(
+      valueListenable: widget.controller.peerVideoOff,
+      builder: (context, peerOff, _) {
+        if (_ready && _remoteHasVideo && !peerOff) {
+          return InteractiveViewer(
+            transformationController: _zoom,
+            minScale: 1.0,
+            maxScale: 5.0,
+            clipBehavior: Clip.hardEdge,
+            child: RTCVideoView(
+              _remote,
+              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+            ),
+          );
+        }
+        return _AvatarBackdrop(
+          name: widget.name,
+          avatarFile: widget.avatarFile,
+          accent: accent,
+          subtitle: peerOff ? 'Camera off' : null,
+        );
+      },
+    );
+  }
+
+  /// The small PIP tile: the partner when you're swapped to main, else your own
+  /// camera (with the recording/camera-off cover).
+  Widget _buildPipContent() {
+    if (_selfMain) {
+      return ValueListenableBuilder<bool>(
+        valueListenable: widget.controller.peerVideoOff,
+        builder: (context, peerOff, _) {
+          if (_ready && _remoteHasVideo && !peerOff) {
+            return RTCVideoView(
+              _remote,
+              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+            );
+          }
+          return _pipCover(Icons.videocam_off);
+        },
+      );
+    }
+    return ValueListenableBuilder<bool>(
+      valueListenable: widget.controller.partnerRecording,
+      builder: (context, recording, _) {
+        if (_showSelfPreview && !recording) {
+          return RTCVideoView(
+            _local,
+            mirror: widget.controller.usingFrontCamera,
+            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+          );
+        }
+        return _pipCover(
+          recording ? Icons.shield_outlined : Icons.videocam_off,
+        );
+      },
+    );
+  }
+
+  Widget _pipCover(IconData icon) => Container(
+    color: Colors.black.withValues(alpha: 0.6),
+    alignment: Alignment.center,
+    child: Icon(icon, color: Colors.white70, size: 28),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -459,38 +607,17 @@ class _VideoCallViewState extends State<_VideoCallView> {
           return Stack(
             fit: StackFit.expand,
             children: [
-              // Remote video, or a clean avatar cover when it isn't flowing yet
-              // or the partner's camera is off (instead of a frozen last frame).
-              // Tap toggles full-screen (hides controls); pinch to zoom / drag
-              // to pan; double-tap resets the zoom.
+              // Main view: the partner (default), or your own camera when you've
+              // tapped your preview. Tap toggles full-screen; double-tap resets
+              // zoom. When your camera is main, pinch drives the real lens zoom;
+              // when the partner is main, pinch is a display-only zoom/pan.
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: _toggleControls,
-                onDoubleTap: () => _zoom.value = Matrix4.identity(),
-                child: ValueListenableBuilder<bool>(
-                  valueListenable: widget.controller.peerVideoOff,
-                  builder: (context, peerOff, _) {
-                    if (_ready && _remoteHasVideo && !peerOff) {
-                      return InteractiveViewer(
-                        transformationController: _zoom,
-                        minScale: 1.0,
-                        maxScale: 5.0,
-                        clipBehavior: Clip.hardEdge,
-                        child: RTCVideoView(
-                          _remote,
-                          objectFit:
-                              RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                        ),
-                      );
-                    }
-                    return _AvatarBackdrop(
-                      name: widget.name,
-                      avatarFile: widget.avatarFile,
-                      accent: accent,
-                      subtitle: peerOff ? 'Camera off' : null,
-                    );
-                  },
-                ),
+                onDoubleTap: _onMainDoubleTap,
+                onScaleStart: _selfMain ? _onZoomStart : null,
+                onScaleUpdate: _selfMain ? _onZoomUpdate : null,
+                child: _buildMainContent(accent),
               ),
 
               // Debug stats readout (TX/RX resolution · fps · bitrate · limit).
@@ -579,7 +706,9 @@ class _VideoCallViewState extends State<_VideoCallView> {
                 ),
               ),
 
-              // Draggable self-preview.
+              // Draggable picture-in-picture tile. Shows your camera by default,
+              // or the partner when you've swapped yourself to the main view.
+              // Tap to swap; drag to reposition.
               if (_ready)
                 Positioned(
                   left: pip.dx.clamp(8.0, constraints.maxWidth - pipW - 8),
@@ -590,35 +719,11 @@ class _VideoCallViewState extends State<_VideoCallView> {
                   width: pipW,
                   height: pipH,
                   child: GestureDetector(
+                    onTap: _swapMainPip,
                     onPanUpdate: (d) => setState(() => _pipPos = pip + d.delta),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(16),
-                      // Reactive to the recording force-pause: cover the preview
-                      // instead of leaving a frozen self-frame.
-                      child: ValueListenableBuilder<bool>(
-                        valueListenable: widget.controller.partnerRecording,
-                        builder: (context, recording, _) {
-                          if (_showSelfPreview && !recording) {
-                            return RTCVideoView(
-                              _local,
-                              mirror: true,
-                              objectFit: RTCVideoViewObjectFit
-                                  .RTCVideoViewObjectFitCover,
-                            );
-                          }
-                          return Container(
-                            color: Colors.black.withValues(alpha: 0.6),
-                            alignment: Alignment.center,
-                            child: Icon(
-                              recording
-                                  ? Icons.shield_outlined
-                                  : Icons.videocam_off,
-                              color: Colors.white70,
-                              size: 28,
-                            ),
-                          );
-                        },
-                      ),
+                      child: _buildPipContent(),
                     ),
                   ),
                 ),
@@ -684,7 +789,10 @@ class _VideoCallViewState extends State<_VideoCallView> {
                                 icon: Icons.cameraswitch,
                                 label: 'flip',
                                 accent: accent,
-                                onTap: () => widget.controller.switchCamera(),
+                                onTap: () async {
+                                  await widget.controller.switchCamera();
+                                  if (mounted) setState(_resetZoomForFlip);
+                                },
                               ),
                               const SizedBox(width: 14),
                               _ControlButton(
@@ -698,6 +806,33 @@ class _VideoCallViewState extends State<_VideoCallView> {
                           ),
                         ),
                       ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // Floating emoji reactions (non-interactive, above the video).
+              Positioned.fill(
+                child: IgnorePointer(child: Stack(children: _hearts)),
+              ),
+
+              // Reaction (heart) — top-right, well clear of the controls so it
+              // can't be mistaken for the end button.
+              Positioned(
+                top: pad.top + 8,
+                right: 16,
+                child: AnimatedOpacity(
+                  opacity: _controlsShown ? 1 : 0,
+                  duration: const Duration(milliseconds: 220),
+                  child: IgnorePointer(
+                    ignoring: !_controlsShown,
+                    child: _RoundIconButton(
+                      icon: Icons.favorite,
+                      filled: true,
+                      onTap: () {
+                        widget.controller.sendReaction();
+                        _scheduleHide();
+                      },
                     ),
                   ),
                 ),
@@ -764,6 +899,104 @@ class _PrivacyBanner extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A compact circular icon button (the reaction heart) for the video overlay.
+class _RoundIconButton extends StatelessWidget {
+  const _RoundIconButton({
+    required this.icon,
+    required this.onTap,
+    this.filled = false,
+  });
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    final fill = filled
+        ? const Color(0xFFC0455B)
+        : Colors.black.withValues(alpha: 0.4);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: fill,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.18),
+            width: 1,
+          ),
+        ),
+        child: Icon(icon, color: Colors.white, size: 24),
+      ),
+    );
+  }
+}
+
+/// A single emoji reaction that floats up the screen, fades, and removes itself.
+class _FloatingHeart extends StatefulWidget {
+  const _FloatingHeart({
+    super.key,
+    required this.emoji,
+    required this.startX,
+    required this.drift,
+    required this.onDone,
+  });
+  final String emoji;
+  final double startX; // -1..1 horizontal start (Alignment x)
+  final double drift; // horizontal drift over the rise
+  final VoidCallback onDone;
+
+  @override
+  State<_FloatingHeart> createState() => _FloatingHeartState();
+}
+
+class _FloatingHeartState extends State<_FloatingHeart>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: const Duration(seconds: 2))
+        ..addStatusListener((s) {
+          if (s == AnimationStatus.completed) widget.onDone();
+        })
+        ..forward();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        final t = _c.value;
+        final y = 1.0 - t * 1.25; // bottom → upper area
+        final x = (widget.startX + widget.drift * t).clamp(-1.0, 1.0);
+        final opacity = (t < 0.12 ? t / 0.12 : (1 - (t - 0.12) / 0.88)).clamp(
+          0.0,
+          1.0,
+        );
+        final scale =
+            0.7 +
+            0.5 * Curves.easeOutBack.transform((t / 0.25).clamp(0.0, 1.0));
+        return Align(
+          alignment: Alignment(x, y),
+          child: Opacity(
+            opacity: opacity,
+            child: Transform.scale(
+              scale: scale,
+              child: Text(widget.emoji, style: const TextStyle(fontSize: 40)),
+            ),
+          ),
+        );
+      },
     );
   }
 }
