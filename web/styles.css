@@ -330,7 +330,14 @@ a { color: inherit; text-decoration: none; }
 
 /* ── COUPLE ──────────────────────────────────────────────────────────── */
 .band--couple { text-align: center; }
-.signature { font-family: var(--font-display); font-style: italic; font-size: 1.4rem; color: var(--accent-user); margin-top: 1.8rem; }
+.couple-quote {
+  font-family: var(--font-display); font-style: italic; font-weight: 400;
+  font-size: clamp(1.15rem, 1.3vw + 0.95rem, 1.55rem); line-height: 1.5;
+  letter-spacing: -0.005em; color: var(--text-primary);
+  margin-top: 1.8rem; max-width: 34ch; margin-inline: auto;
+}
+.signature { font-family: var(--font-display); font-weight: 600; font-size: 1.2rem; color: var(--accent-user); margin-top: 1.4rem; }
+.couple-disarm { margin-top: 1.5rem; color: var(--text-muted); font-size: 0.88rem; letter-spacing: 0.01em; }
 
 /* ── CODE ────────────────────────────────────────────────────────────── */
 .band--code { }
