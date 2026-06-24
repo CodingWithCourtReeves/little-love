@@ -164,6 +164,17 @@ class CallController with WidgetsBindingObserver {
         .catchError((_) {});
   }
 
+  /// Set the speaker for the active video call natively. We bypass
+  /// `Helper.setSpeakerphoneOn` here: on iOS the plugin's override is silently
+  /// reverted to the earpiece a few seconds later (flutter-webrtc #1098/#1987).
+  /// The native side both applies the override and reactively re-asserts it
+  /// whenever WebRTC's audio unit reroutes back to the earpiece.
+  void setSpeakerPreferred(bool on) {
+    _nativeChannel
+        .invokeMethod<void>('setSpeakerPreferred', on)
+        .catchError((_) {});
+  }
+
   LiveConnection? get _conn => _ref.read(liveConnectionProvider).valueOrNull;
 
   String? get _selfUsername => _ref.read(accountProvider).valueOrNull?.username;

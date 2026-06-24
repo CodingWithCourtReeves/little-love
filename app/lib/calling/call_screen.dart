@@ -442,7 +442,10 @@ class _VideoCallViewState extends State<_VideoCallView> {
   }
 
   void _applyAudioRoute() {
-    unawaited(Helper.setSpeakerphoneOn(_speaker));
+    // Native path (not Helper.setSpeakerphoneOn): on iOS the plugin's speaker
+    // override is silently reverted to the earpiece seconds later (flutter-webrtc
+    // #1098/#1987). The controller's native side re-asserts it reactively.
+    widget.controller.setSpeakerPreferred(_speaker);
   }
 
   /// Toggle the controls; reaching out shows them and restarts the auto-hide.
