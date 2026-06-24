@@ -382,7 +382,7 @@ a { color: inherit; text-decoration: none; }
 .foot__links { display: flex; gap: 1.6rem; font-weight: 500; }
 .foot__links a { color: var(--accent-user); }
 .foot__links a:hover { text-decoration: underline; text-underline-offset: 3px; }
-.foot__fine { color: var(--text-muted); font-size: 0.74rem; margin-top: 0.5rem; }
+.foot__fine { color: color-mix(in srgb, var(--text-muted) 70%, var(--text-primary)); font-size: 0.85rem; letter-spacing: 0.01em; margin-top: 0.5rem; }
 
 /* ── scroll reveal ───────────────────────────────────────────────────── */
 .reveal { opacity: 0; transform: translateY(26px); transition: opacity 0.8s var(--ease), transform 0.8s var(--ease); transition-delay: var(--reveal-delay, 0ms); }
