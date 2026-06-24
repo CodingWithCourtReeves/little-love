@@ -203,7 +203,7 @@ sealed class RoomServerFrame {
         return PresenceFrame(
           user: json['user']! as String,
           online: (json['online'] as bool?) ?? false,
-          lastSeen: ls == null ? null : DateTime.parse(ls),
+          lastSeen: ls == null ? null : DateTime.parse(ls).toUtc(),
         );
       case 'Profile':
         return ProfileFrame(
