@@ -1087,7 +1087,11 @@ void main() {
     final peer = await deriveIdentity(seedB);
     final conn = _FakeConn();
     final messageDb = await _ffiMessageDb();
-    final container = await _container(conn: conn, me: me, messageDb: messageDb);
+    final container = await _container(
+      conn: conn,
+      me: me,
+      messageDb: messageDb,
+    );
 
     container.read(inboxStateProvider.notifier).setRooms([
       Room(
@@ -1127,7 +1131,11 @@ void main() {
     final peer = await deriveIdentity(seedB);
     final conn = _FakeConn();
     final messageDb = await _ffiMessageDb();
-    final container = await _container(conn: conn, me: me, messageDb: messageDb);
+    final container = await _container(
+      conn: conn,
+      me: me,
+      messageDb: messageDb,
+    );
 
     container.read(inboxStateProvider.notifier).setRooms([
       Room(
@@ -1192,7 +1200,11 @@ void main() {
         roomId: 'room1',
       );
     }
-    final container = await _container(conn: conn, me: me, messageDb: messageDb);
+    final container = await _container(
+      conn: conn,
+      me: me,
+      messageDb: messageDb,
+    );
     container.read(roomMessageRouterProvider);
 
     conn.emit(
@@ -1210,10 +1222,10 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 50));
 
     // Store hydrated from the DB.
-    expect(
-      container.read(messageStoreProvider('room1')).map((m) => m.id),
-      ['01A', '01B'],
-    );
+    expect(container.read(messageStoreProvider('room1')).map((m) => m.id), [
+      '01A',
+      '01B',
+    ]);
     // Subscribe carried the high-water-mark as the delta anchor.
     final subs = conn.sent
         .cast<Map<String, Object?>>()

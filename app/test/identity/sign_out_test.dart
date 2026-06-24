@@ -88,7 +88,10 @@ class _FakeMessageDb implements MessageDb {
   @override
   Future<void> reconcile(String clientMsgId, Msg server) async {}
   @override
-  Future<void> applyDelete(String targetId, {required String requestedBy}) async {}
+  Future<void> applyDelete(
+    String targetId, {
+    required String requestedBy,
+  }) async {}
   @override
   Future<void> applyReaction(String t, String u, String e) async {}
   @override

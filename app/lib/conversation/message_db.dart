@@ -176,7 +176,10 @@ class SqliteMessageDb implements MessageDb {
     );
     if (n == 0 && existing.isEmpty) {
       // No optimistic row to swap and no server row yet: plain idempotent insert.
-      await upsert(server.copyWith(clientMsgId: clientMsgId), roomId: server.to);
+      await upsert(
+        server.copyWith(clientMsgId: clientMsgId),
+        roomId: server.to,
+      );
     } else if (existing.isNotEmpty) {
       // Server id already present (duplicate echo): drop the optimistic row.
       await _db.delete('messages', where: 'id = ?', whereArgs: [clientMsgId]);
@@ -186,14 +189,19 @@ class SqliteMessageDb implements MessageDb {
   }
 
   @override
-  Future<void> applyDelete(String targetId, {required String requestedBy}) async {
+  Future<void> applyDelete(
+    String targetId, {
+    required String requestedBy,
+  }) async {
     final row = await _db.query(
       'messages',
       where: 'id = ?',
       whereArgs: [targetId],
       limit: 1,
     );
-    if (row.isNotEmpty && row.first['from_user'] != requestedBy) return; // spoof
+    if (row.isNotEmpty && row.first['from_user'] != requestedBy) {
+      return; // spoofed delete: only the author may unsend
+    }
     await _db.insert('tombstones', {
       'target_id': targetId,
       'requested_by': requestedBy,

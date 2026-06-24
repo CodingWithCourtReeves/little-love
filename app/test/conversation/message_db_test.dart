@@ -103,21 +103,27 @@ void main() {
     expect(await db.messagesFor('room1'), isEmpty);
   });
 
-  test('applyDelete rejects a spoofed delete (requestedBy != author)', () async {
-    final db = await freshDb();
-    await db.upsert(
-      Msg(
-        id: '01Y',
-        from: 'alice',
-        to: 'room1',
-        body: 'mine',
-        ts: DateTime.utc(2026),
-      ),
-      roomId: 'room1',
-    );
-    await db.applyDelete('01Y', requestedBy: 'bob'); // bob can't unsend alice's
-    expect((await db.messagesFor('room1')).length, 1);
-  });
+  test(
+    'applyDelete rejects a spoofed delete (requestedBy != author)',
+    () async {
+      final db = await freshDb();
+      await db.upsert(
+        Msg(
+          id: '01Y',
+          from: 'alice',
+          to: 'room1',
+          body: 'mine',
+          ts: DateTime.utc(2026),
+        ),
+        roomId: 'room1',
+      );
+      await db.applyDelete(
+        '01Y',
+        requestedBy: 'bob',
+      ); // bob can't unsend alice's
+      expect((await db.messagesFor('room1')).length, 1);
+    },
+  );
 
   test('markRead promotes send_status to read', () async {
     final db = await freshDb();
