@@ -6,9 +6,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 
 import '../attachment/attachment_descriptor.dart';
+import '../wire/message.dart';
 import 'link_preview.dart';
 import 'message_db_key.dart';
-import '../wire/message.dart';
+import 'message_search.dart';
 
 /// Local, SQLCipher-encrypted projection of the server's message stream.
 ///
@@ -20,7 +21,7 @@ import '../wire/message.dart';
 /// SQLCipher-backed production impl, and a `.test` factory that wraps a plain
 /// ffi [Database] so unit tests skip the native crypto layer.
 abstract class MessageDb {
-  static const schemaVersion = 1;
+  static const schemaVersion = 2;
 
   /// SQLCipher-backed impl living at `<app-support>/messages.db`.
   static Future<MessageDb> open() async {
@@ -79,6 +80,7 @@ abstract class MessageDb {
         requested_by TEXT NOT NULL
       )
     ''');
+    await _createFts(db);
   }
 
   static Future<void> onUpgrade(Database db, int oldV, int newV) async {
@@ -86,6 +88,48 @@ abstract class MessageDb {
     // rebuildable projection, so a gnarly change may instead bump
     // `schemaVersion`, DROP the affected tables here, and let the next connect
     // re-seed from a full replay.
+    if (oldV < 2) {
+      await _createFts(db);
+      // Backfill the index from rows already persisted under v1.
+      await db.execute(
+        'INSERT INTO messages_fts(rowid, body) '
+        'SELECT rowid, body FROM messages WHERE deleted = 0',
+      );
+    }
+  }
+
+  /// The FTS5 search index over message [body], kept in lockstep with the
+  /// `messages` content table via triggers. `unicode61 remove_diacritics 2`
+  /// gives case- and accent-insensitive word/prefix matching; soft-deleted rows
+  /// (`deleted = 1`) are dropped from the index by the UPDATE trigger.
+  static Future<void> _createFts(Database db) async {
+    await db.execute('''
+      CREATE VIRTUAL TABLE messages_fts USING fts5(
+        body,
+        content='messages',
+        content_rowid='rowid',
+        tokenize='unicode61 remove_diacritics 2'
+      )
+    ''');
+    await db.execute('''
+      CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
+        INSERT INTO messages_fts(rowid, body) VALUES (new.rowid, new.body);
+      END
+    ''');
+    await db.execute('''
+      CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, body)
+          VALUES('delete', old.rowid, old.body);
+      END
+    ''');
+    await db.execute('''
+      CREATE TRIGGER messages_au AFTER UPDATE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, body)
+          VALUES('delete', old.rowid, old.body);
+        INSERT INTO messages_fts(rowid, body)
+          SELECT new.rowid, new.body WHERE new.deleted = 0;
+      END
+    ''');
   }
 
   Future<void> upsert(Msg msg, {required String roomId});
@@ -111,6 +155,15 @@ abstract class MessageDb {
 
   /// Max stored server id for [roomId] (delta-sync anchor), or null if empty.
   Future<String?> highWaterMark(String roomId);
+
+  /// Full-text search over message bodies, ranked by BM25 blended with a mild
+  /// recency boost. Scoped to [roomId] when given (in-channel), otherwise across
+  /// all rooms (global). Empty/whitespace queries return nothing.
+  Future<List<SearchHit>> search(
+    String query, {
+    String? roomId,
+    int limit = 50,
+  });
 
   /// Wipe all local state (used on sign-out).
   Future<void> clear();
@@ -264,6 +317,66 @@ class SqliteMessageDb implements MessageDb {
       limit: 1,
     );
     return rows.isEmpty ? null : rows.first['hwm'] as String;
+  }
+
+  @override
+  Future<List<SearchHit>> search(
+    String query, {
+    String? roomId,
+    int limit = 50,
+  }) async {
+    final match = _toPrefixMatch(query);
+    if (match.isEmpty) return const [];
+    final where = StringBuffer('messages_fts MATCH ? AND m.deleted = 0');
+    final args = <Object?>[match];
+    if (roomId != null) {
+      where.write(' AND m.room_id = ?');
+      args.add(roomId);
+    }
+    args.add(limit);
+    // bm25() is negative (most-relevant most-negative). Blend a gentle recency
+    // nudge (ts is epoch-ms ≈ 1.7e12, so ts/1e15 ≈ 0.0017) that only breaks
+    // near-ties toward newer messages without overpowering relevance. Order
+    // ascending so the most-negative (best) score comes first.
+    final rows = await _db.rawQuery('''
+      SELECT m.id, m.room_id, m.from_user, m.ts, m.body,
+             snippet(messages_fts, 0, '<b>', '</b>', '…', 12) AS snip,
+             bm25(messages_fts) - (m.ts / 1.0e15) AS score
+      FROM messages_fts
+      JOIN messages m ON m.rowid = messages_fts.rowid
+      WHERE $where
+      ORDER BY score ASC
+      LIMIT ?
+    ''', args);
+    return rows
+        .map(
+          (r) => SearchHit(
+            messageId: r['id'] as String,
+            roomId: r['room_id'] as String,
+            from: r['from_user'] as String,
+            ts: DateTime.fromMillisecondsSinceEpoch(
+              r['ts'] as int,
+              isUtc: true,
+            ),
+            snippetHtml: r['snip'] as String,
+            body: r['body'] as String,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  /// Turn user text into a safe FTS5 prefix query: lowercase, split on
+  /// whitespace, strip everything but letters/digits (so FTS operators like
+  /// `"`, `*`, `-`, `:` can't break the MATCH), and append `*` to each token for
+  /// as-you-type prefix matching.
+  static String _toPrefixMatch(String query) {
+    final tokens = query
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .map((t) => t.replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), ''))
+        .where((t) => t.isNotEmpty)
+        .map((t) => '"$t"*');
+    return tokens.join(' ');
   }
 
   @override
