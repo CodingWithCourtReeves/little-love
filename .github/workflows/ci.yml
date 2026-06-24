@@ -8,6 +8,10 @@ on:
 
 jobs:
   rust:
+    # Public-repo safety: never run untrusted fork-PR code on the self-hosted
+    # runner. Runs on our own pushes to main and same-repo branch PRs only; PRs
+    # opened from forks are skipped (they'd otherwise execute on Court's Mac).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     # Self-hosted macOS runner (Court's Mac). GitHub `services:` containers only
     # work on Linux runners, so we start Postgres ourselves via the Mac's Docker.
     runs-on: [self-hosted, macOS]
@@ -44,6 +48,8 @@ jobs:
         run: docker rm -f ci-postgres || true
 
   flutter:
+    # Public-repo safety: skip fork PRs (see note on the `rust` job).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, macOS]
     defaults:
       run:
@@ -60,6 +66,8 @@ jobs:
       - run: flutter test
 
   ios-build:
+    # Public-repo safety: skip fork PRs (see note on the `rust` job).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     # Runs on a self-hosted macOS runner (Court's Mac) instead of GitHub-hosted
     # macOS to avoid the 10x Actions-minute multiplier. rust + flutter stay on
     # GitHub-hosted Linux (cheap, and service containers only work on Linux).
