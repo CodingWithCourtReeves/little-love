@@ -308,10 +308,26 @@ void main() {
     );
 
     // Partner comes online → the line flips.
-    container.read(presenceProvider('kaitlyn').notifier).setOnline(true);
+    container.read(presenceProvider('kaitlyn').notifier).set(true);
     await tester.pump();
     expect(find.text('online'), findsOneWidget);
     expect(find.text('offline'), findsNothing);
+
+    // Goes offline with a last-seen → Telegram-style "last seen …" text.
+    container
+        .read(presenceProvider('kaitlyn').notifier)
+        .set(
+          false,
+          lastSeen: DateTime.now().subtract(const Duration(minutes: 5)),
+        );
+    await tester.pump();
+    expect(find.text('online'), findsNothing);
+    expect(find.text('last seen 5 minutes ago'), findsOneWidget);
+
+    // Offline with no last-seen → bare "offline" fallback.
+    container.read(presenceProvider('kaitlyn').notifier).set(false);
+    await tester.pump();
+    expect(find.text('offline'), findsOneWidget);
   });
 
   testWidgets('partner typing shows a typing line inside the title pill', (

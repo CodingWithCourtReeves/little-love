@@ -387,7 +387,11 @@ class TypingFrame extends RoomServerFrame {
 /// Partner presence: [user] just came online or went offline. Server pushes
 /// this only to the user's linked partner; never persisted.
 class PresenceFrame extends RoomServerFrame {
-  const PresenceFrame({required this.user, required this.online, this.lastSeen});
+  const PresenceFrame({
+    required this.user,
+    required this.online,
+    this.lastSeen,
+  });
   final String user;
   final bool online;
 

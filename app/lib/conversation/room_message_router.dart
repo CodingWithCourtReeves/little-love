@@ -111,7 +111,9 @@ class RoomMessageRouter {
       case PresenceFrame(:final user, :final online, :final lastSeen):
         // Server-authoritative partner online/offline + last-seen, keyed by
         // username. `lastSeen` is set only when offline.
-        ref.read(presenceProvider(user).notifier).set(online, lastSeen: lastSeen);
+        ref
+            .read(presenceProvider(user).notifier)
+            .set(online, lastSeen: lastSeen);
 
       case ProfileFrame():
         await _ingestProfile(f);
