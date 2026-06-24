@@ -67,8 +67,15 @@ matching `.phone__screen[data-gif-slot="…"]` with:
 Record at the phone's aspect ratio (~9:19), keep files small (optimize the GIF
 or use a looping `<video>` with `muted autoplay playsinline`).
 
+## Fonts
+
+Self-hosted (no third-party requests), in keeping with the "no third parties"
+voice. The woff2 files live in `public/assets/fonts/` (latin + latin-ext subsets
+of Fraunces / Hanken Grotesk / Space Mono); `@font-face` declarations are in
+`public/fonts.css`. To change weights, re-pull from the Google Fonts CSS and
+re-localize, or add the new woff2 + a `@font-face` block by hand.
+
 ## Launch polish (not blocking)
 
-- Self-host the fonts (Fraunces / Hanken Grotesk / Space Mono) to drop the
-  Google Fonts request, consistent with the "no third parties" voice.
-- Replace the placeholder TestFlight URL with the real public invite link.
+- When there's a public TestFlight link, the alpha CTA can point straight at it
+  (today it routes to the request-access form, which fits the internal alpha).
