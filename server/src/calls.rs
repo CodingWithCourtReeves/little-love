@@ -23,6 +23,8 @@ pub struct Pending {
     pub from: String,
     /// Encrypted SDP offer (opaque to the server).
     pub offer: String,
+    /// Whether this is a video call (shapes the woken callee's CallKit screen).
+    pub video: bool,
     pub expires_at: Instant,
 }
 
@@ -89,6 +91,7 @@ mod tests {
             room_id: "room".into(),
             from: "court".into(),
             offer: "ENC".into(),
+            video: false,
             expires_at,
         }
     }

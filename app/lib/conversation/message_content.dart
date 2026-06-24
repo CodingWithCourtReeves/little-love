@@ -42,6 +42,7 @@ sealed class MessageContent {
               callId: (j['call_id'] as String?) ?? '',
               outcome: (j['outcome'] as String?) ?? 'completed',
               durationS: (j['duration_s'] as num?)?.toInt() ?? 0,
+              video: j['video'] == true,
               startedAt:
                   DateTime.tryParse(
                     (j['started_at'] as String?) ?? '',
@@ -128,6 +129,7 @@ class CallContent extends MessageContent {
     required this.outcome,
     required this.durationS,
     required this.startedAt,
+    this.video = false,
   });
 
   final String callId;
@@ -137,6 +139,10 @@ class CallContent extends MessageContent {
 
   /// Connected duration in seconds (0 for unconnected calls).
   final int durationS;
+
+  /// Whether this was a video call (vs audio). Absent on the wire for audio
+  /// calls (v1-compatible — older entries read as audio).
+  final bool video;
   final DateTime startedAt;
 
   @override
@@ -146,6 +152,7 @@ class CallContent extends MessageContent {
     'call_id': callId,
     'outcome': outcome,
     'duration_s': durationS,
+    if (video) 'video': true,
     'started_at': startedAt.toUtc().toIso8601String(),
   });
 }

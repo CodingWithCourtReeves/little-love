@@ -70,7 +70,17 @@ void main() {
         'room_id': 'r1',
         'call_id': 'c1',
         'offer': 'O',
+        'video': false,
       },
+    );
+    expect(
+      const CallInviteClientFrame(
+        roomId: 'r1',
+        callId: 'c1',
+        offer: 'O',
+        video: true,
+      ).toJson()['video'],
+      true,
     );
     expect(
       const CallHangupClientFrame(

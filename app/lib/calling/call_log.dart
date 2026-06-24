@@ -13,26 +13,29 @@ String outcomeToWire(CallOutcome outcome) => switch (outcome) {
 };
 
 /// A short human-readable summary for a call-log timeline row, given the
-/// `outcome` wire string and connected `durationS`. (A richer styled call
-/// bubble can replace this later; this keeps the entry legible meanwhile.)
-String callLogSummary(String outcome, int durationS) {
+/// `outcome` wire string and connected `durationS`. Pass [video] to label it a
+/// video call. (A richer styled call bubble can replace this later; this keeps
+/// the entry legible meanwhile.)
+String callLogSummary(String outcome, int durationS, {bool video = false}) {
+  final icon = video ? '📹' : '📞';
+  final noun = video ? 'Video call' : 'Call';
   switch (outcome) {
     case 'completed':
       final mm = (durationS ~/ 60).toString();
       final ss = (durationS % 60).toString().padLeft(2, '0');
-      return '📞 Call · $mm:$ss';
+      return '$icon $noun · $mm:$ss';
     case 'missed':
-      return '📞 Missed call';
+      return '$icon Missed ${video ? 'video call' : 'call'}';
     case 'declined':
-      return '📞 Call declined';
+      return '$icon $noun declined';
     case 'cancelled':
-      return '📞 Cancelled call';
+      return '$icon Cancelled ${video ? 'video call' : 'call'}';
     case 'busy':
-      return '📞 Busy';
+      return '$icon Busy';
     case 'failed':
-      return '📞 Call failed';
+      return '$icon $noun failed';
     default:
-      return '📞 Call';
+      return '$icon $noun';
   }
 }
 
@@ -44,11 +47,13 @@ CallContent buildCallLog({
   required CallOutcome outcome,
   required Duration duration,
   required DateTime startedAt,
+  bool video = false,
 }) {
   return CallContent(
     callId: callId,
     outcome: outcomeToWire(outcome),
     durationS: duration.inSeconds,
     startedAt: startedAt,
+    video: video,
   );
 }
