@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /pair/
+Disallow: /api/
+
+Sitemap: https://littlelove.dev/sitemap.xml

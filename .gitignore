@@ -36,6 +36,11 @@ app/Library/
 .dev.demo.key
 /.dev/
 
+# Cloudflare Pages / wrangler (marketing site in web/)
+web/.dev.vars
+.wrangler/
+node_modules/
+
 # OS
 .DS_Store
 Thumbs.db

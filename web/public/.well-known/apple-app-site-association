@@ -1,0 +1,12 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["9PVUX2535W.dev.littlelove.littlelove"],
+        "components": [
+          { "/": "/pair/*", "comment": "partner pairing links" }
+        ]
+      }
+    ]
+  }
+}

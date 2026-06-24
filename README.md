@@ -68,3 +68,13 @@ All three attach to the GitHub Release. First launch warns about unsigned binari
 - `docs/superpowers/specs/2026-06-09-littlelove-day1-design.md` — Day-1 design (the vertical slice being implemented now)
 - `docs/superpowers/plans/2026-06-09-littlelove-day1-plan.md` — this plan
 - `docs/mocks/` — desktop UI mocks with theme switcher
+
+## License
+
+Copyright © 2026 Coding with Court LLC.
+
+LittleLove is open source under the **GNU Affero General Public License v3.0**
+(`AGPL-3.0-only`); see [`LICENSE`](LICENSE). The code is published so anyone can
+verify the privacy claims; the AGPL keeps it open (including for anyone who runs
+a modified server) while preventing a closed-source fork. The LittleLove name
+and branding are not covered by this license.

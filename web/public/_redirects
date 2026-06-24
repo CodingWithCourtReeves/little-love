@@ -1,0 +1,5 @@
+# Universal-link web fallback: any /pair/<code> serves the static fallback page
+# (200 rewrite, not a redirect, so the URL stays /pair/<code> and iOS can still
+# intercept it as a universal link when the app IS installed). The token is
+# never consumed in the browser.
+/pair/*  /pair/  200

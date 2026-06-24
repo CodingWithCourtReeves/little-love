@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy Policy · LittleLove</title>
+  <meta name="description" content="How LittleLove handles your data: end-to-end encrypted messages we can't read, minimal metadata, no analytics, no ads, no AI." />
+  <link rel="canonical" href="https://littlelove.dev/privacy/" />
+  <meta name="theme-color" content="#F4EBEC" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#181019" media="(prefers-color-scheme: dark)" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Hanken+Grotesk:wght@400;500;700&family=Space+Mono&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+  <!-- NOTE (repo): drafted to reflect the app's real data practices, but this is
+       not legal advice. Have counsel review before relying on it. -->
+</head>
+<body>
+  <main class="legal">
+    <a class="legal__back" href="/">&larr; LittleLove</a>
+
+    <h1>Privacy Policy</h1>
+    <p class="legal__updated">Last updated: June 24, 2026</p>
+
+    <p class="legal__lede">
+      Coding with Court LLC (&ldquo;LittleLove,&rdquo; &ldquo;we,&rdquo;
+      &ldquo;us&rdquo;) makes a private messenger for couples. This policy
+      explains what we collect, what we deliberately <em>cannot</em> see, and
+      who we work with. LittleLove is for adults: you must be 18 or older to use
+      it.
+    </p>
+
+    <div class="legal__tldr">
+      <h2>The short version</h2>
+      <ul>
+        <li>Your messages, calls, voice notes, photos, and video are end-to-end encrypted. We store only ciphertext we have no key to read.</li>
+        <li>We don&rsquo;t use analytics, trackers, advertising, or AI. We don&rsquo;t sell or share your data.</li>
+        <li>We don&rsquo;t track who you talk to or when for any purpose beyond delivering your messages.</li>
+        <li>We hold the minimum we need to run the service (your public keys, your partner link, a push token, routing timestamps).</li>
+        <li>Questions or requests: <a href="mailto:privacy@littlelove.dev">privacy@littlelove.dev</a>.</li>
+      </ul>
+    </div>
+
+    <h2>What we can&rsquo;t see</h2>
+    <p>
+      LittleLove is end-to-end encrypted. Your messages and shared files are
+      encrypted on your device and addressed to your partner&rsquo;s device key,
+      using keys that live only on your devices (stored in the iOS Keychain).
+      The content travels through our server as ciphertext we have no key to
+      open, and is delivered to your partner&rsquo;s device, where it is
+      decrypted. Calls are peer-to-peer and encrypted in transit. Your profile
+      display name and avatar are also end-to-end encrypted.
+    </p>
+    <p>
+      Because of this design, we cannot read your messages, listen to your
+      calls, or view your photos and video. We also cannot recover them for you
+      if you lose access to your device and recovery phrase.
+    </p>
+
+    <h2>What we collect and store</h2>
+    <h3>Account and identity</h3>
+    <ul>
+      <li>Your public encryption keys (these are public by design; your private keys never leave your device).</li>
+      <li>An account identifier and your chosen handle.</li>
+      <li>Your partner link (which two accounts are connected). LittleLove pairs exactly one partner per account.</li>
+    </ul>
+    <h3>Operating the service</h3>
+    <ul>
+      <li>Routing information and timestamps needed to deliver and order messages.</li>
+      <li>A device push-notification token, so we can tell your device a message has arrived. Our push notifications are content-free, and never contain message text or sender details.</li>
+      <li>Connection information such as IP address, used transiently to operate the service and guard against abuse.</li>
+    </ul>
+    <h3>If you contact us</h3>
+    <ul>
+      <li>The email address and message you send through our contact form or to <a href="mailto:privacy@littlelove.dev">privacy@littlelove.dev</a>, so we can reply.</li>
+    </ul>
+
+    <h2>What we don&rsquo;t do</h2>
+    <p>
+      We do not include analytics, telemetry, crash-tracking, advertising, or
+      AI/LLM processing in the app or on our servers. We verified this in our own
+      source code, which is public. We do not sell, rent, or share your personal
+      information, and we do not build advertising or behavioral profiles.
+    </p>
+
+    <h2>Service providers</h2>
+    <p>
+      We rely on a small number of providers to run LittleLove. None of them
+      receive the plaintext content of your messages, calls, or files:
+    </p>
+    <ul>
+      <li><strong>Apple</strong>: delivers our content-free push notifications (Apple receives a device token and that a message arrived, never its content).</li>
+      <li><strong>Cloudflare</strong>: provides connection credentials for calls (the call media is encrypted end-to-end and flows peer-to-peer), encrypted file storage (we store only ciphertext), and DNS/hosting for this website.</li>
+      <li><strong>Railway</strong>: hosts our application server and database, which hold only the data described above (including ciphertext, never keys to it).</li>
+      <li><strong>Resend</strong>: delivers the email when you write to us through the contact form.</li>
+    </ul>
+
+    <h2>How we use information</h2>
+    <p>
+      We use the information above only to operate, secure, and support
+      LittleLove: to deliver your messages and calls, notify your device, prevent
+      abuse, and respond when you contact us.
+    </p>
+
+    <h2>Retention and your choices</h2>
+    <p>
+      You can delete your account at any time from within the app, or by emailing
+      <a href="mailto:privacy@littlelove.dev">privacy@littlelove.dev</a>. Deleting
+      your account removes your account record, public keys, partner link, and
+      stored ciphertext from our servers. Because your content is end-to-end
+      encrypted, deletion is irreversible and we cannot restore it.
+    </p>
+    <p>
+      Depending on where you live (for example, California and certain other US
+      states), you may have rights to access or delete the personal information
+      we hold about you. Email us and we&rsquo;ll honor applicable requests.
+    </p>
+
+    <h2>Security</h2>
+    <p>
+      Message content is end-to-end encrypted, your private keys are stored in
+      the iOS Keychain on your device, and all connections to our servers are
+      encrypted in transit. No system is perfect, but our design minimizes what
+      could ever be exposed: the server simply does not hold the keys to your
+      conversations.
+    </p>
+
+    <h2>Age requirement</h2>
+    <p>
+      LittleLove is intended only for people who are 18 or older. We do not
+      knowingly collect personal information from anyone under 18. If you believe
+      someone under 18 has created an account, contact
+      <a href="mailto:privacy@littlelove.dev">privacy@littlelove.dev</a> and
+      we&rsquo;ll address it.
+    </p>
+
+    <h2>Changes to this policy</h2>
+    <p>
+      We may update this policy as LittleLove evolves. We&rsquo;ll change the
+      &ldquo;last updated&rdquo; date above, and for material changes we&rsquo;ll
+      do our best to let you know in the app.
+    </p>
+
+    <div class="legal__contact">
+      <p>
+        <strong>Coding with Court LLC</strong><br />
+        Jonesborough, Tennessee, USA<br />
+        <a href="mailto:privacy@littlelove.dev">privacy@littlelove.dev</a>
+      </p>
+      <p><a href="/terms/">Terms of Service</a> &middot; <a href="/">Home</a></p>
+    </div>
+  </main>
+  <script src="/main.js" defer></script>
+</body>
+</html>

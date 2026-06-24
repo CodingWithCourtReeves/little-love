@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <title>LittleLove · A private messenger for two</title>
+  <meta name="description" content="An end-to-end encrypted messenger built for couples. Messages, voice notes, and calls that stay between you and your partner. We can't read any of it. Built by a couple, no VC, no ads, no AI." />
+  <link rel="canonical" href="https://littlelove.dev/" />
+
+  <!-- Open Graph / Twitter -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="LittleLove" />
+  <meta property="og:url" content="https://littlelove.dev/" />
+  <meta property="og:title" content="Just the two of you. No one else. Not even us." />
+  <meta property="og:description" content="An end-to-end encrypted messenger built for couples. Messages, voice notes, and calls that stay between you and your partner." />
+  <meta property="og:image" content="https://littlelove.dev/assets/og-image.png" />
+  <meta property="og:image:alt" content="LittleLove, a private messenger for two." />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Just the two of you. No one else. Not even us." />
+  <meta name="twitter:description" content="An end-to-end encrypted messenger built for couples." />
+  <meta name="twitter:image" content="https://littlelove.dev/assets/og-image.png" />
+
+  <meta name="theme-color" content="#F4EBEC" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#181019" media="(prefers-color-scheme: dark)" />
+
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+
+  <!-- Fonts. NOTE (launch polish): self-host these to drop the Google request,
+       in keeping with the "no third parties" voice. Fine for v1. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Hanken+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="/styles.css" />
+
+  <!-- Structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "LittleLove",
+    "applicationCategory": "CommunicationApplication",
+    "operatingSystem": "iOS",
+    "description": "An end-to-end encrypted messenger built for couples.",
+    "url": "https://littlelove.dev/",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+</head>
+
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="nav" aria-label="Primary">
+    <a class="nav__brand" href="/" aria-label="LittleLove home">
+      <span class="nav__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" aria-hidden="true">
+          <path d="M12 20.5S3.5 14.8 3.5 9.2A4.7 4.7 0 0 1 12 6.3a4.7 4.7 0 0 1 8.5 2.9c0 5.6-8.5 11.3-8.5 11.3Z" fill="currentColor"/>
+        </svg>
+      </span>
+      <span class="nav__word">LittleLove</span>
+    </a>
+    <nav class="nav__links">
+      <a href="#privacy">Privacy</a>
+      <a href="#together">Features</a>
+      <a href="#code">The code</a>
+      <a class="btn btn--ghost btn--sm" href="#get" data-cta="nav">Join the alpha</a>
+    </nav>
+    <button class="theme-toggle" type="button" aria-label="Switch light / dark" title="Switch light / dark">
+      <svg class="theme-toggle__sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="12" y1="2.5" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21.5"/><line x1="2.5" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21.5" y2="12"/><line x1="5.1" y1="5.1" x2="6.8" y2="6.8"/><line x1="17.2" y1="17.2" x2="18.9" y2="18.9"/><line x1="5.1" y1="18.9" x2="6.8" y2="17.2"/><line x1="17.2" y1="6.8" x2="18.9" y2="5.1"/></g></svg>
+      <svg class="theme-toggle__moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.3 6.3 0 0 0 9.2 9.2Z" fill="currentColor"/></svg>
+    </button>
+  </header>
+
+  <main id="main">
+
+    <!-- ───────────────────────── HERO ───────────────────────── -->
+    <section class="hero">
+      <div class="hero__grain" aria-hidden="true"></div>
+      <div class="hero__glow" aria-hidden="true"></div>
+
+      <div class="hero__copy reveal">
+        <p class="eyebrow"><span class="eyebrow__dot"></span>End-to-end encrypted · Built for two</p>
+        <h1 class="hero__title">
+          Just the two of you.<br />
+          <em>No one else.</em><br />
+          Not even us.
+        </h1>
+        <p class="hero__lede">
+          An end-to-end encrypted messenger built for couples. Your messages,
+          voice notes, and calls stay between you and your partner, and we
+          can&rsquo;t read any of it.
+        </p>
+        <div class="hero__actions">
+          <a class="btn btn--primary" href="#get" data-cta="hero">
+            Join the alpha on TestFlight
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <a class="btn btn--quiet" href="#privacy">See how it stays private</a>
+        </div>
+        <p class="hero__foot mono">iOS · invite-only alpha · open source</p>
+      </div>
+
+      <!-- Animated SVG / live chat mock: plaintext on the device, ciphertext on the wire -->
+      <div class="hero__stage reveal" data-reveal-delay="160" aria-hidden="true">
+        <div class="phone phone--hero">
+          <div class="phone__notch"></div>
+          <div class="phone__screen">
+            <div class="chat">
+              <div class="chat__day">today</div>
+              <div class="bubble bubble--in">Did you make it home okay? 💜</div>
+              <div class="bubble bubble--out">Just walked in. Call you in five.</div>
+              <div class="bubble bubble--in">Good. I missed your voice today.</div>
+              <div class="bubble bubble--out bubble--typing"><span></span><span></span><span></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="wire" role="presentation">
+          <div class="wire__label mono">what our server sees</div>
+          <div class="wire__cipher mono" data-cipher>k7Qe·9f1A·xR2m·░░░░·Lp8w·c4Vz·░░·Nq6</div>
+          <svg class="wire__lock" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <rect x="4.5" y="10.5" width="15" height="10" rx="2.4" fill="currentColor"/>
+            <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────────────────── THE GUARANTEE ─────────────────────── -->
+    <section class="band" id="privacy">
+      <div class="section-head reveal">
+        <p class="eyebrow eyebrow--sage"><span class="eyebrow__dot"></span>The guarantee</p>
+        <h2 class="h2">Not even we can read it.</h2>
+        <p class="lede">
+          Your messages are encrypted on your device and addressed to your
+          partner&rsquo;s device key, one our server never holds. What we
+          store is ciphertext we have no way to open. It isn&rsquo;t a setting,
+          and it isn&rsquo;t a promise. It&rsquo;s the only code path that exists.
+        </p>
+        <p class="microcaption mono">(that&rsquo;s what &ldquo;end-to-end encrypted&rdquo; means)</p>
+      </div>
+
+      <ul class="negations reveal" data-reveal-delay="120">
+        <li><span class="negations__no">No</span> ads. <em>We don&rsquo;t have anything to sell, including you.</em></li>
+        <li><span class="negations__no">No</span> trackers. <em>No analytics SDK in the app or the server. We checked the code.</em></li>
+        <li><span class="negations__no">No</span> AI. <em>Nothing reads your conversation to &ldquo;improve&rdquo; anything.</em></li>
+      </ul>
+
+      <p class="metadata-line reveal" data-reveal-delay="200">
+        And we don&rsquo;t track <em>who</em> you talk to, or <em>when</em>. There&rsquo;s no one to sell it to anyway.
+      </p>
+
+      <p class="primitives mono reveal" data-reveal-delay="260" title="The actual primitives LittleLove uses">
+        X25519 &middot; Ed25519 &middot; HKDF-SHA256 &middot; XChaCha20-Poly1305
+      </p>
+    </section>
+
+    <!-- ─────────────────── CLOSE THE DISTANCE (LDR) ─────────────────── -->
+    <section class="band band--distance" id="distance">
+      <div class="distance__art reveal" aria-hidden="true">
+        <svg viewBox="0 0 975 652" class="usmap" role="presentation">
+          <defs>
+            <linearGradient id="routeGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" class="route-a"/>
+              <stop offset="1" class="route-b"/>
+            </linearGradient>
+          </defs>
+          <path class="usmap__land" d="M780,466L781,470L783,476L785,482L787,485L790,491L793,496L795,500L801,508L805,511L806,514L805,517L806,520L808,524L812,529L814,534L815,537L818,541L820,544L822,549L823,554L823,557L823,561L823,565L824,571L824,575L821,576L821,578L821,581L821,584L824,578L822,585L818,592L819,589L820,586L815,587L812,587L807,590L805,588L805,585L804,582L802,580L799,578L797,576L793,574L790,573L789,571L788,566L785,563L783,562L780,559L781,555L780,552L780,556L777,558L775,554L773,551L769,546L766,543L768,539L770,536L771,533L769,532L765,530L765,532L767,534L767,537L765,539L763,535L762,530L761,526L762,529L763,526L764,521L764,517L762,514L761,512L760,508L759,505L755,505L753,503L750,500L746,498L745,495L743,494L740,491L737,489L734,488L730,487L727,487L726,490L726,492L723,492L720,494L716,497L712,498L714,500L718,498L720,496L714,501L710,499L707,500L706,496L707,499L707,494L704,493L702,491L698,490L693,487L689,486L686,486L681,486L675,487L671,488L668,489L664,490L661,491L658,492L657,488L655,486L655,483L652,483L652,486L652,489L649,489L646,489L644,490L641,490L638,490L633,491L629,492L627,494L625,495L622,497L619,499L620,501L624,502L624,500L626,498L628,500L631,500L629,502L630,505L627,507L623,508L624,511L626,513L629,513L632,515L634,516L637,517L635,519L634,522L632,520L630,523L631,520L631,518L629,519L625,517L620,515L616,519L613,521L611,517L608,515L606,517L604,520L601,522L598,520L595,520L592,519L592,516L594,518L593,515L590,515L587,512L584,510L582,508L579,509L580,506L577,506L574,508L575,511L572,513L565,512L562,511L558,509L554,508L550,508L548,508L542,509L537,511L535,511L525,516L523,518L524,516L528,514L523,514L524,511L521,509L519,511L517,514L520,515L520,519L516,523L520,520L523,519L517,523L515,525L513,527L510,530L502,534L496,537L494,538L492,539L489,542L485,544L482,547L480,548L478,551L475,555L474,558L472,562L470,566L470,570L470,574L472,580L472,583L473,587L474,592L473,588L472,582L470,576L470,569L470,564L472,560L473,557L475,554L476,551L480,546L483,545L486,542L489,541L486,541L484,540L482,543L479,546L475,546L477,547L474,553L471,552L469,552L470,555L473,556L471,559L470,561L469,564L467,565L469,566L469,572L468,576L468,580L469,583L472,588L471,592L474,593L472,595L470,598L467,597L464,593L461,593L458,593L454,593L450,591L447,589L445,588L442,586L439,585L436,584L434,581L433,578L431,574L429,572L428,568L428,565L428,559L426,557L424,555L422,554L420,552L420,550L418,548L416,544L414,543L412,541L411,538L410,535L409,533L408,530L407,527L405,522L404,520L402,518L399,516L396,513L394,511L393,509L391,506L389,505L386,506L383,505L379,505L377,503L373,503L370,504L366,505L365,508L363,514L361,516L359,517L357,520L355,521L351,520L348,517L345,516L343,514L340,513L337,511L335,508L333,506L330,504L329,500L328,498L327,495L328,492L327,489L325,487L325,483L323,480L320,478L316,475L313,472L312,469L309,468L308,465L305,462L302,460L300,458L299,454L296,452L279,450L264,448L263,458L247,456L229,454L220,452L208,450L176,432L172,429L142,412L143,409L145,407L99,402L99,398L98,395L99,390L99,388L97,382L95,379L92,376L90,374L88,371L85,371L82,369L83,365L81,362L78,361L74,360L72,358L70,357L69,354L68,352L65,349L62,349L59,348L57,346L52,345L49,344L46,340L48,338L49,335L50,330L48,327L46,325L47,321L45,319L44,317L42,313L41,311L40,308L40,305L38,302L36,298L35,295L36,291L38,289L40,286L39,283L35,281L33,276L31,274L33,271L32,268L33,263L35,261L35,265L36,267L38,269L39,265L36,262L37,259L39,256L38,253L35,256L35,259L32,257L29,255L27,254L28,251L28,249L28,245L25,241L23,236L21,232L20,229L21,222L22,218L24,216L24,213L24,209L22,204L20,201L18,197L19,194L20,191L25,186L27,184L27,181L29,177L31,173L32,166L32,162L33,160L31,157L31,153L32,149L34,146L33,144L33,140L35,137L37,134L38,131L41,128L43,126L45,121L48,114L50,110L51,107L53,103L54,99L57,92L58,90L59,86L61,81L62,78L62,75L64,72L64,69L66,71L69,71L67,69L65,67L65,63L66,60L65,63L65,66L66,63L67,60L70,59L67,59L66,56L69,54L69,51L66,53L67,50L67,45L67,39L68,34L66,31L65,28L66,25L68,21L72,23L75,25L79,28L82,29L85,31L89,31L90,33L92,34L95,33L95,36L95,38L93,40L91,43L92,40L90,42L85,46L86,49L88,48L85,48L88,44L92,43L94,41L96,38L96,43L95,46L94,48L92,52L89,52L89,55L88,52L88,55L91,55L93,52L96,52L96,49L97,46L98,43L99,41L101,39L100,35L100,32L100,36L98,34L99,32L101,31L100,29L97,26L101,27L102,24L102,22L99,19L100,16L110,17L115,19L122,21L130,23L140,25L153,29L166,32L184,36L198,39L210,42L223,44L233,46L243,48L265,52L273,53L285,55L303,57L314,59L326,60L340,62L353,63L364,65L377,66L387,67L404,68L421,69L431,69L445,70L455,70L469,71L479,71L492,71L508,71L511,71L511,62L514,62L516,64L516,68L518,73L519,76L522,77L524,77L528,79L531,80L534,81L536,80L538,79L541,79L544,79L548,80L549,83L552,83L553,87L555,84L558,84L560,87L563,87L565,90L568,91L571,90L575,86L578,87L581,88L588,88L590,90L594,90L596,90L593,93L590,94L586,96L583,97L579,99L577,101L575,103L573,106L570,109L568,111L565,114L563,116L559,119L561,122L567,120L573,117L575,116L578,115L579,118L578,120L577,123L580,122L583,122L585,123L589,121L593,119L595,117L597,117L601,116L603,114L605,112L608,111L610,108L613,106L615,103L619,101L622,100L624,100L622,102L621,104L619,106L617,109L615,112L615,115L619,112L621,112L624,112L627,113L629,115L631,118L633,121L637,121L640,121L642,121L644,119L647,118L652,115L656,114L660,114L665,112L668,111L669,115L670,118L673,118L676,117L678,117L682,116L683,117L684,121L686,124L688,126L690,125L693,124L695,126L692,127L689,127L685,127L682,128L679,128L676,127L675,129L673,130L669,128L666,127L663,127L661,130L657,131L653,131L650,135L648,137L646,139L646,136L647,133L644,135L643,138L640,136L640,138L637,142L636,145L634,149L632,152L632,156L629,157L628,160L627,162L627,165L630,164L633,159L635,157L638,153L640,150L640,148L641,152L639,155L638,158L637,162L635,165L635,170L635,174L633,176L632,181L633,183L632,188L632,190L631,195L631,198L632,201L633,203L634,206L634,210L634,212L634,217L636,221L637,223L638,226L640,230L645,231L650,229L654,226L657,219L659,216L659,213L660,210L660,205L659,200L658,195L656,191L654,187L652,184L653,182L653,177L653,173L654,170L655,166L655,163L655,160L657,158L657,155L659,153L662,151L664,148L665,151L664,154L664,157L666,154L665,157L668,153L668,149L667,146L670,143L672,143L671,140L671,137L673,134L675,133L679,134L683,135L686,137L690,138L693,139L697,140L699,142L700,145L701,147L698,147L700,150L702,153L702,157L702,162L700,164L699,169L695,171L694,176L696,179L699,180L701,177L702,173L705,171L708,169L712,168L714,171L716,174L716,177L718,181L719,186L720,189L722,191L721,195L721,200L719,202L719,199L716,199L715,203L715,207L712,210L713,213L711,217L708,220L710,223L712,223L715,224L718,225L720,225L723,227L726,227L729,226L733,223L738,223L740,221L742,218L744,216L748,213L756,209L759,207L762,205L765,202L768,200L772,196L775,193L777,191L779,187L780,185L778,182L777,180L775,176L778,174L782,173L788,171L792,170L796,170L800,172L802,171L806,169L809,169L811,168L814,165L817,162L819,161L819,158L818,155L819,152L817,152L815,149L816,146L819,142L822,140L825,132L829,128L831,126L833,124L836,123L842,122L845,121L849,120L858,118L865,116L874,114L886,111L887,108L888,103L891,104L892,102L895,103L895,100L897,99L895,97L896,94L899,90L899,87L900,85L899,83L898,80L898,77L899,74L899,67L906,48L909,48L909,50L912,52L915,50L917,48L920,46L923,46L926,48L930,50L933,60L935,67L937,74L938,77L939,80L942,81L945,80L945,83L947,85L947,88L949,90L952,88L955,92L957,95L955,99L951,100L951,103L950,106L947,105L946,107L944,110L941,113L939,114L938,111L937,114L936,117L937,120L936,118L935,115L932,114L932,111L929,113L930,115L929,118L930,121L928,125L926,126L924,128L922,130L920,132L917,133L915,135L913,138L913,142L911,145L911,148L909,153L911,159L914,158L911,162L910,165L910,167L913,168L915,169L917,171L917,174L920,176L923,178L926,177L929,175L928,172L926,170L924,170L927,170L930,174L931,177L931,180L927,179L923,181L920,183L918,186L916,188L918,186L920,183L919,180L917,182L915,185L913,186L910,184L911,187L910,184L907,181L907,184L908,187L908,191L904,193L900,193L897,195L893,197L891,198L887,198L885,199L883,201L880,204L878,206L875,208L873,210L873,213L875,211L877,209L879,208L883,208L889,205L893,202L895,200L897,201L900,202L902,200L900,202L896,206L893,208L890,210L886,213L883,214L878,217L874,218L872,219L870,218L868,220L867,222L871,222L872,225L872,229L873,234L873,237L871,245L870,247L867,251L866,254L865,257L863,259L863,255L860,254L858,253L854,251L852,250L850,248L850,244L848,247L849,249L852,252L854,255L855,258L857,261L860,263L862,266L864,270L864,273L863,279L861,284L859,286L858,288L858,291L858,295L857,298L857,301L855,304L853,301L853,298L853,292L854,289L856,286L855,283L852,285L852,283L850,280L850,275L849,278L848,276L848,279L844,278L841,274L842,271L845,271L843,270L840,270L841,266L839,264L839,262L842,262L839,259L840,256L841,254L843,251L843,249L840,251L839,254L837,257L835,259L837,262L837,265L836,269L838,272L839,275L841,277L841,280L843,282L841,282L838,281L835,282L833,279L830,278L827,280L825,278L827,274L825,278L826,281L829,280L832,282L834,283L838,283L840,285L844,286L846,289L846,292L843,293L840,291L836,289L838,291L841,294L844,294L846,295L848,297L848,300L845,299L846,301L847,304L849,305L847,309L844,307L842,304L839,304L837,305L839,305L842,306L846,309L849,310L853,309L856,312L858,314L861,320L862,323L864,325L868,332L866,328L863,324L861,322L860,319L857,318L859,320L862,325L859,323L855,323L857,326L853,326L850,326L853,328L851,330L848,330L846,328L846,325L845,328L847,331L850,332L852,331L856,330L859,330L859,332L860,337L860,334L860,331L862,329L865,332L866,335L865,337L862,340L861,343L858,344L853,345L851,342L853,341L851,341L852,345L849,344L845,344L850,346L853,346L853,349L853,352L850,355L846,353L848,355L850,356L852,354L855,351L857,353L858,355L856,359L853,360L856,361L857,358L859,355L862,350L858,357L857,361L853,361L847,363L844,365L842,366L840,368L838,370L836,374L834,377L833,383L829,383L825,384L823,386L820,388L816,392L815,395L813,399L813,402L813,405L811,408L808,408L806,410L805,412L803,415L801,418L798,420L795,423L792,423L793,425L791,428L788,427L790,430L787,433L787,436L785,439L783,442L782,446L781,451L781,454L780,456L780,459L780,464L780,466ZM93,575L96,573L98,571L101,571L103,571L103,574L102,576L100,578L97,580L97,577L95,580L94,577L93,575ZM44,547L47,547L50,548L51,551L48,552L44,549L44,547ZM31,601L34,600L36,598L38,596L40,598L38,600L35,601L32,602L31,601ZM51,505L55,502L59,501L64,500L65,503L67,504L70,505L73,503L71,499L73,502L72,498L67,496L66,492L63,488L61,486L62,481L64,481L67,481L69,480L71,476L74,472L77,472L80,470L83,468L87,468L89,465L93,466L92,469L94,466L95,469L99,468L101,469L102,472L105,471L109,471L112,472L115,473L119,473L122,474L124,472L132,474L147,547L151,547L155,545L155,548L162,552L164,555L166,552L166,550L168,547L172,547L174,549L176,552L181,554L183,557L186,560L188,562L190,564L192,566L195,566L198,566L201,568L201,571L202,576L200,578L198,575L198,572L197,570L198,574L195,575L194,571L194,573L192,570L189,570L190,567L187,565L183,563L182,560L179,557L176,557L173,553L172,550L173,555L175,558L172,557L169,554L166,554L168,555L170,557L168,559L164,557L162,556L158,554L155,553L153,549L151,551L146,551L142,550L135,552L132,550L129,549L125,551L128,548L126,547L125,544L123,546L119,547L119,550L121,553L119,554L116,554L114,557L111,559L109,560L106,561L107,558L109,556L105,556L107,552L107,550L111,546L115,547L113,546L113,543L110,544L108,546L105,548L103,550L102,553L100,556L98,558L96,562L99,563L98,566L96,569L92,571L90,572L88,574L86,576L84,578L81,581L78,582L77,585L72,586L71,589L68,588L64,590L63,588L61,591L58,591L56,591L54,593L50,594L48,595L49,592L52,591L54,592L57,590L58,588L62,585L65,585L66,587L69,586L69,583L71,581L75,579L78,576L81,573L82,569L82,566L84,563L80,565L78,562L77,564L73,562L71,561L67,563L64,563L65,561L64,558L65,553L61,553L57,553L55,549L53,547L54,544L54,541L52,540L51,537L53,536L57,530L59,527L62,526L64,528L67,525L71,525L73,523L73,521L72,518L74,516L71,515L68,517L65,516L61,515L55,514L54,511L56,509L52,507L51,505ZM25,603L27,601L29,599L32,599L29,601L25,603L25,603ZM34,518L38,518L41,519L42,521L45,522L42,523L39,521L37,519L34,518ZM185,573L185,570L189,571L191,573L193,574L195,576L196,579L193,580L192,577L190,578L191,580L189,578L188,575L186,574L185,573ZM180,567L182,565L185,564L189,567L186,568L184,569L184,572L182,571L180,567ZM175,556L178,557L180,559L181,563L180,566L179,563L177,561L175,557L175,556ZM174,565L176,564L180,568L181,572L178,569L176,567L174,565ZM169,561L169,559L172,558L175,559L177,563L174,562L174,565L171,564L169,561ZM794,604L798,600L800,598L804,599L802,602L796,604L794,605L794,604ZM777,558L780,562L783,563L780,563L778,559L777,558ZM863,350L871,343L871,338L870,336L869,332L871,336L871,338L871,344L867,346L863,350ZM305,584L307,582L310,579L309,575L310,573L312,574L315,576L318,576L322,578L325,581L326,584L328,586L330,588L332,590L329,593L325,595L322,595L319,597L316,599L315,602L313,602L309,600L309,594L308,590L307,588L305,585L305,584ZM292,558L294,555L296,559L300,557L304,559L306,561L305,564L302,564L300,565L297,565L297,561L293,560L292,558ZM279,554L280,551L285,552L288,552L291,553L289,555L283,554L280,554L279,554ZM258,543L261,543L264,540L266,542L267,544L269,547L271,549L268,550L264,549L262,549L260,547L259,544L258,543ZM226,533L227,530L231,528L234,528L237,530L236,534L233,536L230,536L227,534L226,533ZM601,92L607,88L610,86L614,84L611,87L607,90L603,93L601,92ZM95,31L97,29L99,31L96,32L97,34L99,36L99,40L97,38L97,34L95,31ZM91,21L94,23L96,20L98,22L97,25L95,26L93,25L91,21Z"/>
+          <path class="usmap__tx" d="M372,351L385,352L396,352L406,353L416,353L426,354L424,398L428,402L431,403L434,403L435,401L438,404L439,407L441,407L444,408L447,409L449,408L452,411L454,409L458,410L459,412L461,412L461,415L463,416L466,414L468,413L471,415L471,417L473,415L475,414L475,417L477,419L480,415L481,414L482,416L485,416L487,415L489,418L492,420L493,418L495,418L496,416L498,416L501,416L503,415L506,414L509,416L511,415L512,413L516,416L518,417L521,418L523,420L526,421L528,422L531,423L534,422L535,435L535,458L537,460L539,462L540,465L540,467L542,469L543,472L544,474L544,477L546,479L546,482L546,484L544,486L543,489L542,491L543,493L542,496L543,499L542,501L541,504L540,506L541,510L537,511L535,511L525,516L523,518L524,516L526,514L523,514L523,512L524,509L521,509L520,511L517,512L518,515L520,517L520,519L516,523L515,524L518,522L520,520L522,518L517,523L515,525L513,527L510,530L502,534L496,537L494,538L492,539L490,541L485,544L482,547L480,548L478,551L475,555L474,558L472,562L470,566L470,570L470,574L471,576L472,580L472,583L473,587L474,592L473,588L472,582L470,576L469,574L470,569L470,564L472,560L473,557L475,554L476,551L480,546L482,545L486,542L489,541L486,541L484,542L484,540L482,543L479,546L477,545L475,546L477,547L477,549L474,553L471,552L469,552L470,554L473,556L471,559L470,561L469,564L467,565L465,565L469,566L469,572L468,576L468,580L469,583L472,588L471,592L473,593L474,595L472,595L470,596L467,597L464,593L462,593L459,592L456,592L454,593L452,592L450,591L447,589L445,588L442,586L439,585L436,584L434,581L433,579L433,577L431,574L429,572L429,570L428,567L428,565L426,563L428,559L426,557L424,555L422,554L420,552L420,550L418,548L417,546L414,543L412,541L411,538L411,536L410,534L408,532L408,530L407,527L406,525L405,522L403,520L402,518L399,516L398,513L396,512L394,509L392,508L391,506L389,506L386,506L383,505L381,504L378,505L376,503L373,503L372,505L370,504L366,505L365,507L364,509L363,514L361,516L359,517L357,520L355,521L353,520L350,519L348,517L345,516L343,514L340,513L337,511L335,508L333,506L330,504L330,501L328,498L327,495L328,492L327,489L325,487L325,483L323,480L321,478L319,477L316,475L313,472L312,470L309,468L308,465L306,463L304,462L302,460L300,458L299,454L297,453L295,451L295,447L318,449L327,450L339,451L350,452L363,453L365,430L367,408L370,361L371,351L372,351Z"/>
+          <path class="usmap__tn" d="M612,363L613,361L614,360L612,358L614,357L614,356L615,354L615,352L617,351L619,351L627,350L641,350L641,345L645,345L652,345L658,345L667,344L672,343L677,343L681,343L687,342L692,341L696,341L699,341L704,341L714,340L720,339L727,338L737,337L751,335L756,333L755,335L755,338L756,340L754,340L752,341L751,346L749,346L747,345L744,347L743,349L742,351L741,349L738,350L737,352L736,353L735,355L733,356L732,356L730,358L729,359L727,361L721,363L719,364L717,366L717,367L717,369L716,370L714,371L713,371L713,377L701,378L693,379L689,380L685,380L666,382L656,383L642,384L630,385L619,386L603,387L605,386L605,384L607,383L607,382L605,381L607,378L605,378L606,376L607,377L608,376L607,374L609,374L608,373L610,372L608,370L609,369L611,369L613,367L611,366L613,366L612,364L612,363Z"/>
+          <path class="usmap__route" d="M420,474 Q560,250 679,360" fill="none" stroke="url(#routeGrad)" stroke-width="2.5" stroke-dasharray="3 10" stroke-linecap="round"/>
+          <g class="usmap__pin usmap__pin--tx"><circle class="pulse" cx="420" cy="474" r="5"/><circle cx="420" cy="474" r="5"/></g>
+          <g class="usmap__pin usmap__pin--tn"><circle class="pulse" cx="679" cy="360" r="5"/><circle cx="679" cy="360" r="5"/></g>
+          <g class="usmap__fly usmap__fly--a"><path d="M0,3.5 C0,1 -3.8,-0.6 -3.8,-3 C-3.8,-5.4 0,-5.8 0,-2.2 C0,-5.8 3.8,-5.4 3.8,-3 C3.8,-0.6 0,1 0,3.5 Z"/></g>
+          <g class="usmap__fly usmap__fly--b"><path d="M0,3.5 C0,1 -3.8,-0.6 -3.8,-3 C-3.8,-5.4 0,-5.8 0,-2.2 C0,-5.8 3.8,-5.4 3.8,-3 C3.8,-0.6 0,1 0,3.5 Z"/></g>
+          <text x="420" y="638" class="usmap__label mono" text-anchor="middle">Court · Texas</text>
+          <text x="679" y="312" class="usmap__label mono" text-anchor="middle">Kaitlyn · Tennessee</text>
+        </svg>
+      </div>
+      <div class="distance__copy reveal" data-reveal-delay="140">
+        <p class="eyebrow"><span class="eyebrow__dot"></span>Across any distance</p>
+        <h2 class="h2">Close the distance.<br/>Keep it private.</h2>
+        <p class="lede">
+          A voice note waiting when she wakes up. A call no one else can hear.
+          The boring stuff and the good-morning texts, all in one room
+          that&rsquo;s only yours, across town or across time zones.
+        </p>
+        <ul class="chiplist">
+          <li>Channels for travel, daily life, the house</li>
+          <li>Voice notes across time zones</li>
+          <li>Calls &amp; video, just the two of you</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ────────────── EVERYTHING'S ENCRYPTED (features + GIFs) ────────────── -->
+    <section class="band" id="together">
+      <div class="section-head reveal">
+        <p class="eyebrow eyebrow--sage"><span class="eyebrow__dot"></span>Every way to be together</p>
+        <h2 class="h2">Encrypted all the way through. Not just text.</h2>
+        <p class="lede">
+          Photos and video. Voice memos. Voice and video calls. Every one of them
+          end-to-end encrypted with the same primitives as your messages,
+          built in from the start, never bolted on after.
+        </p>
+      </div>
+
+      <!-- APP GIF SLOTS. Drop a real screen recording in by replacing the
+           .phone__screen contents with: <img src="/assets/app/<name>.gif" alt="…">
+           The CSS-rendered mock below is the on-brand placeholder until then. -->
+      <div class="showcase reveal" data-reveal-delay="120">
+        <figure class="showcase__item">
+          <div class="phone">
+            <div class="phone__notch"></div>
+            <div class="phone__screen" data-gif-slot="conversation">
+              <div class="chat chat--full">
+                <div class="chat__day">deep dusk</div>
+                <div class="bubble bubble--in">listen to this 🎙️</div>
+                <div class="bubble bubble--in bubble--voice"><span class="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> 0:14</div>
+                <div class="bubble bubble--out">okay that made my whole night 💜</div>
+                <div class="bubble bubble--out bubble--read">read ✓✓</div>
+              </div>
+            </div>
+          </div>
+          <figcaption>Messages &amp; voice notes</figcaption>
+        </figure>
+
+        <figure class="showcase__item">
+          <div class="phone">
+            <div class="phone__notch"></div>
+            <div class="phone__screen phone__screen--call" data-gif-slot="call">
+              <div class="call">
+                <div class="call__avatar">K</div>
+                <div class="call__name">Kaitlyn</div>
+                <div class="call__status mono">encrypted call · 12:04</div>
+                <div class="call__controls">
+                  <span class="call__btn"></span>
+                  <span class="call__btn call__btn--end"></span>
+                  <span class="call__btn"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <figcaption>Voice &amp; video calls</figcaption>
+        </figure>
+      </div>
+      <p class="showcase__note mono reveal">All shipped. All end-to-end encrypted.</p>
+    </section>
+
+    <!-- ─────────────────────── BUILT BY A COUPLE ─────────────────────── -->
+    <section class="band band--couple" id="couple">
+      <div class="section-head section-head--narrow reveal">
+        <p class="eyebrow"><span class="eyebrow__dot"></span>No catch</p>
+        <h2 class="h2">Built by a couple. Not a tech giant.</h2>
+        <blockquote class="couple-quote">
+          &ldquo;When Kaitlyn and I met online years ago, we were in a
+          long-distance relationship, more than a thousand miles apart. For
+          three years, our relationship was almost entirely online, and thinking
+          back on it now, I wish we&rsquo;d had a private spot on the internet
+          that was just ours. I&rsquo;ve been writing software for years, and
+          this is my vision of that spot, for Kaitlyn and me.&rdquo;
+        </blockquote>
+        <p class="signature">Court</p>
+        <p class="couple-disarm">No venture capital. No advertising. The hosting bill has our name on it.</p>
+      </div>
+    </section>
+
+    <!-- ─────────────────────── READ THE CODE ─────────────────────── -->
+    <section class="band band--code" id="code">
+      <div class="code-grid">
+        <div class="section-head reveal">
+          <p class="eyebrow eyebrow--sage"><span class="eyebrow__dot"></span>Don&rsquo;t trust us</p>
+          <h2 class="h2">Read the code yourself.</h2>
+          <p class="lede">
+            You shouldn&rsquo;t have to take our word for it. The encryption that
+            keeps your messages between you is open for anyone to inspect. So
+            don&rsquo;t trust us. Verify it.
+          </p>
+          <a class="btn btn--primary" href="https://github.com/CodingWithCourtReeves/little-love" data-cta="github">
+            Read the code on GitHub
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.94.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" fill="currentColor"/></svg>
+          </a>
+        </div>
+
+        <div class="codeblock reveal" data-reveal-delay="140" aria-hidden="true">
+          <div class="codeblock__bar"><span></span><span></span><span></span><em class="mono">crypto/src/ecdh.rs</em></div>
+          <pre class="mono"><code><span class="c-com">// the room key is derived on-device. the server</span>
+<span class="c-com">// never imports this module, so it can't.</span>
+<span class="c-kw">pub fn</span> <span class="c-fn">derive_room_key</span>(
+    ours: &amp;<span class="c-ty">StaticSecret</span>,
+    theirs: &amp;<span class="c-ty">PublicKey</span>,
+    room_id: &amp;<span class="c-ty">str</span>,
+) -&gt; <span class="c-ty">RoomKey</span> {
+    <span class="c-kw">let</span> shared = ours.<span class="c-fn">diffie_hellman</span>(theirs);
+    <span class="c-fn">hkdf</span>(shared, <span class="c-str">"littlelove.room"</span>, room_id)
+}</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────────────────── GET / CONTACT ─────────────────────── -->
+    <section class="band band--get" id="get">
+      <div class="get__glow" aria-hidden="true"></div>
+      <div class="get__inner reveal">
+        <h2 class="h2 h2--center">Come in. Close the door.</h2>
+        <p class="lede lede--center">
+          We&rsquo;re in a small TestFlight alpha and we&rsquo;d love your help
+          shaping it. Grab a spot, or send us a note.
+        </p>
+        <a class="btn btn--primary btn--lg" href="https://testflight.apple.com/" data-cta="footer">
+          Join the alpha on TestFlight
+        </a>
+
+        <form class="contact" id="contact" novalidate>
+          <p class="contact__label mono">Or drop us a line</p>
+          <div class="contact__row">
+            <input class="contact__field" type="email" name="email" placeholder="you@example.com" autocomplete="email" required aria-label="Your email" />
+            <textarea class="contact__field contact__textarea" name="message" placeholder="Say hi, ask anything…" aria-label="Your message" rows="4"></textarea>
+            <!-- honeypot -->
+            <input class="contact__hp" type="text" name="company" tabindex="-1" autocomplete="off" aria-hidden="true" />
+            <label class="contact__age">
+              <input type="checkbox" name="age" />
+              <span>Yes, I&rsquo;m 18 or older.</span>
+            </label>
+            <button class="btn btn--primary contact__send" type="submit">Send</button>
+          </div>
+          <p class="contact__status" role="status" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="foot__brand">
+      <span class="nav__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M12 20.5S3.5 14.8 3.5 9.2A4.7 4.7 0 0 1 12 6.3a4.7 4.7 0 0 1 8.5 2.9c0 5.6-8.5 11.3-8.5 11.3Z" fill="currentColor"/></svg>
+      </span>
+      <span>LittleLove</span>
+    </div>
+    <p class="foot__line">A private messenger for two. Built by a couple, in the open.</p>
+    <nav class="foot__links">
+      <a href="https://github.com/CodingWithCourtReeves/little-love">Code</a>
+      <a href="/privacy/">Privacy</a>
+      <a href="/terms/">Terms</a>
+      <a href="#get">Join the alpha</a>
+    </nav>
+    <p class="foot__fine mono">© <span data-year>2026</span> LittleLove · littlelove.dev</p>
+  </footer>
+
+  <script src="/main.js" defer></script>
+</body>
+</html>
