@@ -48,25 +48,30 @@ Out of scope:
 
 ## Design decisions
 
-### Visual direction (validated via mockups)
+### Visual direction (validated via mockups + on-device review)
 
-Centered, greeting-style layout ("Warm Emblem" direction). A crafted
-two-tone **heart emblem** anchors the welcome screen: one whole heart split
-down the middle, the left half in `accentUser` (rose/pink), the right half
-in `accentSage` (sage green) — "the two of you," one heart. A soft radial
-glow sits behind it. Everything derives from the active palette, so it
-reads correctly warm in both Light ("the hour the lamps come on") and Dark
-("Deep Dusk").
+Centered, greeting-style layout. The hero is the **product's own brand mark
+reused** (the Signal/WhatsApp pattern), not a separate invented emblem: the
+app icon is a heart-shaped padlock with a keyhole (love + end-to-end
+privacy in one mark), so the welcome screen shows that same heart-lock,
+large, as a luminous symbol on the dusk canvas. An earlier two-tone
+split-heart emblem was tried and rejected on-device as bland/awkward; the
+heart-lock is more meaningful, distinctive, and coherent with the installed
+icon. A soft radial glow sits behind it, and it fades + scales in once on
+mount for a quiet bit of life. Everything derives from the active palette,
+so it reads correctly warm in both Light ("the hour the lamps come on") and
+Dark ("Deep Dusk").
 
 ### New reusable widgets
 
-- **`HeartEmblem`** — a self-contained widget rendering the two-tone heart
-  + glow. Painted with a `CustomPainter` (no new asset/dependency): one
-  heart path, filled left-half `palette.accentUser` and right-half
-  `palette.accentSage`, with a `RadialGradient` glow behind it tinted from
-  `accentUser`. Size-parameterized. Pulls colors from `context.palette` so
-  it themes automatically. Lives in `app/lib/onboarding/heart_emblem.dart`
-  (new `onboarding/` folder).
+- **`HeartLock`** — a self-contained widget rendering the heart-padlock mark
+  + glow + one-shot entrance animation. Painted with a `CustomPainter` (no
+  new asset/dependency): a shackle stroke, a heart body filled
+  `palette.accentUser` ("you" hue), a shackle in `palette.accentPartner`
+  ("partner" hue), and a keyhole punched in `palette.bgCanvas` so it reads
+  as a cutout and themes automatically. Authored in a fixed 120x150 space
+  and scaled to a `size`-parameterized box. Lives in
+  `app/lib/onboarding/heart_lock.dart` (new `onboarding/` folder).
 - **`OnboardingHeader`** — a small shared widget rendering the optional
   step marker (e.g. "Step 1 of 2 · Recovery phrase", `accentSage`,
   uppercase annotation style) plus the title. Used by the phrase, confirm,
@@ -81,11 +86,11 @@ These keep each screen small and let the styling live in one place.
 
 ### Welcome / choice screen
 
-Centered column: `HeartEmblem`, "Little Love" title (display style), warm
-lede, then a filled primary button (`accentUser` background) and an
-outlined secondary. Replaces the current left-aligned headline + two
-buttons. Keeps a privacy nod in the lede so we do not lose the existing
-trust signal.
+Centered column (weighted spacers): a large `HeartLock`, "Little Love"
+title (display style), warm lede, then a filled primary button
+(`accentUser` background) and an outlined secondary pinned toward the
+bottom. Replaces the current left-aligned headline + two buttons. Keeps a
+privacy nod in the lede so we do not lose the existing trust signal.
 
 ### Recovery-phrase step (the main fix)
 
@@ -147,7 +152,7 @@ verbatim.
   tapping copy puts the joined phrase on the clipboard (pump a test
   `Clipboard` handler / assert via `SystemChannels.platform` mock) and
   shows the SnackBar.
-- Widget test: `HeartEmblem` builds without error in both palettes.
+- Widget test: `HeartLock` builds and settles without error in both palettes.
 - Smoke: existing signup-flow test (`phrase-saved` key, confirm flow)
   still passes unchanged — the keys and callbacks are preserved.
 - Manual: build to both physical phones per project rules, verify both
@@ -156,7 +161,7 @@ verbatim.
 ## Files
 
 New:
-- `app/lib/onboarding/heart_emblem.dart` (`HeartEmblem`)
+- `app/lib/onboarding/heart_lock.dart` (`HeartLock`)
 - `app/lib/onboarding/onboarding_header.dart` (`OnboardingHeader`)
 - `app/lib/onboarding/phrase_grid.dart` (`PhraseGrid`)
 
