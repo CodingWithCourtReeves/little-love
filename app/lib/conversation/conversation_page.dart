@@ -128,10 +128,15 @@ class ConversationPage extends ConsumerStatefulWidget {
     this.onTyping,
     this.onOpenAttachment,
     this.onSendVoice,
+    this.focusMessageId,
   });
 
   final Room room;
   final String selfUsername;
+
+  /// When set (opened from global search), scroll to and highlight this message
+  /// once the conversation loads.
+  final String? focusMessageId;
   final SendCallback onSend;
   final RenameCallback? onRename;
   final RetryCallback? onRetry;
@@ -278,6 +283,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       _activeRoom = ref.read(activeRoomProvider.notifier);
       _activeRoom!.state = widget.roomId;
       markRoomRead(ref, widget.roomId);
+      // Opened from global search: jump to + highlight the target message.
+      final focusId = widget.focusMessageId;
+      if (focusId != null) _focusMessage(focusId);
     });
   }
 

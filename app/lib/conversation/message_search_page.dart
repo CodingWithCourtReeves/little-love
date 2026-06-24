@@ -133,11 +133,7 @@ class SearchResultsList extends StatelessWidget {
                   fontSize: 14,
                 ),
               ),
-              subtitle: Text.rich(
-                _highlight(hit.snippetHtml, p),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
+              subtitle: SnippetText(snippetHtml: hit.snippetHtml),
               onTap: () => onTap(hit),
             );
           },
@@ -147,35 +143,48 @@ class SearchResultsList extends StatelessWidget {
   }
 }
 
-/// Parse FTS5 `snippet()` output (matches wrapped in `<b>…</b>`) into spans,
-/// bolding + accenting the matched terms. The snippet content is our own
-/// message text, and the only markup snippet() emits is the bold delimiters we
-/// passed it, so a plain split is safe.
-TextSpan _highlight(String snippet, AppPalette p) {
-  final spans = <TextSpan>[];
-  final base = TextStyle(color: p.textMuted, fontSize: 13);
-  final bold = TextStyle(
-    color: p.textPrimary,
-    fontSize: 13,
-    fontWeight: FontWeight.w700,
-  );
-  var rest = snippet;
-  while (true) {
-    final open = rest.indexOf('<b>');
-    if (open < 0) {
-      if (rest.isNotEmpty) spans.add(TextSpan(text: rest, style: base));
-      break;
+/// Renders FTS5 `snippet()` output (matches wrapped in `<b>…</b>`) with the
+/// matched terms bolded + accented. The snippet content is our own message
+/// text, and the only markup snippet() emits is the bold delimiters we passed
+/// it, so a plain split is safe. Shared by the in-channel and global result
+/// lists.
+class SnippetText extends StatelessWidget {
+  const SnippetText({super.key, required this.snippetHtml});
+
+  final String snippetHtml;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final base = TextStyle(color: p.textMuted, fontSize: 13);
+    final bold = TextStyle(
+      color: p.textPrimary,
+      fontSize: 13,
+      fontWeight: FontWeight.w700,
+    );
+    final spans = <TextSpan>[];
+    var rest = snippetHtml;
+    while (true) {
+      final open = rest.indexOf('<b>');
+      if (open < 0) {
+        if (rest.isNotEmpty) spans.add(TextSpan(text: rest, style: base));
+        break;
+      }
+      if (open > 0) {
+        spans.add(TextSpan(text: rest.substring(0, open), style: base));
+      }
+      final close = rest.indexOf('</b>', open + 3);
+      if (close < 0) {
+        spans.add(TextSpan(text: rest.substring(open + 3), style: base));
+        break;
+      }
+      spans.add(TextSpan(text: rest.substring(open + 3, close), style: bold));
+      rest = rest.substring(close + 4);
     }
-    if (open > 0) {
-      spans.add(TextSpan(text: rest.substring(0, open), style: base));
-    }
-    final close = rest.indexOf('</b>', open + 3);
-    if (close < 0) {
-      spans.add(TextSpan(text: rest.substring(open + 3), style: base));
-      break;
-    }
-    spans.add(TextSpan(text: rest.substring(open + 3, close), style: bold));
-    rest = rest.substring(close + 4);
+    return Text.rich(
+      TextSpan(children: spans),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+    );
   }
-  return TextSpan(children: spans);
 }
