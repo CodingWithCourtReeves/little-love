@@ -1170,6 +1170,7 @@ async fn announce_presence_on_connect(
             RoomServerFrame::Presence {
                 user: me.username.clone(),
                 online: true,
+                last_seen: None,
             },
         )
         .await;
@@ -1177,6 +1178,7 @@ async fn announce_presence_on_connect(
     let _ = tx.send(RoomServerFrame::Presence {
         user: partner.clone(),
         online: partner_online,
+        last_seen: None,
     });
     // Replay my partner's latest profile, if any, to this fresh session so the
     // room list / chat header can render their display name + avatar at once.
@@ -1211,6 +1213,7 @@ async fn announce_presence_on_disconnect(state: &AppState, me: &AccountRecord) {
                     RoomServerFrame::Presence {
                         user: me.username.clone(),
                         online: false,
+                        last_seen: None,
                     },
                 )
                 .await;

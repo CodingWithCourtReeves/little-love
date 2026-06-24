@@ -277,9 +277,13 @@ pub enum RoomServerFrame {
     /// derived from the partner's authenticated WS sessions; clients never send
     /// this, and it is delivered only to the user's linked partner. Not
     /// persisted; a fresh connection learns current state on connect.
+    /// `last_seen` is the partner's last-session timestamp, sent only when
+    /// `online: false` (omitted otherwise).
     Presence {
         user: String,
         online: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        last_seen: Option<DateTime<Utc>>,
     },
 
     /// Relayed profile: `user` published a new profile. Delivered to the linked
@@ -914,11 +918,39 @@ mod tests {
         let f = RoomServerFrame::Presence {
             user: "kaitlyn".into(),
             online: true,
+            last_seen: None,
         };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"Presence""#));
         assert!(s.contains(r#""user":"kaitlyn""#));
         assert!(s.contains(r#""online":true"#));
+    }
+
+    #[test]
+    fn presence_serializes_last_seen() {
+        // Offline with a timestamp → key present, RFC3339.
+        let t: DateTime<Utc> = "2026-06-24T17:00:00Z".parse().unwrap();
+        let off = RoomServerFrame::Presence {
+            user: "court".into(),
+            online: false,
+            last_seen: Some(t),
+        };
+        let j = serde_json::to_value(&off).unwrap();
+        assert_eq!(j["kind"], "Presence");
+        assert_eq!(j["online"], false);
+        assert_eq!(j["last_seen"], "2026-06-24T17:00:00Z");
+
+        // Online → key omitted entirely.
+        let on = RoomServerFrame::Presence {
+            user: "court".into(),
+            online: true,
+            last_seen: None,
+        };
+        let j = serde_json::to_value(&on).unwrap();
+        assert!(
+            j.get("last_seen").is_none(),
+            "last_seen must be omitted when None"
+        );
     }
 
     #[test]
