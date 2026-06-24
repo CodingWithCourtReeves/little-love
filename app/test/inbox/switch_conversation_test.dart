@@ -11,6 +11,8 @@ import 'package:littlelove/theme/app_palette.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
 
+import '../support/test_read_state.dart';
+
 Room _room(String id, String name) => Room(
   roomId: id,
   name: name,
@@ -48,6 +50,7 @@ void main() {
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         httpClientProvider.overrideWithValue(http.Client()),
+        hermeticReadStateStore(),
       ],
     );
     addTearDown(container.dispose);

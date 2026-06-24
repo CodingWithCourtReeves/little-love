@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'calling/call_screen.dart';
+import 'conversation/incoming_banner_host.dart';
 import 'inbox/mock_fixtures.dart';
 import 'screens/auth/auth_gate.dart';
 import 'theme/app_palette.dart';
@@ -34,15 +35,20 @@ class LittleLoveApp extends ConsumerWidget {
     return MaterialApp(
       title: 'LittleLove',
       theme: buildAppTheme(palette),
-      // Float the in-app call UI above every route so an active call shows the
-      // same screen on both caller and callee (CallKit owns the ring + system UI).
-      // StackFit.expand gives the app content tight fill constraints — without
-      // it the wrapped Scaffold gets unbounded height and its body collapses
-      // (black screen under the app bar). The CallOverlay is transparent /
-      // pointer-passthrough until a call is live.
+      // Float the in-app call UI and the cross-room "new message" banner above
+      // every route. CallOverlay shows the same call screen on both caller and
+      // callee (CallKit owns the ring + system UI) and is transparent /
+      // pointer-passthrough until a call is live; IncomingBannerHost slides a
+      // banner down when a partner messages a room you're not viewing.
+      // StackFit.expand gives the wrapped content tight fill constraints —
+      // without it the Scaffold gets unbounded height and its body collapses
+      // (black screen under the app bar).
       builder: (context, child) => Stack(
         fit: StackFit.expand,
-        children: [child ?? const SizedBox.shrink(), const CallOverlay()],
+        children: [
+          IncomingBannerHost(child: child ?? const SizedBox.shrink()),
+          const CallOverlay(),
+        ],
       ),
       home: const AuthGate(),
     );

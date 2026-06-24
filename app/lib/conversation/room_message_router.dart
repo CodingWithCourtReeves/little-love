@@ -19,6 +19,7 @@ import '../profile/profile_store.dart';
 import '../wire/frames.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
+import 'incoming_banner_provider.dart';
 import 'message_content.dart';
 import 'message_store.dart';
 import 'presence_state.dart';
@@ -340,29 +341,73 @@ class RoomMessageRouter {
       // a separately-timed Typing:false frame) — which read as a flash.
       ref.read(typingProvider(f.roomId).notifier).setTyping(false);
       store.add(msg);
-      // A live partner message landing in the open room should flip the
-      // sender's bubble to a double heart now, not on the next reopen.
       // `clientMsgId == null && !replayed` is precisely a live partner message
       // (my own live self-copy always carries a clientMsgId, handled above;
       // replays are covered by the open trigger and must not spam a MarkRead
-      // per row). The watermark in sendMarkRead already covers this message
-      // since it's in the store before this runs.
-      if (!f.replayed && ref.read(activeRoomProvider) == f.roomId) {
-        // The chat is on screen, so this message is read: tell the server AND
-        // advance our local read marker, so leaving the room doesn't leave a
-        // phantom unread dot for a message we just watched arrive.
-        markRoomRead(ref, f.roomId);
-      }
-      // Replayed messages (reconnect / cold launch / a push received while
-      // backgrounded) must ALSO reach the server, or read_at stays NULL and the
-      // app-icon badge — driven server-side off unread_count — climbs and never
-      // clears. The old code skipped replays, assuming an explicit room-open tap
-      // would cover them; in this always-auto-selected couples app there is no
-      // such tap. Debounced so a full replay burst sends one MarkRead.
-      if (f.replayed) {
+      // per row, nor pop a banner).
+      if (!f.replayed) {
+        if (ref.read(activeRoomProvider) == f.roomId) {
+          // The chat is on screen: flip the sender's bubble to a double heart
+          // now (not on the next reopen). Tell the server AND advance our local
+          // read marker, so leaving the room doesn't leave a phantom unread dot
+          // for a message we just watched arrive. The watermark in sendMarkRead
+          // already covers this message since it's in the store before this runs.
+          markRoomRead(ref, f.roomId);
+        } else if (content is! CallContent) {
+          // A live message in a room that isn't on screen: pop an in-app banner
+          // so partner activity in another thread isn't invisible while you're
+          // reading a different one. A call-log entry (emitted when a call ends)
+          // is deliberately excluded — banner-ing "call ended" in another room
+          // is just noise, not a message you need to go read.
+          _showIncomingBanner(room, f, content);
+        }
+      } else {
+        // Replayed messages (reconnect / cold launch / a push received while
+        // backgrounded) must ALSO reach the server, or read_at stays NULL and
+        // the app-icon badge — driven server-side off unread_count — climbs and
+        // never clears. In this always-auto-selected couples app there is no
+        // explicit room-open tap to cover them. Debounced so a full replay burst
+        // sends one MarkRead. No banner: a reconnect would otherwise storm them.
         _scheduleMarkRead(f.roomId);
       }
     }
+  }
+
+  /// Publish the "message arrived in another room" banner event. Called only on
+  /// the live, non-active, partner-message path (reactions/deletes already
+  /// returned; self-copies carry a clientMsgId and never reach here).
+  void _showIncomingBanner(Room room, MessageFrame f, MessageContent content) {
+    final preview = switch (content) {
+      TextContent(:final text) => text,
+      FileContent(:final caption) =>
+        (caption != null && caption.isNotEmpty) ? caption : '📷 Photo',
+      AudioContent(:final caption) =>
+        (caption != null && caption.isNotEmpty) ? caption : '🎤 Voice message',
+      _ => '',
+    };
+    // Named room → its topic; otherwise the partner's display name (the DM).
+    String name = room.name;
+    if (name.isEmpty) {
+      final dn = ref
+          .read(profileStoreProvider)
+          .forUsername(f.from)
+          ?.displayName;
+      name = (dn != null && dn.trim().isNotEmpty)
+          ? dn.trim()
+          : (f.from.isEmpty
+                ? 'Your partner'
+                : f.from[0].toUpperCase() + f.from.substring(1));
+    }
+    ref
+        .read(incomingBannerProvider.notifier)
+        .show(
+          IncomingBanner(
+            roomId: f.roomId,
+            roomName: name,
+            preview: preview,
+            msgId: f.id,
+          ),
+        );
   }
 
   Future<void> dispose() async {

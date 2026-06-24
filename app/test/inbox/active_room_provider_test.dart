@@ -6,6 +6,8 @@ import 'package:littlelove/inbox/active_room_provider.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/wire/frames.dart';
 
+import '../support/test_read_state.dart';
+
 Room _room(String id) => Room(
   roomId: id,
   name: 'Test',
@@ -19,7 +21,7 @@ void main() {
   testWidgets('ConversationPage sets activeRoom on mount, clears on dispose', (
     tester,
   ) async {
-    final container = ProviderContainer();
+    final container = ProviderContainer(overrides: [hermeticReadStateStore()]);
     addTearDown(container.dispose);
 
     expect(container.read(activeRoomProvider), isNull);

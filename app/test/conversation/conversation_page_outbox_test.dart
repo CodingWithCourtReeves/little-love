@@ -9,6 +9,8 @@ import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
 
+import '../support/test_read_state.dart';
+
 Room _room() => Room(
   roomId: 'r1',
   name: 'Kaitlyn',
@@ -53,7 +55,10 @@ Future<void> _pump(
 
 ProviderContainer _container() {
   final container = ProviderContainer(
-    overrides: [accountProvider.overrideWith((_) async => _account)],
+    overrides: [
+      accountProvider.overrideWith((_) async => _account),
+      hermeticReadStateStore(),
+    ],
   );
   return container;
 }

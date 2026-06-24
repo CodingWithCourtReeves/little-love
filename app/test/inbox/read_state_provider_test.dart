@@ -114,4 +114,47 @@ void main() {
         .add(msg('m1', DateTime.utc(2026, 6, 14, 12)));
     expect(c.read(anyUnreadProvider('room-a')), isFalse);
   });
+
+  test('unreadElsewhere counts other rooms, excluding the current one', () {
+    final c = makeContainer();
+    addTearDown(c.dispose);
+    c.read(inboxStateProvider.notifier).setRooms([
+      roomFor('room-a'),
+      roomFor('room-b'),
+    ]);
+    const key = (me: 'court', roomId: 'room-a');
+    // Activate so the provider tracks its dependencies.
+    c.listen(unreadElsewhereCountProvider(key), (_, _) {});
+    c
+        .read(messageStoreProvider('room-a').notifier)
+        .add(msg('a1', DateTime.utc(2026, 6, 14, 12)));
+    c
+        .read(messageStoreProvider('room-b').notifier)
+        .add(msg('b1', DateTime.utc(2026, 6, 14, 12)));
+    // room-a is the current thread (excluded); only room-b's unread counts.
+    expect(c.read(unreadElsewhereCountProvider(key)), 1);
+  });
+
+  test('unreadElsewhere ignores my own messages', () {
+    final c = makeContainer();
+    addTearDown(c.dispose);
+    c.read(inboxStateProvider.notifier).setRooms([
+      roomFor('room-a'),
+      roomFor('room-b'),
+    ]);
+    const key = (me: 'court', roomId: 'room-a');
+    c.listen(unreadElsewhereCountProvider(key), (_, _) {});
+    c
+        .read(messageStoreProvider('room-b').notifier)
+        .add(
+          Msg(
+            id: 'mine',
+            from: 'court',
+            to: 'room-b',
+            body: 'hi',
+            ts: DateTime.utc(2026, 6, 14, 12),
+          ),
+        );
+    expect(c.read(unreadElsewhereCountProvider(key)), 0);
+  });
 }
