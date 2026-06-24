@@ -354,17 +354,16 @@ a { color: inherit; text-decoration: none; }
 
 .contact { margin-top: 3rem; }
 .contact__label { color: var(--text-muted); font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.9rem; }
-.contact__row { display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: center; }
+.contact__row { display: grid; gap: 0.6rem; max-width: 400px; margin-inline: auto; }
 .contact__field {
-  font-family: var(--font-body); font-size: 1rem; padding: 0.85rem 1.1rem; border-radius: 999px;
+  font-family: var(--font-body); font-size: 1rem; padding: 0.85rem 1.2rem; border-radius: 14px;
   border: 1.5px solid var(--border-soft); background: var(--bg-canvas); color: var(--text-primary);
-  min-width: 200px; transition: border-color 0.2s;
+  width: 100%; transition: border-color 0.2s;
 }
 .contact__field::placeholder { color: var(--text-muted); }
 .contact__field:focus { outline: none; border-color: var(--accent-user); }
-.contact__field--grow { flex: 1 1 240px; }
 .contact__hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
-.contact__send { flex-shrink: 0; }
+.contact__send { width: 100%; margin-top: 0.2rem; }
 .contact__status { margin-top: 1rem; font-size: 0.92rem; min-height: 1.4em; color: var(--sage); }
 .contact__status[data-err] { color: var(--warning); }
 
