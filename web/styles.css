@@ -197,7 +197,7 @@ a { color: inherit; text-decoration: none; }
 :root.theme-dark .theme-toggle__moon, :root[data-theme="dark"] .theme-toggle__moon { display: block; }
 
 /* ── layout bands ────────────────────────────────────────────────────── */
-.band { padding: clamp(4.5rem, 10vw, 9rem) var(--pad); max-width: var(--maxw); margin-inline: auto; }
+.band { padding: clamp(3rem, 6vw, 5.5rem) var(--pad); max-width: var(--maxw); margin-inline: auto; }
 .section-head { max-width: 720px; }
 .section-head--narrow { max-width: 600px; margin-inline: auto; text-align: center; }
 .section-head--narrow .lede { margin-inline: auto; }
@@ -208,8 +208,8 @@ a { color: inherit; text-decoration: none; }
   display: grid; grid-template-columns: 1.05fr 0.95fr; gap: clamp(2rem, 5vw, 5rem);
   align-items: center;
   max-width: var(--maxw); margin-inline: auto;
-  padding: clamp(3rem, 7vw, 6.5rem) var(--pad) clamp(4rem, 9vw, 8rem);
-  min-height: min(86vh, 760px);
+  padding: clamp(2.5rem, 5vw, 5rem) var(--pad) clamp(3rem, 6vw, 5.5rem);
+  min-height: min(82vh, 720px);
 }
 @media (max-width: 880px) { .hero { grid-template-columns: 1fr; padding-top: 2.5rem; } }
 
@@ -295,7 +295,7 @@ a { color: inherit; text-decoration: none; }
 .wire__lock { color: var(--sage); flex-shrink: 0; }
 
 /* ── THE GUARANTEE ───────────────────────────────────────────────────── */
-.negations { list-style: none; padding: 0; margin-top: 3rem; display: grid; gap: 1.1rem; max-width: 760px; }
+.negations { list-style: none; padding: 0; margin-top: 2.2rem; display: grid; gap: 1.1rem; max-width: 760px; }
 .negations li { font-family: var(--font-display); font-size: clamp(1.3rem, 2.4vw, 1.9rem); font-weight: 400; line-height: 1.25; padding-bottom: 1.1rem; border-bottom: 1px solid var(--border-soft); }
 .negations em { display: block; font-family: var(--font-body); font-style: normal; font-size: 0.92rem; color: var(--text-muted); margin-top: 0.35rem; max-width: 48ch; }
 .negations__no { color: var(--accent-user); font-style: italic; font-weight: 500; }
@@ -320,7 +320,7 @@ a { color: inherit; text-decoration: none; }
 .chiplist li { font-size: 0.9rem; padding: 0.5rem 1rem; border-radius: 999px; background: var(--bg-surface); border: 1px solid var(--border-soft); color: var(--text-primary); }
 
 /* ── SHOWCASE (features + gif slots) ─────────────────────────────────── */
-.showcase { margin-top: 3.5rem; display: flex; flex-wrap: wrap; gap: clamp(1.5rem, 5vw, 4rem); justify-content: center; align-items: flex-start; }
+.showcase { margin-top: 2.5rem; display: flex; flex-wrap: wrap; gap: clamp(1.5rem, 5vw, 4rem); justify-content: center; align-items: flex-start; }
 .showcase__item { display: grid; justify-items: center; gap: 1rem; }
 .showcase__item .phone { transform: rotate(2deg); transition: transform 0.5s var(--ease); }
 .showcase__item:first-child .phone { transform: rotate(-2deg); }
