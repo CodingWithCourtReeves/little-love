@@ -3,9 +3,12 @@
 // `POST https://littlelove.dev/api/contact` is an unauthenticated Cloudflare
 // Pages Function that sends mail via Resend. Without a limit it can be hammered
 // to burn the Resend quota / relay spam (see web/functions/api/contact.js and
-// the review note in web/README.md). This caps it at 5 POSTs per minute per IP
-// and blocks (HTTP 429) for a minute past that. The function also rejects
+// the review note in web/README.md). This caps it at 5 POSTs per 10s per IP and
+// blocks (HTTP 429) for 10s past that. The function also rejects
 // non-littlelove.dev Origins, but that is defense-in-depth, not the real limit.
+//
+// NOTE on plan limits: the Cloudflare Free plan only allows a rate-limit
+// `period` (and `mitigation_timeout`) of 10 seconds. Paid plans unlock 60s+.
 //
 // NOTE on token scope: managing rate-limiting rulesets needs the zone **WAF**
 // (Dynamic Rules / Rate Limiting) permission, which is broader than the
@@ -28,9 +31,9 @@ resource "cloudflare_ruleset" "rate_limit" {
 
     ratelimit {
       characteristics     = ["ip.src", "cf.colo.id"]
-      period              = 60
+      period              = 10
       requests_per_period = 5
-      mitigation_timeout  = 60
+      mitigation_timeout  = 10
     }
   }
 }
