@@ -107,8 +107,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Create an account'), findsOneWidget);
-    expect(find.text('Sign in with a recovery phrase'), findsOneWidget);
+    expect(find.text('Get started'), findsOneWidget);
+    expect(find.text('I have a recovery phrase'), findsOneWidget);
   });
 
   testWidgets('populated account renders the inbox shell', (tester) async {
@@ -188,6 +188,6 @@ void main() {
     expect(store.value, isNull);
     expect(await keystore.read('llove.master.court'), isNull);
     // ...and we're back at the signup choice screen.
-    expect(find.text('Create an account'), findsOneWidget);
+    expect(find.text('Get started'), findsOneWidget);
   });
 }

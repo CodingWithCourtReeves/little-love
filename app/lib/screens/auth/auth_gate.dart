@@ -7,6 +7,7 @@ import '../../identity/account_local.dart';
 import '../../identity/bip39.dart';
 import '../../identity/keypair.dart';
 import '../../identity/providers.dart';
+import '../../onboarding/heart_emblem.dart';
 import '../../outbox/outbox_rehydrate.dart';
 import '../../pairing/deep_link.dart';
 import '../../theme/app_palette.dart';
@@ -66,27 +67,28 @@ class _ChoiceScreen extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  const Center(child: HeartEmblem(size: 104)),
+                  const SizedBox(height: 28),
                   Text(
-                    'A messenger for two.',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 40,
-                      fontWeight: FontWeight.w500,
-                      height: 1.06,
-                      letterSpacing: -1.0,
+                    'Little Love',
+                    textAlign: TextAlign.center,
+                    style: TwilightType.display.copyWith(
                       color: context.palette.textPrimary,
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Conversations live only on devices you own. '
-                    'The server holds ciphertext it cannot read.',
-                    style: TwilightType.lede,
+                  const SizedBox(height: 14),
+                  Text(
+                    'A tiny, private home for the two of you. '
+                    'No one else gets in.',
+                    textAlign: TextAlign.center,
+                    style: TwilightType.lede.copyWith(
+                      color: context.palette.textMuted,
+                    ),
                   ),
-                  const SizedBox(height: 48),
+                  const SizedBox(height: 40),
                   FilledButton(
                     style: FilledButton.styleFrom(
-                      backgroundColor: context.palette.textPrimary,
+                      backgroundColor: context.palette.accentUser,
                       foregroundColor: context.palette.bgCanvas,
                       minimumSize: const Size.fromHeight(52),
                       shape: const RoundedRectangleBorder(
@@ -102,7 +104,7 @@ class _ChoiceScreen extends StatelessWidget {
                         builder: (_) => const _SignupFlow(),
                       ),
                     ),
-                    child: const Text('Create an account'),
+                    child: const Text('Get started'),
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton(
@@ -119,7 +121,7 @@ class _ChoiceScreen extends StatelessWidget {
                         builder: (_) => const _SigninFlow(),
                       ),
                     ),
-                    child: const Text('Sign in with a recovery phrase'),
+                    child: const Text('I have a recovery phrase'),
                   ),
                 ],
               ),

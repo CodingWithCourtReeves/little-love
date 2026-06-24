@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../identity/bip39.dart';
+import '../../onboarding/onboarding_header.dart';
+import '../../onboarding/phrase_grid.dart';
+import '../../theme/app_palette.dart';
+import '../../theme/twilight.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key, required this.onPhraseReady});
@@ -34,25 +39,44 @@ class _SignupScreenState extends State<SignupScreen> {
     // words" button in _step2 fires it.
   }
 
+  void _copyPhrase(String phrase) {
+    Clipboard.setData(ClipboardData(text: phrase));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Copied. Paste it somewhere safe, then clear your clipboard.',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final phrase = _phrase;
     return Scaffold(
-      appBar: AppBar(title: const Text('Create account')),
+      appBar: AppBar(),
       body: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
         child: phrase == null ? _step1() : _step2(phrase),
       ),
     );
   }
 
   Widget _step1() {
+    final palette = context.palette;
     final showError = _usernameCtl.text.isNotEmpty && !_usernameValid;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text('Pick a username'),
-        const SizedBox(height: 12),
+        const OnboardingHeader(title: 'Pick a username'),
+        const SizedBox(height: 10),
+        Text(
+          'This is how your partner finds you. Lowercase letters, numbers, '
+          'and underscores.',
+          style: TwilightType.lede.copyWith(color: palette.textMuted),
+        ),
+        const SizedBox(height: 20),
         TextField(
           controller: _usernameCtl,
           autocorrect: false,
@@ -62,8 +86,16 @@ class _SignupScreenState extends State<SignupScreen> {
           ),
           onChanged: (_) => setState(() {}),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: palette.accentUser,
+            foregroundColor: palette.bgCanvas,
+            minimumSize: const Size.fromHeight(52),
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(2)),
+            ),
+          ),
           onPressed: _usernameValid ? _create : null,
           child: const Text('Create account'),
         ),
@@ -72,30 +104,62 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   Widget _step2(String phrase) {
+    final palette = context.palette;
     final words = phrase.split(' ');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          'Save these 12 words. They are the only way to restore '
-          '@${_username ?? ''}.',
+        const OnboardingHeader(
+          step: 'Step 1 of 2 · Recovery phrase',
+          title: 'Save these 12 words',
+        ),
+        const SizedBox(height: 14),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.vpn_key_outlined, size: 16, color: palette.accentUser),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'These 12 words are your key back in. Tuck them somewhere '
+                'safe and private, just for the two of you.',
+                style: TwilightType.lede.copyWith(
+                  fontSize: 13,
+                  color: palette.textMuted,
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
-        GridView.builder(
-          shrinkWrap: true,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            childAspectRatio: 3,
-          ),
-          itemCount: 12,
-          itemBuilder: (_, i) => Padding(
-            padding: const EdgeInsets.all(4),
-            child: Text('${i + 1}. ${words[i]}'),
-          ),
+        Expanded(
+          child: SingleChildScrollView(child: PhraseGrid(words: words)),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: palette.accentSage,
+            side: BorderSide(color: palette.accentSage.withValues(alpha: 0.5)),
+            minimumSize: const Size.fromHeight(46),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+          onPressed: () => _copyPhrase(phrase),
+          icon: const Icon(Icons.copy_outlined, size: 18),
+          label: const Text('Copy all 12 words'),
+        ),
+        const SizedBox(height: 12),
         FilledButton(
           key: const Key('phrase-saved'),
+          style: FilledButton.styleFrom(
+            backgroundColor: palette.accentUser,
+            foregroundColor: palette.bgCanvas,
+            minimumSize: const Size.fromHeight(52),
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(2)),
+            ),
+          ),
           onPressed: () => widget.onPhraseReady(_username!, phrase),
           child: const Text("I've saved these words"),
         ),

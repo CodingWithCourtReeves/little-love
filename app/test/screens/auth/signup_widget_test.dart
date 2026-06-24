@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/screens/auth/signup.dart';
 
@@ -92,6 +93,44 @@ void main() {
       expect(capturedUser, 'court');
       expect(capturedPhrase, isNotNull);
       expect(capturedPhrase!.split(' ').length, 12);
+    },
+  );
+
+  testWidgets(
+    "'Copy all 12 words' copies the phrase and shows a nudge snackbar",
+    (tester) async {
+      // Capture platform-channel calls so we can assert Clipboard.setData
+      // fired with the full phrase.
+      final calls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          calls.add(call);
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: SignupScreen(onPhraseReady: (_, _) {})),
+      );
+      await tester.enterText(find.byType(TextField), 'court');
+      await tester.pump();
+      await tester.tap(find.byType(FilledButton));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Copy all 12 words'));
+      await tester.pump(); // let the snackbar appear
+
+      final copy = calls.firstWhere((c) => c.method == 'Clipboard.setData');
+      final copied = (copy.arguments as Map)['text'] as String;
+      expect(copied.split(' ').length, 12);
+      expect(find.textContaining('clipboard'), findsOneWidget);
     },
   );
 }

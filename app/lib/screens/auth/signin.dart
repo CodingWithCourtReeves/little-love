@@ -6,6 +6,9 @@ import 'package:flutter/material.dart';
 import '../../identity/account_local.dart';
 import '../../identity/bip39.dart';
 import '../../identity/keypair.dart';
+import '../../onboarding/onboarding_header.dart';
+import '../../theme/app_palette.dart';
+import '../../theme/twilight.dart';
 import '../../wire/rest_client.dart';
 
 class SigninScreen extends StatefulWidget {
@@ -69,13 +72,21 @@ class _SigninScreenState extends State<SigninScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     return Scaffold(
-      appBar: AppBar(title: const Text('Sign in')),
+      appBar: AppBar(),
       body: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const OnboardingHeader(title: 'Welcome back'),
+            const SizedBox(height: 10),
+            Text(
+              'Enter your username and the 12 words you saved.',
+              style: TwilightType.lede.copyWith(color: palette.textMuted),
+            ),
+            const SizedBox(height: 20),
             TextField(
               key: const ValueKey('username'),
               controller: _usernameCtl,
@@ -94,9 +105,17 @@ class _SigninScreenState extends State<SigninScreen> {
             ),
             const SizedBox(height: 12),
             if (_error != null)
-              Text(_error!, style: const TextStyle(color: Colors.red)),
+              Text(_error!, style: TextStyle(color: palette.warningTone)),
             const SizedBox(height: 16),
             FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: palette.accentUser,
+                foregroundColor: palette.bgCanvas,
+                minimumSize: const Size.fromHeight(52),
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(2)),
+                ),
+              ),
               onPressed: _busy ? null : _signin,
               child: const Text('Sign in'),
             ),
