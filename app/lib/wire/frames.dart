@@ -199,9 +199,11 @@ sealed class RoomServerFrame {
           typing: (json['typing'] as bool?) ?? false,
         );
       case 'Presence':
+        final ls = json['last_seen'] as String?;
         return PresenceFrame(
           user: json['user']! as String,
           online: (json['online'] as bool?) ?? false,
+          lastSeen: ls == null ? null : DateTime.parse(ls).toUtc(),
         );
       case 'Profile':
         return ProfileFrame(
@@ -385,9 +387,17 @@ class TypingFrame extends RoomServerFrame {
 /// Partner presence: [user] just came online or went offline. Server pushes
 /// this only to the user's linked partner; never persisted.
 class PresenceFrame extends RoomServerFrame {
-  const PresenceFrame({required this.user, required this.online});
+  const PresenceFrame({
+    required this.user,
+    required this.online,
+    this.lastSeen,
+  });
   final String user;
   final bool online;
+
+  /// The partner's last-session time, sent by the server only when [online] is
+  /// false (otherwise null). UTC.
+  final DateTime? lastSeen;
 }
 
 /// Relayed partner profile: [user] published a new E2EE profile. [envelopeB64]

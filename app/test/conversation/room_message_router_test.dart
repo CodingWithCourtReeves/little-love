@@ -782,15 +782,18 @@ void main() {
     final container = await _container(conn: conn, me: me);
     container.read(roomMessageRouterProvider);
 
-    expect(container.read(presenceProvider('kaitlyn')), isFalse);
+    expect(container.read(presenceProvider('kaitlyn')).online, isFalse);
 
     conn.emit(const PresenceFrame(user: 'kaitlyn', online: true));
     await Future<void>.delayed(const Duration(milliseconds: 20));
-    expect(container.read(presenceProvider('kaitlyn')), isTrue);
+    expect(container.read(presenceProvider('kaitlyn')).online, isTrue);
+    expect(container.read(presenceProvider('kaitlyn')).lastSeen, isNull);
 
-    conn.emit(const PresenceFrame(user: 'kaitlyn', online: false));
+    final seen = DateTime.utc(2026, 6, 24, 17);
+    conn.emit(PresenceFrame(user: 'kaitlyn', online: false, lastSeen: seen));
     await Future<void>.delayed(const Duration(milliseconds: 20));
-    expect(container.read(presenceProvider('kaitlyn')), isFalse);
+    expect(container.read(presenceProvider('kaitlyn')).online, isFalse);
+    expect(container.read(presenceProvider('kaitlyn')).lastSeen, seen);
   });
 
   test('a live partner message clears the typing flag atomically', () async {

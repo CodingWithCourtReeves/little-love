@@ -143,6 +143,29 @@ void main() {
             as PresenceFrame;
     expect(f.user, 'kaitlyn');
     expect(f.online, true);
+    expect(f.lastSeen, isNull);
+  });
+
+  test('PresenceFrame parses last_seen when offline, null when absent', () {
+    final off =
+        RoomServerFrame.fromJson(
+              jsonDecode(
+                    '{"kind":"Presence","user":"court","online":false,'
+                    '"last_seen":"2026-06-24T17:00:00Z"}',
+                  )
+                  as Map<String, Object?>,
+            )
+            as PresenceFrame;
+    expect(off.online, false);
+    expect(off.lastSeen, DateTime.utc(2026, 6, 24, 17));
+
+    final on =
+        RoomServerFrame.fromJson(
+              jsonDecode('{"kind":"Presence","user":"court","online":true}')
+                  as Map<String, Object?>,
+            )
+            as PresenceFrame;
+    expect(on.lastSeen, isNull);
   });
 
   test('ReadFrame parses room, ids, reader', () {

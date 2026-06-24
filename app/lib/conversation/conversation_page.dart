@@ -39,6 +39,7 @@ import '../wire/message.dart';
 import 'audio_bubble.dart';
 import 'chat_info_page.dart';
 import 'link_preview.dart';
+import 'last_seen_label.dart';
 import 'message_db.dart';
 import 'message_store.dart';
 import 'presence_state.dart';
@@ -2158,14 +2159,37 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 /// The status line under the room name in the title pill. Shows "typing" with
 /// animated dots while the partner is composing; otherwise the partner's
 /// online / offline presence. Empty when there's no partner (a solo room).
-class _PartnerStatusLine extends ConsumerWidget {
+class _PartnerStatusLine extends ConsumerStatefulWidget {
   const _PartnerStatusLine({required this.roomId, required this.partner});
   final String roomId;
   final String? partner;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final typing = ref.watch(typingProvider(roomId));
+  ConsumerState<_PartnerStatusLine> createState() => _PartnerStatusLineState();
+}
+
+class _PartnerStatusLineState extends ConsumerState<_PartnerStatusLine> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    // Recompute the relative "last seen …" label once a minute so it advances
+    // (e.g. "5 minutes ago" → "6 minutes ago") without any new network traffic.
+    _tick = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final typing = ref.watch(typingProvider(widget.roomId));
     if (typing) {
       return Row(
         key: const Key('typing-indicator'),
@@ -2186,11 +2210,22 @@ class _PartnerStatusLine extends ConsumerWidget {
         ],
       );
     }
-    if (partner == null) return const SizedBox.shrink();
-    final online = ref.watch(presenceProvider(partner!));
+    if (widget.partner == null) return const SizedBox.shrink();
+    final presence = ref.watch(presenceProvider(widget.partner!));
+    final online = presence.online;
     final tone = online
         ? context.palette.accentSage
         : context.palette.textMuted;
+
+    final String label;
+    if (online) {
+      label = 'online';
+    } else if (presence.lastSeen != null) {
+      label = lastSeenLabel(presence.lastSeen!, now: DateTime.now());
+    } else {
+      label = 'offline';
+    }
+
     return Row(
       key: const Key('presence-indicator'),
       mainAxisSize: MainAxisSize.min,
@@ -2202,7 +2237,7 @@ class _PartnerStatusLine extends ConsumerWidget {
         ),
         const SizedBox(width: 5),
         Text(
-          online ? 'online' : 'offline',
+          label,
           style: TextStyle(
             fontFamily: 'Inter',
             fontSize: 11,
