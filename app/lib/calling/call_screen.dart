@@ -329,6 +329,12 @@ class _VideoCallViewState extends State<_VideoCallView> {
   bool _cameraOn = true;
   bool _speaker = true; // video calls default to hands-free (speaker)
 
+  // Immersive (full-screen) mode: tap the video to hide the controls + status;
+  // they auto-hide after a few seconds of an active call. Privacy banners and
+  // the self-preview stay visible.
+  bool _controlsShown = true;
+  Timer? _hideTimer;
+
   // Self-preview position (top-right by default); dragged within the screen.
   Offset? _pipPos;
 
@@ -394,6 +400,7 @@ class _VideoCallViewState extends State<_VideoCallView> {
           setState(() => _elapsed = DateTime.now().difference(_connectedAt!));
         }
       });
+      _scheduleHide();
     }
   }
 
@@ -401,9 +408,26 @@ class _VideoCallViewState extends State<_VideoCallView> {
     unawaited(Helper.setSpeakerphoneOn(_speaker));
   }
 
+  /// Toggle the controls; reaching out shows them and restarts the auto-hide.
+  void _toggleControls() {
+    setState(() => _controlsShown = !_controlsShown);
+    if (_controlsShown) _scheduleHide();
+  }
+
+  /// Auto-hide the controls a few seconds into an active call (no-op otherwise,
+  /// so they stay put while dialing / connecting).
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    if (widget.state.phase != CallPhase.active) return;
+    _hideTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _controlsShown = false);
+    });
+  }
+
   @override
   void dispose() {
     _ticker?.cancel();
+    _hideTimer?.cancel();
     _remoteSub?.cancel();
     _zoom.dispose();
     _local.srcObject = null;
@@ -437,14 +461,17 @@ class _VideoCallViewState extends State<_VideoCallView> {
             children: [
               // Remote video, or a clean avatar cover when it isn't flowing yet
               // or the partner's camera is off (instead of a frozen last frame).
-              // Pinch to zoom / drag to pan; double-tap to reset to fit.
-              ValueListenableBuilder<bool>(
-                valueListenable: widget.controller.peerVideoOff,
-                builder: (context, peerOff, _) {
-                  if (_ready && _remoteHasVideo && !peerOff) {
-                    return GestureDetector(
-                      onDoubleTap: () => _zoom.value = Matrix4.identity(),
-                      child: InteractiveViewer(
+              // Tap toggles full-screen (hides controls); pinch to zoom / drag
+              // to pan; double-tap resets the zoom.
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _toggleControls,
+                onDoubleTap: () => _zoom.value = Matrix4.identity(),
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: widget.controller.peerVideoOff,
+                  builder: (context, peerOff, _) {
+                    if (_ready && _remoteHasVideo && !peerOff) {
+                      return InteractiveViewer(
                         transformationController: _zoom,
                         minScale: 1.0,
                         maxScale: 5.0,
@@ -454,16 +481,16 @@ class _VideoCallViewState extends State<_VideoCallView> {
                           objectFit:
                               RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                         ),
-                      ),
+                      );
+                    }
+                    return _AvatarBackdrop(
+                      name: widget.name,
+                      avatarFile: widget.avatarFile,
+                      accent: accent,
+                      subtitle: peerOff ? 'Camera off' : null,
                     );
-                  }
-                  return _AvatarBackdrop(
-                    name: widget.name,
-                    avatarFile: widget.avatarFile,
-                    accent: accent,
-                    subtitle: peerOff ? 'Camera off' : null,
-                  );
-                },
+                  },
+                ),
               ),
 
               // Debug stats readout (TX/RX resolution · fps · bitrate · limit).
@@ -507,17 +534,21 @@ class _VideoCallViewState extends State<_VideoCallView> {
                 top: pad.top + 14,
                 left: 0,
                 right: 0,
-                child: Center(
-                  child: Text(
-                    _statusLabel(),
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 15,
-                      letterSpacing: 0.3,
-                      color: const Color(0xFFF3ECF1).withValues(alpha: 0.85),
-                      shadows: const [
-                        Shadow(blurRadius: 8, color: Colors.black54),
-                      ],
+                child: AnimatedOpacity(
+                  opacity: _controlsShown ? 1 : 0,
+                  duration: const Duration(milliseconds: 220),
+                  child: Center(
+                    child: Text(
+                      _statusLabel(),
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 15,
+                        letterSpacing: 0.3,
+                        color: const Color(0xFFF3ECF1).withValues(alpha: 0.85),
+                        shadows: const [
+                          Shadow(blurRadius: 8, color: Colors.black54),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -592,66 +623,81 @@ class _VideoCallViewState extends State<_VideoCallView> {
                   ),
                 ),
 
-              // Controls.
+              // Controls — fade out in full-screen mode; touching them keeps
+              // them up (resets the auto-hide).
               Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 18),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _ControlButton(
-                          icon: _muted ? Icons.mic_off : Icons.mic,
-                          label: 'mute',
-                          active: _muted,
-                          accent: accent,
-                          onTap: () {
-                            setState(() => _muted = !_muted);
-                            widget.controller.toggleMute(_muted);
-                          },
+                child: IgnorePointer(
+                  ignoring: !_controlsShown,
+                  child: AnimatedOpacity(
+                    opacity: _controlsShown ? 1 : 0,
+                    duration: const Duration(milliseconds: 220),
+                    child: Listener(
+                      onPointerDown: (_) => _scheduleHide(),
+                      child: SafeArea(
+                        top: false,
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 18),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _ControlButton(
+                                icon: _muted ? Icons.mic_off : Icons.mic,
+                                label: 'mute',
+                                active: _muted,
+                                accent: accent,
+                                onTap: () {
+                                  setState(() => _muted = !_muted);
+                                  widget.controller.toggleMute(_muted);
+                                },
+                              ),
+                              const SizedBox(width: 14),
+                              _ControlButton(
+                                icon: _speaker
+                                    ? Icons.volume_up
+                                    : Icons.hearing,
+                                label: _speaker ? 'speaker' : 'earpiece',
+                                active: _speaker,
+                                accent: accent,
+                                onTap: () {
+                                  setState(() => _speaker = !_speaker);
+                                  _applyAudioRoute();
+                                },
+                              ),
+                              const SizedBox(width: 14),
+                              _ControlButton(
+                                icon: _cameraOn
+                                    ? Icons.videocam
+                                    : Icons.videocam_off,
+                                label: 'camera',
+                                active: !_cameraOn,
+                                accent: accent,
+                                onTap: () {
+                                  setState(() => _cameraOn = !_cameraOn);
+                                  widget.controller.setCameraEnabled(_cameraOn);
+                                },
+                              ),
+                              const SizedBox(width: 14),
+                              _ControlButton(
+                                icon: Icons.cameraswitch,
+                                label: 'flip',
+                                accent: accent,
+                                onTap: () => widget.controller.switchCamera(),
+                              ),
+                              const SizedBox(width: 14),
+                              _ControlButton(
+                                icon: Icons.call_end,
+                                label: 'end',
+                                accent: accent,
+                                danger: true,
+                                onTap: () => widget.controller.hangup(),
+                              ),
+                            ],
+                          ),
                         ),
-                        const SizedBox(width: 14),
-                        _ControlButton(
-                          icon: _speaker ? Icons.volume_up : Icons.hearing,
-                          label: _speaker ? 'speaker' : 'earpiece',
-                          active: _speaker,
-                          accent: accent,
-                          onTap: () {
-                            setState(() => _speaker = !_speaker);
-                            _applyAudioRoute();
-                          },
-                        ),
-                        const SizedBox(width: 14),
-                        _ControlButton(
-                          icon: _cameraOn ? Icons.videocam : Icons.videocam_off,
-                          label: 'camera',
-                          active: !_cameraOn,
-                          accent: accent,
-                          onTap: () {
-                            setState(() => _cameraOn = !_cameraOn);
-                            widget.controller.setCameraEnabled(_cameraOn);
-                          },
-                        ),
-                        const SizedBox(width: 14),
-                        _ControlButton(
-                          icon: Icons.cameraswitch,
-                          label: 'flip',
-                          accent: accent,
-                          onTap: () => widget.controller.switchCamera(),
-                        ),
-                        const SizedBox(width: 14),
-                        _ControlButton(
-                          icon: Icons.call_end,
-                          label: 'end',
-                          accent: accent,
-                          danger: true,
-                          onTap: () => widget.controller.hangup(),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),

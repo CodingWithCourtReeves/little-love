@@ -48,11 +48,12 @@ class CallSession {
   RTCDataChannel? _privacy;
   final _privacyCtl = StreamController<String>.broadcast();
 
-  // Camera enable bookkeeping: the user's intent vs a forced pause (while the
-  // partner is screen-recording). The track follows the force when set, else
-  // the user's intent.
+  // Camera enable bookkeeping: the user's intent vs forced pauses. The camera is
+  // on only when the user wants it AND no pause source is active (partner is
+  // screen-recording, or the app is backgrounded).
   bool _cameraIntent = true;
-  bool _cameraForcedOff = false;
+  bool _pausedRecording = false;
+  bool _pausedBackground = false;
 
   /// Inbound privacy events from the peer (raw wire strings; decode with
   /// [PrivacyEvent.decode]).
@@ -73,12 +74,14 @@ class CallSession {
   final _connectionStates =
       StreamController<RTCPeerConnectionState>.broadcast();
   final _remoteStreams = StreamController<MediaStream>.broadcast();
-  final _remoteVideoMuted = StreamController<bool>.broadcast();
+  final _localCameraCtl = StreamController<bool>.broadcast();
+  bool _lastCameraOn = true;
 
-  /// Whether the partner's video track is muted (their camera off / paused) —
-  /// the UI shows a cover instead of the frozen last frame. Fires false on
-  /// unmute.
-  Stream<bool> get onRemoteVideoMuted => _remoteVideoMuted.stream;
+  /// Fires the effective local camera on/off state whenever it changes (user
+  /// toggle, recording pause, background pause). The controller relays this to
+  /// the partner over the data channel so they can cover the frozen frame —
+  /// WebRTC's track `enabled` flag alone doesn't mute the receiver.
+  Stream<bool> get onLocalCameraState => _localCameraCtl.stream;
 
   /// Local ICE candidates to trickle to the peer (encode + send as CallIce).
   Stream<RTCIceCandidate> get onLocalCandidate => _localCandidates.stream;
@@ -110,18 +113,9 @@ class CallSession {
       if (candidate.candidate != null) _localCandidates.add(candidate);
     };
     pc.onConnectionState = (state) => _connectionStates.add(state);
-    // Surface the partner's stream for the remote renderer, and track when their
-    // video mutes (camera off) so the UI can cover the frozen frame.
+    // Surface the partner's stream for the remote renderer.
     pc.onTrack = (event) {
       if (event.streams.isNotEmpty) _remoteStreams.add(event.streams.first);
-      if (event.track.kind == 'video') {
-        event.track.onMute = () {
-          if (!_remoteVideoMuted.isClosed) _remoteVideoMuted.add(true);
-        };
-        event.track.onUnMute = () {
-          if (!_remoteVideoMuted.isClosed) _remoteVideoMuted.add(false);
-        };
-      }
     };
 
     // Negotiated privacy channel — both sides create it with the same id before
@@ -134,6 +128,14 @@ class CallSession {
     _privacy = await pc.createDataChannel('privacy', dcInit);
     _privacy!.onMessage = (msg) {
       if (!_privacyCtl.isClosed) _privacyCtl.add(msg.text);
+    };
+    // On open, (re)broadcast our current camera state so a peer who connected
+    // the channel after a toggle still gets the right cover.
+    _privacy!.onDataChannelState = (s) {
+      if (s == RTCDataChannelState.RTCDataChannelOpen &&
+          !_localCameraCtl.isClosed) {
+        _localCameraCtl.add(_lastCameraOn);
+      }
     };
 
     final stream = await _capture();
@@ -326,26 +328,39 @@ class CallSession {
   }
 
   /// Turn the local camera on/off (stops sending video without renegotiating).
-  /// Records the user's intent; a privacy force-off (partner recording) wins
-  /// while active, and the intent is restored when it lifts.
+  /// Records the user's intent; an active pause source wins while set, and the
+  /// intent is restored when all pauses lift.
   void setCameraEnabled(bool enabled) {
     _cameraIntent = enabled;
-    if (_cameraForcedOff) return;
-    _applyCameraEnabled(enabled);
+    _applyCamera();
   }
 
-  /// Force the camera off while the partner is screen-recording (so their
-  /// recording captures nothing), restoring the user's intent when it stops.
-  void forceCameraOff(bool forced) {
-    if (forced == _cameraForcedOff) return;
-    _cameraForcedOff = forced;
-    _applyCameraEnabled(forced ? false : _cameraIntent);
+  /// Pause the camera while the partner is screen-recording (so their recording
+  /// captures nothing).
+  void setRecordingPause(bool paused) {
+    if (paused == _pausedRecording) return;
+    _pausedRecording = paused;
+    _applyCamera();
   }
 
-  void _applyCameraEnabled(bool enabled) {
+  /// Pause the camera while the app is backgrounded (don't broadcast when the
+  /// user has tabbed away; iOS also suspends capture, but this sends a clean
+  /// mute so the partner sees a cover instead of a frozen frame).
+  void setBackgroundPause(bool paused) {
+    if (paused == _pausedBackground) return;
+    _pausedBackground = paused;
+    _applyCamera();
+  }
+
+  void _applyCamera() {
+    final on = _cameraIntent && !_pausedRecording && !_pausedBackground;
     for (final t
         in _localStream?.getVideoTracks() ?? const <MediaStreamTrack>[]) {
-      t.enabled = enabled;
+      t.enabled = on;
+    }
+    if (on != _lastCameraOn) {
+      _lastCameraOn = on;
+      if (!_localCameraCtl.isClosed) _localCameraCtl.add(on);
     }
   }
 
@@ -370,7 +385,7 @@ class CallSession {
     await _statsCtl.close();
     await _privacy?.close();
     await _privacyCtl.close();
-    await _remoteVideoMuted.close();
+    await _localCameraCtl.close();
     await _localStream?.dispose();
     await _pc?.close();
     await _pc?.dispose();

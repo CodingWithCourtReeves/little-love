@@ -24,6 +24,9 @@ import flutter_callkit_incoming
   /// Native → Dart channel for capture-privacy events (screenshot / screen
   /// recording) detected on THIS device during a video call.
   private var callPrivacyChannel: FlutterMethodChannel?
+  /// Opaque cover laid over the window while a video call is backgrounding, so
+  /// the live feed never lands in the app-switcher snapshot.
+  private var privacyCover: UIView?
   /// PushKit registry for VoIP (call) wakes — distinct from the alert APNs
   /// registration above. Retained for the app's lifetime.
   private var voipRegistry: PKPushRegistry?
@@ -242,6 +245,21 @@ import flutter_callkit_incoming
     nc.addObserver(
       self, selector: #selector(onCaptureChanged),
       name: UIScreen.capturedDidChangeNotification, object: nil)
+    // Cover the window before iOS snapshots it for the app switcher. Observe
+    // both the app- and scene-level notifications (scene apps deliver one or the
+    // other depending on iOS version).
+    nc.addObserver(
+      self, selector: #selector(onWillResignActive),
+      name: UIApplication.willResignActiveNotification, object: nil)
+    nc.addObserver(
+      self, selector: #selector(onDidBecomeActive),
+      name: UIApplication.didBecomeActiveNotification, object: nil)
+    nc.addObserver(
+      self, selector: #selector(onWillResignActive),
+      name: UIScene.willDeactivateNotification, object: nil)
+    nc.addObserver(
+      self, selector: #selector(onDidBecomeActive),
+      name: UIScene.didActivateNotification, object: nil)
     // Report the current state immediately — recording may already be running
     // when the call connects.
     onCaptureChanged()
@@ -253,6 +271,51 @@ import flutter_callkit_incoming
       self, name: UIApplication.userDidTakeScreenshotNotification, object: nil)
     nc.removeObserver(
       self, name: UIScreen.capturedDidChangeNotification, object: nil)
+    nc.removeObserver(
+      self, name: UIApplication.willResignActiveNotification, object: nil)
+    nc.removeObserver(
+      self, name: UIApplication.didBecomeActiveNotification, object: nil)
+    nc.removeObserver(self, name: UIScene.willDeactivateNotification, object: nil)
+    nc.removeObserver(self, name: UIScene.didActivateNotification, object: nil)
+    hidePrivacyCover()
+  }
+
+  @objc private func onWillResignActive() { showPrivacyCover() }
+  @objc private func onDidBecomeActive() { hidePrivacyCover() }
+
+  private func keyWindow() -> UIWindow? {
+    let windows = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap { $0.windows }
+    // Prefer the key window, but fall back to any window — at resign-active time
+    // the key window can briefly be nil, which would skip the cover.
+    return windows.first { $0.isKeyWindow } ?? windows.first
+  }
+
+  private func showPrivacyCover() {
+    guard privacyCover == nil, let window = keyWindow() else { return }
+    let cover = UIView(frame: window.bounds)
+    cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    // Opaque (not blur) so nothing of the call leaks into the snapshot.
+    cover.backgroundColor = UIColor(red: 0.082, green: 0.063, blue: 0.114, alpha: 1)
+    let lock = UIImageView(image: UIImage(systemName: "lock.fill"))
+    lock.tintColor = UIColor.white.withAlphaComponent(0.45)
+    lock.translatesAutoresizingMaskIntoConstraints = false
+    cover.addSubview(lock)
+    NSLayoutConstraint.activate([
+      lock.centerXAnchor.constraint(equalTo: cover.centerXAnchor),
+      lock.centerYAnchor.constraint(equalTo: cover.centerYAnchor),
+      lock.widthAnchor.constraint(equalToConstant: 42),
+      lock.heightAnchor.constraint(equalToConstant: 42),
+    ])
+    window.addSubview(cover)
+    window.bringSubviewToFront(cover)
+    privacyCover = cover
+  }
+
+  private func hidePrivacyCover() {
+    privacyCover?.removeFromSuperview()
+    privacyCover = nil
   }
 
   @objc private func onScreenshot() {

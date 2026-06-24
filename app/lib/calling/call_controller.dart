@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -35,11 +36,22 @@ import 'turn_credentials.dart';
 /// Foreground path (both apps open) is the primary flow here; the killed-app
 /// wake path reuses the same accept handler once the woken app connects and the
 /// server delivers the pending CallInvite.
-class CallController {
+class CallController with WidgetsBindingObserver {
   CallController(this._ref) {
     _attachCallKit();
     _attachFrames();
     _privacyChannel.setMethodCallHandler(_onLocalPrivacy);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_video) return;
+    // Pause the camera while we're truly backgrounded (not for transient
+    // inactive states like the notification shade) so we never broadcast away.
+    final backgrounded =
+        state == AppLifecycleState.paused || state == AppLifecycleState.hidden;
+    _session?.setBackgroundPause(backgrounded);
   }
 
   /// A capture happened on THIS device (from native): relay it to the partner
@@ -71,8 +83,11 @@ class CallController {
       case PrivacyKind.recording:
         partnerRecording.value = ev.active;
         // Pause our outgoing camera while they record so it captures nothing.
-        _session?.forceCameraOff(ev.active);
+        _session?.setRecordingPause(ev.active);
         if (ev.active) _flashNotice('$peerName is recording');
+      case PrivacyKind.camera:
+        // The partner's camera turned on/off — cover their (frozen) frame.
+        peerVideoOff.value = !ev.active;
     }
   }
 
@@ -246,6 +261,7 @@ class CallController {
   void toggleMute(bool muted) => _session?.setMicEnabled(!muted);
 
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _ckSub?.cancel();
     _frameSub?.cancel();
     _connListen?.close();
@@ -449,7 +465,12 @@ class CallController {
     });
     session.onStats.listen((s) => debugStats.value = s);
     session.onPrivacyEvent.listen(_onPeerPrivacy);
-    session.onRemoteVideoMuted.listen((m) => peerVideoOff.value = m);
+    // Tell the partner when our camera goes on/off so they cover the frame.
+    session.onLocalCameraState.listen(
+      (on) => session.sendPrivacy(
+        PrivacyEvent(PrivacyKind.camera, active: on).encode(),
+      ),
+    );
     session.onLocalCandidate.listen((c) async {
       final roomId = _roomId;
       final callId = _callId;

@@ -1,7 +1,10 @@
 import 'dart:convert';
 
-/// What kind of device capture happened during a call.
-enum PrivacyKind { screenshot, recording }
+/// An in-call peer event. `screenshot`/`recording` are capture-privacy events;
+/// `camera` carries the sender's camera on/off state (since WebRTC's track
+/// `enabled` flag doesn't propagate a mute to the receiver, we signal it
+/// explicitly so the partner can show a cover instead of a frozen frame).
+enum PrivacyKind { screenshot, recording, camera }
 
 /// A privacy event exchanged peer-to-peer over the call's WebRTC data channel
 /// (E2EE via DTLS — it never touches the server, exactly like the media). It
@@ -12,13 +15,13 @@ class PrivacyEvent {
 
   final PrivacyKind kind;
 
-  /// For [PrivacyKind.recording]: whether screen recording started (true) or
-  /// stopped (false). Always false for a screenshot (a one-shot event).
+  /// State flag for stateful kinds: recording on/off, or camera on/off. Unused
+  /// (always false) for a screenshot, which is a one-shot event.
   final bool active;
 
   String encode() => jsonEncode(<String, Object?>{
     't': kind.name,
-    if (kind == PrivacyKind.recording) 'a': active,
+    if (kind != PrivacyKind.screenshot) 'a': active,
   });
 
   /// Parse a wire string; null if malformed or an unknown kind (forward-compat —
