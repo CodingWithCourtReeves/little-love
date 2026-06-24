@@ -90,6 +90,30 @@ abstract class MessageDb {
 
   Future<void> upsert(Msg msg, {required String roomId});
   Future<List<Msg>> messagesFor(String roomId);
+
+  /// Swap an optimistic row (keyed by [clientMsgId]) for its authoritative
+  /// server row, keeping [clientMsgId] on the reconciled row. Mirrors
+  /// [MessageStore.reconcile]: idempotent, and drops the optimistic row if the
+  /// server id was already validly tombstoned.
+  Future<void> reconcile(String clientMsgId, Msg server);
+
+  /// Apply an unsend onto [targetId]. Only the author may unsend: a delete whose
+  /// [requestedBy] doesn't match a present target's author is dropped (spoofed).
+  /// Records a tombstone so a later out-of-order [upsert] stays suppressed.
+  Future<void> applyDelete(String targetId, {required String requestedBy});
+
+  /// Set [username] → [emoji] on [targetId], or remove it when [emoji] is empty.
+  /// No-op if the target isn't stored.
+  Future<void> applyReaction(String targetId, String username, String emoji);
+
+  /// Mark the given ids' send status as read (double-heart).
+  Future<void> markRead(List<String> ids);
+
+  /// Max stored server id for [roomId] (delta-sync anchor), or null if empty.
+  Future<String?> highWaterMark(String roomId);
+
+  /// Wipe all local state (used on sign-out).
+  Future<void> clear();
 }
 
 class SqliteMessageDb implements MessageDb {
@@ -123,6 +147,122 @@ class SqliteMessageDb implements MessageDb {
       orderBy: 'id ASC',
     );
     return rows.map(_fromRow).toList(growable: false);
+  }
+
+  @override
+  Future<void> reconcile(String clientMsgId, Msg server) async {
+    final tomb = await _db.query(
+      'tombstones',
+      where: 'target_id = ?',
+      whereArgs: [server.id],
+      limit: 1,
+    );
+    if (tomb.isNotEmpty && tomb.first['requested_by'] == server.from) {
+      // The authoritative id was already unsent; drop the optimistic echo.
+      await _db.delete('messages', where: 'id = ?', whereArgs: [clientMsgId]);
+      return;
+    }
+    final existing = await _db.query(
+      'messages',
+      where: 'id = ?',
+      whereArgs: [server.id],
+      limit: 1,
+    );
+    final n = await _db.update(
+      'messages',
+      {..._toRow(server, server.to), 'client_msg_id': clientMsgId},
+      where: 'id = ?',
+      whereArgs: [clientMsgId],
+    );
+    if (n == 0 && existing.isEmpty) {
+      // No optimistic row to swap and no server row yet: plain idempotent insert.
+      await upsert(server.copyWith(clientMsgId: clientMsgId), roomId: server.to);
+    } else if (existing.isNotEmpty) {
+      // Server id already present (duplicate echo): drop the optimistic row.
+      await _db.delete('messages', where: 'id = ?', whereArgs: [clientMsgId]);
+    } else {
+      await _advanceHwm(server.to, server.id);
+    }
+  }
+
+  @override
+  Future<void> applyDelete(String targetId, {required String requestedBy}) async {
+    final row = await _db.query(
+      'messages',
+      where: 'id = ?',
+      whereArgs: [targetId],
+      limit: 1,
+    );
+    if (row.isNotEmpty && row.first['from_user'] != requestedBy) return; // spoof
+    await _db.insert('tombstones', {
+      'target_id': targetId,
+      'requested_by': requestedBy,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await _db.update(
+      'messages',
+      {'deleted': 1, 'deleted_by': requestedBy},
+      where: 'id = ?',
+      whereArgs: [targetId],
+    );
+  }
+
+  @override
+  Future<void> applyReaction(
+    String targetId,
+    String username,
+    String emoji,
+  ) async {
+    final row = await _db.query(
+      'messages',
+      where: 'id = ?',
+      whereArgs: [targetId],
+      limit: 1,
+    );
+    if (row.isEmpty) return;
+    final reactions =
+        (jsonDecode(row.first['reactions'] as String) as Map<String, Object?>)
+            .map((k, v) => MapEntry(k, v as String));
+    if (emoji.isEmpty) {
+      reactions.remove(username);
+    } else {
+      reactions[username] = emoji;
+    }
+    await _db.update(
+      'messages',
+      {'reactions': jsonEncode(reactions)},
+      where: 'id = ?',
+      whereArgs: [targetId],
+    );
+  }
+
+  @override
+  Future<void> markRead(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final placeholders = List.filled(ids.length, '?').join(',');
+    await _db.rawUpdate(
+      'UPDATE messages SET send_status = ${SendStatus.read.index} '
+      'WHERE id IN ($placeholders)',
+      ids,
+    );
+  }
+
+  @override
+  Future<String?> highWaterMark(String roomId) async {
+    final rows = await _db.query(
+      'room_sync',
+      columns: ['hwm'],
+      where: 'room_id = ?',
+      whereArgs: [roomId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first['hwm'] as String;
+  }
+
+  @override
+  Future<void> clear() async {
+    await _db.delete('messages');
+    await _db.delete('room_sync');
+    await _db.delete('tombstones');
   }
 
   Future<void> _advanceHwm(String roomId, String id) async {
