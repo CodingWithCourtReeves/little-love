@@ -17,7 +17,8 @@ use ulid::Ulid;
 use uuid::Uuid;
 
 use crate::accounts::{
-    lookup_ed25519_pub, lookup_full_account, lookup_full_account_by_id, AccountRecord,
+    last_seen_for, lookup_ed25519_pub, lookup_full_account, lookup_full_account_by_id,
+    touch_last_seen, AccountRecord,
 };
 use crate::attachments::{attachment_room, insert_attachment};
 use crate::invites::{
@@ -1155,6 +1156,11 @@ async fn announce_presence_on_connect(
         Some(s) => s,
         None => return,
     };
+    // Stamp our own last-seen as soon as a session opens, so a value always
+    // exists for the partner to read once we go offline.
+    if let Err(e) = touch_last_seen(store.pool(), me.id).await {
+        warn!("touch_last_seen (connect): {e}");
+    }
     let partner = match partner_username_for(store.pool(), me.id).await {
         Ok(Some(u)) => u,
         Ok(None) => return, // not paired yet — nobody to exchange presence with
@@ -1170,15 +1176,24 @@ async fn announce_presence_on_connect(
             RoomServerFrame::Presence {
                 user: me.username.clone(),
                 online: true,
-                last_seen: None,
+                last_seen: None, // we just came online
             },
         )
         .await;
     let partner_online = state.routing.is_online(&partner).await;
+    // When the partner is offline, attach their last-seen so this fresh session
+    // can render "last seen …" immediately.
+    let partner_last_seen = if partner_online {
+        None
+    } else if let Ok(Some(pid)) = partner_account_id_for(store.pool(), me.id).await {
+        last_seen_for(store.pool(), pid).await.unwrap_or(None)
+    } else {
+        None
+    };
     let _ = tx.send(RoomServerFrame::Presence {
         user: partner.clone(),
         online: partner_online,
-        last_seen: None,
+        last_seen: partner_last_seen,
     });
     // Replay my partner's latest profile, if any, to this fresh session so the
     // room list / chat header can render their display name + avatar at once.
@@ -1204,6 +1219,12 @@ async fn announce_presence_on_disconnect(state: &AppState, me: &AccountRecord) {
         Some(s) => s,
         None => return,
     };
+    // We're truly offline now (no other sessions). Stamp last-seen and tell the
+    // partner, carrying the timestamp so they see "last seen just now".
+    if let Err(e) = touch_last_seen(store.pool(), me.id).await {
+        warn!("touch_last_seen (disconnect): {e}");
+    }
+    let last_seen = last_seen_for(store.pool(), me.id).await.unwrap_or(None);
     match partner_username_for(store.pool(), me.id).await {
         Ok(Some(partner)) => {
             state
@@ -1213,7 +1234,7 @@ async fn announce_presence_on_disconnect(state: &AppState, me: &AccountRecord) {
                     RoomServerFrame::Presence {
                         user: me.username.clone(),
                         online: false,
-                        last_seen: None,
+                        last_seen,
                     },
                 )
                 .await;

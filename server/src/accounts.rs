@@ -161,10 +161,7 @@ pub async fn touch_last_seen(pool: &PgPool, account_id: i64) -> sqlx::Result<()>
 
 /// Read `accounts.last_seen_at` for `account_id`. `None` if the account has
 /// never had a session (column is NULL).
-pub async fn last_seen_for(
-    pool: &PgPool,
-    account_id: i64,
-) -> sqlx::Result<Option<DateTime<Utc>>> {
+pub async fn last_seen_for(pool: &PgPool, account_id: i64) -> sqlx::Result<Option<DateTime<Utc>>> {
     let row: Option<(Option<DateTime<Utc>>,)> =
         sqlx::query_as("SELECT last_seen_at FROM accounts WHERE id = $1")
             .bind(account_id)
