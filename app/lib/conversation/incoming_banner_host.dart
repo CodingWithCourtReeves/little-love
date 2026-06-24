@@ -132,8 +132,8 @@ class _IncomingBannerHostState extends ConsumerState<IncomingBannerHost>
                 children: [
                   SvgPicture.asset(
                     'assets/icons/message-heart.svg',
-                    width: 22,
-                    height: 22,
+                    width: 30,
+                    height: 30,
                     colorFilter: ColorFilter.mode(
                       palette.accentUser,
                       BlendMode.srcIn,
