@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/conversation/message_db.dart';
+import 'package:littlelove/conversation/message_search.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/keystore.dart';
 import 'package:littlelove/identity/providers.dart';
@@ -98,6 +99,12 @@ class _FakeMessageDb implements MessageDb {
   Future<void> markRead(List<String> ids) async {}
   @override
   Future<String?> highWaterMark(String roomId) async => null;
+  @override
+  Future<List<SearchHit>> search(
+    String query, {
+    String? roomId,
+    int limit = 50,
+  }) async => const [];
 }
 
 /// Mount a trivial Consumer purely to capture a real [WidgetRef] for

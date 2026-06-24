@@ -38,6 +38,7 @@ import '../wire/message.dart';
 import 'audio_bubble.dart';
 import 'chat_info_page.dart';
 import 'link_preview.dart';
+import 'message_db.dart';
 import 'message_store.dart';
 import 'presence_state.dart';
 import 'recording_overlay.dart';
@@ -180,6 +181,16 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
 
+  /// Message id to briefly highlight after a jump-to-message (from search).
+  String? _highlightedId;
+
+  /// Per-message keys so [Scrollable.ensureVisible] can land precisely on a
+  /// jump target once its row is built. Created lazily as bubbles render.
+  final Map<String, GlobalKey> _bubbleKeys = {};
+
+  GlobalKey _bubbleKeyFor(String id) =>
+      _bubbleKeys.putIfAbsent(id, GlobalKey.new);
+
   /// Measures the floating composer so the message list can reserve matching
   /// bottom padding (the list scrolls *under* the frosted bar, so its newest
   /// row must clear the glass). Tracked in state and re-measured each frame;
@@ -293,6 +304,57 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   void _jumpToBottom() {
     if (!_scrollController.hasClients) return;
     _scrollController.jumpTo(0);
+  }
+
+  /// Scroll to [messageId] (from a search result) and pulse a highlight on it.
+  /// Hydrates the full room history from the local store first if the target
+  /// predates what's loaded in memory. In the lazy reverse list the row may not
+  /// be built yet, so jump toward its proportional offset until its element
+  /// exists, then [Scrollable.ensureVisible] aligns it precisely.
+  Future<void> _focusMessage(String messageId) async {
+    final store = ref.read(messageStoreProvider(widget.roomId).notifier);
+    bool present() => ref
+        .read(messageStoreProvider(widget.roomId))
+        .any((m) => m.id == messageId);
+    if (!present()) {
+      final db = await ref.read(messageDbProvider.future);
+      store.setAll(await db.messagesFor(widget.roomId));
+      await WidgetsBinding.instance.endOfFrame;
+      if (!present()) return; // not in full history (e.g. since unsent)
+    }
+    if (!mounted) return;
+    setState(() => _highlightedId = messageId);
+
+    for (var attempt = 0; attempt < 12; attempt++) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted || !_scrollController.hasClients) return;
+      final ctx = _bubbleKeys[messageId]?.currentContext;
+      if (ctx != null && ctx.mounted) {
+        await Scrollable.ensureVisible(
+          ctx,
+          alignment: 0.3,
+          duration: const Duration(milliseconds: 300),
+        );
+        break;
+      }
+      // Target not built yet: jump toward its index's proportional offset to
+      // bring its region into the build window, then retry on the next frame.
+      final sorted = [...ref.read(messageStoreProvider(widget.roomId))]
+        ..sort((a, b) => a.ts.compareTo(b.ts));
+      final items = _itemize(sorted).reversed.toList();
+      final idx = items.indexWhere(
+        (it) => it is _BubbleItem && it.msg.id == messageId,
+      );
+      if (idx < 0) break;
+      final pos = _scrollController.position;
+      final frac = items.length <= 1 ? 0.0 : idx / (items.length - 1);
+      _scrollController.jumpTo(
+        (pos.maxScrollExtent * frac).clamp(0.0, pos.maxScrollExtent),
+      );
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 1600));
+    if (mounted) setState(() => _highlightedId = null);
   }
 
   void _animateToBottom() {
@@ -691,13 +753,16 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         title: GestureDetector(
           key: const Key('room-title-pill'),
           behavior: HitTestBehavior.opaque,
-          onTap: () => Navigator.of(context).push(
-            ChatInfoPage.route(
-              room: widget.room,
-              selfUsername: widget.selfUsername,
-              onRename: widget.onRename,
-            ),
-          ),
+          onTap: () async {
+            final focusId = await Navigator.of(context).push(
+              ChatInfoPage.route(
+                room: widget.room,
+                selfUsername: widget.selfUsername,
+                onRename: widget.onRename,
+              ),
+            );
+            if (focusId != null) await _focusMessage(focusId);
+          },
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
             decoration: BoxDecoration(
@@ -770,13 +835,16 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 GestureDetector(
                   key: const Key('room-header-avatar'),
                   behavior: HitTestBehavior.opaque,
-                  onTap: () => Navigator.of(context).push(
-                    ChatInfoPage.route(
-                      room: widget.room,
-                      selfUsername: widget.selfUsername,
-                      onRename: widget.onRename,
-                    ),
-                  ),
+                  onTap: () async {
+                    final focusId = await Navigator.of(context).push(
+                      ChatInfoPage.route(
+                        room: widget.room,
+                        selfUsername: widget.selfUsername,
+                        onRename: widget.onRename,
+                      ),
+                    );
+                    if (focusId != null) await _focusMessage(focusId);
+                  },
                   child: Avatar(
                     seedText: partnerSeed,
                     imageFile: partnerAvatar,
@@ -987,12 +1055,28 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       );
     }
 
-    if (m.reactions.isEmpty) return result;
-    return Column(
-      crossAxisAlignment: mine
-          ? CrossAxisAlignment.end
-          : CrossAxisAlignment.start,
-      children: [result, _reactionPills(m, me, mine)],
+    final Widget bubble = m.reactions.isEmpty
+        ? result
+        : Column(
+            crossAxisAlignment: mine
+                ? CrossAxisAlignment.end
+                : CrossAxisAlignment.start,
+            children: [result, _reactionPills(m, me, mine)],
+          );
+
+    // Keyed so a jump-to-message (search) can ensureVisible it; pulses a tint
+    // while it's the highlighted target.
+    final highlighted = m.id == _highlightedId;
+    return AnimatedContainer(
+      key: _bubbleKeyFor(m.id),
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: highlighted
+            ? context.palette.accentUser.withValues(alpha: 0.18)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: bubble,
     );
   }
 
