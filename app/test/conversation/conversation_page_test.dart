@@ -521,6 +521,212 @@ void main() {
     expect(unsentId, isNull);
   });
 
+  testWidgets('edit my own message: enter edit mode, prefill, fire onEdit', (
+    tester,
+  ) async {
+    String? editedId;
+    String? editedText;
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(inboxStateProvider.notifier).setRooms([_roomA()]);
+    container.read(messageStoreProvider('roomA').notifier).setAll([
+      Msg(
+        id: '2',
+        from: 'court',
+        to: 'kaitlyn',
+        body: 'hey love',
+        ts: DateTime.utc(2026, 6, 9, 17, 2),
+      ),
+    ]);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+            onReact: (_, _) {},
+            onDelete: (_) {},
+            onEdit: (id, text) {
+              editedId = id;
+              editedText = text;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('hey love'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('action-edit')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('action-edit')));
+    await tester.pumpAndSettle();
+
+    // Edit mode: a banner appears and the composer is prefilled with the text.
+    expect(find.byKey(const Key('edit-banner')), findsOneWidget);
+    final field = tester.widget<EditableText>(
+      find.descendant(
+        of: find.byKey(const Key('composer')),
+        matching: find.byType(EditableText),
+      ),
+    );
+    expect(field.controller.text, 'hey love');
+
+    // Correct the text and send → fires onEdit, not onSend.
+    await tester.enterText(find.byKey(const Key('composer')), 'hey babe');
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('composer-send')));
+    await tester.pumpAndSettle();
+
+    expect(editedId, '2');
+    expect(editedText, 'hey babe');
+    // Edit mode exits after sending.
+    expect(find.byKey(const Key('edit-banner')), findsNothing);
+  });
+
+  testWidgets('cancelling edit mode restores normal compose', (tester) async {
+    String? editedId;
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(inboxStateProvider.notifier).setRooms([_roomA()]);
+    container.read(messageStoreProvider('roomA').notifier).setAll([
+      Msg(
+        id: '2',
+        from: 'court',
+        to: 'kaitlyn',
+        body: 'hey love',
+        ts: DateTime.utc(2026, 6, 9, 17, 2),
+      ),
+    ]);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+            onReact: (_, _) {},
+            onDelete: (_) {},
+            onEdit: (id, _) => editedId = id,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('hey love'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('action-edit')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('edit-banner')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('edit-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('edit-banner')), findsNothing);
+    expect(editedId, isNull);
+  });
+
+  testWidgets('an edited message renders an "edited" marker', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(inboxStateProvider.notifier).setRooms([_roomA()]);
+    container.read(messageStoreProvider('roomA').notifier).setAll([
+      Msg(
+        id: '2',
+        from: 'court',
+        to: 'kaitlyn',
+        body: 'fixed text',
+        ts: DateTime.utc(2026, 6, 9, 17, 2),
+        edited: true,
+      ),
+    ]);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('edited'), findsOneWidget);
+  });
+
+  testWidgets('long-press a partner message offers no Edit', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        httpClientProvider.overrideWithValue(http.Client()),
+        readStateStoreProvider.overrideWithValue(_readStateStore),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(inboxStateProvider.notifier).setRooms([_roomA()]);
+    container.read(messageStoreProvider('roomA').notifier).setAll([
+      Msg(
+        id: '1',
+        from: 'kaitlyn',
+        to: 'court',
+        body: 'miss you',
+        ts: DateTime.utc(2026, 6, 9, 17, 3),
+      ),
+    ]);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: _roomA(),
+            selfUsername: 'court',
+            onSend: (_) {},
+            onReact: (_, _) {},
+            onDelete: (_) {},
+            onEdit: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('miss you'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('action-edit')),
+      findsNothing,
+      reason: "can't edit the partner's message",
+    );
+  });
+
   testWidgets('long-press a partner message offers Copy but not Delete', (
     tester,
   ) async {

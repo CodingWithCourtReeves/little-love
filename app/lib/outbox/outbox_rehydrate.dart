@@ -96,6 +96,18 @@ Future<void> rehydrateOutbox({
       ).applyDelete(content.targetId, requestedBy: me);
       continue;
     }
+    // A pending edit is likewise not a bubble: re-apply it onto its target so
+    // the optimistic edit shows while the row keeps draining. Our own outbox, so
+    // the editor is us.
+    if (content is EditContent) {
+      getMessageStore(row.roomId).applyEdit(
+        content.targetId,
+        requestedBy: me,
+        text: content.text,
+        preview: content.preview,
+      );
+      continue;
+    }
     final (body, attachment, preview) = switch (content) {
       TextContent(:final text, :final preview) => (text, null, preview),
       FileContent(:final descriptor, :final caption) => (
@@ -115,6 +127,7 @@ Future<void> rehydrateOutbox({
       ),
       ReactionContent() => ('', null, null), // handled by the continue above
       DeleteContent() => ('', null, null), // handled by the continue above
+      EditContent() => ('', null, null), // handled by the continue above
     };
     getMessageStore(row.roomId).add(
       Msg(

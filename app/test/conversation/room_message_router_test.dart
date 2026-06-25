@@ -956,6 +956,75 @@ void main() {
     expect(container.read(messageStoreProvider('room1')), isEmpty);
   });
 
+  test('an inbound edit rewrites its target, not as a bubble', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final messageDb = await _ffiMessageDb();
+    final container = await _container(
+      conn: conn,
+      me: me,
+      messageDb: messageDb,
+    );
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        name: '',
+        members: [_member('court', me), _member('kaitlyn', peer)],
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
+    container.read(roomMessageRouterProvider);
+
+    final key = await deriveRoomKey(
+      me: peer,
+      peerX25519Pub: me.x25519PublicKey,
+      roomId: 'room1',
+    );
+    // The original message lands first (persisted to store + DB)...
+    conn.emit(
+      MessageFrame(
+        id: 'target-1',
+        roomId: 'room1',
+        from: 'kaitlyn',
+        ts: DateTime.utc(2026, 6, 10, 12),
+        body: await encryptOutgoing(
+          key,
+          const TextContent('helo love').encode(),
+        ),
+        replayed: false,
+      ),
+    );
+    // ...then the author's edit of it.
+    conn.emit(
+      MessageFrame(
+        id: 'edit-1',
+        roomId: 'room1',
+        from: 'kaitlyn',
+        ts: DateTime.utc(2026, 6, 10, 12, 1),
+        body: await encryptOutgoing(
+          key,
+          const EditContent(targetId: 'target-1', text: 'hello love').encode(),
+        ),
+        replayed: false,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    // No new bubble — still just the target, now carrying the edited text.
+    final msgs = container.read(messageStoreProvider('room1'));
+    expect(msgs, hasLength(1));
+    expect(msgs.single.id, 'target-1');
+    expect(msgs.single.body, 'hello love');
+    expect(msgs.single.edited, isTrue);
+
+    // And the edit is persisted to the local projection.
+    final persisted = (await messageDb.messagesFor('room1')).single;
+    expect(persisted.body, 'hello love');
+    expect(persisted.edited, isTrue);
+  });
+
   test(
     'a delete that replays before its target keeps the target hidden',
     () async {

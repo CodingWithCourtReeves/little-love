@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_db.dart';
 import 'package:littlelove/conversation/message_search.dart';
 import 'package:littlelove/identity/account_local.dart';
@@ -95,6 +96,13 @@ class _FakeMessageDb implements MessageDb {
   }) async {}
   @override
   Future<void> applyReaction(String t, String u, String e) async {}
+  @override
+  Future<void> applyEdit(
+    String targetId, {
+    required String requestedBy,
+    required String text,
+    LinkPreview? preview,
+  }) async {}
   @override
   Future<void> markRead(List<String> ids) async {}
   @override

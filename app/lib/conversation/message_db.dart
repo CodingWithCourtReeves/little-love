@@ -21,7 +21,7 @@ import 'message_search.dart';
 /// SQLCipher-backed production impl, and a `.test` factory that wraps a plain
 /// ffi [Database] so unit tests skip the native crypto layer.
 abstract class MessageDb {
-  static const schemaVersion = 2;
+  static const schemaVersion = 3;
 
   /// SQLCipher-backed impl living at `<app-support>/messages.db`.
   static Future<MessageDb> open() async {
@@ -59,6 +59,7 @@ abstract class MessageDb {
         reactions     TEXT NOT NULL DEFAULT '{}',
         deleted       INTEGER NOT NULL DEFAULT 0,
         deleted_by    TEXT,
+        edited        INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (id)
       )
     ''');
@@ -80,6 +81,7 @@ abstract class MessageDb {
         requested_by TEXT NOT NULL
       )
     ''');
+    await _createPendingEdits(db);
     await _createFts(db);
   }
 
@@ -98,6 +100,29 @@ abstract class MessageDb {
         'SELECT rowid, body FROM messages WHERE deleted = 0',
       );
     }
+    if (oldV < 3) {
+      // Editable messages: a per-row "has been edited" flag. Schema-only ALTER
+      // with a default, so existing rows read as un-edited. Plus a side table for
+      // edits that arrive before their target row (mirrors `tombstones`).
+      await db.execute(
+        'ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0',
+      );
+      await _createPendingEdits(db);
+    }
+  }
+
+  /// Edits that arrived before their target row, applied when the target lands
+  /// (see [SqliteMessageDb._applyPendingEdit]). Survives restarts so an out-of-
+  /// order edit still re-applies after a replay reorder. Mirrors [tombstones].
+  static Future<void> _createPendingEdits(Database db) async {
+    await db.execute('''
+      CREATE TABLE pending_edits (
+        target_id    TEXT PRIMARY KEY,
+        requested_by TEXT NOT NULL,
+        body         TEXT NOT NULL,
+        link_preview TEXT
+      )
+    ''');
   }
 
   /// The FTS5 search index over message [body], kept in lockstep with the
@@ -152,6 +177,18 @@ abstract class MessageDb {
   /// No-op if the target isn't stored.
   Future<void> applyReaction(String targetId, String username, String emoji);
 
+  /// Apply an edit onto [targetId]: replace its body with [text] and its link
+  /// preview with [preview] (null clears it), and flag it edited. Only the author
+  /// may edit: an edit whose [requestedBy] doesn't match a stored target's author
+  /// is dropped (spoofed). No-op if the target isn't stored (a later replay of
+  /// the edit, which follows its target, re-applies it).
+  Future<void> applyEdit(
+    String targetId, {
+    required String requestedBy,
+    required String text,
+    LinkPreview? preview,
+  });
+
   /// Mark the given ids' send status as read (double-heart).
   Future<void> markRead(List<String> ids);
 
@@ -190,6 +227,8 @@ class SqliteMessageDb implements MessageDb {
       _toRow(msg, roomId),
       conflictAlgorithm: ConflictAlgorithm.ignore,
     );
+    // An edit for this id may have arrived before the row did; apply it now.
+    await _applyPendingEdit(msg.id, msg.from);
     await _advanceHwm(roomId, msg.id);
   }
 
@@ -231,16 +270,21 @@ class SqliteMessageDb implements MessageDb {
     );
     if (n == 0 && existing.isEmpty) {
       // No optimistic row to swap and no server row yet: plain idempotent insert.
+      // (upsert applies any pending edit for the now-present id.)
       await upsert(
         server.copyWith(clientMsgId: clientMsgId),
         roomId: server.to,
       );
+      return;
     } else if (existing.isNotEmpty) {
       // Server id already present (duplicate echo): drop the optimistic row.
       await _db.delete('messages', where: 'id = ?', whereArgs: [clientMsgId]);
     } else {
       await _advanceHwm(server.to, server.id);
     }
+    // The optimistic row is now under its authoritative server id: an edit that
+    // raced ahead of this reconcile applies now.
+    await _applyPendingEdit(server.id, server.from);
   }
 
   @override
@@ -293,6 +337,78 @@ class SqliteMessageDb implements MessageDb {
     await _db.update(
       'messages',
       {'reactions': jsonEncode(reactions)},
+      where: 'id = ?',
+      whereArgs: [targetId],
+    );
+  }
+
+  @override
+  Future<void> applyEdit(
+    String targetId, {
+    required String requestedBy,
+    required String text,
+    LinkPreview? preview,
+  }) async {
+    final row = await _db.query(
+      'messages',
+      where: 'id = ?',
+      whereArgs: [targetId],
+      limit: 1,
+    );
+    final previewJson = preview == null ? null : jsonEncode(preview.toJson());
+    if (row.isNotEmpty) {
+      if (row.first['from_user'] != requestedBy) {
+        return; // spoofed edit: only the author may edit
+      }
+      await _writeEdit(targetId, text, previewJson);
+      await _db.delete(
+        'pending_edits',
+        where: 'target_id = ?',
+        whereArgs: [targetId],
+      );
+      return;
+    }
+    // Target not stored yet (the edit raced ahead of its target's upsert, or the
+    // target hasn't replayed): stash it so [upsert]/[reconcile] applies it when
+    // the row lands. Latest edit wins; authorship is validated at apply time
+    // against the target's real author. Mirrors the tombstones table.
+    await _db.insert('pending_edits', {
+      'target_id': targetId,
+      'requested_by': requestedBy,
+      'body': text,
+      'link_preview': previewJson,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Apply a pending edit recorded for [id] when its row finally lands, if the
+  /// edit's requester authored the message ([fromUser]); a spoofed pending edit
+  /// is dropped. Consumes the pending row either way. No-op if none pending.
+  Future<void> _applyPendingEdit(String id, String fromUser) async {
+    final pend = await _db.query(
+      'pending_edits',
+      where: 'target_id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (pend.isEmpty) return;
+    if (pend.first['requested_by'] == fromUser) {
+      await _writeEdit(
+        id,
+        pend.first['body'] as String,
+        pend.first['link_preview'] as String?,
+      );
+    }
+    await _db.delete('pending_edits', where: 'target_id = ?', whereArgs: [id]);
+  }
+
+  Future<void> _writeEdit(
+    String targetId,
+    String body,
+    String? linkPreviewJson,
+  ) async {
+    await _db.update(
+      'messages',
+      {'body': body, 'link_preview': linkPreviewJson, 'edited': 1},
       where: 'id = ?',
       whereArgs: [targetId],
     );
@@ -392,6 +508,7 @@ class SqliteMessageDb implements MessageDb {
     );
     await _db.delete('room_sync');
     await _db.delete('tombstones');
+    await _db.delete('pending_edits');
   }
 
   Future<void> _advanceHwm(String roomId, String id) async {
@@ -420,6 +537,7 @@ class SqliteMessageDb implements MessageDb {
     'call_outcome': m.callOutcome,
     'reactions': jsonEncode(m.reactions),
     'deleted': 0,
+    'edited': m.edited ? 1 : 0,
   };
 
   Msg _fromRow(Map<String, Object?> r) => Msg(
@@ -444,6 +562,7 @@ class SqliteMessageDb implements MessageDb {
     callOutcome: r['call_outcome'] as String?,
     reactions: (jsonDecode(r['reactions'] as String) as Map<String, Object?>)
         .map((k, v) => MapEntry(k, v as String)),
+    edited: (r['edited'] as int? ?? 0) == 1,
   );
 }
 

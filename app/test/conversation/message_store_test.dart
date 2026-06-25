@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/wire/message.dart';
 
@@ -352,6 +353,137 @@ void main() {
     // Not tombstoned: the same id may legitimately be added again later.
     store.add(_msg('cli-1', 'reused'));
     expect(container.read(messageStoreProvider('r1')).single.body, 'reused');
+  });
+
+  test('applyEdit replaces the body and marks the message edited', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(_msg('m1', 'teh quick'));
+
+    store.applyEdit('m1', requestedBy: 'court', text: 'the quick');
+
+    final out = container.read(messageStoreProvider('r1')).single;
+    expect(out.body, 'the quick');
+    expect(out.edited, isTrue);
+  });
+
+  test('applyEdit sets a new link preview and can clear it', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(_msg('m1', 'plain'));
+
+    const preview = LinkPreview(
+      url: 'https://example.com',
+      title: 'T',
+      description: 'D',
+      siteName: 'S',
+      imageB64: null,
+      imageWidth: null,
+      imageHeight: null,
+    );
+    store.applyEdit(
+      'm1',
+      requestedBy: 'court',
+      text: 'see https://example.com',
+      preview: preview,
+    );
+    expect(
+      container.read(messageStoreProvider('r1')).single.linkPreview?.title,
+      'T',
+    );
+
+    // Editing back to text with no URL clears the preview.
+    store.applyEdit('m1', requestedBy: 'court', text: 'never mind');
+    expect(
+      container.read(messageStoreProvider('r1')).single.linkPreview,
+      isNull,
+    );
+  });
+
+  test('applyEdit from a non-author is ignored (no spoofed edit)', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    // court authored m1 (see _msg). kaitlyn must not be able to edit it.
+    store.add(_msg('m1', 'mine'));
+
+    store.applyEdit('m1', requestedBy: 'kaitlyn', text: 'hijacked');
+
+    final out = container.read(messageStoreProvider('r1')).single;
+    expect(out.body, 'mine', reason: 'an edit from a non-author is dropped');
+    expect(out.edited, isFalse);
+  });
+
+  test('applyEdit preserves read status', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(_msg('m1', 'original'));
+    store.markRead(['m1']);
+
+    store.applyEdit('m1', requestedBy: 'court', text: 'corrected');
+
+    final out = container.read(messageStoreProvider('r1')).single;
+    expect(out.body, 'corrected');
+    expect(out.sendStatus, SendStatus.read, reason: 'editing does not unread');
+  });
+
+  test('applyEdit before the target lands is applied on add', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+
+    // Edit races ahead of its target (or the optimistic→server reconcile).
+    store.applyEdit('m1', requestedBy: 'court', text: 'corrected');
+    expect(container.read(messageStoreProvider('r1')), isEmpty);
+
+    store.add(_msg('m1', 'original'));
+
+    final out = container.read(messageStoreProvider('r1')).single;
+    expect(out.body, 'corrected');
+    expect(out.edited, isTrue);
+  });
+
+  test('a spoofed deferred edit is dropped when the target lands', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+
+    // Edit arrives before its (court-authored) target, naming kaitlyn as editor.
+    store.applyEdit('m1', requestedBy: 'kaitlyn', text: 'hijacked');
+    store.add(_msg('m1', 'mine'));
+
+    final out = container.read(messageStoreProvider('r1')).single;
+    expect(out.body, 'mine');
+    expect(out.edited, isFalse);
+  });
+
+  test('a deferred edit applies when the row reconciles in', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(
+      Msg(
+        id: 'cli-1',
+        from: 'court',
+        to: 'r1',
+        body: 'original',
+        ts: DateTime.utc(2026, 6, 13),
+        clientMsgId: 'cli-1',
+        sendStatus: SendStatus.sending,
+      ),
+    );
+
+    // Edit targeting the server id arrives before the self-copy echo reconciles.
+    store.applyEdit('ULID-real', requestedBy: 'court', text: 'corrected');
+    store.reconcile('cli-1', _msg('ULID-real', 'original'));
+
+    final out = container.read(messageStoreProvider('r1')).single;
+    expect(out.id, 'ULID-real');
+    expect(out.body, 'corrected');
+    expect(out.edited, isTrue);
   });
 
   test('updateStatus changes sendStatus on the matching id', () {
