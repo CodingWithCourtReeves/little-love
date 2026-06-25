@@ -94,5 +94,14 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- Allow cleartext HTTP to localhost / .local / literal IPs so the dev
+	     simulator harness (scripts/sim-couple.sh) can reach the local API at
+	     http://127.0.0.1. This relaxes ATS only for local networking; real
+	     domains (prod api.littlelove.dev over https) are unaffected. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

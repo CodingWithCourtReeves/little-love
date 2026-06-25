@@ -53,6 +53,35 @@ MinIO is the local S3-compatible blob store. The API server signs presigned
 URLs but never connects to the blob store itself; point it at MinIO with
 `R2_ENDPOINT`.
 
+### Two-simulator testing (no physical phones)
+
+`./scripts/sim-couple.sh` boots two simulators as the seeded, already-paired
+couple (`court` + `kaitlyn`) against the local backend — for two-sided testing
+(edit, unsend, reactions) without the phones. Defaults to iPhone 17 (court) +
+iPhone 17 Pro (kaitlyn); override with `COURT_SIM`/`KAITLYN_SIM`.
+
+- It's **bring-up**, not the iteration loop — run it once per session. For UI
+  work, attach `flutter run -d "<sim>"` per sim for hot reload; the seeded
+  identity persists per simulator container, so no re-provision. `sim-couple.sh
+  down` stops the local api (leaves docker + sims up).
+- The seed tool (`server/src/bin/seed_couple.rs`) is **dev-only, gated behind
+  the `dev-seed` cargo feature** — not in the default/release build, no HTTP
+  route, localhost-only guard. Never enable it in prod.
+
+**iOS gotchas this harness hit (save yourself the debugging):**
+
+- **`Platform.environment` is empty on iOS.** Runtime env passed to `xcrun
+  simctl launch` (`SIMCTL_CHILD_*`) never reaches Dart, so dev config must be
+  baked with `--dart-define` (read via `String.fromEnvironment`). That's why the
+  harness builds once per partner.
+- **No MLKit-based plugins for simulator builds.** GoogleMLKit (pulled in by e.g.
+  `mobile_scanner`) ships no arm64 *simulator* slice, forcing an x86_64-only
+  binary that won't install on an Apple-Silicon iOS-26 simulator (Rosetta sims
+  are gone). The build fails at install with "no matching arch".
+- **CoreSimulator contention:** don't run the self-hosted CI iOS build and a
+  local sim build at the same time — it deadlocks the simulator subsystem
+  (`simctl boot`/`list` hang indefinitely). The reliable fix is a reboot.
+
 ### On-device testing (physical iPhones)
 
 The phone can't reach your Mac's loopback, so the backend is exposed over

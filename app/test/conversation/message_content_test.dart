@@ -125,4 +125,38 @@ void main() {
     expect(back, isA<TextContent>());
     expect((back as TextContent).text, 'just a plain old message');
   });
+
+  test('edit envelope round-trips (target + new text)', () {
+    final enc = const EditContent(
+      targetId: 'msg-9',
+      text: 'fixed text',
+    ).encode();
+    final back = MessageContent.decode(enc);
+    expect(back, isA<EditContent>());
+    expect((back as EditContent).targetId, 'msg-9');
+    expect(back.text, 'fixed text');
+    expect(back.preview, isNull);
+  });
+
+  test('edit envelope carries a link preview through encode/decode', () {
+    const preview = LinkPreview(
+      url: 'https://example.com/a',
+      title: 'A Title',
+      description: 'A description',
+      siteName: 'Example',
+      imageB64: 'QUJD',
+      imageWidth: 640,
+      imageHeight: 360,
+    );
+    final enc = const EditContent(
+      targetId: 'msg-9',
+      text: 'now with https://example.com/a',
+      preview: preview,
+    ).encode();
+    final back = MessageContent.decode(enc) as EditContent;
+    expect(back.text, 'now with https://example.com/a');
+    expect(back.preview, isNotNull);
+    expect(back.preview!.title, 'A Title');
+    expect(back.preview!.siteName, 'Example');
+  });
 }

@@ -293,6 +293,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           onReact: (targetId, emoji) =>
               _sendReaction(ref, room, targetId, emoji),
           onDelete: (targetId) => _sendDelete(ref, room, targetId),
+          onEdit: (targetId, newText) =>
+              _sendEdit(ref, room, targetId, newText),
           onCancelSend: (clientMsgId) => _cancelSend(ref, room, clientMsgId),
           onTyping: (typing) => _sendTyping(ref, room, typing),
           onOpenAttachment: (descriptor) =>
@@ -754,6 +756,77 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       await ref.read(outboxDrainProvider).kick();
     } catch (e) {
       debugPrint('delete send failed: $e');
+    }
+  }
+
+  /// Edit a previously sent text message for everyone. Optimistically rewrite it
+  /// locally (the new text shows at once; any link preview pops in when our own
+  /// self-copy echoes back, like a fresh send), then fan out a `kind:"edit"`
+  /// control message through the same outbox path as a delete. The partner
+  /// applies it on receipt; both sides re-apply it on every reconnect (the edit
+  /// replays after its target). Only the author may edit — enforced on the apply
+  /// path in [MessageStore.applyEdit] / [MessageDb.applyEdit].
+  Future<void> _sendEdit(
+    WidgetRef ref,
+    Room room,
+    String targetId,
+    String newText,
+  ) async {
+    // Keep the current preview optimistically when the first URL is unchanged so
+    // a typo fix doesn't flicker the preview card out and back; the self-copy
+    // echo refreshes it with a freshly fetched one. A changed/removed URL clears
+    // it (passes null), which the echo then reconciles.
+    LinkPreview? optimisticPreview;
+    for (final m in ref.read(messageStoreProvider(room.roomId))) {
+      if (m.id == targetId) {
+        if (firstUrl(newText) != null &&
+            firstUrl(newText) == firstUrl(m.body)) {
+          optimisticPreview = m.linkPreview;
+        }
+        break;
+      }
+    }
+    ref
+        .read(messageStoreProvider(room.roomId).notifier)
+        .applyEdit(
+          targetId,
+          requestedBy: _me,
+          text: newText,
+          preview: optimisticPreview,
+        );
+    final clientMsgId = ref.read(outboxIdGenProvider)();
+    try {
+      // Re-fetch the link preview for the edited text (the URL may have been
+      // added, changed, or removed), exactly as a normal text send does.
+      LinkPreview? preview;
+      final url = firstUrl(newText);
+      if (url != null) {
+        preview = await fetchLinkPreview(url)
+            .timeout(const Duration(seconds: 7), onTimeout: () => null)
+            .catchError((Object _) => null);
+      }
+      final me = await ref.read(currentIdentityProvider.future);
+      final frame = await buildSendFrame(
+        room: room,
+        me: me,
+        selfUsername: _me,
+        plaintext: EditContent(
+          targetId: targetId,
+          text: newText,
+          preview: preview,
+        ).encode(),
+        cache: ref.read(roomKeyCacheProvider),
+        clientMsgId: clientMsgId,
+      );
+      final store = await ref.read(outboxStoreProvider.future);
+      await store.enqueue(
+        clientMsgId: clientMsgId,
+        roomId: room.roomId,
+        bodies: frame.bodies,
+      );
+      await ref.read(outboxDrainProvider).kick();
+    } catch (e) {
+      debugPrint('edit send failed: $e');
     }
   }
 

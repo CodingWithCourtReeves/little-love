@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_db.dart';
 import 'package:littlelove/wire/message.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -157,6 +158,102 @@ void main() {
     expect((await db.messagesFor('room1')).single.reactions, {'bob': '❤️'});
     await db.applyReaction('01R', 'bob', '');
     expect((await db.messagesFor('room1')).single.reactions, isEmpty);
+  });
+
+  test('applyEdit rewrites the body and marks it edited', () async {
+    final db = await freshDb();
+    await db.upsert(msg('01E', body: 'teh typo'), roomId: 'room1');
+
+    await db.applyEdit('01E', requestedBy: 'alice', text: 'the typo');
+
+    final out = (await db.messagesFor('room1')).single;
+    expect(out.body, 'the typo');
+    expect(out.edited, isTrue);
+  });
+
+  test('applyEdit sets and clears the link preview', () async {
+    final db = await freshDb();
+    await db.upsert(msg('01E', body: 'plain'), roomId: 'room1');
+
+    const preview = LinkPreview(
+      url: 'https://example.com',
+      title: 'T',
+      description: 'D',
+      siteName: 'S',
+      imageB64: null,
+      imageWidth: null,
+      imageHeight: null,
+    );
+    await db.applyEdit(
+      '01E',
+      requestedBy: 'alice',
+      text: 'see https://example.com',
+      preview: preview,
+    );
+    expect((await db.messagesFor('room1')).single.linkPreview?.title, 'T');
+
+    await db.applyEdit('01E', requestedBy: 'alice', text: 'never mind');
+    expect((await db.messagesFor('room1')).single.linkPreview, isNull);
+  });
+
+  test('applyEdit rejects a spoofed edit (requestedBy != author)', () async {
+    final db = await freshDb();
+    await db.upsert(
+      msg('01E', body: 'mine', from: 'alice'),
+      roomId: 'room1',
+    );
+
+    await db.applyEdit('01E', requestedBy: 'bob', text: 'hijacked');
+
+    final out = (await db.messagesFor('room1')).single;
+    expect(out.body, 'mine');
+    expect(out.edited, isFalse);
+  });
+
+  test('an edit that arrives before its target applies on upsert', () async {
+    final db = await freshDb();
+    // Edit lands first (target not yet stored).
+    await db.applyEdit('01G', requestedBy: 'alice', text: 'the fix');
+    expect(await db.messagesFor('room1'), isEmpty);
+
+    // Target arrives later, authored by alice — the edit must apply.
+    await db.upsert(
+      msg('01G', body: 'teh fix', from: 'alice'),
+      roomId: 'room1',
+    );
+    final out = (await db.messagesFor('room1')).single;
+    expect(out.body, 'the fix');
+    expect(out.edited, isTrue);
+  });
+
+  test('a spoofed edit before its target is dropped when it lands', () async {
+    final db = await freshDb();
+    // Edit names bob as editor, but the target is authored by alice.
+    await db.applyEdit('01H', requestedBy: 'bob', text: 'hijacked');
+    await db.upsert(
+      msg('01H', body: 'mine', from: 'alice'),
+      roomId: 'room1',
+    );
+
+    final out = (await db.messagesFor('room1')).single;
+    expect(out.body, 'mine');
+    expect(out.edited, isFalse);
+  });
+
+  test('the edited flag survives an upsert round-trip', () async {
+    final db = await freshDb();
+    await db.upsert(
+      Msg(
+        id: '01F',
+        from: 'alice',
+        to: 'room1',
+        body: 'already fixed',
+        ts: DateTime.utc(2026),
+        edited: true,
+      ),
+      roomId: 'room1',
+    );
+    expect((await db.messagesFor('room1')).single.edited, isTrue);
   });
 
   test('highWaterMark returns the max stored id per room, null when '

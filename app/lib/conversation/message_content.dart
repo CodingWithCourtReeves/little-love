@@ -37,6 +37,15 @@ sealed class MessageContent {
             );
           case 'delete':
             return DeleteContent(targetId: (j['target'] as String?) ?? '');
+          case 'edit':
+            final p = j['preview'];
+            return EditContent(
+              targetId: (j['target'] as String?) ?? '',
+              text: (j['text'] as String?) ?? '',
+              preview: p is Map
+                  ? LinkPreview.fromJson(Map<String, Object?>.from(p))
+                  : null,
+            );
           case 'call':
             return CallContent(
               callId: (j['call_id'] as String?) ?? '',
@@ -116,6 +125,36 @@ class DeleteContent extends MessageContent {
 
   @override
   String encode() => jsonEncode({'v': 1, 'kind': 'delete', 'target': targetId});
+}
+
+/// An edit of a previously sent text message: replaces the body (and any link
+/// preview) of the message identified by [targetId] with [text]/[preview].
+/// Delivered as an ordinary E2EE message (fanned out per recipient) referencing
+/// the target's server message id; the receiver applies it onto the target
+/// instead of rendering a bubble, so it never appears in the timeline. Only the
+/// target's author may edit it — the receiver enforces this on the apply path
+/// (both partners share the room key, so either side could craft this frame
+/// naming any id). The server keeps the original row + the edit; the edit
+/// replays after its target, so each side re-applies it on reconnect — no
+/// separate persistence needed. Text messages only.
+class EditContent extends MessageContent {
+  const EditContent({required this.targetId, required this.text, this.preview});
+  final String targetId;
+  final String text;
+
+  /// Re-fetched link preview for the first URL in the edited [text] (or null if
+  /// the edit removed the URL), carried in the encrypted body like
+  /// [TextContent.preview].
+  final LinkPreview? preview;
+
+  @override
+  String encode() => jsonEncode({
+    'v': 1,
+    'kind': 'edit',
+    'target': targetId,
+    'text': text,
+    if (preview != null) 'preview': preview!.toJson(),
+  });
 }
 
 /// A call-log entry — the record of a completed/missed/declined call. Emitted

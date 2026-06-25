@@ -19,6 +19,7 @@ class Msg {
     this.linkPreview,
     this.reactions = const {},
     this.callOutcome,
+    this.edited = false,
   });
 
   final String id;
@@ -57,6 +58,12 @@ class Msg {
   /// like [attachment]; re-derived from the body on the server replay.
   final String? callOutcome;
 
+  /// True once this text message has been edited by its author (drives the
+  /// "edited" marker). Applied from inbound `kind:"edit"` messages (see
+  /// [MessageStore.applyEdit]); like [reactions] it is not part of the wire/
+  /// persisted form of the *message* — edits replay as their own messages.
+  final bool edited;
+
   factory Msg.fromJson(Map<String, Object?> json) {
     return Msg(
       id: json['id'] as String,
@@ -89,6 +96,7 @@ class Msg {
     LinkPreview? linkPreview,
     Map<String, String>? reactions,
     String? callOutcome,
+    bool? edited,
   }) {
     return Msg(
       id: id ?? this.id,
@@ -103,6 +111,7 @@ class Msg {
       linkPreview: linkPreview ?? this.linkPreview,
       reactions: reactions ?? this.reactions,
       callOutcome: callOutcome ?? this.callOutcome,
+      edited: edited ?? this.edited,
     );
   }
 }

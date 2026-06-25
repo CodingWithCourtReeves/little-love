@@ -4,14 +4,29 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+# `cargo run -p littlelove-api` is otherwise ambiguous now that the dev-only
+# seed_couple bin exists; the server is always the default binary.
+default-run = "littlelove-api"
 
 [[bin]]
 name = "littlelove-api"
 path = "src/main.rs"
 
+# Dev-only seed tool for the two-simulator test harness. `required-features`
+# means it is NOT compiled by the default/release build — the production artifact
+# never contains it. See src/bin/seed_couple.rs.
+[[bin]]
+name = "seed_couple"
+path = "src/bin/seed_couple.rs"
+required-features = ["dev-seed"]
+
 [lib]
 name = "littlelove_api"
 path = "src/lib.rs"
+
+[features]
+# Compiles the dev-only seed_couple binary. Never enabled in production builds.
+dev-seed = []
 
 [dependencies]
 a2 = "0.10"

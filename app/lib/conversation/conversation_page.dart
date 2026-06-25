@@ -277,6 +277,7 @@ class ConversationPage extends ConsumerStatefulWidget {
     this.onSendMedia,
     this.onReact,
     this.onDelete,
+    this.onEdit,
     this.onCancelSend,
     this.onTyping,
     this.onOpenAttachment,
@@ -312,6 +313,10 @@ class ConversationPage extends ConsumerStatefulWidget {
   /// Delete action on confirmed messages.
   final void Function(String targetId)? onDelete;
 
+  /// Edit a confirmed text message for everyone: (target id, new text). Null
+  /// hides the Edit action. Only offered on my own confirmed text messages.
+  final void Function(String targetId, String newText)? onEdit;
+
   /// Cancel an unconfirmed (still sending / failed) outgoing send, by its
   /// clientMsgId: drops the optimistic bubble and its outbox row. Null hides
   /// the Delete action on unconfirmed messages.
@@ -337,6 +342,7 @@ class ConversationPage extends ConsumerStatefulWidget {
 class _ConversationPageState extends ConsumerState<ConversationPage>
     with WidgetsBindingObserver {
   final _controller = _EmojiComposerController();
+  final _composerFocus = FocusNode();
   final _scrollController = ScrollController();
 
   /// Message id to briefly highlight after a jump-to-message (from search).
@@ -408,6 +414,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// disposed state, with its animation controller still ticking.
   OverlayEntry? _reactionEntry;
 
+  /// The id of the message currently being edited, or null in normal compose.
+  /// While set, the composer shows the editing banner, the send button sends an
+  /// edit (see [_handleSubmit]), and [_editingOriginal] is shown in the banner.
+  String? _editingId;
+  String _editingOriginal = '';
+
   /// Whether we've sent `typing:true` and not yet sent the matching `false`.
   bool _typingActive = false;
   Timer? _typingStop;
@@ -449,8 +461,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Backgrounding drops the socket and freezes timers; clear typing so a
-    // stale `_typingActive` flag can't suppress the next `true` on resume.
-    if (state != AppLifecycleState.resumed) _stopTyping();
+    // stale `_typingActive` flag can't suppress the next `true` on resume. An
+    // in-progress edit is transient — drop it too, so resuming starts fresh.
+    if (state != AppLifecycleState.resumed) {
+      _stopTyping();
+      if (_editingId != null) _cancelEdit();
+    }
   }
 
   void _onScroll() {
@@ -563,6 +579,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _controller.dispose();
+    _composerFocus.dispose();
     _recorder.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _typingStop?.cancel();
@@ -587,12 +604,49 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       _stopTyping();
       return;
     }
+    // In edit mode the send button commits an edit instead of a new message.
+    // An empty edit is a no-op cancel (never a delete); an unchanged edit just
+    // exits edit mode without sending a redundant frame.
+    final editingId = _editingId;
+    if (editingId != null) {
+      if (text.isNotEmpty && text != _editingOriginal.trim()) {
+        HapticFeedback.lightImpact();
+        widget.onEdit?.call(editingId, text);
+        ref.read(wallpaperDriftProvider.notifier).bump();
+      }
+      _cancelEdit();
+      _stopTyping();
+      return;
+    }
     if (text.isEmpty) return;
     HapticFeedback.lightImpact();
     widget.onSend(text);
     ref.read(wallpaperDriftProvider.notifier).bump();
     _controller.clear();
     _stopTyping();
+  }
+
+  /// Enter edit mode for [m]: prefill the composer with its text (cursor at the
+  /// end) and raise the editing banner. The send button now commits the edit.
+  void _enterEditMode(Msg m) {
+    setState(() {
+      _editingId = m.id;
+      _editingOriginal = m.body;
+    });
+    _controller.text = m.body;
+    _controller.selection = TextSelection.collapsed(offset: m.body.length);
+    _composerFocus.requestFocus();
+  }
+
+  /// Leave edit mode and clear the composer. Transient: also triggered by
+  /// backgrounding the app (see [didChangeAppLifecycleState]).
+  void _cancelEdit() {
+    if (_editingId == null) return;
+    setState(() {
+      _editingId = null;
+      _editingOriginal = '';
+    });
+    _controller.clear();
   }
 
   /// Debounced typing presence: the first keystroke after idle emits
@@ -678,13 +732,33 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     showLoveToast(context, 'Copied', icon: Icons.check);
   }
 
+  /// The Edit action for [m], or null if it can't be edited. Only my own
+  /// confirmed (sent/read, so a shared server id) *text* messages are editable —
+  /// not media/voice/call rows, and not still-sending ones (nothing remote to
+  /// edit yet; cancel + retype instead, like [_deleteAction]).
+  VoidCallback? _editAction(Msg m, bool mine) {
+    if (!mine || widget.onEdit == null) return null;
+    if (m.attachment != null || m.callOutcome != null) return null;
+    switch (m.sendStatus) {
+      case SendStatus.sent:
+      case SendStatus.read:
+        return () => _enterEditMode(m);
+      case SendStatus.sending:
+      case SendStatus.failed:
+        return null;
+    }
+  }
+
   /// Long-press a bubble → floating context menu anchored at the press: a
   /// quick-reaction bar (when reactions are enabled) plus Copy/Delete actions.
   void _showReactionBar(Offset globalPos, Msg m) {
     final mine = m.from == widget.selfUsername;
     final canCopy = _canCopy(m);
+    final edit = _editAction(m, mine);
     final delete = _deleteAction(m, mine);
-    if (widget.onReact == null && !canCopy && delete == null) return;
+    if (widget.onReact == null && !canCopy && edit == null && delete == null) {
+      return;
+    }
     HapticFeedback.mediumImpact();
     final overlay = Overlay.of(context);
     final entry = OverlayEntry(
@@ -706,6 +780,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 _copy(m);
               }
             : null,
+        onEdit: edit == null
+            ? null
+            : () {
+                _dismissReactionBar();
+                edit();
+              },
         onDelete: delete == null
             ? null
             : () {
@@ -1172,7 +1252,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // default reaction. Wraps both text and media bubbles; the media bubble's
     // own tap-to-open still wins for a plain tap (deferToChild).
     final canLongPress =
-        widget.onReact != null || _canCopy(m) || _deleteAction(m, mine) != null;
+        widget.onReact != null ||
+        _canCopy(m) ||
+        _editAction(m, mine) != null ||
+        _deleteAction(m, mine) != null;
     if (canLongPress) {
       content = GestureDetector(
         behavior: HitTestBehavior.deferToChild,
@@ -1558,18 +1641,28 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       onOpenUrl: _openUrl,
     );
     // Every bubble carries an hh:mm timestamp bottom-right; my bubbles add the
-    // sent/sending marker just to the right of the time.
+    // sent/sending marker just to the right of the time. An edited message gets
+    // a quiet "edited" tag just before the time (both sides see it).
+    final metaColor = mine
+        ? context.palette.bubbleUserText.withValues(alpha: 0.55)
+        : context.palette.textMuted;
     final meta = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (m.edited) ...[
+          Text(
+            'edited',
+            style: TextStyle(
+              fontSize: 10,
+              fontStyle: FontStyle.italic,
+              color: metaColor,
+            ),
+          ),
+          const SizedBox(width: 4),
+        ],
         Text(
           _formatHm(m.ts.toLocal()),
-          style: TextStyle(
-            fontSize: 10,
-            color: mine
-                ? context.palette.bubbleUserText.withValues(alpha: 0.55)
-                : context.palette.textMuted,
-          ),
+          style: TextStyle(fontSize: 10, color: metaColor),
         ),
         if (marker != null) ...[
           const SizedBox(width: 4),
@@ -1817,6 +1910,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (_editingId != null) _editBanner(),
             if (_staged.isNotEmpty) _stagingTray(),
             // Scope recorder-driven rebuilds (timer + live waveform fire
             // ~15×/sec) to the composer only, so the message list isn't
@@ -1893,6 +1987,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                                           child: TextField(
                                             key: const Key('composer'),
                                             controller: _controller,
+                                            focusNode: _composerFocus,
                                             onChanged: _onComposerChanged,
                                             // Match the bubble body (~17pt) so
                                             // what you type is the size it sends
@@ -2135,6 +2230,59 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   /// Horizontal strip of staged media above the composer. Each chip shows a
   /// preview (image bytes, or a play badge for video) with a remove button.
+  /// The "Editing message" banner shown above the composer while in edit mode:
+  /// a pencil, the original text (one line), and an ✕ to cancel back to normal
+  /// compose.
+  Widget _editBanner() {
+    final palette = context.palette;
+    return Container(
+      key: const Key('edit-banner'),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: palette.bgSurface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border(left: BorderSide(color: palette.accentUser, width: 3)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.edit_outlined, size: 18, color: palette.accentUser),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Editing message',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: palette.accentUser,
+                  ),
+                ),
+                Text(
+                  _editingOriginal,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: palette.textMuted),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            key: const Key('edit-cancel'),
+            icon: const Icon(Icons.close, size: 20),
+            color: palette.textMuted,
+            visualDensity: VisualDensity.compact,
+            onPressed: _cancelEdit,
+            tooltip: 'Cancel edit',
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _stagingTray() {
     return Container(
       key: const Key('staging-tray'),
@@ -2521,6 +2669,7 @@ class _ReactionBarOverlay extends StatefulWidget {
     required this.onPick,
     required this.onMore,
     required this.onCopy,
+    required this.onEdit,
     required this.onDelete,
     required this.onDismiss,
   });
@@ -2530,6 +2679,7 @@ class _ReactionBarOverlay extends StatefulWidget {
   final void Function(String emoji) onPick;
   final VoidCallback onMore;
   final VoidCallback? onCopy;
+  final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final VoidCallback onDismiss;
 
@@ -2557,7 +2707,9 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
     const menuWidth = 296.0;
     const reactionRow = 48.0 + 8.0; // bar + gap below it
     final actionCount =
-        (widget.onCopy != null ? 1 : 0) + (widget.onDelete != null ? 1 : 0);
+        (widget.onCopy != null ? 1 : 0) +
+        (widget.onEdit != null ? 1 : 0) +
+        (widget.onDelete != null ? 1 : 0);
     final actionsHeight = actionCount == 0 ? 0.0 : actionCount * 44.0 + 8.0;
     final totalHeight =
         (widget.showReactions ? reactionRow : 0.0) + actionsHeight;
@@ -2651,6 +2803,13 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
                 icon: Icons.copy_outlined,
                 label: 'Copy',
                 onTap: widget.onCopy!,
+              ),
+            if (widget.onEdit != null)
+              _actionItem(
+                key: 'action-edit',
+                icon: Icons.edit_outlined,
+                label: 'Edit',
+                onTap: widget.onEdit!,
               ),
             if (widget.onDelete != null)
               _actionItem(
