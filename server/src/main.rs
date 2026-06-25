@@ -8,18 +8,49 @@ use littlelove_api::{
 };
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
+use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
+    // Read config first: Sentry needs the DSN before we build the subscriber,
+    // and `from_env` does no logging.
+    let cfg = ServerConfig::from_env();
+
+    // Initialize our self-hosted error reporting. The guard must live for the
+    // whole of `main`, so bind it to a named variable (NOT `let _ = ...`, which
+    // would drop it immediately). Absent DSN => `None` => no-op. This sends to
+    // our Bugsink instance, never sentry.io.
+    let _sentry_guard = cfg.sentry.as_ref().map(|sc| {
+        sentry::init((
+            sc.dsn.as_str(),
+            sentry::ClientOptions {
+                release: sentry::release_name!(),
+                environment: Some(sc.environment.clone().into()),
+                send_default_pii: false,
+                ..Default::default()
+            },
+        ))
+    });
+
+    // Build the tracing subscriber via the registry so we can attach the Sentry
+    // layer (forwards `error!` events as Bugsink events, lower levels as
+    // breadcrumbs) alongside the existing fmt + env-filter behavior.
+    tracing_subscriber::registry()
+        .with(
             EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| EnvFilter::new("info,littlelove_api=info")),
         )
+        .with(tracing_subscriber::fmt::layer())
+        .with(sentry_tracing::layer())
         .init();
 
-    let cfg = ServerConfig::from_env();
+    if _sentry_guard.is_some() {
+        tracing::info!("error reporting enabled (self-hosted)");
+    } else {
+        tracing::info!("SENTRY_DSN unset; error reporting disabled");
+    }
+
     let store = match cfg.database_url.as_deref() {
         Some(url) => Some(Store::connect(url).await?),
         None => {
