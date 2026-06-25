@@ -2,6 +2,7 @@ pub mod accounts;
 pub mod attachments;
 pub mod calls;
 pub mod config;
+pub mod diag;
 pub mod invites;
 pub mod profiles;
 pub mod push;

@@ -127,6 +127,7 @@ async fn main() -> Result<()> {
     };
     let app = Router::new()
         .route("/health", get(health))
+        .route("/__diag/error-test", get(littlelove_api::diag::error_test))
         .route(
             "/accounts",
             axum::routing::post(littlelove_api::accounts::create_account),
