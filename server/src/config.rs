@@ -46,12 +46,23 @@ pub struct TurnConfig {
 }
 
 #[derive(Debug, Clone)]
+pub struct SentryConfig {
+    /// DSN of our self-hosted, Sentry-API-compatible backend (Bugsink). This
+    /// points at our own infrastructure, never sentry.io.
+    pub dsn: String,
+    /// Deployment environment label (e.g. "production", "staging").
+    /// Defaults to "production" when `SENTRY_ENVIRONMENT` is unset.
+    pub environment: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct ServerConfig {
     pub port: u16,
     pub database_url: Option<String>,
     pub r2: Option<R2Config>,
     pub apns: Option<ApnsConfig>,
     pub turn: Option<TurnConfig>,
+    pub sentry: Option<SentryConfig>,
 }
 
 impl ServerConfig {
@@ -64,13 +75,23 @@ impl ServerConfig {
         let r2 = Self::r2_from_env();
         let apns = Self::apns_from_env();
         let turn = Self::turn_from_env();
+        let sentry = Self::sentry_from_env();
         Self {
             port,
             database_url,
             r2,
             apns,
             turn,
+            sentry,
         }
+    }
+
+    pub fn sentry_from_env() -> Option<SentryConfig> {
+        let get = |k: &str| env::var(k).ok().filter(|s| !s.is_empty());
+        Some(SentryConfig {
+            dsn: get("SENTRY_DSN")?,
+            environment: get("SENTRY_ENVIRONMENT").unwrap_or_else(|| "production".to_string()),
+        })
     }
 
     pub fn turn_from_env() -> Option<TurnConfig> {
@@ -271,5 +292,36 @@ mod tests {
             std::env::remove_var(k);
         }
         assert!(ServerConfig::turn_from_env().is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn sentry_config_present_when_dsn_set() {
+        std::env::set_var("SENTRY_DSN", "https://pub@bugsink.example/1");
+        std::env::remove_var("SENTRY_ENVIRONMENT");
+        let cfg = ServerConfig::from_env();
+        let s = cfg.sentry.expect("sentry config Some when DSN set");
+        assert_eq!(s.dsn, "https://pub@bugsink.example/1");
+        // Defaults to "production" when SENTRY_ENVIRONMENT is unset.
+        assert_eq!(s.environment, "production");
+        std::env::remove_var("SENTRY_DSN");
+    }
+
+    #[test]
+    #[serial]
+    fn sentry_environment_is_read() {
+        std::env::set_var("SENTRY_DSN", "https://pub@bugsink.example/1");
+        std::env::set_var("SENTRY_ENVIRONMENT", "staging");
+        let s = ServerConfig::sentry_from_env().expect("sentry config Some");
+        assert_eq!(s.environment, "staging");
+        std::env::remove_var("SENTRY_DSN");
+        std::env::remove_var("SENTRY_ENVIRONMENT");
+    }
+
+    #[test]
+    #[serial]
+    fn sentry_config_absent_when_dsn_missing() {
+        std::env::remove_var("SENTRY_DSN");
+        assert!(ServerConfig::sentry_from_env().is_none());
     }
 }

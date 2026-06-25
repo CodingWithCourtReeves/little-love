@@ -35,3 +35,27 @@ resource "cloudflare_email_routing_rule" "privacy" {
 
   depends_on = [cloudflare_email_routing_settings.main]
 }
+
+// `alerts@littlelove.dev` is the address our self-hosted error monitor (Bugsink)
+// both sends from (via Resend) and notifies on a new issue. This rule forwards
+// the inbound copy to Court's Gmail so crash alerts actually land somewhere a
+// human reads. Same shape as the `privacy@` rule above. The from-side already
+// works because littlelove.dev is a Resend-verified sending domain.
+resource "cloudflare_email_routing_rule" "alerts" {
+  zone_id = data.cloudflare_zone.main.id
+  name    = "alerts → gmail"
+  enabled = true
+
+  matcher {
+    type  = "literal"
+    field = "to"
+    value = "alerts@${var.zone_name}"
+  }
+
+  action {
+    type  = "forward"
+    value = [var.forward_to_gmail]
+  }
+
+  depends_on = [cloudflare_email_routing_settings.main]
+}

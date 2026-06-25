@@ -214,7 +214,7 @@ pub async fn preview_invite(
         Ok(Some(i)) => i,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such code").into_response(),
         Err(e) => {
-            tracing::warn!("lookup_invite failed: {e}");
+            tracing::error!("lookup_invite failed: {e}");
             return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
         }
     };
@@ -229,7 +229,7 @@ pub async fn preview_invite(
         Ok(Some(r)) => r,
         Ok(None) => return (StatusCode::NOT_FOUND, "invite not bound to a room").into_response(),
         Err(e) => {
-            tracing::warn!("room_for_invite: {e}");
+            tracing::error!("room_for_invite: {e}");
             return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
         }
     };

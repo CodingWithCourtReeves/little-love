@@ -11,6 +11,7 @@ output "email_routing_enabled" {
 output "forwarded_addresses" {
   value = [
     "privacy@${var.zone_name}",
+    "alerts@${var.zone_name}",
   ]
   description = "Inbox aliases that forward to forward_to_gmail."
 }

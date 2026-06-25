@@ -12,7 +12,7 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use chrono::Utc;
 use futures::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use ulid::Ulid;
 use uuid::Uuid;
 
@@ -303,7 +303,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     if typing_rl.allow() {
                         handle_typing(&state, &me, &room_id, typing).await;
                     } else {
-                        warn!("typing rate limit hit for {}", me.username);
+                        warn!(username = %me.username, "typing rate limit hit");
                     }
                 }
                 Ok(RoomClientFrame::PublishProfile {
@@ -322,7 +322,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                         handle_request_upload(&state, &me, request_id, &room_id, byte_size, &tx)
                             .await;
                     } else {
-                        warn!("upload rate limit hit for {}", me.username);
+                        warn!(username = %me.username, "upload rate limit hit");
                         send_error(&tx, error_codes::RATE_LIMITED, "");
                     }
                 }
@@ -346,14 +346,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                         )
                         .await
                         {
-                            warn!("RegisterPush upsert failed: {e}");
+                            error!("RegisterPush upsert failed: {e}");
                         }
                     }
                 }
                 Ok(RoomClientFrame::UnregisterPush { device_id }) => {
                     if let Some(store) = state.store.as_ref() {
                         if let Err(e) = delete_token(store.pool(), me.id, &device_id).await {
-                            warn!("UnregisterPush delete failed: {e}");
+                            error!("UnregisterPush delete failed: {e}");
                         }
                     }
                 }
@@ -361,7 +361,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     if turn_rl.allow() {
                         handle_call_turn_request(&state, &me, &call_id, &tx).await;
                     } else {
-                        warn!("TURN credential rate limit hit for {}", me.username);
+                        warn!(username = %me.username, "TURN credential rate limit hit");
                         send_error(&tx, error_codes::RATE_LIMITED, "");
                     }
                 }
@@ -374,7 +374,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     if call_rl.allow() {
                         handle_call_invite(&state, &me, room_id, call_id, offer, video).await;
                     } else {
-                        warn!("call invite rate limit hit for {}", me.username);
+                        warn!(username = %me.username, "call invite rate limit hit");
                         send_error(&tx, error_codes::RATE_LIMITED, "");
                     }
                 }
@@ -417,7 +417,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 }) => {
                     handle_call_hangup(&state, &me, room_id, call_id, reason).await;
                 }
-                Err(e) => warn!("invalid frame from {}: {e}", me.username),
+                Err(e) => warn!(username = %me.username, "invalid frame: {e}"),
                 }
             }
         }
@@ -467,8 +467,8 @@ async fn handle_call_turn_request(
 
     let ice_servers = if !paired {
         warn!(
-            "CallTurnRequest from unpaired account {}; withholding relay",
-            me.username
+            username = %me.username,
+            "CallTurnRequest from unpaired account; withholding relay"
         );
         empty()
     } else {
@@ -476,7 +476,7 @@ async fn handle_call_turn_request(
             Some(cfg) => match crate::turn::ice_servers(cfg, &state.http).await {
                 Ok(v) => v,
                 Err(e) => {
-                    warn!("TURN credential mint failed for call {call_id}: {e}");
+                    error!("TURN credential mint failed for call {call_id}: {e}");
                     empty()
                 }
             },
@@ -513,9 +513,9 @@ async fn forward_call_to_partner(state: &AppState, me: &AccountRecord, frame: Ro
             Ok(true) => {}
             Ok(false) => {
                 warn!(
-                    "call: {} from {} for room {room_id} it's not a member of; dropping",
+                    username = %me.username,
+                    "call: {} for room {room_id} it's not a member of; dropping",
                     frame_kind(&frame),
-                    me.username,
                 );
                 return;
             }
@@ -529,17 +529,17 @@ async fn forward_call_to_partner(state: &AppState, me: &AccountRecord, frame: Ro
         Ok(Some(partner)) => {
             let online = state.routing.is_online(&partner).await;
             info!(
-                "call: forwarding {} from {} -> {} (online={online})",
-                frame_kind(&frame),
-                me.username,
-                partner
+                username = %me.username,
+                partner = %partner,
+                "call: forwarding {} (online={online})",
+                frame_kind(&frame)
             );
             state.routing.deliver(&partner, frame).await;
         }
         Ok(None) => warn!(
-            "call: {} from {} but no partner",
-            frame_kind(&frame),
-            me.username
+            username = %me.username,
+            "call: {} but no partner",
+            frame_kind(&frame)
         ),
         Err(e) => warn!("forward_call_to_partner: partner lookup failed: {e}"),
     }
@@ -585,8 +585,8 @@ async fn handle_call_invite(
         Ok(true) => {}
         Ok(false) => {
             warn!(
-                "call: CallInvite from {} for room {room_id} it's not a member of; dropping",
-                me.username
+                username = %me.username,
+                "call: CallInvite for room {room_id} it's not a member of; dropping"
             );
             return;
         }
@@ -627,8 +627,9 @@ async fn handle_call_invite(
     // Forward to any open partner sessions (foreground case).
     let online = state.routing.is_online(&partner_username).await;
     info!(
-        "call: CallInvite from {} -> {} call={call_id} (partner online={online})",
-        me.username, partner_username
+        username = %me.username,
+        partner = %partner_username,
+        "call: CallInvite call={call_id} (partner online={online})"
     );
     state
         .routing
@@ -690,7 +691,7 @@ async fn notify_call(
     let tokens = match crate::push_tokens::voip_tokens_for(store.pool(), callee_account_id).await {
         Ok(t) => t,
         Err(e) => {
-            warn!("notify_call: voip_tokens_for failed: {e}");
+            error!("notify_call: voip_tokens_for failed: {e}");
             return;
         }
     };
@@ -901,7 +902,7 @@ async fn handle_consume_invite(
         return;
     }
     if let Err(e) = mark_consumed(store.pool(), &token_hash, Utc::now()).await {
-        warn!("mark_consumed failed: {e}");
+        error!("mark_consumed failed: {e}");
     }
 
     let detail = match room_detail(store.pool(), &room_id).await {
@@ -1376,7 +1377,7 @@ async fn handle_send(
         }
     }
     if let Err(e) = store.insert_many(&rows).await {
-        warn!("store.insert_many failed: {e}");
+        error!("store.insert_many failed: {e}");
         send_error(tx, "Internal", "");
         return;
     }
@@ -1546,7 +1547,7 @@ async fn handle_request_upload(
     // authenticated couple-room users only. Follow-up: ship the reaper.
     let blob_key = Ulid::new().to_string();
     if let Err(e) = insert_attachment(store.pool(), &blob_key, room_id, me.id, byte_size).await {
-        warn!("insert_attachment: {e}");
+        error!("insert_attachment: {e}");
         send_error(tx, "Internal", "");
         return;
     }

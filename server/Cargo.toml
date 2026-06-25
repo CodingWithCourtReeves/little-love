@@ -26,8 +26,11 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 littlelove-crypto = { workspace = true }
 qrcode = { version = "0.14", default-features = false, features = ["image"] }
 rand = "0.8"
+regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 rusty-s3 = "0.9.1"
+sentry = { version = "0.48", default-features = false, features = ["backtrace", "contexts", "panic", "reqwest", "rustls"] }
+sentry-tracing = "0.48"
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
