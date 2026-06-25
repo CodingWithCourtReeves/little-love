@@ -31,11 +31,12 @@ In scope (the four new-user screens, both light + dark palettes):
    (`_step2`). The headline change of this work.
 4. **Recovery-confirm step** — `app/lib/screens/auth/recovery_confirm.dart`.
 
-Light polish, consistency only:
-
-5. **Sign-in screen** — `app/lib/screens/auth/signin.dart`. Inherit the
-   shared header/styling so it does not look orphaned next to the others.
-   No structural redesign.
+5. **Sign-in / recovery screen** — `app/lib/screens/auth/signin.dart`.
+   Adopt the shared header, and replace the single multi-line "type your 12
+   words" field (awkward) with a proper 12-box recovery-phrase input:
+   paste-to-fill-all, auto-advance on space, and BIP39 autocomplete +
+   per-word typo validation. (Originally scoped as a light styling pass;
+   the single field was bad enough on-device to warrant the redesign.)
 
 Out of scope:
 
@@ -78,6 +79,12 @@ Dark ("Deep Dusk").
   and username screens to kill per-screen layout drift. Deliberately light:
   a step-marker + title block, not a framework. Lives in
   `app/lib/onboarding/onboarding_header.dart`.
+- **`PhraseInput`** — the recovery-phrase *entry* counterpart to
+  `PhraseGrid`: 12 numbered boxes with paste-to-fill-all, auto-advance, and
+  BIP39 autocomplete. Lives in `app/lib/onboarding/phrase_input.dart`. The
+  BIP39 wordlist + `bip39Suggestions`/`isBip39Word` helpers are added to
+  `app/lib/identity/bip39.dart` (the one place that touches the `bip39`
+  package's `src/` wordlist).
 - **`PhraseGrid`** — renders the 12 words as a 2-column grid of "chips,"
   each a rounded surface tile with a muted index number and the word in a
   monospace style. Lives in `app/lib/onboarding/phrase_grid.dart`.
@@ -164,12 +171,14 @@ New:
 - `app/lib/onboarding/heart_lock.dart` (`HeartLock`)
 - `app/lib/onboarding/onboarding_header.dart` (`OnboardingHeader`)
 - `app/lib/onboarding/phrase_grid.dart` (`PhraseGrid`)
+- `app/lib/onboarding/phrase_input.dart` (`PhraseInput`)
 
 Modified:
 - `app/lib/screens/auth/auth_gate.dart` (`_ChoiceScreen`)
 - `app/lib/screens/auth/signup.dart` (`_step1`, `_step2`)
 - `app/lib/screens/auth/recovery_confirm.dart`
-- `app/lib/screens/auth/signin.dart` (light styling pass)
+- `app/lib/screens/auth/signin.dart` (shared header + 12-box `PhraseInput`)
+- `app/lib/identity/bip39.dart` (add wordlist + suggestion/validation helpers)
 
 Unchanged (explicitly): identity/bip39, routing/state in
 `_SignupFlow`/`_SigninFlow`, server calls, the confirm-by-index mechanism,

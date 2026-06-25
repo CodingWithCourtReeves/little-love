@@ -7,6 +7,7 @@ import '../../identity/account_local.dart';
 import '../../identity/bip39.dart';
 import '../../identity/keypair.dart';
 import '../../onboarding/onboarding_header.dart';
+import '../../onboarding/phrase_input.dart';
 import '../../theme/app_palette.dart';
 import '../../theme/twilight.dart';
 import '../../wire/rest_client.dart';
@@ -26,9 +27,14 @@ class SigninScreen extends StatefulWidget {
 
 class _SigninScreenState extends State<SigninScreen> {
   final _usernameCtl = TextEditingController();
-  final _phraseCtl = TextEditingController();
+  String _phrase = '';
   String? _error;
   bool _busy = false;
+
+  /// The 12 boxes are full and the username is present.
+  bool get _ready =>
+      _usernameCtl.text.trim().isNotEmpty &&
+      _phrase.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length == 12;
 
   Future<void> _signin() async {
     setState(() {
@@ -36,7 +42,7 @@ class _SigninScreenState extends State<SigninScreen> {
       _error = null;
     });
     try {
-      final Uint8List seed = phraseToSeed(_phraseCtl.text.trim());
+      final Uint8List seed = phraseToSeed(_phrase.trim());
       final id = await deriveIdentity(seed);
       final username = _usernameCtl.text.trim();
       final acc = await widget.rest.getAccountByUsername(username);
@@ -75,7 +81,7 @@ class _SigninScreenState extends State<SigninScreen> {
     final palette = context.palette;
     return Scaffold(
       appBar: AppBar(),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -92,21 +98,22 @@ class _SigninScreenState extends State<SigninScreen> {
               controller: _usernameCtl,
               autocorrect: false,
               decoration: const InputDecoration(labelText: 'Username'),
+              onChanged: (_) => setState(() {}),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const ValueKey('phrase'),
-              controller: _phraseCtl,
-              autocorrect: false,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: '12-word recovery phrase',
+            const SizedBox(height: 18),
+            Text(
+              'RECOVERY PHRASE',
+              style: TwilightType.annotation.copyWith(
+                color: palette.accentSage,
               ),
             ),
-            const SizedBox(height: 12),
-            if (_error != null)
+            const SizedBox(height: 4),
+            PhraseInput(onChanged: (p) => setState(() => _phrase = p)),
+            if (_error != null) ...[
+              const SizedBox(height: 4),
               Text(_error!, style: TextStyle(color: palette.warningTone)),
-            const SizedBox(height: 16),
+            ],
+            const SizedBox(height: 12),
             FilledButton(
               style: FilledButton.styleFrom(
                 backgroundColor: palette.accentUser,
@@ -116,7 +123,7 @@ class _SigninScreenState extends State<SigninScreen> {
                   borderRadius: BorderRadius.all(Radius.circular(2)),
                 ),
               ),
-              onPressed: _busy ? null : _signin,
+              onPressed: (_busy || !_ready) ? null : _signin,
               child: const Text('Sign in'),
             ),
           ],
