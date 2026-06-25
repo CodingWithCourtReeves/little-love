@@ -202,7 +202,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       updated = account.copyWith(displayName: text);
       await ref.read(accountLocalStoreProvider).save(updated);
       ref.invalidate(accountProvider);
-    } catch (_) {
+    } catch (e, st) {
+      reportFault(e, st, context: 'profile_name_save');
       _toast("Couldn't save");
       if (mounted) setState(() => _busy = false);
       return;

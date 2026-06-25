@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../diagnostics/crash_reporting.dart';
 import '../wire/frames.dart';
 import '../wire/live_connection.dart';
 import 'outbox_store.dart';
@@ -51,8 +52,9 @@ class OutboxDrain {
         send(row.roomId, row.bodies, row.clientMsgId);
         _sentThisCycle.add(row.clientMsgId);
         await store.markAttempt(row.clientMsgId);
-      } catch (e) {
+      } catch (e, st) {
         await store.markAttempt(row.clientMsgId, error: e.toString());
+        reportFault(e, st, context: 'outbox_send');
         return;
       }
     }

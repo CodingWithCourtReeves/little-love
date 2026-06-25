@@ -12,6 +12,7 @@ import 'package:uuid/uuid.dart';
 
 import '../conversation/room_key_cache.dart';
 import '../conversation/send_fanout.dart';
+import '../diagnostics/crash_reporting.dart';
 import '../identity/current_identity.dart';
 import '../identity/providers.dart';
 import '../inbox/inbox_state.dart';
@@ -613,6 +614,7 @@ class CallController with WidgetsBindingObserver {
           await _emitCallLog(ended.outcome!);
         } catch (e, st) {
           debugPrint('call: call-log emit failed: $e\n$st');
+          reportFault(e, st, context: 'call_log_emit');
         }
       }
       await FlutterCallkitIncoming.endAllCalls();

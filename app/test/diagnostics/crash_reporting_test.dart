@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:littlelove/diagnostics/crash_reporting.dart';
 import 'package:sentry/sentry.dart';
 
@@ -19,6 +23,30 @@ void main() {
       final out = gateEvent(event, enabled: true);
       expect(out, isNotNull);
       expect(out!.message!.formatted, 'login for [email]');
+    });
+  });
+
+  group('isExpectedTransientError', () {
+    test('treats offline / timeout errors as transient (not reported)', () {
+      expect(isExpectedTransientError(TimeoutException('slow')), isTrue);
+      expect(
+        isExpectedTransientError(const SocketException('no route')),
+        isTrue,
+      );
+    });
+
+    test('treats genuine faults as reportable', () {
+      // Crypto/state faults, malformed frames, and HTTP-level failures (e.g. a
+      // non-2xx from R2) are real and must be reported, not filtered as noise.
+      expect(isExpectedTransientError(StateError('bad')), isFalse);
+      expect(
+        isExpectedTransientError(const FormatException('bad json')),
+        isFalse,
+      );
+      expect(
+        isExpectedTransientError(http.ClientException('R2 PUT failed: 500')),
+        isFalse,
+      );
     });
   });
 

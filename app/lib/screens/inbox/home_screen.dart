@@ -23,6 +23,7 @@ import '../../conversation/message_store.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../conversation/room_message_router.dart';
 import '../../conversation/send_fanout.dart';
+import '../../diagnostics/crash_reporting.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
 import '../../identity/providers.dart';
@@ -368,11 +369,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         roomId: room.roomId,
         bodies: frame.bodies,
       );
-    } catch (e) {
+    } catch (e, st) {
       // Nothing was durably enqueued, so there's no outbox row to retry from —
       // drop the optimistic bubble rather than leaving an un-retryable failure.
       msgs.remove(clientMsgId);
       debugPrint('send failed before enqueue: $e');
+      // Link-preview/network timeouts are filtered by reportFault; a genuine
+      // crypto/build fault here is reported.
+      reportFault(e, st, context: 'send_pre_enqueue');
       return;
     }
     // Durably enqueued. A kick failure leaves the row for the drain to retry,
@@ -463,7 +467,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           );
       await ref.read(outboxDrainProvider).kick();
-    } catch (e) {
+    } catch (e, st) {
+      reportFault(e, st, context: 'attachment_send');
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Couldn't send attachment.")),
@@ -536,7 +541,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           );
       await ref.read(outboxDrainProvider).kick();
-    } catch (e) {
+    } catch (e, st) {
+      reportFault(e, st, context: 'voice_send');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Couldn't send voice message.")),

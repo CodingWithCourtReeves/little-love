@@ -23,6 +23,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io' show SocketException;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -60,6 +61,33 @@ SentryEvent? gateEvent(SentryEvent? event, {required bool enabled}) =>
 /// otherwise (so an opted-out session records nothing).
 Breadcrumb? gateBreadcrumb(Breadcrumb? crumb, {required bool enabled}) =>
     enabled ? scrubBreadcrumb(crumb) : null;
+
+/// Whether [error] is an expected-degraded condition (offline / slow network)
+/// that would be noise in crash reports. Genuine faults — crypto/state errors,
+/// malformed frames, corrupt persistence, HTTP-level failures (e.g. a non-2xx
+/// from R2) — are not in this list and get reported.
+bool isExpectedTransientError(Object error) =>
+    error is TimeoutException || error is SocketException;
+
+/// Report a genuine, *caught* fault to crash reporting. Mirrors the server's
+/// discipline: only real faults, never expected-degraded paths. A no-op when
+/// reporting is off (the gates drop it) or when [error] is transient.
+///
+/// Pass only the [error] and [stackTrace] plus an optional **constant** [context]
+/// label (e.g. `'profile_name_save'`). Never interpolate message content, names,
+/// or attachment paths — the scrub chokepoint is a backstop, not a license.
+void reportFault(Object error, StackTrace? stackTrace, {String? context}) {
+  if (isExpectedTransientError(error)) return;
+  unawaited(
+    Sentry.captureException(
+      error,
+      stackTrace: stackTrace,
+      withScope: context == null
+          ? null
+          : (scope) => scope.setTag('fault.context', context),
+    ),
+  );
+}
 
 /// Orchestrates SDK lifecycle around the opt-in flag.
 class CrashReporting {

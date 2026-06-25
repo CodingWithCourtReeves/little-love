@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../diagnostics/crash_reporting.dart';
+
 /// Per-device persistence of the last-read message timestamp per room.
 /// Mirrors [AccountLocalStore]'s home-anchored JSON pattern so it works in
 /// the iOS/Android sandbox (writes under Documents/) and on desktop (~).
@@ -42,8 +44,14 @@ class ReadStateStore {
       return raw.map(
         (k, v) => MapEntry(k, DateTime.parse(v! as String).toUtc()),
       );
-    } catch (_) {
-      // Corrupt or partially-written file — treat as no saved state.
+    } catch (_, st) {
+      // Corrupt or partially-written file — treat as no saved state. Report a
+      // sanitized fault (the raw decode error can embed a handle from the file).
+      reportFault(
+        const FormatException('corrupt read_state.json'),
+        st,
+        context: 'read_state_load',
+      );
       return <String, DateTime>{};
     }
   }
