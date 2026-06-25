@@ -28,6 +28,17 @@ async fn main() -> Result<()> {
                 release: sentry::release_name!(),
                 environment: Some(sc.environment.clone().into()),
                 send_default_pii: false,
+                // Single redaction chokepoint: every event (error! + panics)
+                // and every breadcrumb (warn!/info!) is scrubbed of identifiers
+                // and secrets before it can leave the process. See scrub.rs.
+                before_send: Some(std::sync::Arc::new(|mut event| {
+                    littlelove_api::scrub::scrub_event(&mut event);
+                    Some(event)
+                })),
+                before_breadcrumb: Some(std::sync::Arc::new(|mut bc| {
+                    littlelove_api::scrub::scrub_breadcrumb(&mut bc);
+                    Some(bc)
+                })),
                 ..Default::default()
             },
         ))
