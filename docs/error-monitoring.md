@@ -64,6 +64,31 @@ alert email from `alerts@littlelove.dev` in Gmail. Without the token (or with a
 wrong one) the route returns 404. Leave `DIAG_TOKEN` unset in steady-state
 operation to keep the route inert.
 
+## What gets reported, and scrubbing
+
+The server reports panics and `error!`-level events. `error!` is reserved for
+genuine server faults (DB write/read failures, 500s, state-corruption paths);
+expected-degraded conditions (feature env unset, rate limits, malformed client
+frames, optional cleanup) stay at `warn!`/`info!` and ride along as breadcrumbs.
+
+**Every payload to Bugsink is scrubbed at one chokepoint** (`server/src/scrub.rs`,
+wired into both `before_send` and `before_breadcrumb`), so diagnostics stay
+content-free and identifier-free per the privacy policy:
+
+- `redact()` pattern-strips emails, account UUIDs/ULIDs, hex/base64 tokens,
+  credentialed URIs (DSN/DB URLs), Postgres `Key (col)=(value)` detail, and
+  prefixed API keys from all free text.
+- Key-based redaction drops the value of any sensitive structured field
+  (`username`, `account`, `token`, `email`, …) wholesale. This is why log call
+  sites must log identifiers as **structured fields**
+  (`warn!(username = %me.username, "…")`), never interpolated into the message
+  string — the field value is redacted for Bugsink while local stdout logs keep
+  it. The server only ever holds ciphertext for message *content*, so content
+  cannot leak by construction; this scrubbing covers the remaining metadata.
+
+When adding new logging: put identifiers in structured fields, never in the
+message text, and add the field name to `SENSITIVE_KEYS` if it is identifying.
+
 ## Secrets (never in git)
 
 `SENTRY_DSN`, `SECRET_KEY`, the superuser password, the Resend API key, and

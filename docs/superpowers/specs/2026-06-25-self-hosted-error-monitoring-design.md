@@ -144,7 +144,22 @@ it lives only as a Railway env var on `littlelove-api`, never in the repo.
   emit user data.
 - **Logging hygiene:** the existing rule still holds — never log ciphertext
   blobs or any field that could carry content into an exception/log message.
-  No change needed beyond keeping new code compliant.
+
+- **Error placement + scrubbing (added during implementation):** the server had
+  zero `error!` calls (all faults logged at `warn!`), so without this Bugsink
+  would only ever see panics. Genuine faults (DB write/read failures returning
+  500/"Internal", and the `mark_consumed` atomicity path) were elevated to
+  `error!`; expected-degraded conditions stay `warn!`. Separately, the
+  `sentry-tracing` layer ships `warn!`/`info!` as breadcrumbs and the server's
+  logs carry user identifiers (handles, account ids) and DB error detail — which
+  would leak into Bugsink and break the content-free promise. So a scrubbing
+  chokepoint (`server/src/scrub.rs`) runs in both `before_send` and
+  `before_breadcrumb`: pattern redaction (emails, UUIDs/ULIDs, hex/base64
+  tokens, credentialed URIs, Postgres `(col)=(value)` detail, prefixed API keys)
+  plus key-based redaction of sensitive structured fields. Identifiers are
+  logged as structured fields so they survive in local stdout but are redacted
+  on the way to Bugsink. This is the server-side counterpart to the deferred
+  app-side scrubbing; see `docs/error-monitoring.md`.
 
 ### 3. Alerting wiring (`infra/cloudflare/`)
 
