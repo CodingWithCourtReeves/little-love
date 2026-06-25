@@ -18,6 +18,30 @@ The server only ever holds **ciphertext**, so error reports cannot leak
 plaintext by construction. That is what makes the server side low-risk and the
 right first increment.
 
+### "Sentry" here means the SDK, not the SaaS
+
+This matters because "Sentry" names two different things:
+
+- **Sentry the hosted SaaS (sentry.io)** — the third party. We do **not** use
+  it. We never sign up and never send it anything. Using it is exactly what
+  would break the "no third parties" promise.
+- **The `sentry` crate (and later `sentry_flutter`)** — the open-source client
+  SDK. It speaks the Sentry wire protocol (the "envelope" format) and sends to
+  whatever DSN you configure. It has no opinion about the destination.
+
+Bugsink is **Sentry-API-compatible**: it accepts that same envelope format. So
+the `sentry` crate points its DSN at **our Bugsink instance** and the reports
+land on our own Railway infrastructure. **Bugsink is the destination; the
+`sentry` crate is the messenger.** We need both, and neither is the third-party
+Sentry service. Using the official SDK (rather than hand-rolling HTTP) gives us
+mature panic capture, batching, retries, and release/env tagging for free,
+while keeping every report first-party.
+
+```
+sentry crate (our Rust server)  ──envelope──▶  Bugsink (our Railway box)
+        DSN points here ───────────────────────▶  our server, our data
+```
+
 ## Non-goals (this PR)
 
 - No `sentry_flutter`, no app-side reporting, no breadcrumb/`beforeSend`
