@@ -175,6 +175,32 @@ impl Store {
         Ok(rows)
     }
 
+    /// The ids of `sender_account_id`'s own messages in `room_id` that the
+    /// partner has marked read (the partner's recipient row has `read_at` set),
+    /// ascending. Drives read-state backfill on subscribe: the live `Read` frame
+    /// is missed while the sender is offline, and the watermarked message replay
+    /// (`messages_for_recipient`, `id > since`) never re-delivers an
+    /// already-synced message whose read flag flipped *after* it was synced.
+    pub async fn read_sent_message_ids(
+        &self,
+        room_id: &str,
+        sender_account_id: i64,
+    ) -> anyhow::Result<Vec<String>> {
+        let rows = sqlx::query_as::<_, (String,)>(
+            "SELECT id FROM messages
+             WHERE room_id = $1
+               AND from_account_id = $2
+               AND recipient_account_id <> $2
+               AND read_at IS NOT NULL
+             ORDER BY id ASC",
+        )
+        .bind(room_id)
+        .bind(sender_account_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
     /// Total unread incoming messages for an account, across all its rooms —
     /// drives the app-icon badge. Excludes the account's own self-copies.
     pub async fn unread_count(&self, account_id: i64) -> anyhow::Result<i64> {

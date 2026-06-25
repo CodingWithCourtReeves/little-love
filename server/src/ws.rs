@@ -991,6 +991,28 @@ async fn handle_subscribe(
             client_msg_id: None,
         });
     }
+
+    // Read-state backfill. The replay above is watermarked (`id > since`), so it
+    // never re-delivers an already-synced message whose read flag flipped after
+    // it was synced; and the live Read frame from `handle_mark_read` is dropped
+    // if the sender was offline when the partner read. Re-assert read state for
+    // my own sent messages the partner has read, as one Read frame the client
+    // applies idempotently (markRead).
+    match store.read_sent_message_ids(room_id, me.id).await {
+        Ok(ids) if !ids.is_empty() => match partner_username_for(store.pool(), me.id).await {
+            Ok(Some(reader)) => {
+                let _ = tx.send(RoomServerFrame::Read {
+                    room_id: room_id.to_string(),
+                    message_ids: ids,
+                    reader,
+                });
+            }
+            Ok(None) => {}
+            Err(e) => warn!("read backfill: partner_username_for failed: {e}"),
+        },
+        Ok(_) => {}
+        Err(e) => warn!("read backfill: read_sent_message_ids failed: {e}"),
+    }
 }
 
 async fn handle_mark_read(

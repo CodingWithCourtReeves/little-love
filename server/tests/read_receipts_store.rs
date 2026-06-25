@@ -59,6 +59,53 @@ async fn mark_read_flips_partner_rows_and_reports_senders() {
 
 #[tokio::test]
 #[serial_test::serial]
+async fn read_sent_message_ids_lists_only_partner_read_ids() {
+    let store = common::fresh_store().await;
+    let (court, kait, room) = common::seed_couple_room(&store).await;
+
+    let id1 = "01J000000000000000000000AA".to_string();
+    let id2 = "01J000000000000000000000BB".to_string();
+    send_one(&store, &id1, &room, court, kait).await;
+    send_one(&store, &id2, &room, court, kait).await;
+
+    // Nothing read yet → nothing to backfill.
+    assert!(
+        store
+            .read_sent_message_ids(&room, court)
+            .await
+            .unwrap()
+            .is_empty(),
+        "no ids before the partner reads anything"
+    );
+
+    // Kaitlyn reads up to id1 only.
+    store.mark_read(&room, kait, &id1).await.unwrap();
+    assert_eq!(
+        store.read_sent_message_ids(&room, court).await.unwrap(),
+        vec![id1.clone()],
+        "only the read message is reported, ascending"
+    );
+
+    // She catches up to id2; both are now reported.
+    store.mark_read(&room, kait, &id2).await.unwrap();
+    assert_eq!(
+        store.read_sent_message_ids(&room, court).await.unwrap(),
+        vec![id1, id2],
+    );
+
+    // The reader sees no backfill for her own (partner-authored) messages.
+    assert!(
+        store
+            .read_sent_message_ids(&room, kait)
+            .await
+            .unwrap()
+            .is_empty(),
+        "read_sent_message_ids is scoped to the caller's own sent messages"
+    );
+}
+
+#[tokio::test]
+#[serial_test::serial]
 async fn replay_reports_read_state_on_senders_self_copy() {
     let store = common::fresh_store().await;
     let (court, kait, room) = common::seed_couple_room(&store).await;
