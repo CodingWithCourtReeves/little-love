@@ -86,6 +86,33 @@ Member _member(String username, DerivedIdentity id) => Member(
   x25519PubBase64: base64.encode(id.x25519PublicKey),
 );
 
+/// Polls until [ready] is true, yielding to the event loop between checks.
+///
+/// Replaces fixed `Future.delayed` guesses: a frame kicks off async DB-backed
+/// work (subscribe hydration, persistence), and a fixed delay that loses the
+/// race lets the test body return so teardown closes the in-memory DB while
+/// that work is still in flight — surfacing as a flaky `database_closed`. By
+/// gating on the observable end-state instead, the awaited work is guaranteed
+/// to have completed before we assert and before teardown tears the DB down.
+Future<void> pumpUntil(
+  bool Function() ready, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final sw = Stopwatch()..start();
+  while (!ready()) {
+    if (sw.elapsed > timeout) {
+      throw StateError('pumpUntil: condition not met within $timeout');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+  }
+}
+
+/// The room ids the fake connection has been asked to `Subscribe` to.
+List<Object?> _sentOfKind(_FakeConn conn, String kind) => conn.sent
+    .whereType<Map<String, Object?>>()
+    .where((m) => m['kind'] == kind)
+    .toList();
+
 void main() {
   setUpAll(() {
     sqfliteFfiInit();
@@ -115,18 +142,18 @@ void main() {
         ],
       ),
     );
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    // The Subscribe is the last step of the awaited subscribe path (after the
+    // in-memory-DB hydration reads), so once it lands all DB work for this
+    // frame has completed — no fixed-delay guess, no teardown race.
+    await pumpUntil(() => _sentOfKind(conn, 'Subscribe').isNotEmpty);
 
     final inbox = container.read(inboxStateProvider);
     expect(inbox.rooms, hasLength(1));
     expect(inbox.rooms.single.roomId, 'room1');
 
-    final subs = conn.sent
-        .cast<Map<String, Object?>>()
-        .where((m) => m['kind'] == 'Subscribe')
-        .toList();
+    final subs = _sentOfKind(conn, 'Subscribe');
     expect(subs, hasLength(1));
-    expect(subs.single['room_id'], 'room1');
+    expect((subs.single as Map<String, Object?>)['room_id'], 'room1');
   });
 
   test(
@@ -1222,7 +1249,10 @@ void main() {
         ],
       ),
     );
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    // Subscribe is sent after the store is hydrated and the high-water-mark is
+    // read, so gating on it guarantees both DB reads finished before we assert
+    // (and before teardown closes the DB) — same race as the rooms test above.
+    await pumpUntil(() => _sentOfKind(conn, 'Subscribe').isNotEmpty);
 
     // Store hydrated from the DB.
     expect(container.read(messageStoreProvider('room1')).map((m) => m.id), [
@@ -1230,10 +1260,7 @@ void main() {
       '01B',
     ]);
     // Subscribe carried the high-water-mark as the delta anchor.
-    final subs = conn.sent
-        .cast<Map<String, Object?>>()
-        .where((m) => m['kind'] == 'Subscribe')
-        .toList();
-    expect(subs.single['since_message_id'], '01B');
+    final subs = _sentOfKind(conn, 'Subscribe');
+    expect((subs.single as Map<String, Object?>)['since_message_id'], '01B');
   });
 }
