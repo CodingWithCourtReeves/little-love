@@ -95,7 +95,7 @@ pub async fn create_account(
             (StatusCode::CONFLICT, "username taken").into_response()
         }
         Err(e) => {
-            tracing::warn!("create_account db error: {e}");
+            tracing::error!("create_account db error: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
         }
     }
@@ -128,7 +128,7 @@ pub async fn get_account_by_username(
         .into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, "no such account").into_response(),
         Err(e) => {
-            tracing::warn!("get_account db error: {e}");
+            tracing::error!("get_account db error: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
         }
     }

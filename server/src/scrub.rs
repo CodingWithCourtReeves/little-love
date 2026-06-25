@@ -77,13 +77,55 @@ pub fn redact(input: &str) -> String {
     out
 }
 
+/// Field names whose *value* is an identifier or secret and must be dropped
+/// wholesale, regardless of shape. `sentry-tracing` turns a structured log field
+/// like `warn!(username = %me.username, "...")` into a `data`/`extra` entry
+/// keyed by the field name, so keying off the name catches free-form handles
+/// (`alice`) that `redact`'s patterns can't. Match is case-insensitive and exact
+/// on the key.
+const SENSITIVE_KEYS: &[&str] = &[
+    "username",
+    "user",
+    "handle",
+    "sender",
+    "recipient",
+    "partner",
+    "account",
+    "account_id",
+    "accountid",
+    "email",
+    "token",
+    "dsn",
+    "auth",
+    "authorization",
+    "password",
+    "secret",
+    "apikey",
+    "api_key",
+];
+
+fn is_sensitive_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    SENSITIVE_KEYS.iter().any(|s| key == *s)
+}
+
+/// Scrub one key/value pair: drop the value entirely for a sensitive key,
+/// otherwise recurse and pattern-redact its strings.
+fn scrub_kv(key: &str, v: &mut Value) {
+    if is_sensitive_key(key) {
+        *v = Value::String("[redacted]".into());
+    } else {
+        scrub_value(v);
+    }
+}
+
 /// Recursively redact every string inside a JSON value (used for the `extra` /
 /// breadcrumb `data` bags that `sentry-tracing` fills from event fields).
 fn scrub_value(v: &mut Value) {
     match v {
         Value::String(s) => *s = redact(s),
         Value::Array(a) => a.iter_mut().for_each(scrub_value),
-        Value::Object(o) => o.values_mut().for_each(scrub_value),
+        Value::Object(o) => o.iter_mut().for_each(|(k, val)| scrub_kv(k, val)),
         _ => {}
     }
 }
@@ -94,7 +136,7 @@ pub fn scrub_breadcrumb(b: &mut Breadcrumb) {
     if let Some(m) = b.message.as_mut() {
         *m = redact(m);
     }
-    b.data.values_mut().for_each(scrub_value);
+    b.data.iter_mut().for_each(|(k, v)| scrub_kv(k, v));
 }
 
 /// Scrub an event in place across every field that can carry free text. Wired
@@ -118,7 +160,7 @@ pub fn scrub_event(e: &mut Event) {
     for b in e.breadcrumbs.values.iter_mut() {
         scrub_breadcrumb(b);
     }
-    e.extra.values_mut().for_each(scrub_value);
+    e.extra.iter_mut().for_each(|(k, v)| scrub_kv(k, v));
 }
 
 #[cfg(test)]
@@ -183,8 +225,10 @@ mod tests {
 
     #[test]
     fn scrub_event_redacts_message_and_exception_and_breadcrumbs() {
-        let mut e = Event::default();
-        e.message = Some("login for alice@example.com failed".into());
+        let mut e = Event {
+            message: Some("login for alice@example.com failed".into()),
+            ..Default::default()
+        };
         e.exception.values.push(sentry::protocol::Exception {
             value: Some("Key (username)=(alice) already exists.".into()),
             ..Default::default()
@@ -208,6 +252,27 @@ mod tests {
             b.data.get("token"),
             Some(&Value::String("[redacted]".into()))
         );
+    }
+
+    #[test]
+    fn scrub_breadcrumb_redacts_sensitive_keys_even_when_value_is_a_plain_handle() {
+        // The whole point of key-based redaction: a free-form handle like
+        // "alice" that no pattern would catch must still be dropped because it
+        // arrived under a `username` field.
+        let mut b = Breadcrumb {
+            message: Some("typing rate limit hit".into()),
+            ..Default::default()
+        };
+        b.data
+            .insert("username".into(), Value::String("alice".into()));
+        b.data
+            .insert("room".into(), Value::String("kitchen".into())); // non-sensitive: kept
+        scrub_breadcrumb(&mut b);
+        assert_eq!(
+            b.data.get("username"),
+            Some(&Value::String("[redacted]".into()))
+        );
+        assert_eq!(b.data.get("room"), Some(&Value::String("kitchen".into())));
     }
 
     #[test]
