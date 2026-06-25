@@ -37,6 +37,13 @@
 	<string>LittleLove uses the camera to scan a partner's pairing code and for video calls with your partner.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>LittleLove uses the microphone to record voice messages and for voice calls with your partner.</string>
+	<!-- LittleLove does not use location. A linked third-party component (the
+	     WebRTC / Google MLKit dependency stack) statically references the
+	     location API, so App Store static analysis (ITMS-90683) requires this
+	     purpose string even though the app never requests location. The app
+	     calls no location API, so this string is never shown to the user. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>LittleLove does not use your location. This permission is referenced only by a third-party calling component and is never used to request or collect your location.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<!-- Required for PushKit VoIP wakes: an incoming-call push wakes the app
