@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'calling/call_screen.dart';
 import 'conversation/incoming_banner_host.dart';
+import 'identity/dev_provision.dart';
 import 'inbox/mock_fixtures.dart';
 import 'screens/auth/auth_gate.dart';
 import 'theme/app_palette.dart';
@@ -10,12 +11,15 @@ import 'theme/palette_provider.dart';
 
 const _fixtures = String.fromEnvironment('LLOVE_FIXTURES', defaultValue: '');
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final container = ProviderContainer();
   if (_fixtures == 'demo') {
     seedDemoFixtures(container);
   }
+  // Dev-only: adopt a seeded identity from runtime env when the two-simulator
+  // harness sets it. No-op in production (env vars unset). See provisionDevIdentity.
+  await provisionDevIdentity(container);
   runApp(
     UncontrolledProviderScope(
       container: container,

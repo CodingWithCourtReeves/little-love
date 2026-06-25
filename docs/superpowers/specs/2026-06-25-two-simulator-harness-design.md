@@ -71,14 +71,23 @@ crypto change can't silently break the fixture.
 
 ### 3. Client dev auto-provision — `LLOVE_DEV_USERNAME` + `LLOVE_DEV_PHRASE`
 
-In `main()`, alongside the existing `LLOVE_FIXTURES` hook: if both dart-defines
-are set **and** no local account exists yet, headlessly do what
-`_commit`/`onRestored` do — `phraseToSeed` → `deriveIdentity` → write keystore
-`llove.master.<username>` + save `LocalAccount` (createdAt from a best-effort
-`getAccountByUsername`, else now). The account already exists server-side (seed
-tool), so no signup is needed; the app boots straight into the inbox and
-connects. Inert in production: both defines default to empty, so the path never
-runs and nothing is baked into release builds.
+In `main()`, alongside the existing `LLOVE_FIXTURES` hook (in
+`identity/dev_provision.dart`): if both are baked in **and** no local account
+exists yet, headlessly do what `_commit`/`onRestored` do — `phraseToSeed` →
+`deriveIdentity` → write keystore `llove.master.<username>` + save `LocalAccount`
+(createdAt from a best-effort `getAccountByUsername`, else now). The account
+already exists server-side (seed tool), so no signup is needed; the app boots
+straight into the inbox and connects.
+
+**These are compile-time `--dart-define`s, read via `String.fromEnvironment`.**
+A runtime-env approach (`Platform.environment` + `SIMCTL_CHILD_*`) was tried
+first and *failed*: Flutter's `Platform.environment` is **empty on iOS**, so
+`simctl launch` env vars never reach Dart (verified — the OS process had the
+vars, Dart saw zero keys). Compile-time defines are reliable (same mechanism as
+`LLOVE_SERVER`/`LLOVE_FIXTURES`); the cost is **one build per partner** (the
+harness builds court, installs, then builds kaitlyn — incremental, so the second
+is fast). Inert in production: the defines are empty, nothing is baked in, and it
+no-ops the instant a real account already exists.
 
 ### 4. iOS ATS — `app/ios/Runner/Info.plist`
 
@@ -95,12 +104,22 @@ ATS-blocked). This only relaxes localhost/.local/literal-IP networking; it does
 3. cargo run the api locally on 127.0.0.1:$API_PORT with DATABASE_URL +
    R2_ENDPOINT=http://127.0.0.1:9000 (reuse dev-phones.sh's env assembly)
 4. cargo run --bin seed_couple --features dev-seed   # create + pair the couple
-5. flutter build the app once (debug), then for each of two simulators:
-   boot it, install, and launch with:
-     --dart-define=LLOVE_SERVER=http://127.0.0.1:$API_PORT
-     --dart-define=LLOVE_DEV_USERNAME=<court|kaitlyn>
-     --dart-define=LLOVE_DEV_PHRASE="<that user's phrase from the fixture>"
-   Default sims: iPhone 17 (court) + iPhone 17 Pro (kaitlyn); overridable.
+5. for each of two simulators: flutter build (debug, simulator) with
+   --dart-define=LLOVE_SERVER=http://127.0.0.1:$API_PORT +
+   --dart-define=LLOVE_DEV_USERNAME=<court|kaitlyn> +
+   --dart-define=LLOVE_DEV_PHRASE="<that user's phrase>", then boot, install,
+   launch. Default sims: iPhone 17 (court) + iPhone 17 Pro (kaitlyn); overridable
+   via COURT_SIM/KAITLYN_SIM env.
+
+### Gotcha: arm64 simulator build (mobile_scanner removed)
+
+The unused `mobile_scanner` dependency pulled in GoogleMLKit, which ships no
+arm64 *simulator* slice — forcing an x86_64-only build that won't install on an
+Apple-Silicon iOS-26 simulator (Rosetta sims are gone). `mobile_scanner` was
+dead code (QR is *generated* via `qr_flutter`; scanning is delegated to the
+system camera via universal links — no in-app scanner), so it's removed from
+`pubspec.yaml`. The build is now a fat x86_64+arm64 binary that installs on
+modern sims.
 6. Print the two server/identity bindings + a teardown hint.
 ```
 
