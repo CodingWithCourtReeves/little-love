@@ -17,10 +17,11 @@ In the existing little-love Railway project:
    | Var | Value |
    |---|---|
    | `SECRET_KEY` | random string, >= 50 chars |
-   | `CREATE_SUPERUSER` | `alerts@littlelove.dev:<password>` |
-   | `BASE_URL` | `https://<bugsink-service>.up.railway.app` |
+   | `CREATE_SUPERUSER` | `alerts@littlelove.dev:<password>` (seeds the first user only; delete it once the account exists and you've changed the password) |
+   | `BASE_URL` | `https://alerts.littlelove.dev` (canonical custom domain; see step 5) |
+   | `ALLOWED_HOSTS` | `alerts.littlelove.dev,<bugsink-service>.up.railway.app,localhost,127.0.0.1` |
    | `BEHIND_HTTPS_PROXY` | `True` |
-   | `PORT` | Railway-provided port |
+   | `PORT` | `8000` |
    | `DATABASE_URL` | reference variable -> the Bugsink Postgres |
    | `EMAIL_HOST` | `smtp.resend.com` |
    | `EMAIL_PORT` | `465` |
@@ -30,18 +31,36 @@ In the existing little-love Railway project:
    | `EMAIL_HOST_PASSWORD` | a Resend API key (secret) |
    | `DEFAULT_FROM_EMAIL` | `alerts@littlelove.dev` |
 
+   `BASE_URL` drives both the links Bugsink builds and its Django `ALLOWED_HOSTS`
+   / CSRF-trusted origin. Set `ALLOWED_HOSTS` explicitly (comma-separated) when
+   serving under more than one host so both the custom domain and the
+   Railway-generated domain are accepted. A `400 ... not in ALLOWED_HOSTS` means
+   the host isn't listed; a `CSRF verification failed` on login usually means a
+   stale page/cookie from before a `BASE_URL` change (reload fresh on the
+   canonical host).
+
 4. Open `BASE_URL`, log in as the superuser, create a project named
-   `littlelove-server`. Copy its **DSN**.
+   `littlelove-server`. Copy its **DSN** (host = `alerts.littlelove.dev`).
+
+5. **Custom domain (optional but recommended).** On the Bugsink service add the
+   custom domain `alerts.littlelove.dev` (target port `8000`); Railway prints a
+   CNAME target. Add a Cloudflare CNAME `alerts` -> that target, **DNS only
+   (gray cloud)** so Railway can issue its Let's Encrypt cert. Then set
+   `BASE_URL`/`ALLOWED_HOSTS` as above.
 
 ## 2. Point the server at Bugsink
 
 On the `littlelove-api` Railway service set:
 
-- `SENTRY_DSN` = the DSN from step 1.4 (secret)
+- `SENTRY_DSN` = the DSN from step 1.4, using the canonical host, e.g.
+  `https://<key>@alerts.littlelove.dev/1` (secret)
 - `SENTRY_ENVIRONMENT` = `production`
+- `DIAG_TOKEN` = a random secret (enables `/__diag/error-test`; see §4)
 
-Redeploy. Absent `SENTRY_DSN`, reporting is a no-op (local/dev/CI). On boot the
-server logs `error reporting enabled (self-hosted)` or, when unset,
+Stage these with `railway variable set ... --skip-deploys` if the new server
+image isn't deployed yet (they're inert until then; skip-deploys avoids a
+needless prod restart). Once the image ships, on boot the server logs
+`error reporting enabled (self-hosted)` or, when `SENTRY_DSN` is unset,
 `SENTRY_DSN unset; error reporting disabled`.
 
 ## 3. Alert delivery
