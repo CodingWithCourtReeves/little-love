@@ -161,3 +161,62 @@ async fn subscribe_replays_read_flag_after_partner_reads() {
     assert_eq!(replayed["replayed"], true);
     assert_eq!(replayed["read"], true, "{replayed}");
 }
+
+#[file_serial(db)]
+#[tokio::test]
+async fn subscribe_backfills_read_state_past_the_watermark() {
+    // The realistic reconnect: court resubscribes with a watermark at the latest
+    // message it already has, so the message backlog (`id > since`) is empty. If
+    // the partner read while court was offline, the live Read frame was dropped;
+    // the only way court learns is a read-state backfill on subscribe.
+    let store = fresh_store().await;
+    let court_sk = SigningKey::from_bytes(&[1u8; 32]);
+    let kait_sk = SigningKey::from_bytes(&[2u8; 32]);
+    insert_account(&store, "court", &court_sk.verifying_key()).await;
+    insert_account(&store, "kaitlyn", &kait_sk.verifying_key()).await;
+    let addr = spawn_server(Some(store.clone())).await;
+
+    let (mut court, mut kaitlyn, room_id) = paired_pair(&store, addr, &court_sk, &kait_sk).await;
+    let msg_id = court_sends(&mut court, &mut kaitlyn, &room_id).await;
+
+    // Kaitlyn reads; court drains the live Read frame. (Equivalent to court
+    // having been offline and missing it — what matters below is that the read
+    // state is committed and court no longer holds it after a reconnect.)
+    kaitlyn
+        .send(WsMessage::Text(
+            serde_json::json!({
+                "kind": "MarkRead",
+                "room_id": room_id,
+                "up_to_message_id": msg_id,
+            })
+            .to_string(),
+        ))
+        .await
+        .unwrap();
+    let live = next_frame(&mut court).await;
+    assert_eq!(live["kind"], "Read");
+    drop(court);
+
+    // Court reconnects and subscribes from its existing watermark (the message it
+    // already has). The backlog is empty (`id > since`), so read state can only
+    // arrive as a backfilled Read frame.
+    let mut court2 = handshake_as(addr, "court", &court_sk).await;
+    drain_rooms(&mut court2).await;
+    court2
+        .send(WsMessage::Text(
+            serde_json::json!({
+                "kind": "Subscribe",
+                "room_id": room_id,
+                "since_message_id": msg_id,
+            })
+            .to_string(),
+        ))
+        .await
+        .unwrap();
+
+    let read = next_frame(&mut court2).await;
+    assert_eq!(read["kind"], "Read", "{read}");
+    assert_eq!(read["room_id"], room_id);
+    assert_eq!(read["reader"], "kaitlyn");
+    assert_eq!(read["message_ids"][0], msg_id, "{read}");
+}
