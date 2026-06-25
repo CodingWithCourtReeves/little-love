@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../attachment/attachment_descriptor.dart';
 import '../../conversation/room_key_cache.dart';
+import '../../diagnostics/crash_reporting.dart';
 import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
 import '../../identity/providers.dart';
@@ -143,6 +144,28 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   "This is how your partner found you. It can't be changed.",
                 ),
               ),
+              // Only offered when a DSN was compiled in; off by default.
+              if (crashReportingAvailable) ...[
+                const Divider(height: 32),
+                _sectionLabel('DIAGNOSTICS'),
+                SwitchListTile(
+                  key: const Key('profile-crash-reporting'),
+                  contentPadding: EdgeInsets.zero,
+                  value: ref.watch(crashReportingProvider),
+                  onChanged: _busy
+                      ? null
+                      : (v) => ref
+                            .read(crashReportingProvider.notifier)
+                            .setEnabled(v),
+                  title: const Text('Share crash reports'),
+                  subtitle: const Text(
+                    'Send crash and error reports to help us fix bugs. They '
+                    'never include your messages, names, or contacts, only '
+                    'technical details about what went wrong, and they go only '
+                    'to our own servers. You can turn this off anytime.',
+                  ),
+                ),
+              ],
               const Divider(height: 32),
               TextButton(
                 key: const Key('profile-sign-out'),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'calling/call_screen.dart';
 import 'conversation/incoming_banner_host.dart';
+import 'diagnostics/crash_reporting.dart';
 import 'inbox/mock_fixtures.dart';
 import 'screens/auth/auth_gate.dart';
 import 'theme/app_palette.dart';
@@ -10,16 +11,21 @@ import 'theme/palette_provider.dart';
 
 const _fixtures = String.fromEnvironment('LLOVE_FIXTURES', defaultValue: '');
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final container = ProviderContainer();
   if (_fixtures == 'demo') {
     seedDemoFixtures(container);
   }
-  runApp(
-    UncontrolledProviderScope(
-      container: container,
-      child: const LittleLoveApp(),
+  // Opt-in, content-scrubbed crash reporting. With reporting off (the default)
+  // or no DSN compiled in, this just runs the app; with the user opted in it
+  // wraps the run so Sentry captures errors from the first frame.
+  await CrashReporting.bootstrap(
+    () => runApp(
+      UncontrolledProviderScope(
+        container: container,
+        child: const LittleLoveApp(),
+      ),
     ),
   );
 }
