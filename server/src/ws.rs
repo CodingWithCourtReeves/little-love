@@ -467,8 +467,8 @@ async fn handle_call_turn_request(
 
     let ice_servers = if !paired {
         warn!(
-            "CallTurnRequest from unpaired account {}; withholding relay",
-            me.username
+            username = %me.username,
+            "CallTurnRequest from unpaired account; withholding relay"
         );
         empty()
     } else {
@@ -513,9 +513,9 @@ async fn forward_call_to_partner(state: &AppState, me: &AccountRecord, frame: Ro
             Ok(true) => {}
             Ok(false) => {
                 warn!(
-                    "call: {} from {} for room {room_id} it's not a member of; dropping",
+                    username = %me.username,
+                    "call: {} for room {room_id} it's not a member of; dropping",
                     frame_kind(&frame),
-                    me.username,
                 );
                 return;
             }
@@ -529,17 +529,17 @@ async fn forward_call_to_partner(state: &AppState, me: &AccountRecord, frame: Ro
         Ok(Some(partner)) => {
             let online = state.routing.is_online(&partner).await;
             info!(
-                "call: forwarding {} from {} -> {} (online={online})",
-                frame_kind(&frame),
-                me.username,
-                partner
+                username = %me.username,
+                partner = %partner,
+                "call: forwarding {} (online={online})",
+                frame_kind(&frame)
             );
             state.routing.deliver(&partner, frame).await;
         }
         Ok(None) => warn!(
-            "call: {} from {} but no partner",
-            frame_kind(&frame),
-            me.username
+            username = %me.username,
+            "call: {} but no partner",
+            frame_kind(&frame)
         ),
         Err(e) => warn!("forward_call_to_partner: partner lookup failed: {e}"),
     }
@@ -585,8 +585,8 @@ async fn handle_call_invite(
         Ok(true) => {}
         Ok(false) => {
             warn!(
-                "call: CallInvite from {} for room {room_id} it's not a member of; dropping",
-                me.username
+                username = %me.username,
+                "call: CallInvite for room {room_id} it's not a member of; dropping"
             );
             return;
         }
@@ -627,8 +627,9 @@ async fn handle_call_invite(
     // Forward to any open partner sessions (foreground case).
     let online = state.routing.is_online(&partner_username).await;
     info!(
-        "call: CallInvite from {} -> {} call={call_id} (partner online={online})",
-        me.username, partner_username
+        username = %me.username,
+        partner = %partner_username,
+        "call: CallInvite call={call_id} (partner online={online})"
     );
     state
         .routing

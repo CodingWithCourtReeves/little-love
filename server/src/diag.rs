@@ -20,7 +20,7 @@ pub async fn error_test(headers: HeaderMap) -> StatusCode {
         .get("x-diag-token")
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
-    if provided != expected {
+    if !ct_eq(provided.as_bytes(), expected.as_bytes()) {
         return StatusCode::NOT_FOUND;
     }
     sentry::capture_message(
@@ -28,6 +28,20 @@ pub async fn error_test(headers: HeaderMap) -> StatusCode {
         sentry::Level::Error,
     );
     StatusCode::OK
+}
+
+/// Constant-time byte comparison so the token check doesn't leak how many
+/// leading bytes matched via response timing. (The length short-circuit leaks
+/// only the length, which is not secret.)
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 #[cfg(test)]

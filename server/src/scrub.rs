@@ -161,6 +161,18 @@ pub fn scrub_event(e: &mut Event) {
         scrub_breadcrumb(b);
     }
     e.extra.iter_mut().for_each(|(k, v)| scrub_kv(k, v));
+    // `tags` are flat strings (sentry-tracing can populate them from span
+    // fields); apply the same key-based + pattern redaction.
+    e.tags.iter_mut().for_each(|(k, v)| {
+        *v = if is_sensitive_key(k) {
+            "[redacted]".to_string()
+        } else {
+            redact(v)
+        };
+    });
+    // The container hostname (set by the contexts integration even with
+    // send_default_pii=false) is not user data, but it's needless to exfiltrate.
+    e.server_name = None;
 }
 
 #[cfg(test)]
@@ -252,6 +264,26 @@ mod tests {
             b.data.get("token"),
             Some(&Value::String("[redacted]".into()))
         );
+    }
+
+    #[test]
+    fn scrub_event_redacts_tags_and_clears_server_name() {
+        let mut e = Event {
+            server_name: Some("railway-container-abc123".into()),
+            ..Default::default()
+        };
+        e.tags.insert("username".into(), "alice".into()); // sensitive key
+        e.tags.insert(
+            "note".into(),
+            "acct 550e8400-e29b-41d4-a716-446655440000".into(),
+        ); // pattern
+        scrub_event(&mut e);
+        assert_eq!(
+            e.tags.get("username").map(String::as_str),
+            Some("[redacted]")
+        );
+        assert_eq!(e.tags.get("note").map(String::as_str), Some("acct [id]"));
+        assert!(e.server_name.is_none());
     }
 
     #[test]
