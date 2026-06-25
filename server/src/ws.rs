@@ -998,6 +998,15 @@ async fn handle_subscribe(
     // if the sender was offline when the partner read. Re-assert read state for
     // my own sent messages the partner has read, as one Read frame the client
     // applies idempotently (markRead).
+    //
+    // Deliberately NOT filtered by `since_message_id`: messages with `id > since`
+    // already carry their current read flag on the replay above (the client
+    // applies it in `_ingestMessage`), so the gap this closes is the messages at
+    // or BELOW the watermark. A realistic reconnect uses `since = latest`, so an
+    // `id`-based bound wouldn't shrink the common case anyway — truly bounding
+    // this needs the client to send its read watermark (distinct from the message
+    // watermark) so we replay only newly-read ids. Deferred; fine at couples
+    // scale.
     match store.read_sent_message_ids(room_id, me.id).await {
         Ok(ids) if !ids.is_empty() => match partner_username_for(store.pool(), me.id).await {
             Ok(Some(reader)) => {
