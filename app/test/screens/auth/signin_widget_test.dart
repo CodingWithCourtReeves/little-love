@@ -47,7 +47,11 @@ void main() {
       ),
     );
     await tester.enterText(find.byKey(const ValueKey('username')), 'court');
-    await tester.enterText(find.byKey(const ValueKey('phrase')), phrase);
+    // Pasting the whole phrase into the first box distributes it across all 12.
+    await tester.enterText(find.byKey(const ValueKey('phrase-word-0')), phrase);
+    await tester.pump();
+    await tester.ensureVisible(find.byType(FilledButton));
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(FilledButton));
     await tester.pumpAndSettle();
     expect(restored, isNotNull);
@@ -83,7 +87,11 @@ void main() {
       ),
     );
     await tester.enterText(find.byKey(const ValueKey('username')), 'court');
-    await tester.enterText(find.byKey(const ValueKey('phrase')), phrase);
+    // Pasting the whole phrase into the first box distributes it across all 12.
+    await tester.enterText(find.byKey(const ValueKey('phrase-word-0')), phrase);
+    await tester.pump();
+    await tester.ensureVisible(find.byType(FilledButton));
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(FilledButton));
     await tester.pumpAndSettle();
     expect(find.textContaining('different account'), findsOneWidget);
@@ -105,7 +113,11 @@ void main() {
       ),
     );
     await tester.enterText(find.byKey(const ValueKey('username')), 'nope');
-    await tester.enterText(find.byKey(const ValueKey('phrase')), phrase);
+    // Pasting the whole phrase into the first box distributes it across all 12.
+    await tester.enterText(find.byKey(const ValueKey('phrase-word-0')), phrase);
+    await tester.pump();
+    await tester.ensureVisible(find.byType(FilledButton));
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(FilledButton));
     await tester.pumpAndSettle();
     expect(find.textContaining('no account named'), findsOneWidget);

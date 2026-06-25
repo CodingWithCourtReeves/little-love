@@ -6,6 +6,10 @@ import 'package:flutter/material.dart';
 import '../../identity/account_local.dart';
 import '../../identity/bip39.dart';
 import '../../identity/keypair.dart';
+import '../../onboarding/onboarding_header.dart';
+import '../../onboarding/phrase_input.dart';
+import '../../theme/app_palette.dart';
+import '../../theme/twilight.dart';
 import '../../wire/rest_client.dart';
 
 class SigninScreen extends StatefulWidget {
@@ -23,9 +27,14 @@ class SigninScreen extends StatefulWidget {
 
 class _SigninScreenState extends State<SigninScreen> {
   final _usernameCtl = TextEditingController();
-  final _phraseCtl = TextEditingController();
+  String _phrase = '';
   String? _error;
   bool _busy = false;
+
+  /// The 12 boxes are full and the username is present.
+  bool get _ready =>
+      _usernameCtl.text.trim().isNotEmpty &&
+      _phrase.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length == 12;
 
   Future<void> _signin() async {
     setState(() {
@@ -33,7 +42,7 @@ class _SigninScreenState extends State<SigninScreen> {
       _error = null;
     });
     try {
-      final Uint8List seed = phraseToSeed(_phraseCtl.text.trim());
+      final Uint8List seed = phraseToSeed(_phrase.trim());
       final id = await deriveIdentity(seed);
       final username = _usernameCtl.text.trim();
       final acc = await widget.rest.getAccountByUsername(username);
@@ -69,35 +78,52 @@ class _SigninScreenState extends State<SigninScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     return Scaffold(
-      appBar: AppBar(title: const Text('Sign in')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
+      appBar: AppBar(),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const OnboardingHeader(title: 'Welcome back'),
+            const SizedBox(height: 10),
+            Text(
+              'Enter your username and the 12 words you saved.',
+              style: TwilightType.lede.copyWith(color: palette.textMuted),
+            ),
+            const SizedBox(height: 20),
             TextField(
               key: const ValueKey('username'),
               controller: _usernameCtl,
               autocorrect: false,
               decoration: const InputDecoration(labelText: 'Username'),
+              onChanged: (_) => setState(() {}),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const ValueKey('phrase'),
-              controller: _phraseCtl,
-              autocorrect: false,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: '12-word recovery phrase',
+            const SizedBox(height: 18),
+            Text(
+              'RECOVERY PHRASE',
+              style: TwilightType.annotation.copyWith(
+                color: palette.accentSage,
               ),
             ),
+            const SizedBox(height: 4),
+            PhraseInput(onChanged: (p) => setState(() => _phrase = p)),
+            if (_error != null) ...[
+              const SizedBox(height: 4),
+              Text(_error!, style: TextStyle(color: palette.warningTone)),
+            ],
             const SizedBox(height: 12),
-            if (_error != null)
-              Text(_error!, style: const TextStyle(color: Colors.red)),
-            const SizedBox(height: 16),
             FilledButton(
-              onPressed: _busy ? null : _signin,
+              style: FilledButton.styleFrom(
+                backgroundColor: palette.accentUser,
+                foregroundColor: palette.bgCanvas,
+                minimumSize: const Size.fromHeight(52),
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(2)),
+                ),
+              ),
+              onPressed: (_busy || !_ready) ? null : _signin,
               child: const Text('Sign in'),
             ),
           ],

@@ -2,12 +2,38 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:bip39/bip39.dart' as bip39;
+// The wordlist isn't exported from the package's public surface, so reach into
+// its (version-pinned) src to reuse the exact same 2048-word English list the
+// encode/decode below rely on — for recovery-phrase input autocomplete and
+// per-word validation. Keeping this the only place we touch src/ contains it.
+// ignore: implementation_imports
+import 'package:bip39/src/wordlists/english.dart' show WORDLIST;
 
 // Spec §3.1.2 says "256-bit entropy" but §3.1.3 and the rest of the spec /
 // brief / acceptance criteria pin the user contract at a 12-word phrase.
 // BIP39 12 words = 128-bit entropy. We follow the user contract; §3.1.2 is
 // a pending spec amendment ("256-bit" → "128-bit").
 const _seedLengthBytes = 16;
+
+final Set<String> _bip39Set = WORDLIST.toSet();
+
+/// Whether [word] is a valid BIP39 English word (case-insensitive).
+bool isBip39Word(String word) => _bip39Set.contains(word.trim().toLowerCase());
+
+/// Up to [limit] wordlist entries beginning with [prefix] (case-insensitive).
+/// Empty when [prefix] is blank. Used to autocomplete recovery-phrase input.
+List<String> bip39Suggestions(String prefix, {int limit = 4}) {
+  final p = prefix.trim().toLowerCase();
+  if (p.isEmpty) return const [];
+  final out = <String>[];
+  for (final w in WORDLIST) {
+    if (w.startsWith(p)) {
+      out.add(w);
+      if (out.length >= limit) break;
+    }
+  }
+  return out;
+}
 
 /// Generate 16 bytes (128 bits) of seed entropy via the OS CSPRNG.
 Uint8List generateSeed() {

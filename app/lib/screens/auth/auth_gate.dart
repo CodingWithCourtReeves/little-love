@@ -7,6 +7,7 @@ import '../../identity/account_local.dart';
 import '../../identity/bip39.dart';
 import '../../identity/keypair.dart';
 import '../../identity/providers.dart';
+import '../../onboarding/heart_lock.dart';
 import '../../outbox/outbox_rehydrate.dart';
 import '../../pairing/deep_link.dart';
 import '../../theme/app_palette.dart';
@@ -57,71 +58,79 @@ class _ChoiceScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: context.palette.bgCanvas,
       body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 48),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'A messenger for two.',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 40,
-                      fontWeight: FontWeight.w500,
-                      height: 1.06,
-                      letterSpacing: -1.0,
-                      color: context.palette.textPrimary,
-                    ),
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: IntrinsicHeight(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 32,
                   ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Conversations live only on devices you own. '
-                    'The server holds ciphertext it cannot read.',
-                    style: TwilightType.lede,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Spacer(flex: 3),
+                      const Center(child: HeartLock(size: 224)),
+                      const SizedBox(height: 28),
+                      Text(
+                        'Little Love',
+                        textAlign: TextAlign.center,
+                        style: TwilightType.display.copyWith(
+                          color: context.palette.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'A tiny, private home for the two of you. '
+                        'No one else gets in.',
+                        textAlign: TextAlign.center,
+                        style: TwilightType.lede.copyWith(
+                          color: context.palette.textMuted,
+                        ),
+                      ),
+                      const Spacer(flex: 4),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: context.palette.accentUser,
+                          foregroundColor: context.palette.bgCanvas,
+                          minimumSize: const Size.fromHeight(52),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.all(Radius.circular(2)),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const _SignupFlow(),
+                          ),
+                        ),
+                        child: const Text('Get started'),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: context.palette.textPrimary,
+                          side: BorderSide(color: context.palette.borderSoft),
+                          minimumSize: const Size.fromHeight(52),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.all(Radius.circular(2)),
+                          ),
+                        ),
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const _SigninFlow(),
+                          ),
+                        ),
+                        child: const Text('I have a recovery phrase'),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 48),
-                  FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: context.palette.textPrimary,
-                      foregroundColor: context.palette.bgCanvas,
-                      minimumSize: const Size.fromHeight(52),
-                      shape: const RoundedRectangleBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(2)),
-                      ),
-                      textStyle: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const _SignupFlow(),
-                      ),
-                    ),
-                    child: const Text('Create an account'),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: context.palette.textPrimary,
-                      side: BorderSide(color: context.palette.borderSoft),
-                      minimumSize: const Size.fromHeight(52),
-                      shape: const RoundedRectangleBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(2)),
-                      ),
-                    ),
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const _SigninFlow(),
-                      ),
-                    ),
-                    child: const Text('Sign in with a recovery phrase'),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
