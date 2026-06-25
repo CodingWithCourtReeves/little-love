@@ -72,7 +72,12 @@ sys.exit(1)
 }
 
 phrase_for() { # $1 = court|kaitlyn → its 12-word phrase from the fixture
-  python3 -c "import json;print(json.load(open('$FIXTURE'))['$1']['phrase'])"
+  # Pass path + key as argv (not interpolated into the source) so a quote in the
+  # path can't break the one-liner.
+  python3 - "$FIXTURE" "$1" <<'PY'
+import json, sys
+print(json.load(open(sys.argv[1]))[sys.argv[2]]['phrase'])
+PY
 }
 
 COURT_UDID="$(udid_for "$COURT_SIM")" || { echo "✗ no available simulator named '$COURT_SIM'" >&2; exit 1; }

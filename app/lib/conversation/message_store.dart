@@ -144,6 +144,9 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     required String text,
     LinkPreview? preview,
   }) {
+    // A message its author already unsent can't be edited (and a deferred edit
+    // must never resurrect it): drop the edit if a valid tombstone exists.
+    if (_validlyTombstoned(targetId, requestedBy)) return;
     final idx = state.indexWhere((m) => m.id == targetId);
     if (idx < 0) {
       _edited[targetId] = _PendingEdit(requestedBy, text, preview);

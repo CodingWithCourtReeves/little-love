@@ -360,6 +360,9 @@ class SqliteMessageDb implements MessageDb {
       if (row.first['from_user'] != requestedBy) {
         return; // spoofed edit: only the author may edit
       }
+      if ((row.first['deleted'] as int? ?? 0) == 1) {
+        return; // already unsent — don't mutate a tombstoned row's body
+      }
       await _writeEdit(targetId, text, previewJson);
       await _db.delete(
         'pending_edits',

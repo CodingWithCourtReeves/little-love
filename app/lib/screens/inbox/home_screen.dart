@@ -772,9 +772,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     String targetId,
     String newText,
   ) async {
+    // Keep the current preview optimistically when the first URL is unchanged so
+    // a typo fix doesn't flicker the preview card out and back; the self-copy
+    // echo refreshes it with a freshly fetched one. A changed/removed URL clears
+    // it (passes null), which the echo then reconciles.
+    LinkPreview? optimisticPreview;
+    for (final m in ref.read(messageStoreProvider(room.roomId))) {
+      if (m.id == targetId) {
+        if (firstUrl(newText) != null &&
+            firstUrl(newText) == firstUrl(m.body)) {
+          optimisticPreview = m.linkPreview;
+        }
+        break;
+      }
+    }
     ref
         .read(messageStoreProvider(room.roomId).notifier)
-        .applyEdit(targetId, requestedBy: _me, text: newText);
+        .applyEdit(
+          targetId,
+          requestedBy: _me,
+          text: newText,
+          preview: optimisticPreview,
+        );
     final clientMsgId = ref.read(outboxIdGenProvider)();
     try {
       // Re-fetch the link preview for the edited text (the URL may have been

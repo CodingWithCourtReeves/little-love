@@ -486,6 +486,22 @@ void main() {
     expect(out.edited, isTrue);
   });
 
+  test('an edit is dropped once the author has unsent the target', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(_msg('m1', 'oops'));
+    store.applyDelete('m1', requestedBy: 'court'); // author unsends it
+    expect(container.read(messageStoreProvider('r1')), isEmpty);
+
+    // A late edit (raced the delete, or arrived after) must neither resurrect
+    // nor be stashed to apply on a later replay re-add.
+    store.applyEdit('m1', requestedBy: 'court', text: 'fixed');
+    expect(container.read(messageStoreProvider('r1')), isEmpty);
+    store.add(_msg('m1', 'oops'));
+    expect(container.read(messageStoreProvider('r1')), isEmpty);
+  });
+
   test('updateStatus changes sendStatus on the matching id', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);

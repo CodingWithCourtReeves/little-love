@@ -1025,6 +1025,73 @@ void main() {
     expect(persisted.edited, isTrue);
   });
 
+  test('an edit self-copy echo applies and drops its outbox row', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final outbox = MemoryOutboxStore();
+    final selfPub = base64.encode(me.x25519PublicKey);
+    await outbox.enqueue(
+      clientMsgId: 'cli-edit',
+      roomId: 'room1',
+      bodies: {selfPub: 'ignored-ciphertext'},
+    );
+    final container = await _container(conn: conn, me: me, outbox: outbox);
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        name: '',
+        members: [_member('court', me), _member('kaitlyn', peer)],
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
+    // A target I authored, already in the timeline.
+    container
+        .read(messageStoreProvider('room1').notifier)
+        .add(
+          Msg(
+            id: 'target-1',
+            from: 'court',
+            to: 'room1',
+            body: 'helo',
+            ts: DateTime.utc(2026, 6, 10, 12),
+          ),
+        );
+    container.read(roomMessageRouterProvider);
+
+    // My own edit self-copy: encrypted to my own key, tagged with clientMsgId.
+    final key = await deriveRoomKey(
+      me: me,
+      peerX25519Pub: me.x25519PublicKey,
+      roomId: 'room1',
+    );
+    final body = await encryptOutgoing(
+      key,
+      const EditContent(targetId: 'target-1', text: 'hello').encode(),
+    );
+    conn.emit(
+      MessageFrame(
+        id: 'srv-edit',
+        roomId: 'room1',
+        from: 'court',
+        ts: DateTime.utc(2026, 6, 10, 12, 1),
+        body: body,
+        replayed: false,
+        clientMsgId: 'cli-edit',
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    // Edit applied onto the target (no new bubble), and the outbox row is gone
+    // so the drain won't resend it.
+    final msgs = container.read(messageStoreProvider('room1'));
+    expect(msgs, hasLength(1));
+    expect(msgs.single.id, 'target-1');
+    expect(msgs.single.body, 'hello');
+    expect(await outbox.lookup('cli-edit'), isNull);
+  });
+
   test(
     'a delete that replays before its target keeps the target hidden',
     () async {
