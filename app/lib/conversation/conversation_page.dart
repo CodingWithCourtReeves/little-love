@@ -1167,30 +1167,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                       ),
                     ),
                   ),
-                  // Dark scrim across the very top — behind the status bar and
-                  // app bar — so the OS clock/battery and the title stay
-                  // legible over the wallpaper, Telegram-style. Drawn over the
-                  // message list (so it scrolls under), pointer-through.
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height:
-                        MediaQuery.of(context).padding.top +
-                        kToolbarHeight +
-                        12,
-                    child: const IgnorePointer(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [Color(0x99000000), Color(0x00000000)],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+                  // Frosted, darkened scrim behind the status bar + app-bar
+                  // pills so the OS clock/battery and the title stay legible
+                  // over the wallpaper, Telegram-style. Messages scroll under
+                  // it and blur.
+                  _topScrim(context),
                   Positioned(
                     right: 16,
                     bottom: 16,
@@ -1912,6 +1893,70 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       count++;
     }
     return count;
+  }
+
+  /// Frosted, darkened band behind the status bar + app-bar pills. Messages
+  /// scroll under it and blur/darken so the OS clock/battery and the room title
+  /// stay legible, Telegram-style. Built from stacked blur sub-bands with
+  /// decreasing sigma (strong at the very top, fading down) rather than a single
+  /// ShaderMask-over-BackdropFilter, which mis-composites
+  /// (https://github.com/flutter/flutter/issues/175537). Drawn over the message
+  /// list; pointer-through.
+  Widget _topScrim(BuildContext context) {
+    final h = MediaQuery.of(context).padding.top + kToolbarHeight + 12;
+    return Positioned(
+      key: const Key('top-scrim'),
+      top: 0,
+      left: 0,
+      right: 0,
+      height: h,
+      child: IgnorePointer(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _blurBand(top: 0, height: h * 0.45, sigma: 12),
+            _blurBand(top: h * 0.45, height: h * 0.30, sigma: 6),
+            _blurBand(top: h * 0.75, height: h * 0.25, sigma: 2),
+            // Darker gradient over the blur (was 0x99 → now 0xCC) so the pills
+            // sit on a stronger fade and stop blending with messages.
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xCC000000), Color(0x00000000)],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// One horizontal blur slice of the top scrim. Reuses the composer's
+  /// saturation matrix so the glass material reads consistently across the
+  /// screen.
+  Widget _blurBand({
+    required double top,
+    required double height,
+    required double sigma,
+  }) {
+    return Positioned(
+      top: top,
+      left: 0,
+      right: 0,
+      height: height,
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.compose(
+            outer: const ColorFilter.matrix(_glassSaturation),
+            inner: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+          ),
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
   }
 
   Widget _composer() {
