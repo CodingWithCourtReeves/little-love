@@ -161,7 +161,7 @@ void main() {
     expect(back.preview!.siteName, 'Example');
   });
 
-  const _sampleDesc = AttachmentDescriptor(
+  const sampleDesc = AttachmentDescriptor(
     blobKey: 'k',
     contentKeyB64: 'a',
     nonceB64: 'b',
@@ -194,7 +194,7 @@ void main() {
 
   test('FileContent round-trips a replyTo without an excerpt', () {
     final enc = const FileContent(
-      _sampleDesc,
+      sampleDesc,
       caption: 'hi',
       replyTo: ReplyRef(id: 'm2', author: 'kaitlyn', kind: 'photo'),
     ).encode();
@@ -206,7 +206,7 @@ void main() {
 
   test('AudioContent round-trips a replyTo', () {
     final enc = const AudioContent(
-      _sampleDesc,
+      sampleDesc,
       replyTo: ReplyRef(id: 'm3', author: 'court', kind: 'voice'),
     ).encode();
     final back = MessageContent.decode(enc) as AudioContent;

@@ -62,8 +62,8 @@ Widget _app(ProviderContainer container, {SendCallback? onSend}) =>
         home: ConversationPage(
           room: _roomA(),
           selfUsername: 'court',
-          onSend: onSend ?? (_, __) {},
-          onReact: (_, __) {},
+          onSend: onSend ?? (_, _) {},
+          onReact: (_, _) {},
         ),
       ),
     );
@@ -159,77 +159,79 @@ void main() {
     expect(find.text('Replying to kaitlyn'), findsOneWidget);
   });
 
-  testWidgets('sending while replying attaches replyTo then clears the banner', (
-    tester,
-  ) async {
-    ReplyRef? sentReply;
-    var sentCount = 0;
-    final container = _container([
-      Msg(
-        id: '1',
-        from: 'kaitlyn',
-        to: 'court',
-        body: 'hello love',
-        ts: DateTime.utc(2026, 6, 9, 17, 2),
-      ),
-    ]);
-    addTearDown(container.dispose);
-    await tester.pumpWidget(
-      _app(
-        container,
-        onSend: (_, replyTo) {
-          sentReply = replyTo;
-          sentCount++;
-        },
-      ),
-    );
-    await tester.pumpAndSettle();
+  testWidgets(
+    'sending while replying attaches replyTo then clears the banner',
+    (tester) async {
+      ReplyRef? sentReply;
+      var sentCount = 0;
+      final container = _container([
+        Msg(
+          id: '1',
+          from: 'kaitlyn',
+          to: 'court',
+          body: 'hello love',
+          ts: DateTime.utc(2026, 6, 9, 17, 2),
+        ),
+      ]);
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        _app(
+          container,
+          onSend: (_, replyTo) {
+            sentReply = replyTo;
+            sentCount++;
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    await tester.longPress(find.text('hello love'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('action-reply')));
-    await tester.pumpAndSettle();
+      await tester.longPress(find.text('hello love'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('action-reply')));
+      await tester.pumpAndSettle();
 
-    await tester.enterText(find.byKey(const Key('composer')), 'replying now');
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('composer-send')));
-    await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('composer')), 'replying now');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('composer-send')));
+      await tester.pumpAndSettle();
 
-    expect(sentCount, 1);
-    expect(sentReply, isNotNull);
-    expect(sentReply!.id, '1');
-    expect(sentReply!.author, 'kaitlyn');
-    expect(sentReply!.kind, 'text');
-    // Banner clears after the send.
-    expect(find.byKey(const Key('reply-banner')), findsNothing);
-  });
+      expect(sentCount, 1);
+      expect(sentReply, isNotNull);
+      expect(sentReply!.id, '1');
+      expect(sentReply!.author, 'kaitlyn');
+      expect(sentReply!.kind, 'text');
+      // Banner clears after the send.
+      expect(find.byKey(const Key('reply-banner')), findsNothing);
+    },
+  );
 
-  testWidgets('tapping a reply quote does not throw when the target is present', (
-    tester,
-  ) async {
-    final container = _container([
-      Msg(
-        id: '1',
-        from: 'kaitlyn',
-        to: 'court',
-        body: 'jump target',
-        ts: DateTime.utc(2026, 6, 9, 17, 2),
-      ),
-      Msg(
-        id: '2',
-        from: 'court',
-        to: 'kaitlyn',
-        body: 'reply',
-        ts: DateTime.utc(2026, 6, 9, 17, 4),
-        replyTo: const ReplyRef(id: '1', author: 'kaitlyn', kind: 'text'),
-      ),
-    ]);
-    addTearDown(container.dispose);
-    await tester.pumpWidget(_app(container));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('reply-quote-2')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'tapping a reply quote does not throw when the target is present',
+    (tester) async {
+      final container = _container([
+        Msg(
+          id: '1',
+          from: 'kaitlyn',
+          to: 'court',
+          body: 'jump target',
+          ts: DateTime.utc(2026, 6, 9, 17, 2),
+        ),
+        Msg(
+          id: '2',
+          from: 'court',
+          to: 'kaitlyn',
+          body: 'reply',
+          ts: DateTime.utc(2026, 6, 9, 17, 4),
+          replyTo: const ReplyRef(id: '1', author: 'kaitlyn', kind: 'text'),
+        ),
+      ]);
+      addTearDown(container.dispose);
+      await tester.pumpWidget(_app(container));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('reply-quote-2')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

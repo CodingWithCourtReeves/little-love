@@ -558,7 +558,10 @@ void main() {
         replyTo: reply,
       ),
     );
-    expect(container.read(messageStoreProvider('r1')).single.replyTo!.id, 'orig');
+    expect(
+      container.read(messageStoreProvider('r1')).single.replyTo!.id,
+      'orig',
+    );
     // Editing the text must not drop the quote (regression on _withEdit).
     store.applyEdit('srv-1', requestedBy: 'court', text: 'hi (fixed)');
     final out = container.read(messageStoreProvider('r1')).single;

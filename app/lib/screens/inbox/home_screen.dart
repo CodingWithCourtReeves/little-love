@@ -370,8 +370,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         room: room,
         me: me,
         selfUsername: _me,
-        plaintext: TextContent(text, preview: preview, replyTo: replyTo)
-            .encode(),
+        plaintext: TextContent(
+          text,
+          preview: preview,
+          replyTo: replyTo,
+        ).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
       );
@@ -459,8 +462,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         room: room,
         me: me,
         selfUsername: _me,
-        plaintext: FileContent(descriptor, caption: caption, replyTo: replyTo)
-            .encode(),
+        plaintext: FileContent(
+          descriptor,
+          caption: caption,
+          replyTo: replyTo,
+        ).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
       );
