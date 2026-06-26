@@ -237,10 +237,19 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    // Two frosted surfaces: the composer pill and the idle mic glass circle
-    // (shown while the field is empty). The top bar is now just a dark scrim,
-    // no frost.
-    expect(find.byType(BackdropFilter), findsNWidgets(2));
+    // Two frosted surfaces in the composer: the pill and the idle mic glass
+    // circle (shown while the field is empty). The top scrim also frosts now
+    // (its own stacked blur bands), so scope the count to BackdropFilters that
+    // are NOT part of the top scrim.
+    final all = find.byType(BackdropFilter).evaluate().length;
+    final inScrim = find
+        .descendant(
+          of: find.byKey(const Key('top-scrim')),
+          matching: find.byType(BackdropFilter),
+        )
+        .evaluate()
+        .length;
+    expect(all - inScrim, 2);
   });
 
   testWidgets('tapping the room-name pill opens the chat-info page', (
