@@ -499,23 +499,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     }
   }
 
-  /// Decrypt the attachment to a local file, then hand it to the iOS share
-  /// sheet.
-  Future<void> _shareAttachment(AttachmentDescriptor att) async {
-    final conn = ref.read(liveConnectionProvider).asData?.value;
-    if (conn == null) return;
-    try {
-      final file = await fetchAndDecrypt(conn: conn, descriptor: att);
-      await shareFile(file, att);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Couldn't share: $e")));
-      }
-    }
-  }
-
   /// The live message with [id] from the current buffer, or null if it isn't
   /// loaded (scrolled out of history, or since unsent).
   Msg? _lookupMessage(String id) {
@@ -1016,12 +999,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             ? () {
                 _dismissReactionBar();
                 _saveAttachment(m.attachment!);
-              }
-            : null,
-        onShareMedia: isMedia
-            ? () {
-                _dismissReactionBar();
-                _shareAttachment(m.attachment!);
               }
             : null,
         onDelete: delete == null
@@ -3098,7 +3075,6 @@ class _ReactionBarOverlay extends StatefulWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onSaveMedia,
-    required this.onShareMedia,
     required this.onDismiss,
   });
   final Offset anchor;
@@ -3111,7 +3087,6 @@ class _ReactionBarOverlay extends StatefulWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final VoidCallback? onSaveMedia;
-  final VoidCallback? onShareMedia;
   final VoidCallback onDismiss;
 
   @override
@@ -3142,7 +3117,6 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
         (widget.onCopy != null ? 1 : 0) +
         (widget.onEdit != null ? 1 : 0) +
         (widget.onSaveMedia != null ? 1 : 0) +
-        (widget.onShareMedia != null ? 1 : 0) +
         (widget.onDelete != null ? 1 : 0);
     final actionsHeight = actionCount == 0 ? 0.0 : actionCount * 44.0 + 8.0;
     final totalHeight =
@@ -3258,13 +3232,6 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
                 icon: Icons.download_rounded,
                 label: 'Save to Photos',
                 onTap: widget.onSaveMedia!,
-              ),
-            if (widget.onShareMedia != null)
-              _actionItem(
-                key: 'action-share-media',
-                icon: Icons.ios_share,
-                label: 'Share',
-                onTap: widget.onShareMedia!,
               ),
             if (widget.onDelete != null)
               _actionItem(

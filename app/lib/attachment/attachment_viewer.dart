@@ -44,18 +44,6 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
     }
   }
 
-  Future<void> _share() async {
-    try {
-      await shareFile(widget.file, widget.descriptor);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Couldn't share: $e")));
-      }
-    }
-  }
-
   @override
   void initState() {
     super.initState();
@@ -91,11 +79,6 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
           style: const TextStyle(fontSize: 13),
         ),
         actions: [
-          IconButton(
-            tooltip: 'Share',
-            icon: const Icon(Icons.ios_share),
-            onPressed: _share,
-          ),
           IconButton(
             tooltip: 'Save to Photos',
             icon: _saving
