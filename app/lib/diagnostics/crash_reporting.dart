@@ -110,13 +110,19 @@ class CrashReporting {
         gateBreadcrumb(crumb, enabled: _enabled);
   }
 
-  /// Forward uncaught Flutter framework errors to Sentry while preserving the
-  /// default console/red-screen presentation. Async errors are already caught
-  /// by the `runZonedGuarded` that `Sentry.init`'s `appRunner` installs.
-  static void _installFlutterErrorHandler() {
+  /// Forward uncaught errors to Sentry while preserving the default
+  /// console/red-screen presentation. `FlutterError.onError` covers framework
+  /// errors; `PlatformDispatcher.onError` covers uncaught *async* errors even
+  /// outside `Sentry.init`'s `runZonedGuarded`, so mid-session opt-in gets the
+  /// same async coverage as opting in at launch.
+  static void _installErrorHandlers() {
     FlutterError.onError = (details) {
       FlutterError.presentError(details);
       Sentry.captureException(details.exception, stackTrace: details.stack);
+    };
+    PlatformDispatcher.instance.onError = (error, stack) {
+      Sentry.captureException(error, stackTrace: stack);
+      return false; // keep the platform's default logging too
     };
   }
 
@@ -131,7 +137,7 @@ class CrashReporting {
       await Sentry.init(
         _configure,
         appRunner: () {
-          _installFlutterErrorHandler();
+          _installErrorHandlers();
           appRunner();
         },
       );
@@ -150,8 +156,17 @@ class CrashReporting {
     if (value && crashReportingAvailable && !_initialized) {
       _initialized = true;
       await Sentry.init(_configure);
-      _installFlutterErrorHandler();
+      _installErrorHandlers();
     }
+  }
+
+  /// Clear the opt-in choice on sign-out so a new account on this device never
+  /// inherits the previous user's consent. Stops live transmission immediately
+  /// (the gates now drop everything); the SDK, if already loaded, stays loaded.
+  static Future<void> onSignOut() async {
+    _enabled = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefKey);
   }
 }
 

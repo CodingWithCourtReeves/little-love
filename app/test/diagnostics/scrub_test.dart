@@ -145,5 +145,22 @@ void main() {
       final event = SentryEvent(transaction: 'send to alice@example.com');
       expect(scrubEvent(event)!.transaction, 'send to [email]');
     });
+
+    test('redacts a structured message template and params', () {
+      // The chokepoint must cover the whole SentryMessage, not just `formatted`:
+      // a captureMessage with a template + interpolated params could carry an
+      // identifier in either field.
+      final event = SentryEvent(
+        message: SentryMessage(
+          'login for alice@example.com',
+          template: 'login for %s',
+          params: ['alice@example.com', 7],
+        ),
+      );
+      final out = scrubEvent(event)!.message!;
+      expect(out.formatted, 'login for [email]');
+      expect(out.template, 'login for %s');
+      expect(out.params, ['[email]', 7]);
+    });
   });
 }

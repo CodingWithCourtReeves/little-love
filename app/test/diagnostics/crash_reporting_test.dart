@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:littlelove/diagnostics/crash_reporting.dart';
 import 'package:sentry/sentry.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // The opt-in invariant: nothing reaches Bugsink unless the user has turned
 // crash reporting on. The gate is the chokepoint `beforeSend`/`beforeBreadcrumb`
@@ -23,6 +24,24 @@ void main() {
       final out = gateEvent(event, enabled: true);
       expect(out, isNotNull);
       expect(out!.message!.formatted, 'login for [email]');
+    });
+  });
+
+  group('onSignOut', () {
+    setUp(() {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    test('clears the opt-in so a new account never inherits consent', () async {
+      await CrashReporting.setEnabled(true);
+      expect(CrashReporting.enabled, isTrue);
+
+      await CrashReporting.onSignOut();
+
+      expect(CrashReporting.enabled, isFalse);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('diagnostics.crashReporting.enabled'), isNull);
     });
   });
 

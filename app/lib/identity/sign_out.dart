@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../conversation/message_db.dart';
+import '../diagnostics/crash_reporting.dart';
 import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/read_state_provider.dart';
@@ -50,6 +51,9 @@ Future<void> signOut(WidgetRef ref) async {
       .read(profilePublishCacheProvider)
       .setAvatar(null, null)
       .catchError((_) {});
+  // Clear the crash-reporting opt-in so a new account on this device doesn't
+  // inherit the previous user's consent (and stop any live transmission now).
+  await CrashReporting.onSignOut().catchError((_) {});
 
   // 2. In-memory session state that doesn't watch accountProvider.
   ref.invalidate(inboxStateProvider);
@@ -59,6 +63,9 @@ Future<void> signOut(WidgetRef ref) async {
   ref.invalidate(requestedRoomProvider);
   // The partner's decrypted profile + cached avatar files belong to this couple.
   ref.invalidate(profileStoreProvider);
+  // Reset the toggle's state so the next account sees it off (matches the
+  // cleared pref above).
+  ref.invalidate(crashReportingProvider);
   // NOTE: deliberately do NOT clear pendingPairCodeProvider here. A
   // /pair/<code> link captured at cold launch is pulled from the native
   // buffer exactly once (takePendingLaunchLink); the legitimate invitee flow

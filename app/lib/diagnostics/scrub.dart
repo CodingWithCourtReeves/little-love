@@ -172,5 +172,11 @@ SentryEvent? scrubEvent(SentryEvent? e) {
 
 SentryMessage? _scrubMessage(SentryMessage? m) {
   if (m == null) return null;
-  return m.copyWith(formatted: redact(m.formatted));
+  // Cover the whole message, not just `formatted`: a templated capture can carry
+  // an identifier in the template or its interpolated params too.
+  return m.copyWith(
+    formatted: redact(m.formatted),
+    template: m.template == null ? null : redact(m.template!),
+    params: m.params?.map((p) => p is String ? redact(p) : p).toList(),
+  );
 }
