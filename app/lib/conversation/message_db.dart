@@ -8,6 +8,7 @@ import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../attachment/attachment_descriptor.dart';
 import '../wire/message.dart';
 import 'link_preview.dart';
+import 'reply_ref.dart';
 import 'message_db_key.dart';
 import 'message_search.dart';
 
@@ -21,7 +22,7 @@ import 'message_search.dart';
 /// SQLCipher-backed production impl, and a `.test` factory that wraps a plain
 /// ffi [Database] so unit tests skip the native crypto layer.
 abstract class MessageDb {
-  static const schemaVersion = 3;
+  static const schemaVersion = 4;
 
   /// SQLCipher-backed impl living at `<app-support>/messages.db`.
   static Future<MessageDb> open() async {
@@ -60,6 +61,7 @@ abstract class MessageDb {
         deleted       INTEGER NOT NULL DEFAULT 0,
         deleted_by    TEXT,
         edited        INTEGER NOT NULL DEFAULT 0,
+        reply_to      TEXT,
         PRIMARY KEY (id)
       )
     ''');
@@ -108,6 +110,11 @@ abstract class MessageDb {
         'ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0',
       );
       await _createPendingEdits(db);
+    }
+    if (oldV < 4) {
+      // Reply/quote metadata, JSON-encoded ReplyRef. Schema-only ALTER with a
+      // null default, so existing rows read as non-replies.
+      await db.execute('ALTER TABLE messages ADD COLUMN reply_to TEXT');
     }
   }
 
@@ -541,6 +548,7 @@ class SqliteMessageDb implements MessageDb {
     'reactions': jsonEncode(m.reactions),
     'deleted': 0,
     'edited': m.edited ? 1 : 0,
+    'reply_to': m.replyTo == null ? null : jsonEncode(m.replyTo!.toJson()),
   };
 
   Msg _fromRow(Map<String, Object?> r) => Msg(
@@ -566,6 +574,11 @@ class SqliteMessageDb implements MessageDb {
     reactions: (jsonDecode(r['reactions'] as String) as Map<String, Object?>)
         .map((k, v) => MapEntry(k, v as String)),
     edited: (r['edited'] as int? ?? 0) == 1,
+    replyTo: r['reply_to'] == null
+        ? null
+        : ReplyRef.fromJson(
+            jsonDecode(r['reply_to'] as String) as Map<String, Object?>,
+          ),
   );
 }
 

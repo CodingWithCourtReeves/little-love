@@ -329,7 +329,7 @@ class RoomMessageRouter {
     // seen; replay it as the double-heart state. Otherwise default sent.
     final sendStatus = f.read ? SendStatus.read : SendStatus.sent;
     final msg = switch (content) {
-      TextContent(:final text, :final preview) => Msg(
+      TextContent(:final text, :final preview, :final replyTo) => Msg(
         id: f.id,
         from: f.from,
         to: f.roomId,
@@ -338,8 +338,9 @@ class RoomMessageRouter {
         replayed: f.replayed,
         sendStatus: sendStatus,
         linkPreview: preview,
+        replyTo: replyTo,
       ),
-      FileContent(:final descriptor, :final caption) => Msg(
+      FileContent(:final descriptor, :final caption, :final replyTo) => Msg(
         id: f.id,
         from: f.from,
         to: f.roomId,
@@ -348,10 +349,11 @@ class RoomMessageRouter {
         replayed: f.replayed,
         attachment: descriptor,
         sendStatus: sendStatus,
+        replyTo: replyTo,
       ),
       // Voice memos carry the audio descriptor (incl. waveform) as the
       // attachment, same as a file; the bubble renders it as a player.
-      AudioContent(:final descriptor, :final caption) => Msg(
+      AudioContent(:final descriptor, :final caption, :final replyTo) => Msg(
         id: f.id,
         from: f.from,
         to: f.roomId,
@@ -360,6 +362,7 @@ class RoomMessageRouter {
         replayed: f.replayed,
         attachment: descriptor,
         sendStatus: sendStatus,
+        replyTo: replyTo,
       ),
       // A call-log entry renders as a (currently text-style) timeline row.
       CallContent(:final outcome, :final durationS, :final video) => Msg(

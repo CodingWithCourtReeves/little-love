@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_db.dart';
+import 'package:littlelove/conversation/reply_ref.dart';
 import 'package:littlelove/wire/message.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -264,5 +265,29 @@ void main() {
     await db.upsert(msg('01C'), roomId: 'room1');
     await db.upsert(msg('01B'), roomId: 'room1');
     expect(await db.highWaterMark('room1'), '01C');
+  });
+
+  test('persists and reloads replyTo', () async {
+    final db = await freshDb();
+    await db.upsert(
+      Msg(
+        id: '01A',
+        from: 'court',
+        to: 'room1',
+        body: 'hi',
+        ts: DateTime.utc(2026, 6, 24, 12),
+        replyTo: const ReplyRef(id: 'orig', author: 'kaitlyn', kind: 'photo'),
+      ),
+      roomId: 'room1',
+    );
+    final rows = await db.messagesFor('room1');
+    expect(rows.single.replyTo!.id, 'orig');
+    expect(rows.single.replyTo!.kind, 'photo');
+  });
+
+  test('a row without replyTo reloads as null', () async {
+    final db = await freshDb();
+    await db.upsert(msg('01A'), roomId: 'room1');
+    expect((await db.messagesFor('room1')).single.replyTo, isNull);
   });
 }
