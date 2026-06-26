@@ -1910,7 +1910,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// composer's blinking cursor, the typing dots) can't force the blur to
   /// re-composite every frame.
   Widget _topScrim(BuildContext context) {
-    final h = MediaQuery.of(context).padding.top + kToolbarHeight + 4;
+    // Extend ~28px past the toolbar so the frost + darkening clear the bottom
+    // of the title/action pills and fade out a few px below them, rather than
+    // fading out right at the pills.
+    final h = MediaQuery.of(context).padding.top + kToolbarHeight + 28;
     return Positioned(
       key: const Key('top-scrim'),
       top: 0,
@@ -1922,17 +1925,24 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // Blur the top portion only; the gradient below covers the
-              // blur's bottom edge so there's no visible seam.
-              _blurBand(top: 0, height: h * 0.75, sigma: 12),
-              // Darker gradient over the blur (0xCC) so the pills sit on a
-              // strong fade and stop blending with messages.
+              // Blur the top portion; the gradient below covers the blur's
+              // bottom edge so there's no visible seam.
+              _blurBand(top: 0, height: h * 0.82, sigma: 12),
+              // Darker gradient (0xCC) that holds through the pills, then fades
+              // out in the last stretch — keeps the pills on a strong fade and
+              // stops them blending with messages, with the fall-off landing
+              // just below them.
               const DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Color(0xCC000000), Color(0x00000000)],
+                    colors: [
+                      Color(0xCC000000),
+                      Color(0xCC000000),
+                      Color(0x00000000),
+                    ],
+                    stops: [0.0, 0.5, 1.0],
                   ),
                 ),
               ),
