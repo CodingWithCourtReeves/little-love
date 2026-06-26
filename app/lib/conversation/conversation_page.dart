@@ -473,6 +473,92 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// (text/media) are reply-able; call-log rows are not.
   bool _canReply(Msg m) => m.callOutcome == null;
 
+  /// The live message with [id] from the current buffer, or null if it isn't
+  /// loaded (scrolled out of history, or since unsent).
+  Msg? _lookupMessage(String id) {
+    for (final x in ref.read(messageStoreProvider(widget.roomId))) {
+      if (x.id == id) return x;
+    }
+    return null;
+  }
+
+  /// Attribution label for a reply quote: "You" for my own message, else the
+  /// author's username.
+  String _replyAuthorLabel(String author) =>
+      author == widget.selfUsername ? 'You' : author;
+
+  /// One-line preview text for a quote: the excerpt for text, a kind label
+  /// ("Photo" / "Voice message") for bare media, or "label · caption" when a
+  /// captioned attachment is quoted.
+  String _replyPreviewText(ReplyRef r) {
+    final label = switch (r.kind) {
+      'photo' => 'Photo',
+      'video' => 'Video',
+      'voice' => 'Voice message',
+      'file' => 'File',
+      _ => null,
+    };
+    final text = r.text?.trim();
+    if (label == null) return text ?? '';
+    return (text == null || text.isEmpty) ? label : '$label · $text';
+  }
+
+  /// A tappable quote header drawn above a reply's bubble. Resolves the live
+  /// target when present (so it reflects later edits) and falls back to the
+  /// cached [ReplyRef] snippet otherwise. Tapping jumps to the original.
+  Widget _replyQuoteHeader(Msg m, bool mine) {
+    final live = _lookupMessage(m.replyTo!.id);
+    final r = live != null ? _replyRefFor(live) : m.replyTo!;
+    final accent = mine
+        ? context.palette.accentUser
+        : context.palette.accentSage;
+    return Align(
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _focusMessage(r.id),
+        child: Container(
+          key: Key('reply-quote-${m.id}'),
+          margin: EdgeInsets.only(
+            left: mine ? 0 : 16,
+            right: mine ? 16 : 0,
+            top: 2,
+          ),
+          padding: const EdgeInsets.fromLTRB(8, 5, 10, 5),
+          constraints: const BoxConstraints(maxWidth: 280),
+          decoration: BoxDecoration(
+            color: context.palette.bgSurface.withValues(alpha: 0.55),
+            borderRadius: BorderRadius.circular(10),
+            border: Border(left: BorderSide(color: accent, width: 3)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _replyAuthorLabel(r.author),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: accent,
+                ),
+              ),
+              Text(
+                _replyPreviewText(r),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: context.palette.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Whether we've sent `typing:true` and not yet sent the matching `false`.
   bool _typingActive = false;
   Timer? _typingStop;
@@ -811,9 +897,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   void _showReactionBar(Offset globalPos, Msg m) {
     final mine = m.from == widget.selfUsername;
     final canCopy = _canCopy(m);
+    final canReply = _canReply(m);
     final edit = _editAction(m, mine);
     final delete = _deleteAction(m, mine);
-    if (widget.onReact == null && !canCopy && edit == null && delete == null) {
+    if (widget.onReact == null &&
+        !canReply &&
+        !canCopy &&
+        edit == null &&
+        delete == null) {
       return;
     }
     HapticFeedback.mediumImpact();
@@ -831,6 +922,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           _dismissReactionBar();
           _openReactionPicker(m);
         },
+        onReply: canReply
+            ? () {
+                _dismissReactionBar();
+                _startReply(m);
+              }
+            : null,
         onCopy: canCopy
             ? () {
                 _dismissReactionBar();
@@ -1327,11 +1424,21 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final mine = m.from == me;
     // The sent/sending marker (if any) is drawn inside the bubble itself.
     Widget content = _bubbleContent(m, me, marker);
+    // A reply quotes its target above the bubble, side-aligned to match.
+    if (m.replyTo != null) {
+      content = Column(
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [_replyQuoteHeader(m, mine), content],
+      );
+    }
     // Long-press → context menu (reactions + Copy/Delete); double-tap →
     // default reaction. Wraps both text and media bubbles; the media bubble's
     // own tap-to-open still wins for a plain tap (deferToChild).
     final canLongPress =
         widget.onReact != null ||
+        _canReply(m) ||
         _canCopy(m) ||
         _editAction(m, mine) != null ||
         _deleteAction(m, mine) != null;
@@ -1393,7 +1500,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // Keyed so a jump-to-message (search) can ensureVisible it; pulses a tint
     // while it's the highlighted target.
     final highlighted = m.id == _highlightedId;
-    return AnimatedContainer(
+    final container = AnimatedContainer(
       key: _bubbleKeyFor(m.id),
       duration: const Duration(milliseconds: 300),
       decoration: BoxDecoration(
@@ -1403,6 +1510,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         borderRadius: BorderRadius.circular(12),
       ),
       child: bubble,
+    );
+    // Swipe a real bubble toward center (own → left, partner's → right) to
+    // reply; call-log rows aren't reply-able.
+    if (!_canReply(m)) return container;
+    return _SwipeToReply(
+      mine: mine,
+      onReply: () => _startReply(m),
+      child: container,
     );
   }
 
@@ -2067,6 +2182,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           mainAxisSize: MainAxisSize.min,
           children: [
             if (_editingId != null) _editBanner(),
+            if (_replyDraft != null) _replyBanner(),
             if (_staged.isNotEmpty) _stagingTray(),
             // Scope recorder-driven rebuilds (timer + live waveform fire
             // ~15×/sec) to the composer only, so the message list isn't
@@ -2433,6 +2549,57 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             visualDensity: VisualDensity.compact,
             onPressed: _cancelEdit,
             tooltip: 'Cancel edit',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _replyBanner() {
+    final palette = context.palette;
+    final r = _replyDraft!;
+    return Container(
+      key: const Key('reply-banner'),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: palette.bgSurface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border(left: BorderSide(color: palette.accentSage, width: 3)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.reply, size: 18, color: palette.accentSage),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Replying to ${_replyAuthorLabel(r.author)}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: palette.accentSage,
+                  ),
+                ),
+                Text(
+                  _replyPreviewText(r),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: palette.textMuted),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            key: const Key('reply-cancel'),
+            icon: const Icon(Icons.close, size: 20),
+            color: palette.textMuted,
+            visualDensity: VisualDensity.compact,
+            onPressed: _cancelReply,
+            tooltip: 'Cancel reply',
           ),
         ],
       ),
@@ -2824,6 +2991,7 @@ class _ReactionBarOverlay extends StatefulWidget {
     required this.showReactions,
     required this.onPick,
     required this.onMore,
+    required this.onReply,
     required this.onCopy,
     required this.onEdit,
     required this.onDelete,
@@ -2834,6 +3002,7 @@ class _ReactionBarOverlay extends StatefulWidget {
   final bool showReactions;
   final void Function(String emoji) onPick;
   final VoidCallback onMore;
+  final VoidCallback? onReply;
   final VoidCallback? onCopy;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
@@ -2863,6 +3032,7 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
     const menuWidth = 296.0;
     const reactionRow = 48.0 + 8.0; // bar + gap below it
     final actionCount =
+        (widget.onReply != null ? 1 : 0) +
         (widget.onCopy != null ? 1 : 0) +
         (widget.onEdit != null ? 1 : 0) +
         (widget.onDelete != null ? 1 : 0);
@@ -2953,6 +3123,13 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (widget.onReply != null)
+              _actionItem(
+                key: 'action-reply',
+                icon: Icons.reply,
+                label: 'Reply',
+                onTap: widget.onReply!,
+              ),
             if (widget.onCopy != null)
               _actionItem(
                 key: 'action-copy',
@@ -3538,6 +3715,91 @@ class _PopIn extends StatelessWidget {
         );
       },
       child: child,
+    );
+  }
+}
+
+/// Swipe-to-reply: drags a bubble horizontally toward screen center (own
+/// bubbles left, partner's right), revealing a reply arrow. Releasing past the
+/// threshold fires [onReply]; the bubble springs back either way. Vertical
+/// scrolling is untouched — only horizontal drags are claimed.
+class _SwipeToReply extends StatefulWidget {
+  const _SwipeToReply({
+    required this.mine,
+    required this.onReply,
+    required this.child,
+  });
+
+  final bool mine;
+  final VoidCallback onReply;
+  final Widget child;
+
+  @override
+  State<_SwipeToReply> createState() => _SwipeToReplyState();
+}
+
+class _SwipeToReplyState extends State<_SwipeToReply> {
+  static const _threshold = 56.0;
+  static const _maxDrag = 80.0;
+  double _dx = 0;
+  bool _armed = false;
+
+  void _update(DragUpdateDetails d) {
+    // Own bubbles pull left (negative), partner's pull right (positive); ignore
+    // drags in the wrong direction so the gesture only ever opens inward.
+    final next = _dx + d.delta.dx;
+    final clamped = widget.mine
+        ? next.clamp(-_maxDrag, 0.0)
+        : next.clamp(0.0, _maxDrag);
+    final armed = clamped.abs() >= _threshold;
+    if (armed && !_armed) HapticFeedback.lightImpact();
+    setState(() {
+      _dx = clamped;
+      _armed = armed;
+    });
+  }
+
+  void _end(DragEndDetails _) {
+    if (_armed) widget.onReply();
+    setState(() {
+      _dx = 0;
+      _armed = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (_dx.abs() / _threshold).clamp(0.0, 1.0);
+    return Stack(
+      alignment: widget.mine ? Alignment.centerRight : Alignment.centerLeft,
+      children: [
+        Positioned(
+          left: widget.mine ? null : 12,
+          right: widget.mine ? 12 : null,
+          child: Opacity(
+            opacity: progress,
+            child: Icon(
+              Icons.reply,
+              size: 20,
+              color: context.palette.accentSage,
+            ),
+          ),
+        ),
+        GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragUpdate: _update,
+          onHorizontalDragEnd: _end,
+          child: AnimatedContainer(
+            // Snap back smoothly on release (_dx → 0); track the finger live.
+            duration: _dx == 0
+                ? const Duration(milliseconds: 160)
+                : Duration.zero,
+            curve: Curves.easeOut,
+            transform: Matrix4.translationValues(_dx, 0, 0),
+            child: widget.child,
+          ),
+        ),
+      ],
     );
   }
 }
