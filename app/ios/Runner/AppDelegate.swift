@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import CallKit
 import Flutter
 import PushKit
@@ -35,6 +36,13 @@ import flutter_callkit_incoming
   /// PushKit registry for VoIP (call) wakes — distinct from the alert APNs
   /// registration above. Retained for the app's lifetime.
   private var voipRegistry: PKPushRegistry?
+  /// In-room message chime channel + its preloaded system-sound ids (created
+  /// lazily from the bundled WAVs on first play, then reused). Played via
+  /// AudioServicesPlaySystemSound so they respect the hardware silent switch,
+  /// mix with other audio, and never touch the call/voice AVAudioSession.
+  private var messageSoundChannel: FlutterMethodChannel?
+  private var sentSoundID: SystemSoundID = 0
+  private var receivedSoundID: SystemSoundID = 0
 
   override func application(
     _ application: UIApplication,
@@ -296,6 +304,41 @@ import flutter_callkit_incoming
     // Native → Dart privacy channel (screenshot / screen-recording detection).
     self.callPrivacyChannel = FlutterMethodChannel(
       name: "little_love/call_privacy", binaryMessenger: messenger)
+
+    // In-room message chimes (sent / received).
+    let soundChannel = FlutterMethodChannel(
+      name: "little_love/message_sounds", binaryMessenger: messenger)
+    soundChannel.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else { return }
+      switch call.method {
+      case "playSent":
+        let sid = self.messageSound("message_sent", cached: &self.sentSoundID)
+        if sid != 0 { AudioServicesPlaySystemSound(sid) }
+        result(nil)
+      case "playReceived":
+        let sid = self.messageSound("message_received", cached: &self.receivedSoundID)
+        if sid != 0 { AudioServicesPlaySystemSound(sid) }
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+    self.messageSoundChannel = soundChannel
+  }
+
+  /// Resolve a bundled Flutter audio asset to a registered `SystemSoundID`,
+  /// caching it so the file is only loaded once.
+  private func messageSound(_ name: String, cached: inout SystemSoundID) -> SystemSoundID {
+    if cached != 0 { return cached }
+    let key = FlutterDartProject.lookupKey(forAsset: "assets/audio/\(name).wav")
+    guard let path = Bundle.main.path(forResource: key, ofType: nil) else {
+      NSLog("little_love: message sound asset missing: \(name)")
+      return 0
+    }
+    var sid: SystemSoundID = 0
+    AudioServicesCreateSystemSoundID(URL(fileURLWithPath: path) as CFURL, &sid)
+    cached = sid
+    return sid
   }
 
   // MARK: - Capture privacy (screenshot + screen recording)

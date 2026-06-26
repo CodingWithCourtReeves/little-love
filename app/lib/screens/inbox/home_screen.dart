@@ -11,6 +11,7 @@ import '../../attachment/attachment_descriptor.dart';
 import '../../attachment/attachment_download.dart';
 import '../../attachment/attachment_upload.dart';
 import '../../attachment/attachment_viewer.dart';
+import '../../audio/message_feedback.dart';
 import '../../attachment/file_crypto.dart';
 import '../../attachment/staged_attachment.dart';
 import '../../attachment/thumbnail.dart';
@@ -344,6 +345,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         sendStatus: SendStatus.sending,
       ),
     );
+    // Soft outgoing blip the instant the bubble appears (respects the silent
+    // switch; muted phones get nothing).
+    ref.read(messageFeedbackProvider).sent();
     try {
       // Sender-side link preview (best-effort, bounded): the fetched title/
       // image ride inside the encrypted body, so the recipient never hits the
