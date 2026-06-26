@@ -97,7 +97,7 @@ void main() {
     },
   );
 
-  testWidgets('composer field caps at 6 lines', (tester) async {
+  testWidgets('composer field caps at 10 lines', (tester) async {
     final container = ProviderContainer(
       overrides: [
         accountProvider.overrideWith((_) async => _account),
@@ -110,6 +110,6 @@ void main() {
     await _pump(tester, container);
 
     final field = tester.widget<TextField>(find.byKey(const Key('composer')));
-    expect(field.maxLines, 6);
+    expect(field.maxLines, 10);
   });
 }

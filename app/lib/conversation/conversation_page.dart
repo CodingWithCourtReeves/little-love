@@ -1130,7 +1130,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                           left: 16,
                           right: 16,
                           top:
-                              12 +
+                              4 +
                               MediaQuery.of(context).padding.top +
                               kToolbarHeight,
                           bottom: 12,
@@ -1903,7 +1903,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// (https://github.com/flutter/flutter/issues/175537). Drawn over the message
   /// list; pointer-through.
   Widget _topScrim(BuildContext context) {
-    final h = MediaQuery.of(context).padding.top + kToolbarHeight + 12;
+    final h = MediaQuery.of(context).padding.top + kToolbarHeight + 4;
     return Positioned(
       key: const Key('top-scrim'),
       top: 0,
@@ -2071,7 +2071,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                                                   context.palette.textPrimary,
                                             ),
                                             minLines: 1,
-                                            maxLines: 6,
+                                            maxLines: 10,
                                             keyboardType:
                                                 TextInputType.multiline,
                                             textInputAction:
