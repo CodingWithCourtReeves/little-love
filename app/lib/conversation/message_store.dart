@@ -1,6 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../wire/message.dart';
+import 'link_preview.dart';
+
+/// An edit that arrived before its target row, held until the row lands. Carries
+/// the requester so authorship can be re-validated at apply time (see
+/// [MessageStore._maybeApplyEdit]).
+class _PendingEdit {
+  const _PendingEdit(this.requestedBy, this.text, this.preview);
+  final String requestedBy;
+  final String text;
+  final LinkPreview? preview;
+}
 
 class MessageStore extends FamilyNotifier<List<Msg>, String> {
   /// Tombstones for messages unsent ("deleted for everyone") this session,
@@ -31,6 +42,15 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   /// it when the row finally lands, instead of dropping it on the floor.
   final Set<String> _read = {};
 
+  /// Edits for messages not yet in the buffer, keyed `targetId → edit`. An edit
+  /// frame can arrive before its target — the target hasn't been received, or
+  /// the optimistic→server-id reconcile hasn't happened yet (routine for a link-
+  /// preview send, whose echo trails the partner's frames). Recording it here
+  /// lets [add]/[reconcile] apply it when the row lands instead of dropping it.
+  /// Latest edit wins; the requester is kept so authorship is re-validated on
+  /// apply (a spoofed deferred edit must not mutate the target).
+  final Map<String, _PendingEdit> _edited = {};
+
   /// True when [id] carries a tombstone authored by [from] — i.e. the delete
   /// targeting it came from the same user who wrote it. A tombstone recorded by
   /// a *different* user (a spoofed delete that raced ahead of its target) does
@@ -46,15 +66,44 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   void add(Msg msg) {
     if (_validlyTombstoned(msg.id, msg.from)) return;
     if (state.any((m) => m.id == msg.id)) return;
-    // A read receipt for this id may have arrived before the row did; apply it
-    // now rather than leaving the bubble stuck at "sent".
-    state = [...state, _read.contains(msg.id) ? _markedRead(msg) : msg];
+    // A read receipt and/or an edit for this id may have arrived before the row
+    // did; apply them now rather than leaving the bubble stale.
+    final m = _maybeApplyEdit(_read.contains(msg.id) ? _markedRead(msg) : msg);
+    state = [...state, m];
   }
 
   /// [msg] with its send status promoted to read, unless it's already read.
   static Msg _markedRead(Msg msg) => msg.sendStatus == SendStatus.read
       ? msg
       : msg.copyWith(sendStatus: SendStatus.read);
+
+  /// Apply any deferred edit recorded for [msg]'s id (consuming it), re-checking
+  /// that the edit's requester authored the message. A spoofed deferred edit is
+  /// dropped, leaving the message unchanged.
+  Msg _maybeApplyEdit(Msg msg) {
+    final e = _edited.remove(msg.id);
+    if (e == null || msg.from != e.requestedBy) return msg;
+    return _withEdit(msg, e.text, e.preview);
+  }
+
+  /// [base] rewritten with edited text/preview and the edited flag set. Built by
+  /// hand (not `copyWith`) so an edit that removed a URL can clear the preview to
+  /// null, which `copyWith`'s `?? this` semantics can't express.
+  static Msg _withEdit(Msg base, String text, LinkPreview? preview) => Msg(
+    id: base.id,
+    from: base.from,
+    to: base.to,
+    body: text,
+    ts: base.ts,
+    replayed: base.replayed,
+    clientMsgId: base.clientMsgId,
+    sendStatus: base.sendStatus,
+    attachment: base.attachment,
+    linkPreview: preview,
+    reactions: base.reactions,
+    callOutcome: base.callOutcome,
+    edited: true,
+  );
 
   /// Replace the buffer wholesale (e.g. on initial replay). Validly-tombstoned
   /// ids are filtered out so a wholesale reset can't resurrect a deleted
@@ -79,6 +128,33 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     _deleted[targetId] = requestedBy;
     if (idx < 0) return;
     final next = [...state]..removeAt(idx);
+    state = next;
+  }
+
+  /// Apply an edit onto [targetId], requested by [requestedBy], replacing its
+  /// text with [text] and its link preview with [preview] (null clears it), and
+  /// flagging it edited. Only the author of a message may edit it: if the target
+  /// is present and was written by someone else, this is a spoofed edit — drop it
+  /// (both partners share the room key, so either could craft this frame). If the
+  /// target isn't in the buffer yet, defer it (see [_edited]); authorship is
+  /// re-checked when the row lands. Idempotent for a given edit.
+  void applyEdit(
+    String targetId, {
+    required String requestedBy,
+    required String text,
+    LinkPreview? preview,
+  }) {
+    // A message its author already unsent can't be edited (and a deferred edit
+    // must never resurrect it): drop the edit if a valid tombstone exists.
+    if (_validlyTombstoned(targetId, requestedBy)) return;
+    final idx = state.indexWhere((m) => m.id == targetId);
+    if (idx < 0) {
+      _edited[targetId] = _PendingEdit(requestedBy, text, preview);
+      return;
+    }
+    if (state[idx].from != requestedBy) return; // spoofed edit
+    final next = [...state];
+    next[idx] = _withEdit(state[idx], text, preview);
     state = next;
   }
 
@@ -115,7 +191,8 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     // echo for a preview message), promote the swapped-in row to read now —
     // the echo itself always carries read:false.
     final swapped = server.copyWith(clientMsgId: clientMsgId);
-    next[idx] = _read.contains(server.id) ? _markedRead(swapped) : swapped;
+    final withRead = _read.contains(server.id) ? _markedRead(swapped) : swapped;
+    next[idx] = _maybeApplyEdit(withRead);
     state = List.unmodifiable(next);
   }
 

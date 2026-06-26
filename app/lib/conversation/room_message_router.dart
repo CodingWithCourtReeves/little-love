@@ -300,6 +300,30 @@ class RoomMessageRouter {
       }
       return;
     }
+    // An edit isn't a timeline bubble either: rewrite its target's text/preview
+    // and stop. Only the message's author may edit it — `applyEdit` drops an edit
+    // whose `requestedBy` doesn't match the target's author (a spoofed edit,
+    // possible because both partners share the room key). Same outbox cleanup on
+    // the sender's self-copy echo as a reaction/delete.
+    if (content is EditContent) {
+      store.applyEdit(
+        content.targetId,
+        requestedBy: f.from,
+        text: content.text,
+        preview: content.preview,
+      );
+      await db.applyEdit(
+        content.targetId,
+        requestedBy: f.from,
+        text: content.text,
+        preview: content.preview,
+      );
+      if (f.clientMsgId != null) {
+        final outbox = await ref.read(outboxStoreProvider.future);
+        await outbox.remove(f.clientMsgId!);
+      }
+      return;
+    }
     // `read` is only set on the sender's own self-copy that the partner has
     // seen; replay it as the double-heart state. Otherwise default sent.
     final sendStatus = f.read ? SendStatus.read : SendStatus.sent;
@@ -350,6 +374,7 @@ class RoomMessageRouter {
       // Handled by the early returns above; here only for exhaustiveness.
       ReactionContent() => throw StateError('reaction handled above'),
       DeleteContent() => throw StateError('delete handled above'),
+      EditContent() => throw StateError('edit handled above'),
     };
     // Live self-copy of our own message: swap the optimistic echo (keyed by
     // clientMsgId) for this authoritative row instead of appending a duplicate.

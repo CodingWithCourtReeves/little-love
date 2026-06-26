@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'calling/call_screen.dart';
 import 'conversation/incoming_banner_host.dart';
 import 'diagnostics/crash_reporting.dart';
+import 'identity/dev_provision.dart';
 import 'inbox/mock_fixtures.dart';
 import 'screens/auth/auth_gate.dart';
 import 'theme/app_palette.dart';
@@ -17,6 +18,9 @@ Future<void> main() async {
   if (_fixtures == 'demo') {
     seedDemoFixtures(container);
   }
+  // Dev-only: adopt a seeded identity from runtime env when the two-simulator
+  // harness sets it. No-op in production (env vars unset). See provisionDevIdentity.
+  await provisionDevIdentity(container);
   // Opt-in, content-scrubbed crash reporting. With reporting off (the default)
   // or no DSN compiled in, this just runs the app; with the user opted in it
   // wraps the run so Sentry captures errors from the first frame.
