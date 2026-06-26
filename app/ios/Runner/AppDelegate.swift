@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import CallKit
 import Flutter
 import PushKit
@@ -35,6 +36,14 @@ import flutter_callkit_incoming
   /// PushKit registry for VoIP (call) wakes — distinct from the alert APNs
   /// registration above. Retained for the app's lifetime.
   private var voipRegistry: PKPushRegistry?
+  /// In-room message chime channel + its lazily-resolved system-sound ids. We
+  /// play iOS's own built-in Messages tones (SentMessage / ReceivedMessage)
+  /// straight from the OS — never bundling Apple's audio — via
+  /// AudioServicesPlaySystemSound, so they respect the hardware silent switch,
+  /// mix with other audio, and never touch the call/voice AVAudioSession.
+  private var messageSoundChannel: FlutterMethodChannel?
+  private var sentSoundID: SystemSoundID = 0
+  private var receivedSoundID: SystemSoundID = 0
 
   override func application(
     _ application: UIApplication,
@@ -296,6 +305,45 @@ import flutter_callkit_incoming
     // Native → Dart privacy channel (screenshot / screen-recording detection).
     self.callPrivacyChannel = FlutterMethodChannel(
       name: "little_love/call_privacy", binaryMessenger: messenger)
+
+    // In-room message chimes (sent / received).
+    let soundChannel = FlutterMethodChannel(
+      name: "little_love/message_sounds", binaryMessenger: messenger)
+    soundChannel.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else { return }
+      switch call.method {
+      case "playSent":
+        AudioServicesPlaySystemSound(
+          self.systemSound(
+            "/System/Library/Audio/UISounds/SentMessage.caf",
+            fallbackID: 1004, cached: &self.sentSoundID))
+        result(nil)
+      case "playReceived":
+        AudioServicesPlaySystemSound(
+          self.systemSound(
+            "/System/Library/Audio/UISounds/ReceivedMessage.caf",
+            fallbackID: 1003, cached: &self.receivedSoundID))
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+    self.messageSoundChannel = soundChannel
+  }
+
+  /// Resolve iOS's own built-in tone at [path] to a `SystemSoundID`, caching it.
+  /// We reference the OS's file rather than shipping it (no redistribution of
+  /// Apple audio). If that path is ever unreadable, fall back to the equivalent
+  /// predefined system-sound id (SentMessage = 1004, ReceivedMessage = 1003),
+  /// which plays the same built-in tone.
+  private func systemSound(_ path: String, fallbackID: SystemSoundID, cached: inout SystemSoundID)
+    -> SystemSoundID
+  {
+    if cached != 0 { return cached }
+    var sid: SystemSoundID = 0
+    let status = AudioServicesCreateSystemSoundID(URL(fileURLWithPath: path) as CFURL, &sid)
+    cached = (status == kAudioServicesNoError && sid != 0) ? sid : fallbackID
+    return cached
   }
 
   // MARK: - Capture privacy (screenshot + screen recording)

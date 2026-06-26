@@ -355,13 +355,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   GlobalKey _bubbleKeyFor(String id) =>
       _bubbleKeys.putIfAbsent(id, GlobalKey.new);
 
-  /// Measures the floating composer so the message list can reserve matching
-  /// bottom padding (the list scrolls *under* the frosted bar, so its newest
-  /// row must clear the glass). Tracked in state and re-measured each frame;
-  /// the bar's height changes with multiline growth and the staging tray.
-  final _composerKey = GlobalKey();
-  double _composerHeight = 0;
-
   /// Saturation ×1.3 color matrix (luma-weighted rows). Composed over the
   /// composer's backdrop blur to mimic Apple's blur *material*: a plain
   /// gaussian blur goes muddy, so we lift saturation back up to keep the
@@ -373,19 +366,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     0, 0, 0, 1, 0, //
   ];
 
-  void _measureComposer() {
-    if (!mounted) return;
-    final box = _composerKey.currentContext?.findRenderObject() as RenderBox?;
-    final h = box?.size.height;
-    if (h != null && (h - _composerHeight).abs() > 0.5) {
-      setState(() => _composerHeight = h);
-    }
-  }
-
   /// Distance (in logical px) from the bottom that still counts as "at bottom".
   static const _stickThreshold = 120.0;
   bool _atBottom = true;
   int _prevMessageCount = 0;
+
+  /// Message keys already on screen / already popped-in, so opening a room does
+  /// not animate the whole history and the optimistic→server-id reconcile does
+  /// not re-pop a sent message. Keyed off `clientMsgId ?? id` so the swap maps
+  /// the reconciled row back to the entry the optimistic row already added.
+  final Set<String> _animatedIds = {};
+  bool _seededAnimics = false;
 
   /// Guards against stacking multiple post-frame scroll callbacks when a send
   /// triggers several rebuilds in quick succession (optimistic add → echo
@@ -889,6 +880,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final messages = ref.watch(messageStoreProvider(widget.roomId));
     final me = ref.watch(accountProvider).valueOrNull?.username ?? '';
 
+    // Seed the pop-in set once the store first has messages, so the existing
+    // history renders without animating. Crucially we wait for a *non-empty*
+    // build: the store hydrates from the local DB asynchronously (see
+    // RoomMessageRouter._subscribe → setAll), which routinely lands *after* this
+    // page's first build. Seeding on an empty first build would mark nothing,
+    // then pop the entire history in when it hydrates. A brand-new empty room
+    // stays unseeded until its first real message, which then correctly pops.
+    if (!_seededAnimics && messages.isNotEmpty) {
+      for (final m in messages) {
+        _animatedIds.add(m.clientMsgId ?? m.id);
+      }
+      _seededAnimics = true;
+    }
+
     // Partner profile drives the header name + avatar (and the room list).
     final profiles = ref.watch(profileStoreProvider);
     String? nameFor(String u) => profiles.forUsername(u)?.displayName;
@@ -928,9 +933,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // bottom on its own. The partner's "typing…" indicator deliberately lives
     // in the app bar (not as a bottom row) so it never reflows this list.
     final items = _itemize(sorted).reversed.toList();
-    // Re-measure the floating composer after this frame paints so the list's
-    // reserved bottom padding tracks the bar as it grows/shrinks.
-    SchedulerBinding.instance.addPostFrameCallback((_) => _measureComposer());
     // Keyboard height. We keep the wallpaper full-bleed behind the keyboard
     // (Telegram-style) by turning off Scaffold's auto-resize and instead
     // lifting the composer + the list's reserved bottom by this inset
@@ -1101,115 +1103,105 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         ],
       ),
       body: WallpaperBackground(
-        child: Stack(
+        // Column push-down: the message list lives in an Expanded above the
+        // composer, so when the composer grows a line Flutter shrinks the list
+        // in the *same* layout pass — messages push up instantly instead of
+        // being briefly covered by the bar (the old floating-Stack + measured-
+        // padding approach lagged the growth by a frame). The composer keeps
+        // its bottom:keyboardInset padding to ride above the keyboard, so the
+        // Expanded list sizes around composer + keyboard naturally (auto-resize
+        // stays off — see keyboardInset above).
+        child: Column(
           children: [
-            Positioned.fill(
-              // Tap the chat to dismiss the keyboard (Telegram-style). A real
-              // onTap — not a TapRegion — only fires on a tap that isn't a
-              // drag: the list's vertical-drag recognizer wins the gesture
-              // arena during a scroll, so scrolling up keeps the keyboard up.
-              // Opaque so taps land on the wallpaper gutters and empty space
-              // too, not just on message bubbles.
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-                child: ListView.builder(
-                  controller: _scrollController,
-                  reverse: true,
-                  // Reserve room for the floating glass composer so the newest
-                  // message clears it (reverse:true → bottom padding is the
-                  // visual bottom). Height is measured from the live bar; the
-                  // keyboard inset is added on top since the composer rides above
-                  // the keyboard (auto-resize is off — see keyboardInset above).
-                  padding: EdgeInsets.only(
-                    left: 16,
-                    right: 16,
-                    top:
-                        12 +
-                        MediaQuery.of(context).padding.top +
-                        kToolbarHeight,
-                    bottom: _composerHeight + 12 + keyboardInset,
-                  ),
-                  itemCount: items.length,
-                  // Relocate existing keyed rows by identity when an insert
-                  // shifts indices, so the delegate reuses them instead of
-                  // rebuilding the visible list (the receive-time flash).
-                  findChildIndexCallback: (key) {
-                    final value = (key as ValueKey<String>).value;
-                    final idx = items.indexWhere((it) => _rowKey(it) == value);
-                    return idx < 0 ? null : idx;
-                  },
-                  itemBuilder: (_, i) {
-                    final item = items[i];
-                    final child = switch (item) {
-                      _BubbleItem(:final msg) => _bubble(
-                        msg,
-                        me,
-                        status.inBubble[msg.id],
-                        status.failedRun[msg.id],
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    // Tap the chat to dismiss the keyboard (Telegram-style). A
+                    // real onTap — not a TapRegion — only fires on a tap that
+                    // isn't a drag: the list's vertical-drag recognizer wins the
+                    // gesture arena during a scroll, so scrolling up keeps the
+                    // keyboard up. Opaque so taps land on the wallpaper gutters
+                    // and empty space too, not just on message bubbles.
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () =>
+                          FocusManager.instance.primaryFocus?.unfocus(),
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        reverse: true,
+                        padding: EdgeInsets.only(
+                          left: 16,
+                          right: 16,
+                          top:
+                              4 +
+                              MediaQuery.of(context).padding.top +
+                              kToolbarHeight,
+                          bottom: 12,
+                        ),
+                        itemCount: items.length,
+                        // Relocate existing keyed rows by identity when an
+                        // insert shifts indices, so the delegate reuses them
+                        // instead of rebuilding the visible list (the
+                        // receive-time flash).
+                        findChildIndexCallback: (key) {
+                          final value = (key as ValueKey<String>).value;
+                          final idx = items.indexWhere(
+                            (it) => _rowKey(it) == value,
+                          );
+                          return idx < 0 ? null : idx;
+                        },
+                        itemBuilder: (_, i) {
+                          final item = items[i];
+                          final child = switch (item) {
+                            _BubbleItem(:final msg) => _bubbleRow(
+                              msg,
+                              me,
+                              status.inBubble[msg.id],
+                              status.failedRun[msg.id],
+                            ),
+                            _DayItem(:final day) => _daySeparator(day),
+                            _GapItem(:final time) => _gapHeader(time),
+                          };
+                          return KeyedSubtree(
+                            key: ValueKey(_rowKey(item)),
+                            child: child,
+                          );
+                        },
                       ),
-                      _DayItem(:final day) => _daySeparator(day),
-                      _GapItem(:final time) => _gapHeader(time),
-                    };
-                    return KeyedSubtree(
-                      key: ValueKey(_rowKey(item)),
-                      child: child,
-                    );
-                  },
-                ),
-              ),
-            ),
-            // Dark scrim across the very top — behind the status bar and app
-            // bar — so the OS clock/battery and the title stay legible over the
-            // wallpaper, Telegram-style. Drawn over the message list (so it
-            // scrolls under), tall enough to clear the toolbar, pointer-through.
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: MediaQuery.of(context).padding.top + kToolbarHeight + 12,
-              child: const IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Color(0x99000000), Color(0x00000000)],
                     ),
                   ),
-                ),
-              ),
-            ),
-            Positioned(
-              right: 16,
-              bottom: _composerHeight + 16 + keyboardInset,
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 150),
-                opacity: _atBottom ? 0 : 1,
-                child: IgnorePointer(
-                  ignoring: _atBottom,
-                  child: FloatingActionButton.small(
-                    key: const Key('jump-to-bottom'),
-                    backgroundColor: context.palette.bgSurface,
-                    foregroundColor: context.palette.accentUser,
-                    elevation: 4,
-                    onPressed: _animateToBottom,
-                    tooltip: 'Jump to latest',
-                    child: const Icon(Icons.arrow_downward),
+                  // Frosted, darkened scrim behind the status bar + app-bar
+                  // pills so the OS clock/battery and the title stay legible
+                  // over the wallpaper, Telegram-style. Messages scroll under
+                  // it and blur.
+                  _topScrim(context),
+                  Positioned(
+                    right: 16,
+                    bottom: 16,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 150),
+                      opacity: _atBottom ? 0 : 1,
+                      child: IgnorePointer(
+                        ignoring: _atBottom,
+                        child: FloatingActionButton.small(
+                          key: const Key('jump-to-bottom'),
+                          backgroundColor: context.palette.bgSurface,
+                          foregroundColor: context.palette.accentUser,
+                          elevation: 4,
+                          onPressed: _animateToBottom,
+                          tooltip: 'Jump to latest',
+                          child: const Icon(Icons.arrow_downward),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              // Lift the composer above the keyboard (auto-resize is off). The
-              // inset sits outside the measured key so _composerHeight stays
-              // the bar's intrinsic height and doesn't churn as the keyboard
-              // animates.
-              child: Padding(
-                padding: EdgeInsets.only(bottom: keyboardInset),
-                child: KeyedSubtree(key: _composerKey, child: _composer()),
-              ),
+            Padding(
+              padding: EdgeInsets.only(bottom: keyboardInset),
+              child: _composer(),
             ),
           ],
         ),
@@ -1241,6 +1233,27 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           fontWeight: FontWeight.w700,
         ),
       ),
+    );
+  }
+
+  /// Wraps [_bubble] for the message list, popping in rows that arrived after
+  /// the room opened (sent and received). [Set.add] returns true only the first
+  /// time a key is seen; seeded history and reconciled rows are already present,
+  /// so they render without the animation.
+  Widget _bubbleRow(
+    Msg m,
+    String me,
+    _Marker? marker,
+    List<String>? failedIds,
+  ) {
+    final bubble = _bubble(m, me, marker, failedIds);
+    final animKey = m.clientMsgId ?? m.id;
+    final firstAppearance = _animatedIds.add(animKey);
+    if (!firstAppearance) return bubble;
+    return _PopIn(
+      key: Key('popin-${m.id}'),
+      alignEnd: m.from == me,
+      child: bubble,
     );
   }
 
@@ -1886,6 +1899,70 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     return count;
   }
 
+  /// Frosted, darkened band behind the status bar + app-bar pills. Messages
+  /// scroll under it and blur/darken so the OS clock/battery and the room title
+  /// stay legible, Telegram-style. Built from stacked blur sub-bands with
+  /// decreasing sigma (strong at the very top, fading down) rather than a single
+  /// ShaderMask-over-BackdropFilter, which mis-composites
+  /// (https://github.com/flutter/flutter/issues/175537). Drawn over the message
+  /// list; pointer-through.
+  Widget _topScrim(BuildContext context) {
+    final h = MediaQuery.of(context).padding.top + kToolbarHeight + 4;
+    return Positioned(
+      key: const Key('top-scrim'),
+      top: 0,
+      left: 0,
+      right: 0,
+      height: h,
+      child: IgnorePointer(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _blurBand(top: 0, height: h * 0.45, sigma: 12),
+            _blurBand(top: h * 0.45, height: h * 0.30, sigma: 6),
+            _blurBand(top: h * 0.75, height: h * 0.25, sigma: 2),
+            // Darker gradient over the blur (was 0x99 → now 0xCC) so the pills
+            // sit on a stronger fade and stop blending with messages.
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xCC000000), Color(0x00000000)],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// One horizontal blur slice of the top scrim. Reuses the composer's
+  /// saturation matrix so the glass material reads consistently across the
+  /// screen.
+  Widget _blurBand({
+    required double top,
+    required double height,
+    required double sigma,
+  }) {
+    return Positioned(
+      top: top,
+      left: 0,
+      right: 0,
+      height: height,
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.compose(
+            outer: const ColorFilter.matrix(_glassSaturation),
+            inner: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+          ),
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+  }
+
   Widget _composer() {
     final shortcuts = <ShortcutActivator, Intent>{
       const SingleActivator(LogicalKeyboardKey.enter, meta: true):
@@ -1998,7 +2075,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                                                   context.palette.textPrimary,
                                             ),
                                             minLines: 1,
-                                            maxLines: 8,
+                                            maxLines: 10,
                                             keyboardType:
                                                 TextInputType.multiline,
                                             textInputAction:
@@ -3348,4 +3425,40 @@ class _PlayBadge extends StatelessWidget {
       size: size * 0.58,
     ),
   );
+}
+
+/// One-shot "pop" for a newly-arrived message: a quick scale-up from the
+/// bubble's own bottom corner plus a fade. Runs once on first build of the
+/// subtree — [TweenAnimationBuilder] fires when the end value first appears and
+/// does not re-run while it stays constant, so a plain rebuild won't replay it.
+class _PopIn extends StatelessWidget {
+  const _PopIn({super.key, required this.child, required this.alignEnd});
+
+  final Widget child;
+
+  /// Own messages grow from the bottom-right; partner messages bottom-left.
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutBack,
+      builder: (context, t, child) {
+        final scale = 0.85 + 0.15 * t;
+        // easeOutBack overshoots past 1.0; clamp opacity so it never exceeds 1.
+        final opacity = t.clamp(0.0, 1.0);
+        return Opacity(
+          opacity: opacity,
+          child: Transform.scale(
+            scale: scale,
+            alignment: alignEnd ? Alignment.bottomRight : Alignment.bottomLeft,
+            child: child,
+          ),
+        );
+      },
+      child: child,
+    );
+  }
 }

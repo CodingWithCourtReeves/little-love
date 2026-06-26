@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../attachment/attachment_descriptor.dart';
 import '../attachment/attachment_download.dart';
+import '../audio/message_feedback.dart';
 import '../calling/call_log.dart';
 import '../identity/current_identity.dart';
 import '../identity/providers.dart';
@@ -399,11 +400,18 @@ class RoomMessageRouter {
       // per row, nor pop a banner).
       if (!f.replayed) {
         if (ref.read(activeRoomProvider) == f.roomId) {
-          // The chat is on screen: flip the sender's bubble to a double heart
-          // now (not on the next reopen). Tell the server AND advance our local
-          // read marker, so leaving the room doesn't leave a phantom unread dot
-          // for a message we just watched arrive. The watermark in sendMarkRead
-          // already covers this message since it's in the store before this runs.
+          // The chat is on screen: a gentle incoming chime + light haptic so a
+          // message landing while you're reading registers without a banner. A
+          // call-log entry (emitted when a call ends) is not a message to chime
+          // about — same exclusion the banner makes below.
+          if (content is! CallContent) {
+            ref.read(messageFeedbackProvider).received();
+          }
+          // Flip the sender's bubble to a double heart now (not on the next
+          // reopen). Tell the server AND advance our local read marker, so
+          // leaving the room doesn't leave a phantom unread dot for a message
+          // we just watched arrive. The watermark in sendMarkRead already
+          // covers this message since it's in the store before this runs.
           markRoomRead(ref, f.roomId);
         } else if (content is! CallContent) {
           // A live message in a room that isn't on screen: pop an in-app banner

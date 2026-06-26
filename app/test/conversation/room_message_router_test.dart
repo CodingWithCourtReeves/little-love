@@ -11,6 +11,7 @@ import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/conversation/presence_state.dart';
 import 'package:littlelove/conversation/room_message_router.dart';
 import 'package:littlelove/conversation/typing_state.dart';
+import 'package:littlelove/audio/message_feedback.dart';
 import 'package:littlelove/crypto/ecdh.dart';
 import 'package:littlelove/identity/current_identity.dart';
 import 'package:littlelove/identity/keypair.dart';
@@ -42,6 +43,16 @@ class _FakeConn implements LiveConnection {
   void emit(RoomServerFrame f) => _ctl.add(f);
 }
 
+/// Records calls instead of touching the native sound channel / haptics.
+class _RecordingFeedback extends MessageFeedback {
+  int sentCount = 0;
+  int receivedCount = 0;
+  @override
+  void sent() => sentCount++;
+  @override
+  void received() => receivedCount++;
+}
+
 Future<MessageDb> _ffiMessageDb() async {
   final db = await databaseFactory.openDatabase(
     inMemoryDatabasePath,
@@ -60,6 +71,7 @@ Future<ProviderContainer> _container({
   required DerivedIdentity me,
   OutboxStore? outbox,
   MessageDb? messageDb,
+  List<Override> overrides = const [],
 }) async {
   // The router write-through path resolves the message DB on every ingest, so
   // every test needs an in-memory one to avoid hitting the keychain/filesystem.
@@ -70,6 +82,7 @@ Future<ProviderContainer> _container({
       currentIdentityProvider.overrideWith((_) async => me),
       messageDbProvider.overrideWith((_) async => db),
       if (outbox != null) outboxStoreProvider.overrideWith((_) async => outbox),
+      ...overrides,
     ],
   );
   addTearDown(container.dispose);
@@ -611,6 +624,102 @@ void main() {
     expect(container.read(incomingBannerProvider), isNull);
   });
 
+  test(
+    'a live partner message in the active room plays the received cue',
+    () async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final conn = _FakeConn();
+      final feedback = _RecordingFeedback();
+      final container = await _container(
+        conn: conn,
+        me: me,
+        overrides: [messageFeedbackProvider.overrideWithValue(feedback)],
+      );
+
+      container.read(inboxStateProvider.notifier).setRooms([
+        Room(
+          roomId: 'room1',
+          name: 'Date ideas',
+          members: [_member('court', me), _member('kaitlyn', peer)],
+          createdAt: DateTime.utc(2026, 6, 10),
+        ),
+      ]);
+      container.read(activeRoomProvider.notifier).state = 'room1';
+      container.read(roomMessageRouterProvider);
+
+      final key = await deriveRoomKey(
+        me: peer,
+        peerX25519Pub: me.x25519PublicKey,
+        roomId: 'room1',
+      );
+      final body = await encryptOutgoing(key, 'hi love');
+
+      conn.emit(
+        MessageFrame(
+          id: 'm1',
+          roomId: 'room1',
+          from: 'kaitlyn',
+          ts: DateTime.utc(2026, 6, 10, 12),
+          body: body,
+          replayed: false,
+        ),
+      );
+      await pumpUntil(() => feedback.receivedCount > 0);
+
+      expect(feedback.receivedCount, 1);
+      expect(feedback.sentCount, 0);
+    },
+  );
+
+  test('no received cue for a partner message in a non-active room', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final feedback = _RecordingFeedback();
+    final container = await _container(
+      conn: conn,
+      me: me,
+      overrides: [messageFeedbackProvider.overrideWithValue(feedback)],
+    );
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        name: 'Date ideas',
+        members: [_member('court', me), _member('kaitlyn', peer)],
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
+    // No active room: you're on the list / elsewhere.
+    container.read(roomMessageRouterProvider);
+
+    final key = await deriveRoomKey(
+      me: peer,
+      peerX25519Pub: me.x25519PublicKey,
+      roomId: 'room1',
+    );
+    final body = await encryptOutgoing(key, 'hi love');
+
+    conn.emit(
+      MessageFrame(
+        id: 'm1',
+        roomId: 'room1',
+        from: 'kaitlyn',
+        ts: DateTime.utc(2026, 6, 10, 12),
+        body: body,
+        replayed: false,
+      ),
+    );
+    // The non-active path pops a banner *after* the awaited DB write, so wait
+    // on the banner (not the store, which fills before that write) — otherwise
+    // teardown closes the in-memory DB mid-upsert. Once it's set, the
+    // received() decision has been made and skipped.
+    await pumpUntil(() => container.read(incomingBannerProvider) != null);
+
+    expect(feedback.receivedCount, 0);
+  });
+
   test('no banner for a call-log entry in a non-active room', () async {
     final me = await deriveIdentity(seedA);
     final peer = await deriveIdentity(seedB);
@@ -659,6 +768,63 @@ void main() {
     expect(container.read(incomingBannerProvider), isNull);
     // The call row itself still lands in the timeline.
     expect(container.read(messageStoreProvider('room1')), hasLength(1));
+  });
+
+  test('no received cue for a call-log entry in the active room', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final feedback = _RecordingFeedback();
+    final container = await _container(
+      conn: conn,
+      me: me,
+      overrides: [messageFeedbackProvider.overrideWithValue(feedback)],
+    );
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        name: 'Date ideas',
+        members: [_member('court', me), _member('kaitlyn', peer)],
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
+    container.read(activeRoomProvider.notifier).state = 'room1';
+    container.read(roomMessageRouterProvider);
+
+    final key = await deriveRoomKey(
+      me: peer,
+      peerX25519Pub: me.x25519PublicKey,
+      roomId: 'room1',
+    );
+    // A call ends → a CallContent log lands while the room is open. It must not
+    // chime/haptic like a real message (matches the banner exclusion).
+    final body = await encryptOutgoing(
+      key,
+      CallContent(
+        callId: 'call-1',
+        outcome: 'completed',
+        durationS: 154,
+        startedAt: DateTime.utc(2026, 6, 10, 12),
+      ).encode(),
+    );
+
+    conn.emit(
+      MessageFrame(
+        id: 'm1',
+        roomId: 'room1',
+        from: 'kaitlyn',
+        ts: DateTime.utc(2026, 6, 10, 12),
+        body: body,
+        replayed: false,
+      ),
+    );
+    // markRoomRead runs in the same active-room branch, right after the chime
+    // check, and sends a MarkRead — so once it lands the chime decision has
+    // been made (and skipped). Gating on it avoids asserting too early.
+    await pumpUntil(() => _sentOfKind(conn, 'MarkRead').isNotEmpty);
+
+    expect(feedback.receivedCount, 0);
   });
 
   test('no banner for a replayed message', () async {

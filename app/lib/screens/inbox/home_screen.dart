@@ -11,6 +11,7 @@ import '../../attachment/attachment_descriptor.dart';
 import '../../attachment/attachment_download.dart';
 import '../../attachment/attachment_upload.dart';
 import '../../attachment/attachment_viewer.dart';
+import '../../audio/message_feedback.dart';
 import '../../attachment/file_crypto.dart';
 import '../../attachment/staged_attachment.dart';
 import '../../attachment/thumbnail.dart';
@@ -381,6 +382,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       reportFault(e, st, context: 'send_pre_enqueue');
       return;
     }
+    // Durably enqueued — now it's a real send: soft outgoing blip (respects the
+    // silent switch). Played here, not on the optimistic add, so a send that
+    // rolls back above never chimes.
+    ref.read(messageFeedbackProvider).sent();
     // Durably enqueued. A kick failure leaves the row for the drain to retry,
     // so surface a tap-to-retry affordance.
     try {
@@ -468,6 +473,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               attachment: descriptor,
             ),
           );
+      // Outgoing blip once durably enqueued + the bubble is on screen (one per
+      // attachment, matching the staggered bubbles in a multi-pick send).
+      ref.read(messageFeedbackProvider).sent();
       await ref.read(outboxDrainProvider).kick();
     } catch (e, st) {
       reportFault(e, st, context: 'attachment_send');
@@ -542,6 +550,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               attachment: descriptor,
             ),
           );
+      // Outgoing blip once the memo is durably enqueued + on screen.
+      ref.read(messageFeedbackProvider).sent();
       await ref.read(outboxDrainProvider).kick();
     } catch (e, st) {
       reportFault(e, st, context: 'voice_send');
