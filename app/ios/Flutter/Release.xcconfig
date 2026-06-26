@@ -8,4 +8,11 @@
 //     = base64("LLOVE_SERVER=https://api.littlelove.dev")
 // Debug.xcconfig intentionally omits this so local runs keep the
 // 127.0.0.1:7707 default from lib/identity/providers.dart.
-DART_DEFINES=TExPVkVfU0VSVkVSPWh0dHBzOi8vYXBpLmxpdHRsZWxvdmUuZGV2
+//
+// To enable opt-in app crash reporting (docs/error-monitoring.md §5), append
+// the Bugsink `littlelove-app` DSN as a second value:
+//   DART_DEFINES=<llove_server_b64>,<sentry_dsn_b64>
+// where <sentry_dsn_b64> = base64("SENTRY_DSN=https://<key>@alerts.littlelove.dev/<id>").
+// With no SENTRY_DSN define, the app never initializes Sentry and the Profile
+// toggle stays hidden (a no-op, like the server's unset-SENTRY_DSN gate).
+DART_DEFINES=TExPVkVfU0VSVkVSPWh0dHBzOi8vYXBpLmxpdHRsZWxvdmUuZGV2,U0VOVFJZX0RTTj1odHRwczovLzIxYzgyY2JjNWRjZDQ2ODg4MDRlOGUyMzEzNGM1OTk1QGFsZXJ0cy5saXR0bGVsb3ZlLmRldi8x

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../diagnostics/crash_reporting.dart';
 import '../identity/current_identity.dart';
 import '../identity/keypair.dart';
 import '../identity/providers.dart';
@@ -190,7 +191,8 @@ class _RealLiveConnection implements LiveConnection {
               ).toJson(),
             ),
           );
-        } catch (e) {
+        } catch (e, st) {
+          reportFault(e, st, context: 'auth_challenge');
           if (!_authReady.isCompleted) {
             _authReady.completeError(
               StateError('failed to respond to Challenge: $e'),
@@ -223,8 +225,15 @@ class _RealLiveConnection implements LiveConnection {
         // Buffer until somebody subscribes (e.g. RoomMessageRouter).
         _buffer.add(frame);
       }
-    } on FormatException {
-      // Drop unknown frames; spec §8.2 enumerates what we recognise.
+    } on FormatException catch (_, st) {
+      // Drop unknown frames; spec §8.2 enumerates what we recognise. Report a
+      // sanitized fault (never the raw frame, which carries ciphertext) so a
+      // malformed frame or client/server version skew surfaces.
+      reportFault(
+        const FormatException('unrecognized room frame'),
+        st,
+        context: 'room_frame_parse',
+      );
     }
   }
 

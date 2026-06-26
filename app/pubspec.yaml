@@ -63,7 +63,7 @@ dependencies:
   html: ^0.15.4
   shared_preferences: ^2.3.2
   app_links: ^6.3.0
-
+  sentry: ^8.14.2
 dependency_overrides:
   # record_linux 0.7.2 (the latest, pulled transitively by `record`) is stale
   # against record_platform_interface 1.6.0: it doesn't implement the abstract

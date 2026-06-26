@@ -1,9 +1,10 @@
 # Error monitoring (self-hosted)
 
-We self-host a Sentry-API-compatible backend (Bugsink) so the server's error
-reports stay first-party. The open-source `sentry` crate is the client; Bugsink
-is our own destination. We never use sentry.io. App-side reporting is a separate,
-later effort.
+We self-host a Sentry-API-compatible backend (Bugsink) so our error reports stay
+first-party. The open-source `sentry` crate is the server client and the
+pure-Dart `sentry` package is the app client; Bugsink is our own destination. We
+never use sentry.io. Two sides report to it: the server (automatic; §1–4) and the
+app (opt-in, content-scrubbed; §5).
 
 ## 1. Bugsink service on Railway
 
@@ -82,6 +83,53 @@ Expect HTTP 200, a new issue in the Bugsink `littlelove-server` project, and an
 alert email from `alerts@littlelove.dev` in Gmail. Without the token (or with a
 wrong one) the route returns 404. Leave `DIAG_TOKEN` unset in steady-state
 operation to keep the route inert.
+
+## 5. App-side reporting (Flutter)
+
+The app is the only place plaintext exists (message text, contact/display names,
+attachment paths, room keys), so app reporting is **opt-in and off by default**,
+and everything outbound is content-scrubbed.
+
+We use the **pure-Dart `sentry` package**, not `sentry_flutter`. It has no native
+iOS dependency, so it keeps the app's iOS 13 deployment target and adds no native
+crash handler, screenshots, view-hierarchy capture, or native auto-breadcrumbs,
+each of which is a plaintext leak vector on this app. The trade-off is that hard
+native crashes (OOM, engine-level) aren't captured; the leak risk we care about
+is Dart breadcrumbs and exception strings, which this covers. We wire
+`FlutterError.onError` to `Sentry.captureException` and run the app inside
+`Sentry.init`'s `runZonedGuarded` zone so Dart/framework errors are captured.
+
+It is gated three ways:
+
+1. **Compile-time DSN.** The app reads `SENTRY_DSN` (and optional
+   `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`) via `String.fromEnvironment`. With no
+   DSN compiled in, Sentry never initializes and the Profile toggle hides
+   itself, mirroring the server's unset-`SENTRY_DSN` no-op.
+2. **User opt-in.** Even with a DSN, reporting only happens after the user
+   enables "Share crash reports" under Profile (persisted in
+   `SharedPreferences`, default off). On launch an opted-out user never
+   initializes the SDK; a mid-session opt-out flips the `beforeSend` /
+   `beforeBreadcrumb` gates so nothing further is transmitted.
+3. **Scrub chokepoint.** `app/lib/diagnostics/scrub.dart` is the Dart mirror of
+   `server/src/scrub.rs` (same ordered `redact` passes and `SENSITIVE_KEYS`
+   key-based redaction), wired into both hooks via
+   `app/lib/diagnostics/crash_reporting.dart`. We also keep
+   `sendDefaultPii=false` and never set `serverName`.
+
+**Setup (one-time):**
+
+1. In Bugsink, create a **second** project named `littlelove-app` (separate from
+   `littlelove-server`) and copy its DSN (host `alerts.littlelove.dev`).
+2. Bake the DSN into release builds by appending it to the base64
+   `DART_DEFINES` in `app/ios/Flutter/Release.xcconfig` (see the comment there
+   for the encoding contract). Debug omits it so simulator/dev builds no-op.
+   The DSN is an ingest endpoint embedded in the client binary, not a server
+   secret like the server's `SENTRY_DSN`.
+
+**Verify end-to-end** (like the server's §4): on a release device build, opt in
+under Profile, trigger a test error, and confirm a new issue lands in the Bugsink
+`littlelove-app` project with no message content and no identifiers (handles,
+account ids, emails, tokens, paths) in the title, message, breadcrumbs, or tags.
 
 ## What gets reported, and scrubbing
 

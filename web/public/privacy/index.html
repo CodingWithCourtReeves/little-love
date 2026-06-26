@@ -33,7 +33,7 @@
       <h2>The short version</h2>
       <ul>
         <li>Your messages, calls, voice notes, photos, and video are end-to-end encrypted. We store only ciphertext we have no key to read.</li>
-        <li>We don&rsquo;t use third-party trackers, analytics, advertising, or AI. We keep only content-free crash diagnostics on our own servers to fix bugs, and we don&rsquo;t sell or share your data.</li>
+        <li>We don&rsquo;t use third-party trackers, analytics, advertising, or AI. We keep only content-free crash diagnostics on our own servers to fix bugs. Crash reporting from the app is off unless you turn it on, and we don&rsquo;t sell or share your data.</li>
         <li>We don&rsquo;t track who you talk to or when for any purpose beyond delivering your messages.</li>
         <li>We hold the minimum we need to run the service (your public keys, your partner link, a push token, routing timestamps).</li>
         <li>Questions or requests: <a href="mailto:privacy@littlelove.dev">privacy@littlelove.dev</a>.</li>
@@ -76,13 +76,35 @@
 
     <h2>What we don&rsquo;t do</h2>
     <p>
-      We don&rsquo;t use third-party trackers, analytics, advertising, or AI. To
-      fix bugs, our own servers record crash diagnostics on infrastructure we run
-      ourselves; these never include message content, which our servers only ever
-      see encrypted, and you can ask us to turn yours off. We verified this in our
-      own source code, which is public. We do not sell, rent, or share your
-      personal information, and we do not build advertising or behavioral profiles.
+      We don&rsquo;t use third-party trackers, analytics, advertising, or AI. The
+      only diagnostics we keep are our own content-free crash reports, described
+      under <a href="#crash-diagnostics">Crash diagnostics</a> below. We verified
+      this in our own source code, which is public. We do not sell, rent, or share
+      your personal information, and we do not build advertising or behavioral
+      profiles.
     </p>
+
+    <h2 id="crash-diagnostics">Crash diagnostics</h2>
+    <p>
+      To find and fix bugs, we keep crash and error diagnostics on infrastructure
+      we run ourselves, never a third-party analytics service and never
+      sentry.io. There are two kinds, and neither ever includes the content of
+      your messages, calls, or files:
+    </p>
+    <ul>
+      <li><strong>From our server, automatically.</strong> Our server only ever
+      sees your content encrypted, so its diagnostics cannot contain message
+      content by design. We also strip identifiers, such as handles and account
+      ids, before a report is stored. You can ask us to turn yours off by
+      emailing us.</li>
+      <li><strong>From the app on your device, only if you turn it on.</strong>
+      This is off by default. Your device is the one place your messages are
+      readable, so before any report leaves your phone we remove message text,
+      contact and display names, file paths, and identifiers, and send only
+      technical details about what went wrong, such as the error and where in the
+      code it happened. You can switch this on or off anytime in the app under
+      Profile.</li>
+    </ul>
 
     <h2>Service providers</h2>
     <p>
