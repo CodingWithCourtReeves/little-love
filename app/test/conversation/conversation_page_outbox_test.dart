@@ -44,7 +44,7 @@ Future<void> _pump(
         home: ConversationPage(
           room: _room(),
           selfUsername: 'me',
-          onSend: (_) {},
+          onSend: (_, _) {},
           onRetry: onRetry,
         ),
       ),

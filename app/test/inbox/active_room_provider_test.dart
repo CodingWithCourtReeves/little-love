@@ -33,7 +33,7 @@ void main() {
           home: ConversationPage(
             room: _room('room1'),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, _) {},
           ),
         ),
       ),

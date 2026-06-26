@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_store.dart';
+import 'package:littlelove/conversation/reply_ref.dart';
 import 'package:littlelove/wire/message.dart';
 
 Msg _msg(String id, String body) => Msg(
@@ -522,5 +523,49 @@ void main() {
       container.read(messageStoreProvider('r1')).single.sendStatus,
       SendStatus.failed,
     );
+  });
+
+  test('replyTo survives reconcile and an intervening edit', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    const reply = ReplyRef(
+      id: 'orig',
+      author: 'court',
+      kind: 'text',
+      text: 'q',
+    );
+    store.add(
+      Msg(
+        id: 'cli-1',
+        from: 'court',
+        to: 'r1',
+        body: 'hi',
+        ts: DateTime.utc(2026, 6, 13),
+        clientMsgId: 'cli-1',
+        sendStatus: SendStatus.sending,
+        replyTo: reply,
+      ),
+    );
+    store.reconcile(
+      'cli-1',
+      Msg(
+        id: 'srv-1',
+        from: 'court',
+        to: 'r1',
+        body: 'hi',
+        ts: DateTime.utc(2026, 6, 13),
+        replyTo: reply,
+      ),
+    );
+    expect(
+      container.read(messageStoreProvider('r1')).single.replyTo!.id,
+      'orig',
+    );
+    // Editing the text must not drop the quote (regression on _withEdit).
+    store.applyEdit('srv-1', requestedBy: 'court', text: 'hi (fixed)');
+    final out = container.read(messageStoreProvider('r1')).single;
+    expect(out.body, 'hi (fixed)');
+    expect(out.replyTo!.id, 'orig');
   });
 }

@@ -47,7 +47,7 @@ Future<void> _pump(WidgetTester tester, ProviderContainer container) async {
         home: ConversationPage(
           room: _room(),
           selfUsername: 'me',
-          onSend: (_) {},
+          onSend: (_, _) {},
         ),
       ),
     ),

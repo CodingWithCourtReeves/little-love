@@ -1,11 +1,11 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:gal/gal.dart';
 import 'package:video_player/video_player.dart';
 
 import '../theme/love_toast.dart';
 import 'attachment_descriptor.dart';
+import 'media_actions.dart';
 
 /// Full-screen viewer for a decrypted attachment file. Image → InteractiveViewer;
 /// video → video_player. [file] is the decrypted plaintext on local disk.
@@ -29,14 +29,7 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
   Future<void> _saveToGallery() async {
     setState(() => _saving = true);
     try {
-      if (!await Gal.hasAccess(toAlbum: true)) {
-        await Gal.requestAccess(toAlbum: true);
-      }
-      if (widget.descriptor.isVideo) {
-        await Gal.putVideo(widget.file.path);
-      } else {
-        await Gal.putImage(widget.file.path);
-      }
+      await saveToGallery(widget.file, widget.descriptor);
       if (mounted) {
         showLoveToast(context, 'Saved to Photos', icon: Icons.check);
       }

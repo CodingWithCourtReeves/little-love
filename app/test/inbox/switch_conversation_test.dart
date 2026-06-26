@@ -70,7 +70,7 @@ void main() {
           home: ConversationPage(
             room: _room(id, name),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, _) {},
           ),
         ),
       );

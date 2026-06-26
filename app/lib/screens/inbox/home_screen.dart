@@ -20,6 +20,7 @@ import '../../calling/call_controller.dart';
 import '../../conversation/conversation_page.dart';
 import '../../conversation/link_preview.dart';
 import '../../conversation/message_content.dart';
+import '../../conversation/reply_ref.dart';
 import '../../conversation/message_store.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../conversation/room_message_router.dart';
@@ -287,11 +288,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           room: room,
           selfUsername: _me,
           focusMessageId: focusMessageId,
-          onSend: (text) => _sendEncrypted(ref, room, text),
+          onSend: (text, replyTo) => _sendEncrypted(ref, room, text, replyTo),
           onRetry: (clientMsgId) => _retry(ref, clientMsgId),
           onPickMedia: () => _pickMedia(context),
-          onSendMedia: (items, caption) =>
-              _sendStaged(ref, room, context, items, caption),
+          onSendMedia: (items, caption, replyTo) =>
+              _sendStaged(ref, room, context, items, caption, replyTo),
           onReact: (targetId, emoji) =>
               _sendReaction(ref, room, targetId, emoji),
           onDelete: (targetId) => _sendDelete(ref, room, targetId),
@@ -301,7 +302,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           onTyping: (typing) => _sendTyping(ref, room, typing),
           onOpenAttachment: (descriptor) =>
               _openAttachment(ref, room, context, descriptor),
-          onSendVoice: (rec) => _sendVoice(ref, room, context, rec),
+          onSendVoice: (rec, replyTo) =>
+              _sendVoice(ref, room, context, rec, replyTo),
           // The partner DM is unnamed by definition; renaming it would give it a
           // name and flip it into a chat room (RoomShape derives from the name),
           // destroying the DM. Only named channels are renameable.
@@ -329,7 +331,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   /// optimistic in-flight bubble (clock marker) immediately, then kick the
   /// drain — the row flips to a heart once the server echoes it back (see
   /// [RoomMessageRouter]).
-  Future<void> _sendEncrypted(WidgetRef ref, Room room, String text) async {
+  Future<void> _sendEncrypted(
+    WidgetRef ref,
+    Room room,
+    String text, [
+    ReplyRef? replyTo,
+  ]) async {
     final clientMsgId = ref.read(outboxIdGenProvider)();
     final msgs = ref.read(messageStoreProvider(room.roomId).notifier);
     // Optimistic bubble immediately so the chat feels instant even when a link
@@ -344,6 +351,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ts: DateTime.now().toUtc(),
         clientMsgId: clientMsgId,
         sendStatus: SendStatus.sending,
+        replyTo: replyTo,
       ),
     );
     try {
@@ -362,7 +370,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         room: room,
         me: me,
         selfUsername: _me,
-        plaintext: TextContent(text, preview: preview).encode(),
+        plaintext: TextContent(
+          text,
+          preview: preview,
+          replyTo: replyTo,
+        ).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
       );
@@ -408,6 +420,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     required String mime,
     String? videoPath,
     String? caption,
+    ReplyRef? replyTo,
   }) async {
     final clientMsgId = ref.read(outboxIdGenProvider)();
     final conn = ref.read(liveConnectionProvider).asData?.value;
@@ -449,7 +462,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         room: room,
         me: me,
         selfUsername: _me,
-        plaintext: FileContent(descriptor, caption: caption).encode(),
+        plaintext: FileContent(
+          descriptor,
+          caption: caption,
+          replyTo: replyTo,
+        ).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
       );
@@ -471,6 +488,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               clientMsgId: clientMsgId,
               sendStatus: SendStatus.sending,
               attachment: descriptor,
+              replyTo: replyTo,
             ),
           );
       // Outgoing blip once durably enqueued + the bubble is on screen (one per
@@ -495,8 +513,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     WidgetRef ref,
     Room room,
     BuildContext context,
-    VoiceRecording rec,
-  ) async {
+    VoiceRecording rec, [
+    ReplyRef? replyTo,
+  ]) async {
     final conn = ref.read(liveConnectionProvider).asData?.value;
     if (conn == null) return;
     final clientMsgId = ref.read(outboxIdGenProvider)();
@@ -526,7 +545,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         room: room,
         me: me,
         selfUsername: _me,
-        plaintext: AudioContent(descriptor).encode(),
+        plaintext: AudioContent(descriptor, replyTo: replyTo).encode(),
         cache: ref.read(roomKeyCacheProvider),
         clientMsgId: clientMsgId,
       );
@@ -548,6 +567,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               clientMsgId: clientMsgId,
               sendStatus: SendStatus.sending,
               attachment: descriptor,
+              replyTo: replyTo,
             ),
           );
       // Outgoing blip once the memo is durably enqueued + on screen.
@@ -644,8 +664,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     Room room,
     BuildContext context,
     List<StagedAttachment> items,
-    String caption,
-  ) async {
+    String caption, [
+    ReplyRef? replyTo,
+  ]) async {
     for (var i = 0; i < items.length; i++) {
       final item = items[i];
       final isLast = i == items.length - 1;
@@ -659,6 +680,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         mime: item.mime,
         videoPath: item.videoPath,
         caption: isLast && caption.isNotEmpty ? caption : null,
+        // The reply quote attaches to the first item only, so a multi-pick run
+        // shows the quote once at the top.
+        replyTo: i == 0 ? replyTo : null,
       );
     }
   }

@@ -8,6 +8,7 @@ import 'package:littlelove/conversation/incoming_banner_provider.dart';
 import 'package:littlelove/conversation/message_content.dart';
 import 'package:littlelove/conversation/message_db.dart';
 import 'package:littlelove/conversation/message_store.dart';
+import 'package:littlelove/conversation/reply_ref.dart';
 import 'package:littlelove/conversation/presence_state.dart';
 import 'package:littlelove/conversation/room_message_router.dart';
 import 'package:littlelove/conversation/typing_state.dart';
@@ -1456,6 +1457,58 @@ void main() {
 
     final persisted = await messageDb.messagesFor('room1');
     expect(persisted.map((m) => m.body), contains('hello from partner'));
+  });
+
+  test('an inbound reply lands with its replyTo set', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final messageDb = await _ffiMessageDb();
+    final container = await _container(
+      conn: conn,
+      me: me,
+      messageDb: messageDb,
+    );
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        name: '',
+        members: [_member('court', me), _member('kaitlyn', peer)],
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
+    container.read(roomMessageRouterProvider);
+
+    final key = await deriveRoomKey(
+      me: peer,
+      peerX25519Pub: me.x25519PublicKey,
+      roomId: 'room1',
+    );
+    final body = await encryptOutgoing(
+      key,
+      const TextContent(
+        'replying',
+        replyTo: ReplyRef(id: 'orig', author: 'court', kind: 'text', text: 'q'),
+      ).encode(),
+    );
+
+    conn.emit(
+      MessageFrame(
+        id: 'm-reply',
+        roomId: 'room1',
+        from: 'kaitlyn',
+        ts: DateTime.utc(2026, 6, 10, 12),
+        body: body,
+        replayed: false,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    final live = container.read(messageStoreProvider('room1'));
+    expect(live.single.replyTo!.id, 'orig');
+    final persisted = await messageDb.messagesFor('room1');
+    expect(persisted.single.replyTo!.id, 'orig');
   });
 
   test('an inbound delete soft-deletes in MessageDb', () async {

@@ -18,6 +18,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../attachment/attachment_descriptor.dart';
 import '../attachment/attachment_download.dart';
+import '../attachment/media_actions.dart';
 import '../attachment/staged_attachment.dart';
 import '../attachment/thumbnail.dart';
 import '../audio/playback_provider.dart';
@@ -44,9 +45,10 @@ import 'message_db.dart';
 import 'message_store.dart';
 import 'presence_state.dart';
 import 'recording_overlay.dart';
+import 'reply_ref.dart';
 import 'typing_state.dart';
 
-typedef SendCallback = void Function(String text);
+typedef SendCallback = void Function(String text, ReplyRef? replyTo);
 typedef RenameCallback = void Function(String newName);
 typedef RetryCallback = void Function(String clientMsgId);
 typedef OpenAttachmentCallback = void Function(AttachmentDescriptor descriptor);
@@ -301,8 +303,13 @@ class ConversationPage extends ConsumerStatefulWidget {
   final Future<List<StagedAttachment>> Function()? onPickMedia;
 
   /// Send the staged media. The caption (composer text, may be empty) attaches
-  /// to the last item so a multi-pick reads as one captioned run.
-  final Future<void> Function(List<StagedAttachment> items, String caption)?
+  /// to the last item so a multi-pick reads as one captioned run. [replyTo],
+  /// when set, quotes an earlier message and attaches to the first item.
+  final Future<void> Function(
+    List<StagedAttachment> items,
+    String caption,
+    ReplyRef? replyTo,
+  )?
   onSendMedia;
 
   /// React to a message (empty emoji = remove my reaction). Null disables the
@@ -330,8 +337,10 @@ class ConversationPage extends ConsumerStatefulWidget {
   final OpenAttachmentCallback? onOpenAttachment;
 
   /// Send a recorded voice memo (encrypt + upload + fan out as kind:"audio").
-  /// Null disables the composer mic's record gesture.
-  final Future<void> Function(VoiceRecording rec)? onSendVoice;
+  /// Null disables the composer mic's record gesture. [replyTo], when set,
+  /// quotes an earlier message.
+  final Future<void> Function(VoiceRecording rec, ReplyRef? replyTo)?
+  onSendVoice;
 
   String get roomId => room.roomId;
 
@@ -394,7 +403,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// is the in-flight start() so a quick release can't race it.
   late final VoiceRecorderController _recorder = VoiceRecorderController(
     // Hitting the 5-minute cap sends the memo rather than dropping it.
-    onMaxDuration: (rec) => widget.onSendVoice?.call(rec),
+    onMaxDuration: (rec) => _sendVoiceMemo(rec),
   );
   bool _cancelArmed = false;
   Future<bool>? _startFuture;
@@ -410,6 +419,191 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// edit (see [_handleSubmit]), and [_editingOriginal] is shown in the banner.
   String? _editingId;
   String _editingOriginal = '';
+
+  /// The message being quoted by the next send, or null when not replying. Set
+  /// by swipe-to-reply or the long-press "Reply" action; shown as a chip above
+  /// the composer; attached to the next text/media/voice send then cleared.
+  ReplyRef? _replyDraft;
+
+  void _startReply(Msg m) {
+    HapticFeedback.lightImpact();
+    setState(() => _replyDraft = _replyRefFor(m));
+    _composerFocus.requestFocus();
+  }
+
+  void _cancelReply() {
+    if (_replyDraft == null) return;
+    setState(() => _replyDraft = null);
+  }
+
+  /// Flush a recorded voice memo, attaching (and then clearing) any active
+  /// reply draft. Shared by the mic gestures and the max-duration auto-send.
+  Future<void> _sendVoiceMemo(VoiceRecording rec) async {
+    final reply = _replyDraft;
+    if (reply != null) setState(() => _replyDraft = null);
+    await widget.onSendVoice?.call(rec, reply);
+  }
+
+  /// Build a [ReplyRef] snippet from a live message: kind from its attachment
+  /// mime (image→photo, video→video, audio→voice, else file), or text; the
+  /// excerpt is the body truncated to 140 chars for text messages.
+  ReplyRef _replyRefFor(Msg m) {
+    final att = m.attachment;
+    final String kind;
+    if (att == null) {
+      kind = 'text';
+    } else if (att.isVideo) {
+      kind = 'video';
+    } else if (att.isAudio) {
+      kind = 'voice';
+    } else if (att.mime.startsWith('image/')) {
+      kind = 'photo';
+    } else {
+      kind = 'file';
+    }
+    // The body doubles as a media caption, so carry the excerpt for any kind
+    // (a captioned photo quotes its caption; a bare photo quotes just "Photo").
+    final body = m.body.trim();
+    final excerpt = body.isEmpty
+        ? null
+        : (body.length > 140 ? body.substring(0, 140) : body);
+    return ReplyRef(id: m.id, author: m.from, kind: kind, text: excerpt);
+  }
+
+  /// Whether the message can be quoted in a reply. Real timeline bubbles
+  /// (text/media) are reply-able; call-log rows are not.
+  bool _canReply(Msg m) => m.callOutcome == null;
+
+  /// Whether [m] carries an image/video attachment that can be saved to Photos
+  /// or shared (voice memos and text are excluded).
+  bool _isSaveableMedia(Msg m) {
+    final a = m.attachment;
+    return a != null && (a.mime.startsWith('image/') || a.isVideo);
+  }
+
+  /// Decrypt the attachment to a local file (cached after the first fetch),
+  /// then save it to the camera roll. Toasts on success/failure.
+  Future<void> _saveAttachment(AttachmentDescriptor att) async {
+    final conn = ref.read(liveConnectionProvider).asData?.value;
+    if (conn == null) return;
+    try {
+      final file = await fetchAndDecrypt(conn: conn, descriptor: att);
+      await saveToGallery(file, att);
+      if (mounted) showLoveToast(context, 'Saved to Photos', icon: Icons.check);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Couldn't save: $e")));
+      }
+    }
+  }
+
+  /// The live message with [id] from the current buffer, or null if it isn't
+  /// loaded (scrolled out of history, or since unsent).
+  Msg? _lookupMessage(String id) {
+    for (final x in ref.read(messageStoreProvider(widget.roomId))) {
+      if (x.id == id) return x;
+    }
+    return null;
+  }
+
+  /// Attribution label for a reply quote: "You" for my own message, else the
+  /// author's username.
+  String _replyAuthorLabel(String author) =>
+      author == widget.selfUsername ? 'You' : author;
+
+  /// One-line preview text for a quote: the excerpt for text, a kind label
+  /// ("Photo" / "Voice message") for bare media, or "label · caption" when a
+  /// captioned attachment is quoted.
+  String _replyPreviewText(ReplyRef r) {
+    final label = switch (r.kind) {
+      'photo' => 'Photo',
+      'video' => 'Video',
+      'voice' => 'Voice message',
+      'file' => 'File',
+      _ => null,
+    };
+    final text = r.text?.trim();
+    if (label == null) return text ?? '';
+    return (text == null || text.isEmpty) ? label : '$label · $text';
+  }
+
+  /// Small leading glyph for a media quote (null for plain text).
+  IconData? _replyKindIcon(String kind) => switch (kind) {
+    'photo' => Icons.photo_outlined,
+    'video' => Icons.videocam_outlined,
+    'voice' => Icons.mic_none,
+    'file' => Icons.insert_drive_file_outlined,
+    _ => null,
+  };
+
+  /// Telegram-style reply banner: a quote block at the top *inside* the bubble
+  /// — an accent bar, the original sender on one line, and a single ellipsized
+  /// preview line. Colors adapt to whichever bubble it sits in ([onUserBubble]
+  /// true for my own accent-colored bubble). Resolves the live target when
+  /// present (so it reflects later edits), else the cached [ReplyRef] snippet.
+  /// Tapping jumps to the original.
+  Widget _replyQuoteBanner(Msg m, {required bool onUserBubble}) {
+    final live = _lookupMessage(m.replyTo!.id);
+    final r = live != null ? _replyRefFor(live) : m.replyTo!;
+    final icon = _replyKindIcon(r.kind);
+    // On my own (accent-filled) bubble the quote reads in the bubble's own text
+    // tone; on the partner's surface-toned bubble it uses the sage accent.
+    final Color nameColor = onUserBubble
+        ? context.palette.bubbleUserText
+        : context.palette.accentSage;
+    final Color textColor = onUserBubble
+        ? context.palette.bubbleUserText.withValues(alpha: 0.75)
+        : context.palette.textMuted;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _focusMessage(r.id),
+      child: Container(
+        key: Key('reply-quote-${m.id}'),
+        margin: const EdgeInsets.only(bottom: 5),
+        padding: const EdgeInsets.fromLTRB(8, 2, 4, 2),
+        decoration: BoxDecoration(
+          color: nameColor.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(5),
+          border: Border(left: BorderSide(color: nameColor, width: 2.5)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _replyAuthorLabel(r.author),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: nameColor,
+              ),
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, size: 13, color: textColor),
+                  const SizedBox(width: 4),
+                ],
+                Flexible(
+                  child: Text(
+                    _replyPreviewText(r),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12.5, color: textColor),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   /// Whether we've sent `typing:true` and not yet sent the matching `false`.
   bool _typingActive = false;
@@ -502,26 +696,33 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       (it) => it is _BubbleItem && it.msg.id == messageId,
     );
 
-    for (var attempt = 0; attempt < 12; attempt++) {
+    for (var attempt = 0; attempt < 18; attempt++) {
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted || !_scrollController.hasClients) return;
       final ctx = _bubbleKeys[messageId]?.currentContext;
       if (ctx != null && ctx.mounted) {
+        // The row is laid out (often already, thanks to the list's cacheExtent):
+        // one eased scroll aligns it, no teleport.
         await Scrollable.ensureVisible(
           ctx,
           alignment: 0.3,
-          duration: const Duration(milliseconds: 300),
+          duration: const Duration(milliseconds: 340),
+          curve: Curves.easeInOutCubic,
         );
         break;
       }
       if (idx < 0) break;
-      // Target not built yet: jump toward its index's proportional offset to
-      // bring its region into the build window, then retry on the next frame.
-      final pos = _scrollController.position;
-      final frac = items.length <= 1 ? 0.0 : idx / (items.length - 1);
-      _scrollController.jumpTo(
-        (pos.maxScrollExtent * frac).clamp(0.0, pos.maxScrollExtent),
-      );
+      // Target still not built: jump toward its proportional offset to pull its
+      // region into the build window. Re-estimate only every few frames, not
+      // every frame — variable-height rows (a tall bubble) make the estimate
+      // shift as they lazily lay out, and jumping each frame reads as a bounce.
+      if (attempt.isEven) {
+        final pos = _scrollController.position;
+        final frac = items.length <= 1 ? 0.0 : idx / (items.length - 1);
+        _scrollController.jumpTo(
+          (pos.maxScrollExtent * frac).clamp(0.0, pos.maxScrollExtent),
+        );
+      }
     }
 
     await Future<void>.delayed(const Duration(milliseconds: 1600));
@@ -588,9 +789,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     if (_staged.isNotEmpty) {
       HapticFeedback.lightImpact();
       final items = List<StagedAttachment>.of(_staged);
-      widget.onSendMedia?.call(items, text);
+      widget.onSendMedia?.call(items, text, _replyDraft);
       ref.read(wallpaperDriftProvider.notifier).bump();
-      setState(() => _staged.clear());
+      setState(() {
+        _staged.clear();
+        _replyDraft = null;
+      });
       _controller.clear();
       _stopTyping();
       return;
@@ -611,8 +815,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     }
     if (text.isEmpty) return;
     HapticFeedback.lightImpact();
-    widget.onSend(text);
+    widget.onSend(text, _replyDraft);
     ref.read(wallpaperDriftProvider.notifier).bump();
+    if (_replyDraft != null) setState(() => _replyDraft = null);
     _controller.clear();
     _stopTyping();
   }
@@ -745,9 +950,16 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   void _showReactionBar(Offset globalPos, Msg m) {
     final mine = m.from == widget.selfUsername;
     final canCopy = _canCopy(m);
+    final canReply = _canReply(m);
+    final isMedia = _isSaveableMedia(m);
     final edit = _editAction(m, mine);
     final delete = _deleteAction(m, mine);
-    if (widget.onReact == null && !canCopy && edit == null && delete == null) {
+    if (widget.onReact == null &&
+        !canReply &&
+        !canCopy &&
+        !isMedia &&
+        edit == null &&
+        delete == null) {
       return;
     }
     HapticFeedback.mediumImpact();
@@ -765,6 +977,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           _dismissReactionBar();
           _openReactionPicker(m);
         },
+        onReply: canReply
+            ? () {
+                _dismissReactionBar();
+                _startReply(m);
+              }
+            : null,
         onCopy: canCopy
             ? () {
                 _dismissReactionBar();
@@ -777,6 +995,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 _dismissReactionBar();
                 edit();
               },
+        onSaveMedia: isMedia
+            ? () {
+                _dismissReactionBar();
+                _saveAttachment(m.attachment!);
+              }
+            : null,
         onDelete: delete == null
             ? null
             : () {
@@ -1130,6 +1354,15 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                       child: ListView.builder(
                         controller: _scrollController,
                         reverse: true,
+                        // Pre-build ~2 screens of off-screen rows each way so a
+                        // tapped reply-quote target a short way up is already
+                        // laid out: _focusMessage aligns it with one smooth
+                        // ensureVisible instead of teleport-jumping through
+                        // unbuilt rows (which froze, then snapped). The
+                        // ScrollCacheExtent replacement isn't exported in this
+                        // SDK yet, so the still-functional cacheExtent is used.
+                        // ignore: deprecated_member_use
+                        cacheExtent: 2000,
                         padding: EdgeInsets.only(
                           left: 16,
                           right: 16,
@@ -1259,13 +1492,16 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   Widget _bubble(Msg m, String me, _Marker? marker, List<String>? failedIds) {
     final mine = m.from == me;
-    // The sent/sending marker (if any) is drawn inside the bubble itself.
+    // The sent/sending marker (if any) is drawn inside the bubble itself; the
+    // reply quote (if any) is a banner inside the bubble's top edge, built by
+    // _bubbleContent — see _replyQuoteBanner.
     Widget content = _bubbleContent(m, me, marker);
     // Long-press → context menu (reactions + Copy/Delete); double-tap →
     // default reaction. Wraps both text and media bubbles; the media bubble's
     // own tap-to-open still wins for a plain tap (deferToChild).
     final canLongPress =
         widget.onReact != null ||
+        _canReply(m) ||
         _canCopy(m) ||
         _editAction(m, mine) != null ||
         _deleteAction(m, mine) != null;
@@ -1327,7 +1563,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // Keyed so a jump-to-message (search) can ensureVisible it; pulses a tint
     // while it's the highlighted target.
     final highlighted = m.id == _highlightedId;
-    return AnimatedContainer(
+    final container = AnimatedContainer(
       key: _bubbleKeyFor(m.id),
       duration: const Duration(milliseconds: 300),
       decoration: BoxDecoration(
@@ -1337,6 +1573,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         borderRadius: BorderRadius.circular(12),
       ),
       child: bubble,
+    );
+    // Swipe a real bubble toward center (own → left, partner's → right) to
+    // reply; call-log rows aren't reply-able.
+    if (!_canReply(m)) return container;
+    return _SwipeToReply(
+      mine: mine,
+      onReply: () => _startReply(m),
+      child: container,
     );
   }
 
@@ -1465,6 +1709,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             isMe: mine,
             marker: marker,
             onOpen: () => widget.onOpenAttachment?.call(att),
+            replyBanner: m.replyTo == null
+                ? null
+                : _replyQuoteBanner(m, onUserBubble: mine),
           ),
         ),
       );
@@ -1479,8 +1726,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // bubble-less, with a single emoji biggest and shrinking toward three. 4+
     // emoji fall through to a normal text bubble. Sizes are starting points to
     // tune on-device against iMessage.
+    // A reply keeps its quote banner, so it always needs a real bubble — skip
+    // the bubble-less jumbomoji treatment when replying.
     final emojiCount = _emojiOnlyCount(m.body);
-    if (emojiCount >= 1 && emojiCount <= 3) {
+    if (m.replyTo == null && emojiCount >= 1 && emojiCount <= 3) {
       final emojiSize = switch (emojiCount) {
         1 => 64.0,
         2 => 52.0,
@@ -1538,7 +1787,16 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                   horizontal: 14,
                   vertical: 10,
                 ),
-                child: _bubbleBody(m, mine, marker),
+                child: m.replyTo == null
+                    ? _bubbleBody(m, mine, marker)
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _replyQuoteBanner(m, onUserBubble: mine),
+                          _bubbleBody(m, mine, marker),
+                        ],
+                      ),
               ),
             ),
           ),
@@ -1615,6 +1873,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
+                    if (m.replyTo != null)
+                      _replyQuoteBanner(m, onUserBubble: mine),
                     AudioBubble(
                       descriptor: att,
                       isMe: mine,
@@ -2001,6 +2261,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           mainAxisSize: MainAxisSize.min,
           children: [
             if (_editingId != null) _editBanner(),
+            if (_replyDraft != null) _replyBanner(),
             if (_staged.isNotEmpty) _stagingTray(),
             // Scope recorder-driven rebuilds (timer + live waveform fire
             // ~15×/sec) to the composer only, so the message list isn't
@@ -2183,7 +2444,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         customBorder: const CircleBorder(),
         onTap: () async {
           final rec = await _recorder.stop();
-          if (rec != null) await widget.onSendVoice?.call(rec);
+          if (rec != null) await _sendVoiceMemo(rec);
         },
         child: const SizedBox(
           width: 44,
@@ -2272,7 +2533,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 await _recorder.cancel();
               } else {
                 final rec = await _recorder.stop();
-                if (rec != null) await widget.onSendVoice?.call(rec);
+                if (rec != null) await _sendVoiceMemo(rec);
               }
             }
           : null,
@@ -2367,6 +2628,57 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             visualDensity: VisualDensity.compact,
             onPressed: _cancelEdit,
             tooltip: 'Cancel edit',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _replyBanner() {
+    final palette = context.palette;
+    final r = _replyDraft!;
+    return Container(
+      key: const Key('reply-banner'),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: palette.bgSurface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border(left: BorderSide(color: palette.accentSage, width: 3)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.reply, size: 18, color: palette.accentSage),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Replying to ${_replyAuthorLabel(r.author)}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: palette.accentSage,
+                  ),
+                ),
+                Text(
+                  _replyPreviewText(r),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: palette.textMuted),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            key: const Key('reply-cancel'),
+            icon: const Icon(Icons.close, size: 20),
+            color: palette.textMuted,
+            visualDensity: VisualDensity.compact,
+            onPressed: _cancelReply,
+            tooltip: 'Cancel reply',
           ),
         ],
       ),
@@ -2758,9 +3070,11 @@ class _ReactionBarOverlay extends StatefulWidget {
     required this.showReactions,
     required this.onPick,
     required this.onMore,
+    required this.onReply,
     required this.onCopy,
     required this.onEdit,
     required this.onDelete,
+    required this.onSaveMedia,
     required this.onDismiss,
   });
   final Offset anchor;
@@ -2768,9 +3082,11 @@ class _ReactionBarOverlay extends StatefulWidget {
   final bool showReactions;
   final void Function(String emoji) onPick;
   final VoidCallback onMore;
+  final VoidCallback? onReply;
   final VoidCallback? onCopy;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
+  final VoidCallback? onSaveMedia;
   final VoidCallback onDismiss;
 
   @override
@@ -2797,8 +3113,10 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
     const menuWidth = 296.0;
     const reactionRow = 48.0 + 8.0; // bar + gap below it
     final actionCount =
+        (widget.onReply != null ? 1 : 0) +
         (widget.onCopy != null ? 1 : 0) +
         (widget.onEdit != null ? 1 : 0) +
+        (widget.onSaveMedia != null ? 1 : 0) +
         (widget.onDelete != null ? 1 : 0);
     final actionsHeight = actionCount == 0 ? 0.0 : actionCount * 44.0 + 8.0;
     final totalHeight =
@@ -2887,6 +3205,13 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (widget.onReply != null)
+              _actionItem(
+                key: 'action-reply',
+                icon: Icons.reply,
+                label: 'Reply',
+                onTap: widget.onReply!,
+              ),
             if (widget.onCopy != null)
               _actionItem(
                 key: 'action-copy',
@@ -2900,6 +3225,13 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
                 icon: Icons.edit_outlined,
                 label: 'Edit',
                 onTap: widget.onEdit!,
+              ),
+            if (widget.onSaveMedia != null)
+              _actionItem(
+                key: 'action-save-media',
+                icon: Icons.download_rounded,
+                label: 'Save to Photos',
+                onTap: widget.onSaveMedia!,
               ),
             if (widget.onDelete != null)
               _actionItem(
@@ -3080,11 +3412,16 @@ class _MediaBubble extends StatelessWidget {
     required this.isMe,
     required this.marker,
     required this.onOpen,
+    this.replyBanner,
   });
   final Msg msg;
   final bool isMe;
   final _Marker? marker;
   final VoidCallback onOpen;
+
+  /// Telegram-style reply quote, rendered above the media tile inside the same
+  /// bubble. Null when this media isn't a reply.
+  final Widget? replyBanner;
 
   @override
   Widget build(BuildContext context) {
@@ -3106,6 +3443,11 @@ class _MediaBubble extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (replyBanner != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(2, 1, 2, 5),
+                child: replyBanner,
+              ),
             ClipRRect(
               borderRadius: BorderRadius.circular(14),
               child: AspectRatio(
@@ -3472,6 +3814,91 @@ class _PopIn extends StatelessWidget {
         );
       },
       child: child,
+    );
+  }
+}
+
+/// Swipe-to-reply: drags a bubble horizontally toward screen center (own
+/// bubbles left, partner's right), revealing a reply arrow. Releasing past the
+/// threshold fires [onReply]; the bubble springs back either way. Vertical
+/// scrolling is untouched — only horizontal drags are claimed.
+class _SwipeToReply extends StatefulWidget {
+  const _SwipeToReply({
+    required this.mine,
+    required this.onReply,
+    required this.child,
+  });
+
+  final bool mine;
+  final VoidCallback onReply;
+  final Widget child;
+
+  @override
+  State<_SwipeToReply> createState() => _SwipeToReplyState();
+}
+
+class _SwipeToReplyState extends State<_SwipeToReply> {
+  static const _threshold = 56.0;
+  static const _maxDrag = 80.0;
+  double _dx = 0;
+  bool _armed = false;
+
+  void _update(DragUpdateDetails d) {
+    // Own bubbles pull left (negative), partner's pull right (positive); ignore
+    // drags in the wrong direction so the gesture only ever opens inward.
+    final next = _dx + d.delta.dx;
+    final clamped = widget.mine
+        ? next.clamp(-_maxDrag, 0.0)
+        : next.clamp(0.0, _maxDrag);
+    final armed = clamped.abs() >= _threshold;
+    if (armed && !_armed) HapticFeedback.lightImpact();
+    setState(() {
+      _dx = clamped;
+      _armed = armed;
+    });
+  }
+
+  void _end(DragEndDetails _) {
+    if (_armed) widget.onReply();
+    setState(() {
+      _dx = 0;
+      _armed = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (_dx.abs() / _threshold).clamp(0.0, 1.0);
+    return Stack(
+      alignment: widget.mine ? Alignment.centerRight : Alignment.centerLeft,
+      children: [
+        Positioned(
+          left: widget.mine ? null : 12,
+          right: widget.mine ? 12 : null,
+          child: Opacity(
+            opacity: progress,
+            child: Icon(
+              Icons.reply,
+              size: 20,
+              color: context.palette.accentSage,
+            ),
+          ),
+        ),
+        GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragUpdate: _update,
+          onHorizontalDragEnd: _end,
+          child: AnimatedContainer(
+            // Snap back smoothly on release (_dx → 0); track the finger live.
+            duration: _dx == 0
+                ? const Duration(milliseconds: 160)
+                : Duration.zero,
+            curve: Curves.easeOut,
+            transform: Matrix4.translationValues(_dx, 0, 0),
+            child: widget.child,
+          ),
+        ),
+      ],
     );
   }
 }
