@@ -2,6 +2,14 @@ import 'dart:convert';
 
 import '../attachment/attachment_descriptor.dart';
 import 'link_preview.dart';
+import 'reply_ref.dart';
+
+/// Parse the optional `replyTo` quote reference shared by the renderable
+/// content kinds (text/file/audio). Absent or malformed → null.
+ReplyRef? _replyOf(Map<String, Object?> j) {
+  final r = j['replyTo'];
+  return r is Map ? ReplyRef.fromJson(Map<String, Object?>.from(r)) : null;
+}
 
 /// The decrypted plaintext layer of a message (spec §3). Versioned so future
 /// kinds can be added. Text and file are the only kinds in this iteration.
@@ -23,12 +31,14 @@ sealed class MessageContent {
             return FileContent(
               AttachmentDescriptor.fromJson(j),
               caption: (cap == null || cap.isEmpty) ? null : cap,
+              replyTo: _replyOf(j),
             );
           case 'audio':
             final cap = j['caption'] as String?;
             return AudioContent(
               AttachmentDescriptor.fromJson(j),
               caption: (cap == null || cap.isEmpty) ? null : cap,
+              replyTo: _replyOf(j),
             );
           case 'reaction':
             return ReactionContent(
@@ -65,6 +75,7 @@ sealed class MessageContent {
               preview: p is Map
                   ? LinkPreview.fromJson(Map<String, Object?>.from(p))
                   : null,
+              replyTo: _replyOf(j),
             );
         }
       }
@@ -76,7 +87,7 @@ sealed class MessageContent {
 }
 
 class TextContent extends MessageContent {
-  const TextContent(this.text, {this.preview});
+  const TextContent(this.text, {this.preview, this.replyTo});
   final String text;
 
   /// Optional link preview fetched by the sender for the first URL in [text]
@@ -84,12 +95,16 @@ class TextContent extends MessageContent {
   /// is no link, or the fetch found nothing usable.
   final LinkPreview? preview;
 
+  /// Set when this text is a reply quoting an earlier message (see [ReplyRef]).
+  final ReplyRef? replyTo;
+
   @override
   String encode() => jsonEncode({
     'v': 1,
     'kind': 'text',
     'text': text,
     if (preview != null) 'preview': preview!.toJson(),
+    if (replyTo != null) 'replyTo': replyTo!.toJson(),
   });
 }
 
@@ -197,18 +212,22 @@ class CallContent extends MessageContent {
 }
 
 class FileContent extends MessageContent {
-  const FileContent(this.descriptor, {this.caption});
+  const FileContent(this.descriptor, {this.caption, this.replyTo});
   final AttachmentDescriptor descriptor;
 
   /// Optional text sent alongside the file, rendered as a caption under the
   /// media tile (one bubble). Null/empty when the attachment has no caption.
   final String? caption;
 
+  /// Set when this attachment is a reply quoting an earlier message.
+  final ReplyRef? replyTo;
+
   @override
   String encode() => jsonEncode({
     'v': 1,
     'kind': 'file',
     if (caption != null && caption!.isNotEmpty) 'caption': caption,
+    if (replyTo != null) 'replyTo': replyTo!.toJson(),
     ...descriptor.toJson(),
   });
 }
@@ -218,15 +237,19 @@ class FileContent extends MessageContent {
 /// per-file key, duration, and the 64-peak waveform. Full audio bytes live in
 /// R2; only the descriptor rides in the encrypted body.
 class AudioContent extends MessageContent {
-  const AudioContent(this.descriptor, {this.caption});
+  const AudioContent(this.descriptor, {this.caption, this.replyTo});
   final AttachmentDescriptor descriptor;
   final String? caption;
+
+  /// Set when this voice memo is a reply quoting an earlier message.
+  final ReplyRef? replyTo;
 
   @override
   String encode() => jsonEncode({
     'v': 1,
     'kind': 'audio',
     if (caption != null && caption!.isNotEmpty) 'caption': caption,
+    if (replyTo != null) 'replyTo': replyTo!.toJson(),
     ...descriptor.toJson(),
   });
 }

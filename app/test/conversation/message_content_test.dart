@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/attachment/attachment_descriptor.dart';
 import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_content.dart';
+import 'package:littlelove/conversation/reply_ref.dart';
 
 void main() {
   test('text encodes to a versioned envelope and decodes back', () {
@@ -158,5 +159,63 @@ void main() {
     expect(back.preview, isNotNull);
     expect(back.preview!.title, 'A Title');
     expect(back.preview!.siteName, 'Example');
+  });
+
+  const _sampleDesc = AttachmentDescriptor(
+    blobKey: 'k',
+    contentKeyB64: 'a',
+    nonceB64: 'b',
+    mime: 'image/jpeg',
+    filename: 'IMG.jpg',
+    size: 1,
+    width: 1,
+    height: 1,
+    durationMs: null,
+    thumbB64: 't',
+  );
+
+  test('TextContent round-trips a replyTo with an excerpt', () {
+    final enc = const TextContent(
+      'ok',
+      replyTo: ReplyRef(
+        id: 'm1',
+        author: 'court',
+        kind: 'text',
+        text: 'original',
+      ),
+    ).encode();
+    final back = MessageContent.decode(enc) as TextContent;
+    expect(back.replyTo, isNotNull);
+    expect(back.replyTo!.id, 'm1');
+    expect(back.replyTo!.author, 'court');
+    expect(back.replyTo!.kind, 'text');
+    expect(back.replyTo!.text, 'original');
+  });
+
+  test('FileContent round-trips a replyTo without an excerpt', () {
+    final enc = const FileContent(
+      _sampleDesc,
+      caption: 'hi',
+      replyTo: ReplyRef(id: 'm2', author: 'kaitlyn', kind: 'photo'),
+    ).encode();
+    final back = MessageContent.decode(enc) as FileContent;
+    expect(back.replyTo!.kind, 'photo');
+    expect(back.replyTo!.text, isNull);
+    expect(back.caption, 'hi');
+  });
+
+  test('AudioContent round-trips a replyTo', () {
+    final enc = const AudioContent(
+      _sampleDesc,
+      replyTo: ReplyRef(id: 'm3', author: 'court', kind: 'voice'),
+    ).encode();
+    final back = MessageContent.decode(enc) as AudioContent;
+    expect(back.replyTo!.id, 'm3');
+    expect(back.replyTo!.kind, 'voice');
+  });
+
+  test('a v1 envelope without replyTo still decodes (back-compat)', () {
+    final back = MessageContent.decode(const TextContent('hi').encode());
+    expect((back as TextContent).replyTo, isNull);
   });
 }
