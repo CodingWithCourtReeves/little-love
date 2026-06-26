@@ -90,8 +90,15 @@ void main() {
     await tester.pumpWidget(_app(container));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('reply-quote-2')), findsOneWidget);
-    expect(find.text('miss you'), findsOneWidget); // cached snippet
-    expect(find.text('kaitlyn'), findsOneWidget); // cached author label
+    // The stacked-faded quote shows the cached snippet (iMessage-style; the
+    // author label lives on the composer banner, not the quote).
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('reply-quote-2')),
+        matching: find.text('miss you'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('reply quote prefers the live target over the cached snippet', (

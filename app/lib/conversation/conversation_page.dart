@@ -546,58 +546,92 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     return (text == null || text.isEmpty) ? label : '$label · $text';
   }
 
-  /// A tappable quote header drawn above a reply's bubble. Resolves the live
-  /// target when present (so it reflects later edits) and falls back to the
-  /// cached [ReplyRef] snippet otherwise. Tapping jumps to the original.
+  /// Small leading glyph for a media quote (null for plain text).
+  IconData? _replyKindIcon(String kind) => switch (kind) {
+    'photo' => Icons.photo_outlined,
+    'video' => Icons.videocam_outlined,
+    'voice' => Icons.mic_none,
+    'file' => Icons.insert_drive_file_outlined,
+    _ => null,
+  };
+
+  /// iMessage-style reply quote: a shrunken, faded copy of the quoted message
+  /// stacked above the reply (colored by the *original* sender) with a short
+  /// connector linking the two. Resolves the live target when present (so it
+  /// reflects later edits) and falls back to the cached [ReplyRef] snippet.
+  /// Tapping the faded bubble jumps to the original.
   Widget _replyQuoteHeader(Msg m, bool mine) {
     final live = _lookupMessage(m.replyTo!.id);
     final r = live != null ? _replyRefFor(live) : m.replyTo!;
-    final accent = mine
-        ? context.palette.accentUser
-        : context.palette.accentSage;
+    final fromMe = r.author == widget.selfUsername;
+    final bubbleColor = fromMe
+        ? context.palette.bubbleUserBg
+        : context.palette.bubblePartnerBg;
+    final icon = _replyKindIcon(r.kind);
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => _focusMessage(r.id),
-        child: Container(
-          key: Key('reply-quote-${m.id}'),
-          margin: EdgeInsets.only(
-            left: mine ? 0 : 16,
-            right: mine ? 16 : 0,
-            top: 2,
-          ),
-          padding: const EdgeInsets.fromLTRB(8, 5, 10, 5),
-          constraints: const BoxConstraints(maxWidth: 280),
-          decoration: BoxDecoration(
-            color: context.palette.bgSurface.withValues(alpha: 0.55),
-            borderRadius: BorderRadius.circular(10),
-            border: Border(left: BorderSide(color: accent, width: 3)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _replyAuthorLabel(r.author),
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: accent,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          // The quoted message, shrunk + faded, pulled to the reply's side.
+          Padding(
+            padding: EdgeInsets.only(left: mine ? 0 : 22, right: mine ? 22 : 0),
+            child: Opacity(
+              opacity: 0.55,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _focusMessage(r.id),
+                child: Container(
+                  key: Key('reply-quote-${m.id}'),
+                  constraints: const BoxConstraints(maxWidth: 240),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: bubbleColor,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (icon != null) ...[
+                        Icon(icon, size: 14, color: context.palette.textMuted),
+                        const SizedBox(width: 5),
+                      ],
+                      Flexible(
+                        child: Text(
+                          _replyPreviewText(r),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: context.palette.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              Text(
-                _replyPreviewText(r),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: context.palette.textMuted,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          // Short connector from the quoted bubble down to the reply.
+          Padding(
+            padding: EdgeInsets.only(left: mine ? 0 : 14, right: mine ? 14 : 0),
+            child: Container(
+              width: 2.5,
+              height: 9,
+              decoration: BoxDecoration(
+                color: context.palette.textMuted.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
