@@ -4007,11 +4007,35 @@ class _ThreadFocusView extends ConsumerStatefulWidget {
 
 class _ThreadFocusViewState extends ConsumerState<_ThreadFocusView> {
   final _controller = TextEditingController();
+  final _scroll = ScrollController();
+
+  /// Last rendered thread length, so a grow (new reply, mine or the partner's)
+  /// triggers a stick-to-bottom.
+  int _lastCount = 0;
 
   @override
   void dispose() {
     _controller.dispose();
+    _scroll.dispose();
     super.dispose();
+  }
+
+  /// Pin the list to the newest message once it's laid out. Jumps on the first
+  /// build (open), animates afterward so a fresh reply slides into view.
+  void _stickToBottom({required bool animate}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      final target = _scroll.position.maxScrollExtent;
+      if (animate) {
+        _scroll.animateTo(
+          target,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        );
+      } else {
+        _scroll.jumpTo(target);
+      }
+    });
   }
 
   /// The root plus its transitive replies, chronological. Recomputed from the
@@ -4056,6 +4080,11 @@ class _ThreadFocusViewState extends ConsumerState<_ThreadFocusView> {
       });
       return const SizedBox.shrink();
     }
+    // Stick to the bottom on open and whenever the thread grows.
+    if (thread.length != _lastCount) {
+      _stickToBottom(animate: _lastCount != 0);
+      _lastCount = thread.length;
+    }
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
@@ -4076,6 +4105,7 @@ class _ThreadFocusViewState extends ConsumerState<_ThreadFocusView> {
                 _header(palette),
                 Expanded(
                   child: ListView.builder(
+                    controller: _scroll,
                     padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
                     itemCount: thread.length,
                     itemBuilder: (_, i) => _threadBubble(thread[i], palette),
