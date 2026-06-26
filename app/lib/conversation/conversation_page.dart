@@ -1698,12 +1698,30 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         opaque: false,
         barrierColor: Colors.black.withValues(alpha: 0.2),
         barrierDismissible: true,
+        transitionDuration: const Duration(milliseconds: 240),
+        reverseTransitionDuration: const Duration(milliseconds: 180),
         pageBuilder: (_, _, _) => _ThreadFocusView(
           roomId: widget.roomId,
           rootId: root.id,
           me: widget.selfUsername,
           onSend: (text) => widget.onSend(text, _replyRefFor(root)),
         ),
+        // Smooth fade + subtle scale, easing in and out, so the focus view
+        // glides over the chat instead of cutting in abruptly.
+        transitionsBuilder: (_, animation, _, child) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+          return FadeTransition(
+            opacity: curved,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.97, end: 1).animate(curved),
+              child: child,
+            ),
+          );
+        },
       ),
     );
   }
