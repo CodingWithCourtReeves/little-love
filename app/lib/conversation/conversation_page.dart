@@ -1404,6 +1404,15 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                       child: ListView.builder(
                         controller: _scrollController,
                         reverse: true,
+                        // Pre-build ~2 screens of off-screen rows each way so a
+                        // tapped reply-quote target a short way up is already
+                        // laid out: _focusMessage aligns it with one smooth
+                        // ensureVisible instead of teleport-jumping through
+                        // unbuilt rows (which froze, then snapped). The
+                        // ScrollCacheExtent replacement isn't exported in this
+                        // SDK yet, so the still-functional cacheExtent is used.
+                        // ignore: deprecated_member_use
+                        cacheExtent: 2000,
                         padding: EdgeInsets.only(
                           left: 16,
                           right: 16,
