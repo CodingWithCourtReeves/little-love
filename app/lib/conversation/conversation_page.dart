@@ -1928,18 +1928,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
               // Blur the top portion; the gradient below covers the blur's
               // bottom edge so there's no visible seam.
               _blurBand(top: 0, height: h * 0.82, sigma: 12),
-              // Darker gradient (0xCC) that holds through the pills, then fades
-              // out in the last stretch — keeps the pills on a strong fade and
-              // stops them blending with messages, with the fall-off landing
-              // just below them.
+              // Light darkening gradient (0x66 ≈ 40%) that holds through the
+              // pills then fades out just below them — enough to keep the
+              // clock/title legible over the wallpaper without reading heavy.
               const DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Color(0xCC000000),
-                      Color(0xCC000000),
+                      Color(0x66000000),
+                      Color(0x66000000),
                       Color(0x00000000),
                     ],
                     stops: [0.0, 0.5, 1.0],
