@@ -212,6 +212,40 @@ void main() {
     },
   );
 
+  testWidgets('an "N replies" pill opens the focused thread view', (
+    tester,
+  ) async {
+    final container = _container([
+      Msg(
+        id: '1',
+        from: 'kaitlyn',
+        to: 'court',
+        body: 'dinner tonight?',
+        ts: DateTime.utc(2026, 6, 9, 17, 2),
+      ),
+      Msg(
+        id: '2',
+        from: 'court',
+        to: 'kaitlyn',
+        body: 'yes please',
+        ts: DateTime.utc(2026, 6, 9, 17, 4),
+        replyTo: const ReplyRef(id: '1', author: 'kaitlyn', kind: 'text'),
+      ),
+    ]);
+    addTearDown(container.dispose);
+    await tester.pumpWidget(_app(container));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 reply'), findsOneWidget);
+    await tester.tap(find.text('1 reply'));
+    await tester.pumpAndSettle();
+
+    // Focused thread view is up with its own composer and both messages.
+    expect(find.byKey(const Key('thread-composer')), findsOneWidget);
+    expect(find.text('dinner tonight?'), findsWidgets);
+    expect(find.text('yes please'), findsWidgets);
+  });
+
   testWidgets(
     'tapping a reply quote does not throw when the target is present',
     (tester) async {

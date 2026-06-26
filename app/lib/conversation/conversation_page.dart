@@ -425,6 +425,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// the composer; attached to the next text/media/voice send then cleared.
   ReplyRef? _replyDraft;
 
+  /// Direct replies keyed by the parent message id, recomputed each build from
+  /// the store. Drives the "N replies" pill and the focused thread view.
+  Map<String, List<Msg>> _replyChildren = const {};
+
   void _startReply(Msg m) {
     HapticFeedback.lightImpact();
     setState(() => _replyDraft = _replyRefFor(m));
@@ -1181,6 +1185,15 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _prevMessageCount = messages.length;
 
     final sorted = [...messages]..sort((a, b) => a.ts.compareTo(b.ts));
+    // Index direct replies by parent id for the "N replies" pill + thread view.
+    final replyChildren = <String, List<Msg>>{};
+    for (final m in sorted) {
+      final parent = m.replyTo?.id;
+      if (parent != null) {
+        (replyChildren[parent] ??= <Msg>[]).add(m);
+      }
+    }
+    _replyChildren = replyChildren;
     final status = _statusModel(sorted, me);
     // Reversed, so index 0 is the visual bottom — i.e. the newest message is
     // the true leading edge, which is what lets a reverse list pin to the
@@ -1579,13 +1592,19 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       );
     }
 
-    final Widget bubble = m.reactions.isEmpty
+    final replyKids = _replyChildren[m.id];
+    final hasReplies = replyKids != null && replyKids.isNotEmpty;
+    final extras = <Widget>[
+      if (m.reactions.isNotEmpty) _reactionPills(m, me, mine),
+      if (hasReplies) _repliesPill(m, replyKids.length, mine),
+    ];
+    final Widget bubble = extras.isEmpty
         ? result
         : Column(
             crossAxisAlignment: mine
                 ? CrossAxisAlignment.end
                 : CrossAxisAlignment.start,
-            children: [result, _reactionPills(m, me, mine)],
+            children: [result, ...extras],
           );
 
     // Keyed so a jump-to-message (search) can ensureVisible it; pulses a tint
@@ -1636,6 +1655,55 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
               onTap: () => _react(m, entry.key),
             ),
         ],
+      ),
+    );
+  }
+
+  /// "N replies" affordance under a message that has replies (iMessage-style).
+  /// Tapping opens the focused thread view rooted at [root].
+  Widget _repliesPill(Msg root, int count, bool mine) {
+    final accent = context.palette.accentSage;
+    return Padding(
+      padding: mine
+          ? const EdgeInsets.only(right: 12, top: 1, bottom: 2)
+          : const EdgeInsets.only(left: 12, top: 1, bottom: 2),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _openThread(root),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.forum_outlined, size: 13, color: accent),
+            const SizedBox(width: 4),
+            Text(
+              count == 1 ? '1 reply' : '$count replies',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: accent,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Open the focused thread view: blur the chat behind and show just this
+  /// thread (root + replies) with a composer that replies back into it.
+  void _openThread(Msg root) {
+    HapticFeedback.lightImpact();
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        opaque: false,
+        barrierColor: Colors.black.withValues(alpha: 0.2),
+        barrierDismissible: true,
+        pageBuilder: (_, _, _) => _ThreadFocusView(
+          roomId: widget.roomId,
+          rootId: root.id,
+          me: widget.selfUsername,
+          onSend: (text) => widget.onSend(text, _replyRefFor(root)),
+        ),
       ),
     );
   }
@@ -3911,6 +3979,216 @@ class _SwipeToReplyState extends State<_SwipeToReply> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// iMessage-style focused thread view: the chat blurs behind a scrim while just
+/// one thread (a root message + its transitive replies) is shown, with a
+/// composer that replies straight back into the thread. Self-contained
+/// rendering (it does not reuse the timeline bubbles, which hold GlobalKeys
+/// still mounted behind the blur).
+class _ThreadFocusView extends ConsumerStatefulWidget {
+  const _ThreadFocusView({
+    required this.roomId,
+    required this.rootId,
+    required this.me,
+    required this.onSend,
+  });
+
+  final String roomId;
+  final String rootId;
+  final String me;
+  final void Function(String text) onSend;
+
+  @override
+  ConsumerState<_ThreadFocusView> createState() => _ThreadFocusViewState();
+}
+
+class _ThreadFocusViewState extends ConsumerState<_ThreadFocusView> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  /// The root plus its transitive replies, chronological. Recomputed from the
+  /// live store so replies sent while focused appear immediately.
+  List<Msg> _thread(List<Msg> all) {
+    final byParent = <String, List<Msg>>{};
+    Msg? root;
+    for (final m in all) {
+      if (m.id == widget.rootId) root = m;
+      final p = m.replyTo?.id;
+      if (p != null) (byParent[p] ??= <Msg>[]).add(m);
+    }
+    if (root == null) return const [];
+    final out = <Msg>[root];
+    final queue = <String>[root.id];
+    while (queue.isNotEmpty) {
+      for (final child in byParent[queue.removeLast()] ?? const <Msg>[]) {
+        out.add(child);
+        queue.add(child.id);
+      }
+    }
+    out.sort((a, b) => a.ts.compareTo(b.ts));
+    return out;
+  }
+
+  void _send() {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+    HapticFeedback.lightImpact();
+    widget.onSend(text);
+    _controller.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final thread = _thread(ref.watch(messageStoreProvider(widget.roomId)));
+    // The root was unsent out from under us: close.
+    if (thread.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).maybePop();
+      });
+      return const SizedBox.shrink();
+    }
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        children: [
+          // Blur + dim the chat behind; tap outside the sheet to dismiss.
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () => Navigator.of(context).maybePop(),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                child: Container(color: Colors.black.withValues(alpha: 0.12)),
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Column(
+              children: [
+                _header(palette),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                    itemCount: thread.length,
+                    itemBuilder: (_, i) => _threadBubble(thread[i], palette),
+                  ),
+                ),
+                _composer(palette),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _header(AppPalette palette) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.close),
+            color: palette.textPrimary,
+            onPressed: () => Navigator.of(context).maybePop(),
+          ),
+          Text(
+            'Thread',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: palette.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _threadBubble(Msg m, AppPalette palette) {
+    final mine = m.from == widget.me;
+    final att = m.attachment;
+    final String text;
+    if (att != null) {
+      final label = att.isVideo
+          ? 'Video'
+          : att.isAudio
+          ? 'Voice message'
+          : att.mime.startsWith('image/')
+          ? 'Photo'
+          : 'File';
+      final caption = m.body.trim();
+      text = caption.isEmpty ? label : '$label · $caption';
+    } else {
+      text = m.body;
+    }
+    return Align(
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * 0.72,
+        ),
+        decoration: BoxDecoration(
+          color: mine ? palette.bubbleUserBg : palette.bubblePartnerBg,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(fontSize: 15, color: palette.textPrimary),
+        ),
+      ),
+    );
+  }
+
+  Widget _composer(AppPalette palette) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                key: const Key('thread-composer'),
+                controller: _controller,
+                minLines: 1,
+                maxLines: 4,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => _send(),
+                style: TextStyle(color: palette.textPrimary),
+                decoration: InputDecoration(
+                  hintText: 'Reply to thread',
+                  filled: true,
+                  fillColor: palette.bgSurface,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(22),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ),
+            IconButton(
+              key: const Key('thread-send'),
+              icon: Icon(Icons.send, color: palette.accentSage),
+              onPressed: _send,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
