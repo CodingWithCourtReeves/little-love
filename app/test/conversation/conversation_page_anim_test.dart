@@ -122,13 +122,60 @@ void main() {
     expect(_popOpacity(tester, '2'), 1.0); // settles fully opaque
   });
 
+  testWidgets('history that hydrates after the first build does not pop', (
+    tester,
+  ) async {
+    final container = _container();
+    addTearDown(container.dispose);
+    final store = container.read(messageStoreProvider('roomA').notifier);
+    // Store is empty when the page first builds (the local DB hydrates async,
+    // landing after open) — the seed must not fire on this empty build.
+    store.setAll(const []);
+    await _pump(tester, container);
+
+    // Hydration lands: a batch of existing history.
+    store.setAll([
+      Msg(
+        id: 'h1',
+        from: 'kaitlyn',
+        to: 'court',
+        body: 'one',
+        ts: DateTime.utc(2026, 6, 9, 16, 0),
+      ),
+      Msg(
+        id: 'h2',
+        from: 'court',
+        to: 'kaitlyn',
+        body: 'two',
+        ts: DateTime.utc(2026, 6, 9, 16, 1),
+      ),
+    ]);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+
+    // Neither hydrated row pops in — they were seeded as existing history.
+    expect(find.byKey(const Key('popin-h1')), findsNothing);
+    expect(find.byKey(const Key('popin-h2')), findsNothing);
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('an optimistic send does not re-pop after reconcile', (
     tester,
   ) async {
     final container = _container();
     addTearDown(container.dispose);
     final store = container.read(messageStoreProvider('roomA').notifier);
-    store.setAll(const []);
+    // Seed one prior message so the store is non-empty on first build (history
+    // is seeded), making the optimistic send below a genuine new arrival.
+    store.setAll([
+      Msg(
+        id: 'h0',
+        from: 'kaitlyn',
+        to: 'court',
+        body: 'earlier',
+        ts: DateTime.utc(2026, 6, 9, 16),
+      ),
+    ]);
     await _pump(tester, container);
 
     // Optimistic send: the local echo's id IS the client msg id (that is how

@@ -880,10 +880,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final messages = ref.watch(messageStoreProvider(widget.roomId));
     final me = ref.watch(accountProvider).valueOrNull?.username ?? '';
 
-    // Seed the pop-in set once with whatever is already loaded, so the initial
-    // history renders without animating. Thereafter a key missing from the set
-    // is exactly a message that arrived after open — that one pops in.
-    if (!_seededAnimics) {
+    // Seed the pop-in set once the store first has messages, so the existing
+    // history renders without animating. Crucially we wait for a *non-empty*
+    // build: the store hydrates from the local DB asynchronously (see
+    // RoomMessageRouter._subscribe → setAll), which routinely lands *after* this
+    // page's first build. Seeding on an empty first build would mark nothing,
+    // then pop the entire history in when it hydrates. A brand-new empty room
+    // stays unseeded until its first real message, which then correctly pops.
+    if (!_seededAnimics && messages.isNotEmpty) {
       for (final m in messages) {
         _animatedIds.add(m.clientMsgId ?? m.id);
       }

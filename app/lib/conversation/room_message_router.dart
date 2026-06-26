@@ -401,8 +401,12 @@ class RoomMessageRouter {
       if (!f.replayed) {
         if (ref.read(activeRoomProvider) == f.roomId) {
           // The chat is on screen: a gentle incoming chime + light haptic so a
-          // message landing while you're reading registers without a banner.
-          ref.read(messageFeedbackProvider).received();
+          // message landing while you're reading registers without a banner. A
+          // call-log entry (emitted when a call ends) is not a message to chime
+          // about — same exclusion the banner makes below.
+          if (content is! CallContent) {
+            ref.read(messageFeedbackProvider).received();
+          }
           // Flip the sender's bubble to a double heart now (not on the next
           // reopen). Tell the server AND advance our local read marker, so
           // leaving the room doesn't leave a phantom unread dot for a message

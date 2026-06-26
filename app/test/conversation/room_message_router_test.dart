@@ -770,6 +770,63 @@ void main() {
     expect(container.read(messageStoreProvider('room1')), hasLength(1));
   });
 
+  test('no received cue for a call-log entry in the active room', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final feedback = _RecordingFeedback();
+    final container = await _container(
+      conn: conn,
+      me: me,
+      overrides: [messageFeedbackProvider.overrideWithValue(feedback)],
+    );
+
+    container.read(inboxStateProvider.notifier).setRooms([
+      Room(
+        roomId: 'room1',
+        name: 'Date ideas',
+        members: [_member('court', me), _member('kaitlyn', peer)],
+        createdAt: DateTime.utc(2026, 6, 10),
+      ),
+    ]);
+    container.read(activeRoomProvider.notifier).state = 'room1';
+    container.read(roomMessageRouterProvider);
+
+    final key = await deriveRoomKey(
+      me: peer,
+      peerX25519Pub: me.x25519PublicKey,
+      roomId: 'room1',
+    );
+    // A call ends → a CallContent log lands while the room is open. It must not
+    // chime/haptic like a real message (matches the banner exclusion).
+    final body = await encryptOutgoing(
+      key,
+      CallContent(
+        callId: 'call-1',
+        outcome: 'completed',
+        durationS: 154,
+        startedAt: DateTime.utc(2026, 6, 10, 12),
+      ).encode(),
+    );
+
+    conn.emit(
+      MessageFrame(
+        id: 'm1',
+        roomId: 'room1',
+        from: 'kaitlyn',
+        ts: DateTime.utc(2026, 6, 10, 12),
+        body: body,
+        replayed: false,
+      ),
+    );
+    // markRoomRead runs in the same active-room branch, right after the chime
+    // check, and sends a MarkRead — so once it lands the chime decision has
+    // been made (and skipped). Gating on it avoids asserting too early.
+    await pumpUntil(() => _sentOfKind(conn, 'MarkRead').isNotEmpty);
+
+    expect(feedback.receivedCount, 0);
+  });
+
   test('no banner for a replayed message', () async {
     final me = await deriveIdentity(seedA);
     final peer = await deriveIdentity(seedB);

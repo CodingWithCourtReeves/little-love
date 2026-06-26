@@ -345,9 +345,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         sendStatus: SendStatus.sending,
       ),
     );
-    // Soft outgoing blip the instant the bubble appears (respects the silent
-    // switch; muted phones get nothing).
-    ref.read(messageFeedbackProvider).sent();
     try {
       // Sender-side link preview (best-effort, bounded): the fetched title/
       // image ride inside the encrypted body, so the recipient never hits the
@@ -381,6 +378,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       debugPrint('send failed before enqueue: $e');
       return;
     }
+    // Durably enqueued — now it's a real send: soft outgoing blip (respects the
+    // silent switch). Played here, not on the optimistic add, so a send that
+    // rolls back above never chimes.
+    ref.read(messageFeedbackProvider).sent();
     // Durably enqueued. A kick failure leaves the row for the drain to retry,
     // so surface a tap-to-retry affordance.
     try {
@@ -468,6 +469,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               attachment: descriptor,
             ),
           );
+      // Outgoing blip once durably enqueued + the bubble is on screen (one per
+      // attachment, matching the staggered bubbles in a multi-pick send).
+      ref.read(messageFeedbackProvider).sent();
       await ref.read(outboxDrainProvider).kick();
     } catch (e) {
       if (!context.mounted) return;
@@ -541,6 +545,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               attachment: descriptor,
             ),
           );
+      // Outgoing blip once the memo is durably enqueued + on screen.
+      ref.read(messageFeedbackProvider).sent();
       await ref.read(outboxDrainProvider).kick();
     } catch (e) {
       if (context.mounted) {
