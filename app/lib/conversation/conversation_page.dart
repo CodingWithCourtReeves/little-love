@@ -4213,10 +4213,26 @@ class _ThreadFocusViewState extends ConsumerState<_ThreadFocusView> {
                 ),
               ),
             ),
-            IconButton(
+            const SizedBox(width: 8),
+            // Filled circular send pill, matching the main composer, so the
+            // glyph sits on a themed background in both light and dark.
+            Material(
               key: const Key('thread-send'),
-              icon: Icon(Icons.send, color: palette.accentSage),
-              onPressed: _send,
+              color: palette.accentUser,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _send,
+                child: const SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Icon(
+                    Icons.arrow_upward,
+                    color: Colors.white,
+                    size: 22,
+                  ),
+                ),
+              ),
             ),
           ],
         ),
