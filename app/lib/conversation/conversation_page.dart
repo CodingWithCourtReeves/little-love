@@ -731,26 +731,33 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       (it) => it is _BubbleItem && it.msg.id == messageId,
     );
 
-    for (var attempt = 0; attempt < 12; attempt++) {
+    for (var attempt = 0; attempt < 18; attempt++) {
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted || !_scrollController.hasClients) return;
       final ctx = _bubbleKeys[messageId]?.currentContext;
       if (ctx != null && ctx.mounted) {
+        // The row is laid out (often already, thanks to the list's cacheExtent):
+        // one eased scroll aligns it, no teleport.
         await Scrollable.ensureVisible(
           ctx,
           alignment: 0.3,
-          duration: const Duration(milliseconds: 300),
+          duration: const Duration(milliseconds: 340),
+          curve: Curves.easeInOutCubic,
         );
         break;
       }
       if (idx < 0) break;
-      // Target not built yet: jump toward its index's proportional offset to
-      // bring its region into the build window, then retry on the next frame.
-      final pos = _scrollController.position;
-      final frac = items.length <= 1 ? 0.0 : idx / (items.length - 1);
-      _scrollController.jumpTo(
-        (pos.maxScrollExtent * frac).clamp(0.0, pos.maxScrollExtent),
-      );
+      // Target still not built: jump toward its proportional offset to pull its
+      // region into the build window. Re-estimate only every few frames, not
+      // every frame — variable-height rows (a tall bubble) make the estimate
+      // shift as they lazily lay out, and jumping each frame reads as a bounce.
+      if (attempt.isEven) {
+        final pos = _scrollController.position;
+        final frac = items.length <= 1 ? 0.0 : idx / (items.length - 1);
+        _scrollController.jumpTo(
+          (pos.maxScrollExtent * frac).clamp(0.0, pos.maxScrollExtent),
+        );
+      }
     }
 
     await Future<void>.delayed(const Duration(milliseconds: 1600));
