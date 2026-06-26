@@ -4020,21 +4020,17 @@ class _ThreadFocusViewState extends ConsumerState<_ThreadFocusView> {
     super.dispose();
   }
 
-  /// Pin the list to the newest message once it's laid out. Jumps on the first
-  /// build (open), animates afterward so a fresh reply slides into view.
-  void _stickToBottom({required bool animate}) {
+  /// Follow the newest message. The list is reversed, so the bottom is offset
+  /// 0 — a stable target known without waiting on layout, which avoids the
+  /// overshoot/bounce you get animating toward a still-growing maxScrollExtent.
+  void _stickToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
-      final target = _scroll.position.maxScrollExtent;
-      if (animate) {
-        _scroll.animateTo(
-          target,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
-        );
-      } else {
-        _scroll.jumpTo(target);
-      }
+      _scroll.animateTo(
+        0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      );
     });
   }
 
@@ -4080,9 +4076,10 @@ class _ThreadFocusViewState extends ConsumerState<_ThreadFocusView> {
       });
       return const SizedBox.shrink();
     }
-    // Stick to the bottom on open and whenever the thread grows.
+    // Follow the newest message whenever the thread grows (mine or partner's).
+    // On open the reversed list already starts pinned to the bottom.
     if (thread.length != _lastCount) {
-      _stickToBottom(animate: _lastCount != 0);
+      if (_lastCount != 0) _stickToBottom();
       _lastCount = thread.length;
     }
     return Scaffold(
@@ -4106,9 +4103,14 @@ class _ThreadFocusViewState extends ConsumerState<_ThreadFocusView> {
                 Expanded(
                   child: ListView.builder(
                     controller: _scroll,
+                    // Reversed: index 0 is the bottom (newest), so the view is
+                    // naturally pinned to the latest message and stays stable
+                    // as the thread grows.
+                    reverse: true,
                     padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
                     itemCount: thread.length,
-                    itemBuilder: (_, i) => _threadBubble(thread[i], palette),
+                    itemBuilder: (_, i) =>
+                        _threadBubble(thread[thread.length - 1 - i], palette),
                   ),
                 ),
                 _composer(palette),
