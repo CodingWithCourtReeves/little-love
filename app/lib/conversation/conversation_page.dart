@@ -18,6 +18,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../attachment/attachment_descriptor.dart';
 import '../attachment/attachment_download.dart';
+import '../attachment/media_actions.dart';
 import '../attachment/staged_attachment.dart';
 import '../attachment/thumbnail.dart';
 import '../audio/playback_provider.dart';
@@ -473,6 +474,48 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// (text/media) are reply-able; call-log rows are not.
   bool _canReply(Msg m) => m.callOutcome == null;
 
+  /// Whether [m] carries an image/video attachment that can be saved to Photos
+  /// or shared (voice memos and text are excluded).
+  bool _isSaveableMedia(Msg m) {
+    final a = m.attachment;
+    return a != null && (a.mime.startsWith('image/') || a.isVideo);
+  }
+
+  /// Decrypt the attachment to a local file (cached after the first fetch),
+  /// then save it to the camera roll. Toasts on success/failure.
+  Future<void> _saveAttachment(AttachmentDescriptor att) async {
+    final conn = ref.read(liveConnectionProvider).asData?.value;
+    if (conn == null) return;
+    try {
+      final file = await fetchAndDecrypt(conn: conn, descriptor: att);
+      await saveToGallery(file, att);
+      if (mounted) showLoveToast(context, 'Saved to Photos', icon: Icons.check);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Couldn't save: $e")));
+      }
+    }
+  }
+
+  /// Decrypt the attachment to a local file, then hand it to the iOS share
+  /// sheet.
+  Future<void> _shareAttachment(AttachmentDescriptor att) async {
+    final conn = ref.read(liveConnectionProvider).asData?.value;
+    if (conn == null) return;
+    try {
+      final file = await fetchAndDecrypt(conn: conn, descriptor: att);
+      await shareFile(file, att);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Couldn't share: $e")));
+      }
+    }
+  }
+
   /// The live message with [id] from the current buffer, or null if it isn't
   /// loaded (scrolled out of history, or since unsent).
   Msg? _lookupMessage(String id) {
@@ -898,11 +941,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final mine = m.from == widget.selfUsername;
     final canCopy = _canCopy(m);
     final canReply = _canReply(m);
+    final isMedia = _isSaveableMedia(m);
     final edit = _editAction(m, mine);
     final delete = _deleteAction(m, mine);
     if (widget.onReact == null &&
         !canReply &&
         !canCopy &&
+        !isMedia &&
         edit == null &&
         delete == null) {
       return;
@@ -940,6 +985,18 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 _dismissReactionBar();
                 edit();
               },
+        onSaveMedia: isMedia
+            ? () {
+                _dismissReactionBar();
+                _saveAttachment(m.attachment!);
+              }
+            : null,
+        onShareMedia: isMedia
+            ? () {
+                _dismissReactionBar();
+                _shareAttachment(m.attachment!);
+              }
+            : null,
         onDelete: delete == null
             ? null
             : () {
@@ -2995,6 +3052,8 @@ class _ReactionBarOverlay extends StatefulWidget {
     required this.onCopy,
     required this.onEdit,
     required this.onDelete,
+    required this.onSaveMedia,
+    required this.onShareMedia,
     required this.onDismiss,
   });
   final Offset anchor;
@@ -3006,6 +3065,8 @@ class _ReactionBarOverlay extends StatefulWidget {
   final VoidCallback? onCopy;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
+  final VoidCallback? onSaveMedia;
+  final VoidCallback? onShareMedia;
   final VoidCallback onDismiss;
 
   @override
@@ -3035,6 +3096,8 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
         (widget.onReply != null ? 1 : 0) +
         (widget.onCopy != null ? 1 : 0) +
         (widget.onEdit != null ? 1 : 0) +
+        (widget.onSaveMedia != null ? 1 : 0) +
+        (widget.onShareMedia != null ? 1 : 0) +
         (widget.onDelete != null ? 1 : 0);
     final actionsHeight = actionCount == 0 ? 0.0 : actionCount * 44.0 + 8.0;
     final totalHeight =
@@ -3143,6 +3206,20 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
                 icon: Icons.edit_outlined,
                 label: 'Edit',
                 onTap: widget.onEdit!,
+              ),
+            if (widget.onSaveMedia != null)
+              _actionItem(
+                key: 'action-save-media',
+                icon: Icons.download_rounded,
+                label: 'Save to Photos',
+                onTap: widget.onSaveMedia!,
+              ),
+            if (widget.onShareMedia != null)
+              _actionItem(
+                key: 'action-share-media',
+                icon: Icons.ios_share,
+                label: 'Share',
+                onTap: widget.onShareMedia!,
               ),
             if (widget.onDelete != null)
               _actionItem(
