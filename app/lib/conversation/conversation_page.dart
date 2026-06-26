@@ -355,13 +355,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   GlobalKey _bubbleKeyFor(String id) =>
       _bubbleKeys.putIfAbsent(id, GlobalKey.new);
 
-  /// Measures the floating composer so the message list can reserve matching
-  /// bottom padding (the list scrolls *under* the frosted bar, so its newest
-  /// row must clear the glass). Tracked in state and re-measured each frame;
-  /// the bar's height changes with multiline growth and the staging tray.
-  final _composerKey = GlobalKey();
-  double _composerHeight = 0;
-
   /// Saturation ×1.3 color matrix (luma-weighted rows). Composed over the
   /// composer's backdrop blur to mimic Apple's blur *material*: a plain
   /// gaussian blur goes muddy, so we lift saturation back up to keep the
@@ -372,15 +365,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     -0.0639, -0.2145, 1.2784, 0, 0, //
     0, 0, 0, 1, 0, //
   ];
-
-  void _measureComposer() {
-    if (!mounted) return;
-    final box = _composerKey.currentContext?.findRenderObject() as RenderBox?;
-    final h = box?.size.height;
-    if (h != null && (h - _composerHeight).abs() > 0.5) {
-      setState(() => _composerHeight = h);
-    }
-  }
 
   /// Distance (in logical px) from the bottom that still counts as "at bottom".
   static const _stickThreshold = 120.0;
@@ -928,9 +912,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // bottom on its own. The partner's "typing…" indicator deliberately lives
     // in the app bar (not as a bottom row) so it never reflows this list.
     final items = _itemize(sorted).reversed.toList();
-    // Re-measure the floating composer after this frame paints so the list's
-    // reserved bottom padding tracks the bar as it grows/shrinks.
-    SchedulerBinding.instance.addPostFrameCallback((_) => _measureComposer());
     // Keyboard height. We keep the wallpaper full-bleed behind the keyboard
     // (Telegram-style) by turning off Scaffold's auto-resize and instead
     // lifting the composer + the list's reserved bottom by this inset
@@ -1101,115 +1082,124 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         ],
       ),
       body: WallpaperBackground(
-        child: Stack(
+        // Column push-down: the message list lives in an Expanded above the
+        // composer, so when the composer grows a line Flutter shrinks the list
+        // in the *same* layout pass — messages push up instantly instead of
+        // being briefly covered by the bar (the old floating-Stack + measured-
+        // padding approach lagged the growth by a frame). The composer keeps
+        // its bottom:keyboardInset padding to ride above the keyboard, so the
+        // Expanded list sizes around composer + keyboard naturally (auto-resize
+        // stays off — see keyboardInset above).
+        child: Column(
           children: [
-            Positioned.fill(
-              // Tap the chat to dismiss the keyboard (Telegram-style). A real
-              // onTap — not a TapRegion — only fires on a tap that isn't a
-              // drag: the list's vertical-drag recognizer wins the gesture
-              // arena during a scroll, so scrolling up keeps the keyboard up.
-              // Opaque so taps land on the wallpaper gutters and empty space
-              // too, not just on message bubbles.
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-                child: ListView.builder(
-                  controller: _scrollController,
-                  reverse: true,
-                  // Reserve room for the floating glass composer so the newest
-                  // message clears it (reverse:true → bottom padding is the
-                  // visual bottom). Height is measured from the live bar; the
-                  // keyboard inset is added on top since the composer rides above
-                  // the keyboard (auto-resize is off — see keyboardInset above).
-                  padding: EdgeInsets.only(
-                    left: 16,
-                    right: 16,
-                    top:
-                        12 +
-                        MediaQuery.of(context).padding.top +
-                        kToolbarHeight,
-                    bottom: _composerHeight + 12 + keyboardInset,
-                  ),
-                  itemCount: items.length,
-                  // Relocate existing keyed rows by identity when an insert
-                  // shifts indices, so the delegate reuses them instead of
-                  // rebuilding the visible list (the receive-time flash).
-                  findChildIndexCallback: (key) {
-                    final value = (key as ValueKey<String>).value;
-                    final idx = items.indexWhere((it) => _rowKey(it) == value);
-                    return idx < 0 ? null : idx;
-                  },
-                  itemBuilder: (_, i) {
-                    final item = items[i];
-                    final child = switch (item) {
-                      _BubbleItem(:final msg) => _bubble(
-                        msg,
-                        me,
-                        status.inBubble[msg.id],
-                        status.failedRun[msg.id],
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    // Tap the chat to dismiss the keyboard (Telegram-style). A
+                    // real onTap — not a TapRegion — only fires on a tap that
+                    // isn't a drag: the list's vertical-drag recognizer wins the
+                    // gesture arena during a scroll, so scrolling up keeps the
+                    // keyboard up. Opaque so taps land on the wallpaper gutters
+                    // and empty space too, not just on message bubbles.
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () =>
+                          FocusManager.instance.primaryFocus?.unfocus(),
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        reverse: true,
+                        padding: EdgeInsets.only(
+                          left: 16,
+                          right: 16,
+                          top:
+                              12 +
+                              MediaQuery.of(context).padding.top +
+                              kToolbarHeight,
+                          bottom: 12,
+                        ),
+                        itemCount: items.length,
+                        // Relocate existing keyed rows by identity when an
+                        // insert shifts indices, so the delegate reuses them
+                        // instead of rebuilding the visible list (the
+                        // receive-time flash).
+                        findChildIndexCallback: (key) {
+                          final value = (key as ValueKey<String>).value;
+                          final idx = items.indexWhere(
+                            (it) => _rowKey(it) == value,
+                          );
+                          return idx < 0 ? null : idx;
+                        },
+                        itemBuilder: (_, i) {
+                          final item = items[i];
+                          final child = switch (item) {
+                            _BubbleItem(:final msg) => _bubbleRow(
+                              msg,
+                              me,
+                              status.inBubble[msg.id],
+                              status.failedRun[msg.id],
+                            ),
+                            _DayItem(:final day) => _daySeparator(day),
+                            _GapItem(:final time) => _gapHeader(time),
+                          };
+                          return KeyedSubtree(
+                            key: ValueKey(_rowKey(item)),
+                            child: child,
+                          );
+                        },
                       ),
-                      _DayItem(:final day) => _daySeparator(day),
-                      _GapItem(:final time) => _gapHeader(time),
-                    };
-                    return KeyedSubtree(
-                      key: ValueKey(_rowKey(item)),
-                      child: child,
-                    );
-                  },
-                ),
-              ),
-            ),
-            // Dark scrim across the very top — behind the status bar and app
-            // bar — so the OS clock/battery and the title stay legible over the
-            // wallpaper, Telegram-style. Drawn over the message list (so it
-            // scrolls under), tall enough to clear the toolbar, pointer-through.
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: MediaQuery.of(context).padding.top + kToolbarHeight + 12,
-              child: const IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Color(0x99000000), Color(0x00000000)],
                     ),
                   ),
-                ),
-              ),
-            ),
-            Positioned(
-              right: 16,
-              bottom: _composerHeight + 16 + keyboardInset,
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 150),
-                opacity: _atBottom ? 0 : 1,
-                child: IgnorePointer(
-                  ignoring: _atBottom,
-                  child: FloatingActionButton.small(
-                    key: const Key('jump-to-bottom'),
-                    backgroundColor: context.palette.bgSurface,
-                    foregroundColor: context.palette.accentUser,
-                    elevation: 4,
-                    onPressed: _animateToBottom,
-                    tooltip: 'Jump to latest',
-                    child: const Icon(Icons.arrow_downward),
+                  // Dark scrim across the very top — behind the status bar and
+                  // app bar — so the OS clock/battery and the title stay
+                  // legible over the wallpaper, Telegram-style. Drawn over the
+                  // message list (so it scrolls under), pointer-through.
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height:
+                        MediaQuery.of(context).padding.top +
+                        kToolbarHeight +
+                        12,
+                    child: const IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Color(0x99000000), Color(0x00000000)],
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                  Positioned(
+                    right: 16,
+                    bottom: 16,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 150),
+                      opacity: _atBottom ? 0 : 1,
+                      child: IgnorePointer(
+                        ignoring: _atBottom,
+                        child: FloatingActionButton.small(
+                          key: const Key('jump-to-bottom'),
+                          backgroundColor: context.palette.bgSurface,
+                          foregroundColor: context.palette.accentUser,
+                          elevation: 4,
+                          onPressed: _animateToBottom,
+                          tooltip: 'Jump to latest',
+                          child: const Icon(Icons.arrow_downward),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              // Lift the composer above the keyboard (auto-resize is off). The
-              // inset sits outside the measured key so _composerHeight stays
-              // the bar's intrinsic height and doesn't churn as the keyboard
-              // animates.
-              child: Padding(
-                padding: EdgeInsets.only(bottom: keyboardInset),
-                child: KeyedSubtree(key: _composerKey, child: _composer()),
-              ),
+            Padding(
+              padding: EdgeInsets.only(bottom: keyboardInset),
+              child: _composer(),
             ),
           ],
         ),
@@ -1242,6 +1232,18 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         ),
       ),
     );
+  }
+
+  /// Wraps [_bubble] for the message list. Task 2 hangs the one-shot pop
+  /// animation off this seam (newly-arrived rows only); for now it is a
+  /// straight pass-through.
+  Widget _bubbleRow(
+    Msg m,
+    String me,
+    _Marker? marker,
+    List<String>? failedIds,
+  ) {
+    return _bubble(m, me, marker, failedIds);
   }
 
   Widget _bubble(Msg m, String me, _Marker? marker, List<String>? failedIds) {
@@ -1998,7 +2000,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                                                   context.palette.textPrimary,
                                             ),
                                             minLines: 1,
-                                            maxLines: 8,
+                                            maxLines: 6,
                                             keyboardType:
                                                 TextInputType.multiline,
                                             textInputAction:
