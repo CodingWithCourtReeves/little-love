@@ -95,13 +95,18 @@ void main() {
       findsWidgets,
     );
 
-    // The blur fades down the band: more than one BackdropFilter with differing
-    // sigma (stacked decreasing-sigma bands, not one flat blur).
+    // A single blur band (backdrop blur is GPU-costly on iOS — one pass, the
+    // gradient carries the fade), isolated in a RepaintBoundary so unrelated
+    // repaints don't force it to re-composite.
     final blurs = tester
         .widgetList<BackdropFilter>(
           find.descendant(of: scrim, matching: find.byType(BackdropFilter)),
         )
         .toList();
-    expect(blurs.length, greaterThan(1));
+    expect(blurs.length, 1);
+    expect(
+      find.descendant(of: scrim, matching: find.byType(RepaintBoundary)),
+      findsWidgets,
+    );
   });
 }

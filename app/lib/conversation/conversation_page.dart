@@ -1901,11 +1901,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   /// Frosted, darkened band behind the status bar + app-bar pills. Messages
   /// scroll under it and blur/darken so the OS clock/battery and the room title
-  /// stay legible, Telegram-style. Built from stacked blur sub-bands with
-  /// decreasing sigma (strong at the very top, fading down) rather than a single
-  /// ShaderMask-over-BackdropFilter, which mis-composites
-  /// (https://github.com/flutter/flutter/issues/175537). Drawn over the message
-  /// list; pointer-through.
+  /// stay legible, Telegram-style. Drawn over the message list; pointer-through.
+  ///
+  /// Perf: a single `BackdropFilter` (not three stacked) — backdrop blur is a
+  /// costly GPU pass on iOS, so one is plenty; the darker gradient carries the
+  /// fade so the blur's lower edge isn't a hard line. Wrapped in a
+  /// `RepaintBoundary` so an unrelated repaint elsewhere on the screen (the
+  /// composer's blinking cursor, the typing dots) can't force the blur to
+  /// re-composite every frame.
   Widget _topScrim(BuildContext context) {
     final h = MediaQuery.of(context).padding.top + kToolbarHeight + 4;
     return Positioned(
@@ -1915,32 +1918,33 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       right: 0,
       height: h,
       child: IgnorePointer(
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            _blurBand(top: 0, height: h * 0.45, sigma: 12),
-            _blurBand(top: h * 0.45, height: h * 0.30, sigma: 6),
-            _blurBand(top: h * 0.75, height: h * 0.25, sigma: 2),
-            // Darker gradient over the blur (was 0x99 → now 0xCC) so the pills
-            // sit on a stronger fade and stop blending with messages.
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xCC000000), Color(0x00000000)],
+        child: RepaintBoundary(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // Blur the top portion only; the gradient below covers the
+              // blur's bottom edge so there's no visible seam.
+              _blurBand(top: 0, height: h * 0.75, sigma: 12),
+              // Darker gradient over the blur (0xCC) so the pills sit on a
+              // strong fade and stop blending with messages.
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xCC000000), Color(0x00000000)],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  /// One horizontal blur slice of the top scrim. Reuses the composer's
-  /// saturation matrix so the glass material reads consistently across the
-  /// screen.
+  /// The frosted slice of the top scrim. Reuses the composer's saturation
+  /// matrix so the glass material reads consistently across the screen.
   Widget _blurBand({
     required double top,
     required double height,
