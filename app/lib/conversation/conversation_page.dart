@@ -555,83 +555,69 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _ => null,
   };
 
-  /// iMessage-style reply quote: a shrunken, faded copy of the quoted message
-  /// stacked above the reply (colored by the *original* sender) with a short
-  /// connector linking the two. Resolves the live target when present (so it
-  /// reflects later edits) and falls back to the cached [ReplyRef] snippet.
-  /// Tapping the faded bubble jumps to the original.
-  Widget _replyQuoteHeader(Msg m, bool mine) {
+  /// Telegram-style reply banner: a quote block at the top *inside* the bubble
+  /// — an accent bar, the original sender on one line, and a single ellipsized
+  /// preview line. Colors adapt to whichever bubble it sits in ([onUserBubble]
+  /// true for my own accent-colored bubble). Resolves the live target when
+  /// present (so it reflects later edits), else the cached [ReplyRef] snippet.
+  /// Tapping jumps to the original.
+  Widget _replyQuoteBanner(Msg m, {required bool onUserBubble}) {
     final live = _lookupMessage(m.replyTo!.id);
     final r = live != null ? _replyRefFor(live) : m.replyTo!;
-    final fromMe = r.author == widget.selfUsername;
-    final bubbleColor = fromMe
-        ? context.palette.bubbleUserBg
-        : context.palette.bubblePartnerBg;
     final icon = _replyKindIcon(r.kind);
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: mine
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
-        children: [
-          // The quoted message, shrunk + faded, pulled to the reply's side.
-          Padding(
-            padding: EdgeInsets.only(left: mine ? 0 : 22, right: mine ? 22 : 0),
-            child: Opacity(
-              opacity: 0.55,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => _focusMessage(r.id),
-                child: Container(
-                  key: Key('reply-quote-${m.id}'),
-                  constraints: const BoxConstraints(maxWidth: 240),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: bubbleColor,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (icon != null) ...[
-                        Icon(icon, size: 14, color: context.palette.textMuted),
-                        const SizedBox(width: 5),
-                      ],
-                      Flexible(
-                        child: Text(
-                          _replyPreviewText(r),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: context.palette.textPrimary,
-                          ),
-                        ),
-                      ),
-                    ],
+    // On my own (accent-filled) bubble the quote reads in the bubble's own text
+    // tone; on the partner's surface-toned bubble it uses the sage accent.
+    final Color nameColor = onUserBubble
+        ? context.palette.bubbleUserText
+        : context.palette.accentSage;
+    final Color textColor = onUserBubble
+        ? context.palette.bubbleUserText.withValues(alpha: 0.75)
+        : context.palette.textMuted;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _focusMessage(r.id),
+      child: Container(
+        key: Key('reply-quote-${m.id}'),
+        margin: const EdgeInsets.only(bottom: 5),
+        padding: const EdgeInsets.fromLTRB(8, 2, 4, 2),
+        decoration: BoxDecoration(
+          color: nameColor.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(5),
+          border: Border(left: BorderSide(color: nameColor, width: 2.5)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _replyAuthorLabel(r.author),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: nameColor,
+              ),
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, size: 13, color: textColor),
+                  const SizedBox(width: 4),
+                ],
+                Flexible(
+                  child: Text(
+                    _replyPreviewText(r),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12.5, color: textColor),
                   ),
                 ),
-              ),
+              ],
             ),
-          ),
-          // Short connector from the quoted bubble down to the reply.
-          Padding(
-            padding: EdgeInsets.only(left: mine ? 0 : 14, right: mine ? 14 : 0),
-            child: Container(
-              width: 2.5,
-              height: 9,
-              decoration: BoxDecoration(
-                color: context.palette.textMuted.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1529,17 +1515,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   Widget _bubble(Msg m, String me, _Marker? marker, List<String>? failedIds) {
     final mine = m.from == me;
-    // The sent/sending marker (if any) is drawn inside the bubble itself.
+    // The sent/sending marker (if any) is drawn inside the bubble itself; the
+    // reply quote (if any) is a banner inside the bubble's top edge, built by
+    // _bubbleContent — see _replyQuoteBanner.
     Widget content = _bubbleContent(m, me, marker);
-    // A reply quotes its target above the bubble, side-aligned to match.
-    if (m.replyTo != null) {
-      content = Column(
-        crossAxisAlignment: mine
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
-        children: [_replyQuoteHeader(m, mine), content],
-      );
-    }
     // Long-press → context menu (reactions + Copy/Delete); double-tap →
     // default reaction. Wraps both text and media bubbles; the media bubble's
     // own tap-to-open still wins for a plain tap (deferToChild).
@@ -1753,6 +1732,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             isMe: mine,
             marker: marker,
             onOpen: () => widget.onOpenAttachment?.call(att),
+            replyBanner: m.replyTo == null
+                ? null
+                : _replyQuoteBanner(m, onUserBubble: mine),
           ),
         ),
       );
@@ -1767,8 +1749,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // bubble-less, with a single emoji biggest and shrinking toward three. 4+
     // emoji fall through to a normal text bubble. Sizes are starting points to
     // tune on-device against iMessage.
+    // A reply keeps its quote banner, so it always needs a real bubble — skip
+    // the bubble-less jumbomoji treatment when replying.
     final emojiCount = _emojiOnlyCount(m.body);
-    if (emojiCount >= 1 && emojiCount <= 3) {
+    if (m.replyTo == null && emojiCount >= 1 && emojiCount <= 3) {
       final emojiSize = switch (emojiCount) {
         1 => 64.0,
         2 => 52.0,
@@ -1826,7 +1810,16 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                   horizontal: 14,
                   vertical: 10,
                 ),
-                child: _bubbleBody(m, mine, marker),
+                child: m.replyTo == null
+                    ? _bubbleBody(m, mine, marker)
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _replyQuoteBanner(m, onUserBubble: mine),
+                          _bubbleBody(m, mine, marker),
+                        ],
+                      ),
               ),
             ),
           ),
@@ -1903,6 +1896,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
+                    if (m.replyTo != null)
+                      _replyQuoteBanner(m, onUserBubble: mine),
                     AudioBubble(
                       descriptor: att,
                       isMe: mine,
@@ -3450,11 +3445,16 @@ class _MediaBubble extends StatelessWidget {
     required this.isMe,
     required this.marker,
     required this.onOpen,
+    this.replyBanner,
   });
   final Msg msg;
   final bool isMe;
   final _Marker? marker;
   final VoidCallback onOpen;
+
+  /// Telegram-style reply quote, rendered above the media tile inside the same
+  /// bubble. Null when this media isn't a reply.
+  final Widget? replyBanner;
 
   @override
   Widget build(BuildContext context) {
@@ -3476,6 +3476,11 @@ class _MediaBubble extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (replyBanner != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(2, 1, 2, 5),
+                child: replyBanner,
+              ),
             ClipRRect(
               borderRadius: BorderRadius.circular(14),
               child: AspectRatio(
