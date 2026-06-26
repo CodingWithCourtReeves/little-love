@@ -103,6 +103,7 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     reactions: base.reactions,
     callOutcome: base.callOutcome,
     edited: true,
+    replyTo: base.replyTo,
   );
 
   /// Replace the buffer wholesale (e.g. on initial replay). Validly-tombstoned

@@ -1,5 +1,6 @@
 import '../attachment/attachment_descriptor.dart';
 import '../conversation/link_preview.dart';
+import '../conversation/reply_ref.dart';
 
 /// `read` means the partner has opened the chat and seen this message (the
 /// double-heart state); it only ever applies to my own outgoing messages.
@@ -20,6 +21,7 @@ class Msg {
     this.reactions = const {},
     this.callOutcome,
     this.edited = false,
+    this.replyTo,
   });
 
   final String id;
@@ -64,6 +66,11 @@ class Msg {
   /// persisted form of the *message* — edits replay as their own messages.
   final bool edited;
 
+  /// Set when this message is a reply quoting an earlier one; carried inside
+  /// the encrypted body (like [linkPreview]/[attachment]) and persisted in the
+  /// local cache. The UI renders a quote header from it (see [ReplyRef]).
+  final ReplyRef? replyTo;
+
   factory Msg.fromJson(Map<String, Object?> json) {
     return Msg(
       id: json['id'] as String,
@@ -97,6 +104,7 @@ class Msg {
     Map<String, String>? reactions,
     String? callOutcome,
     bool? edited,
+    ReplyRef? replyTo,
   }) {
     return Msg(
       id: id ?? this.id,
@@ -112,6 +120,7 @@ class Msg {
       reactions: reactions ?? this.reactions,
       callOutcome: callOutcome ?? this.callOutcome,
       edited: edited ?? this.edited,
+      replyTo: replyTo ?? this.replyTo,
     );
   }
 }
