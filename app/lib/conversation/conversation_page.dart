@@ -371,6 +371,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   bool _atBottom = true;
   int _prevMessageCount = 0;
 
+  /// Message keys already on screen / already popped-in, so opening a room does
+  /// not animate the whole history and the optimistic→server-id reconcile does
+  /// not re-pop a sent message. Keyed off `clientMsgId ?? id` so the swap maps
+  /// the reconciled row back to the entry the optimistic row already added.
+  final Set<String> _animatedIds = {};
+  bool _seededAnimics = false;
+
   /// Guards against stacking multiple post-frame scroll callbacks when a send
   /// triggers several rebuilds in quick succession (optimistic add → echo
   /// reconcile), which is what made the auto-scroll stutter.
@@ -873,6 +880,16 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final messages = ref.watch(messageStoreProvider(widget.roomId));
     final me = ref.watch(accountProvider).valueOrNull?.username ?? '';
 
+    // Seed the pop-in set once with whatever is already loaded, so the initial
+    // history renders without animating. Thereafter a key missing from the set
+    // is exactly a message that arrived after open — that one pops in.
+    if (!_seededAnimics) {
+      for (final m in messages) {
+        _animatedIds.add(m.clientMsgId ?? m.id);
+      }
+      _seededAnimics = true;
+    }
+
     // Partner profile drives the header name + avatar (and the room list).
     final profiles = ref.watch(profileStoreProvider);
     String? nameFor(String u) => profiles.forUsername(u)?.displayName;
@@ -1234,16 +1251,25 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  /// Wraps [_bubble] for the message list. Task 2 hangs the one-shot pop
-  /// animation off this seam (newly-arrived rows only); for now it is a
-  /// straight pass-through.
+  /// Wraps [_bubble] for the message list, popping in rows that arrived after
+  /// the room opened (sent and received). [Set.add] returns true only the first
+  /// time a key is seen; seeded history and reconciled rows are already present,
+  /// so they render without the animation.
   Widget _bubbleRow(
     Msg m,
     String me,
     _Marker? marker,
     List<String>? failedIds,
   ) {
-    return _bubble(m, me, marker, failedIds);
+    final bubble = _bubble(m, me, marker, failedIds);
+    final animKey = m.clientMsgId ?? m.id;
+    final firstAppearance = _animatedIds.add(animKey);
+    if (!firstAppearance) return bubble;
+    return _PopIn(
+      key: Key('popin-${m.id}'),
+      alignEnd: m.from == me,
+      child: bubble,
+    );
   }
 
   Widget _bubble(Msg m, String me, _Marker? marker, List<String>? failedIds) {
@@ -3350,4 +3376,40 @@ class _PlayBadge extends StatelessWidget {
       size: size * 0.58,
     ),
   );
+}
+
+/// One-shot "pop" for a newly-arrived message: a quick scale-up from the
+/// bubble's own bottom corner plus a fade. Runs once on first build of the
+/// subtree — [TweenAnimationBuilder] fires when the end value first appears and
+/// does not re-run while it stays constant, so a plain rebuild won't replay it.
+class _PopIn extends StatelessWidget {
+  const _PopIn({super.key, required this.child, required this.alignEnd});
+
+  final Widget child;
+
+  /// Own messages grow from the bottom-right; partner messages bottom-left.
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutBack,
+      builder: (context, t, child) {
+        final scale = 0.85 + 0.15 * t;
+        // easeOutBack overshoots past 1.0; clamp opacity so it never exceeds 1.
+        final opacity = t.clamp(0.0, 1.0);
+        return Opacity(
+          opacity: opacity,
+          child: Transform.scale(
+            scale: scale,
+            alignment: alignEnd ? Alignment.bottomRight : Alignment.bottomLeft,
+            child: child,
+          ),
+        );
+      },
+      child: child,
+    );
+  }
 }
