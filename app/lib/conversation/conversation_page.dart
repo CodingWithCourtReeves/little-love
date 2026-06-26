@@ -44,9 +44,10 @@ import 'message_db.dart';
 import 'message_store.dart';
 import 'presence_state.dart';
 import 'recording_overlay.dart';
+import 'reply_ref.dart';
 import 'typing_state.dart';
 
-typedef SendCallback = void Function(String text);
+typedef SendCallback = void Function(String text, ReplyRef? replyTo);
 typedef RenameCallback = void Function(String newName);
 typedef RetryCallback = void Function(String clientMsgId);
 typedef OpenAttachmentCallback = void Function(AttachmentDescriptor descriptor);
@@ -301,8 +302,13 @@ class ConversationPage extends ConsumerStatefulWidget {
   final Future<List<StagedAttachment>> Function()? onPickMedia;
 
   /// Send the staged media. The caption (composer text, may be empty) attaches
-  /// to the last item so a multi-pick reads as one captioned run.
-  final Future<void> Function(List<StagedAttachment> items, String caption)?
+  /// to the last item so a multi-pick reads as one captioned run. [replyTo],
+  /// when set, quotes an earlier message and attaches to the first item.
+  final Future<void> Function(
+    List<StagedAttachment> items,
+    String caption,
+    ReplyRef? replyTo,
+  )?
   onSendMedia;
 
   /// React to a message (empty emoji = remove my reaction). Null disables the
@@ -330,8 +336,10 @@ class ConversationPage extends ConsumerStatefulWidget {
   final OpenAttachmentCallback? onOpenAttachment;
 
   /// Send a recorded voice memo (encrypt + upload + fan out as kind:"audio").
-  /// Null disables the composer mic's record gesture.
-  final Future<void> Function(VoiceRecording rec)? onSendVoice;
+  /// Null disables the composer mic's record gesture. [replyTo], when set,
+  /// quotes an earlier message.
+  final Future<void> Function(VoiceRecording rec, ReplyRef? replyTo)?
+  onSendVoice;
 
   String get roomId => room.roomId;
 
@@ -394,7 +402,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// is the in-flight start() so a quick release can't race it.
   late final VoiceRecorderController _recorder = VoiceRecorderController(
     // Hitting the 5-minute cap sends the memo rather than dropping it.
-    onMaxDuration: (rec) => widget.onSendVoice?.call(rec),
+    onMaxDuration: (rec) => _sendVoiceMemo(rec),
   );
   bool _cancelArmed = false;
   Future<bool>? _startFuture;
@@ -410,6 +418,60 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// edit (see [_handleSubmit]), and [_editingOriginal] is shown in the banner.
   String? _editingId;
   String _editingOriginal = '';
+
+  /// The message being quoted by the next send, or null when not replying. Set
+  /// by swipe-to-reply or the long-press "Reply" action; shown as a chip above
+  /// the composer; attached to the next text/media/voice send then cleared.
+  ReplyRef? _replyDraft;
+
+  void _startReply(Msg m) {
+    HapticFeedback.lightImpact();
+    setState(() => _replyDraft = _replyRefFor(m));
+    _composerFocus.requestFocus();
+  }
+
+  void _cancelReply() {
+    if (_replyDraft == null) return;
+    setState(() => _replyDraft = null);
+  }
+
+  /// Flush a recorded voice memo, attaching (and then clearing) any active
+  /// reply draft. Shared by the mic gestures and the max-duration auto-send.
+  Future<void> _sendVoiceMemo(VoiceRecording rec) async {
+    final reply = _replyDraft;
+    if (reply != null) setState(() => _replyDraft = null);
+    await widget.onSendVoice?.call(rec, reply);
+  }
+
+  /// Build a [ReplyRef] snippet from a live message: kind from its attachment
+  /// mime (image→photo, video→video, audio→voice, else file), or text; the
+  /// excerpt is the body truncated to 140 chars for text messages.
+  ReplyRef _replyRefFor(Msg m) {
+    final att = m.attachment;
+    final String kind;
+    if (att == null) {
+      kind = 'text';
+    } else if (att.isVideo) {
+      kind = 'video';
+    } else if (att.isAudio) {
+      kind = 'voice';
+    } else if (att.mime.startsWith('image/')) {
+      kind = 'photo';
+    } else {
+      kind = 'file';
+    }
+    // The body doubles as a media caption, so carry the excerpt for any kind
+    // (a captioned photo quotes its caption; a bare photo quotes just "Photo").
+    final body = m.body.trim();
+    final excerpt = body.isEmpty
+        ? null
+        : (body.length > 140 ? body.substring(0, 140) : body);
+    return ReplyRef(id: m.id, author: m.from, kind: kind, text: excerpt);
+  }
+
+  /// Whether the message can be quoted in a reply. Real timeline bubbles
+  /// (text/media) are reply-able; call-log rows are not.
+  bool _canReply(Msg m) => m.callOutcome == null;
 
   /// Whether we've sent `typing:true` and not yet sent the matching `false`.
   bool _typingActive = false;
@@ -588,9 +650,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     if (_staged.isNotEmpty) {
       HapticFeedback.lightImpact();
       final items = List<StagedAttachment>.of(_staged);
-      widget.onSendMedia?.call(items, text);
+      widget.onSendMedia?.call(items, text, _replyDraft);
       ref.read(wallpaperDriftProvider.notifier).bump();
-      setState(() => _staged.clear());
+      setState(() {
+        _staged.clear();
+        _replyDraft = null;
+      });
       _controller.clear();
       _stopTyping();
       return;
@@ -611,8 +676,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     }
     if (text.isEmpty) return;
     HapticFeedback.lightImpact();
-    widget.onSend(text);
+    widget.onSend(text, _replyDraft);
     ref.read(wallpaperDriftProvider.notifier).bump();
+    if (_replyDraft != null) setState(() => _replyDraft = null);
     _controller.clear();
     _stopTyping();
   }
@@ -2183,7 +2249,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         customBorder: const CircleBorder(),
         onTap: () async {
           final rec = await _recorder.stop();
-          if (rec != null) await widget.onSendVoice?.call(rec);
+          if (rec != null) await _sendVoiceMemo(rec);
         },
         child: const SizedBox(
           width: 44,
@@ -2272,7 +2338,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 await _recorder.cancel();
               } else {
                 final rec = await _recorder.stop();
-                if (rec != null) await widget.onSendVoice?.call(rec);
+                if (rec != null) await _sendVoiceMemo(rec);
               }
             }
           : null,

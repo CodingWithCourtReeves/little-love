@@ -74,7 +74,7 @@ void main() {
             home: ConversationPage(
               room: _coupleRoom(),
               selfUsername: 'court',
-              onSend: (_) {},
+              onSend: (_, __) {},
               onRename: (n) => renamed = n,
             ),
           ),
@@ -120,7 +120,7 @@ void main() {
             home: ConversationPage(
               room: _threeMemberRoom(),
               selfUsername: 'court',
-              onSend: (_) {},
+              onSend: (_, __) {},
             ),
           ),
         ),
@@ -151,7 +151,7 @@ void main() {
           home: ConversationPage(
             room: _coupleRoom(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
           ),
         ),
       ),

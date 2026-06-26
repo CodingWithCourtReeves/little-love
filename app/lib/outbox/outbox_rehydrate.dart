@@ -108,26 +108,34 @@ Future<void> rehydrateOutbox({
       );
       continue;
     }
-    final (body, attachment, preview) = switch (content) {
-      TextContent(:final text, :final preview) => (text, null, preview),
-      FileContent(:final descriptor, :final caption) => (
-        caption ?? '',
-        descriptor,
+    final (body, attachment, preview, replyTo) = switch (content) {
+      TextContent(:final text, :final preview, :final replyTo) => (
+        text,
         null,
+        preview,
+        replyTo,
       ),
-      AudioContent(:final descriptor, :final caption) => (
+      FileContent(:final descriptor, :final caption, :final replyTo) => (
         caption ?? '',
         descriptor,
         null,
+        replyTo,
+      ),
+      AudioContent(:final descriptor, :final caption, :final replyTo) => (
+        caption ?? '',
+        descriptor,
+        null,
+        replyTo,
       ),
       CallContent(:final outcome, :final durationS, :final video) => (
         callLogSummary(outcome, durationS, video: video),
         null,
         null,
+        null,
       ),
-      ReactionContent() => ('', null, null), // handled by the continue above
-      DeleteContent() => ('', null, null), // handled by the continue above
-      EditContent() => ('', null, null), // handled by the continue above
+      ReactionContent() => ('', null, null, null), // handled above
+      DeleteContent() => ('', null, null, null), // handled above
+      EditContent() => ('', null, null, null), // handled above
     };
     getMessageStore(row.roomId).add(
       Msg(
@@ -140,6 +148,7 @@ Future<void> rehydrateOutbox({
         sendStatus: SendStatus.sending,
         attachment: attachment,
         linkPreview: preview,
+        replyTo: replyTo,
       ),
     );
   }

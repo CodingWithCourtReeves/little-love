@@ -86,7 +86,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
           ),
         ),
       ),
@@ -137,7 +137,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
           ),
         ),
       ),
@@ -166,7 +166,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (t) => sent = t,
+            onSend: (t, _) => sent = t,
           ),
         ),
       ),
@@ -196,7 +196,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
           ),
         ),
       ),
@@ -231,7 +231,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
           ),
         ),
       ),
@@ -271,7 +271,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
           ),
         ),
       ),
@@ -301,7 +301,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
           ),
         ),
       ),
@@ -358,7 +358,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
           ),
         ),
       ),
@@ -402,7 +402,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
           ),
         ),
       ),
@@ -456,7 +456,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
             onReact: (_, _) {},
             onDelete: (id) => deletedId = id,
           ),
@@ -509,7 +509,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
             onReact: (_, _) {},
             onDelete: (id) => unsentId = id,
             onCancelSend: (id) => cancelledClientId = id,
@@ -561,7 +561,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
             onReact: (_, _) {},
             onDelete: (_) {},
             onEdit: (id, text) {
@@ -631,7 +631,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
             onReact: (_, _) {},
             onDelete: (_) {},
             onEdit: (id, _) => editedId = id,
@@ -682,7 +682,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
           ),
         ),
       ),
@@ -718,7 +718,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
             onReact: (_, _) {},
             onDelete: (_) {},
             onEdit: (_, _) {},
@@ -765,7 +765,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
             onReact: (_, _) {},
             onDelete: (_) {},
           ),
@@ -837,7 +837,7 @@ void main() {
         builder: (_) => ConversationPage(
           room: _roomA(),
           selfUsername: 'court',
-          onSend: (_) {},
+          onSend: (_, __) {},
         ),
       ),
     );
@@ -871,7 +871,7 @@ void main() {
           home: ConversationPage(
             room: _roomA(),
             selfUsername: 'court',
-            onSend: (_) {},
+            onSend: (_, __) {},
             onTyping: events.add,
           ),
         ),
