@@ -1,5 +1,15 @@
 # little-love — project rules
 
+## Coding standards and review
+
+- `.claude/rules/dart.md` (app) and `.claude/rules/rust.md` (server, crypto)
+  hold the coding standards. Claude Code loads each automatically when
+  working on matching files; humans should read them too.
+- `REVIEW.md` is the review checklist, built from bugs that actually shipped
+  here. `/code-review` reads it.
+- Keep all three current: if a change makes one untrue, update it in the same
+  PR.
+
 ## Database migrations
 
 **Migrations are schema-only. Never put data UPDATE/INSERT/DELETE statements
