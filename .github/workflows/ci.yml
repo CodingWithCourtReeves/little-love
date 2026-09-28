@@ -3,8 +3,19 @@ name: ci
 on:
   push:
     branches: [main]
+    # Docs-only changes skip CI. A run is skipped only when *every* changed
+    # file matches, so any code change alongside docs still runs everything.
+    # Keep this list identical to the pull_request one below.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.claude/rules/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.claude/rules/**'
 
 jobs:
   rust:
