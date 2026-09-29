@@ -14,20 +14,64 @@ them worse or touches those lines.
 Every item in the checklist below comes from a bug that actually shipped or
 nearly shipped here. Prioritize these over generic advice.
 
-## Severity
+## Grading rubric
 
-- **Critical**: breaks E2EE or privacy (plaintext, keys, identifiers or
-  content reaching the server, logs, crash reports, pushes, or the next
-  account on the device); lets one partner act as the other; loses or
-  duplicates messages; data loss from a migration; breaks the iOS build or
-  App Store submission.
-- **High**: a message/status/read-state bug a user will see; a race that
-  corrupts state; a server handler missing membership or rate-limit gating;
-  a wire change on one side only; a crash on a reachable path.
-- **Medium**: resource leak, unbounded growth, missing timeout, a
-  non-hermetic or flaky test, a missing test for a changed invariant.
-- **Nit**: style drift from the standards docs, stale comments. Report at most
-  5 nits, and only in changed lines.
+Every finding carries exactly one label. **BLOCKER and MAJOR must be resolved
+before the PR merges.** MINOR and NIT never block.
+
+| Label | Meaning | Before merge |
+|---|---|---|
+| **BLOCKER** | Ships a security, privacy or data-loss bug, or breaks the build | Must fix |
+| **MAJOR** | A real bug users will hit, or a missing safeguard the checklist requires | Must fix |
+| **MINOR** | Worth fixing, but the PR is safe to merge without it | Fix, or open a follow-up issue |
+| **NIT** | Style, naming, wording | Optional |
+
+**BLOCKER**, for example:
+- E2EE or privacy broken: plaintext, keys, identifiers or content reaching the
+  server, logs, crash reports, pushes, or the next account on the device.
+- One partner can act as the other (missing apply-layer authorization).
+- Messages lost or duplicated; a migration that loses data or isn't
+  schema-only; an edit to an already-applied migration.
+- Breaks CI, the iOS build, or App Store submission.
+
+**MAJOR**, for example:
+- A message, status, read-state or badge bug a user will see.
+- A race that corrupts state; a crash on a reachable path.
+- A new or changed server handler missing membership, partner-derivation,
+  rate-limit or size-cap gating.
+- A wire change on one side only; a new message kind missing from an
+  exhaustive consumer.
+- A new persisted store not wiped on sign-out.
+- In docs, rules or CI config: an instruction that would cause one of the
+  above if someone followed it.
+
+**MINOR**, for example: resource leak, unbounded growth, missing timeout, a
+flaky or non-hermetic test, a missing test for a changed invariant, docs that
+are inaccurate but harmless, a new standards violation with no behavioural
+effect.
+
+**NIT**: style drift from the standards docs, naming, stale comments,
+wording. Report at most 5, only on changed lines; mention any others as a
+count in the summary.
+
+Grading rules:
+- Grade by consequence, not by how much code it takes to fix.
+- A pre-existing problem on a line the change touches, which the change
+  didn't introduce or worsen, is MINOR at most, labelled "pre-existing", and
+  never blocks. Pre-existing problems on untouched lines aren't reported. Known gaps listed in the
+  rules files aren't reported at all unless the change touches them.
+- When unsure between two labels, pick the lower one and say why it might be
+  higher.
+- If the GitHub Code Review service runs, its 🔴 Important covers BLOCKER and
+  MAJOR; its 🟡 Nit covers MINOR and NIT.
+
+Resolving a BLOCKER or MAJOR means one of:
+- the code is fixed, or
+- the author replies with evidence that the finding is wrong, or re-grades it
+  with a stated reason, and the thread is resolved.
+
+"Will fix later" doesn't resolve a BLOCKER or MAJOR. It can resolve a MINOR
+if the reply links the follow-up issue.
 
 Don't report: formatting that `dart format` / `cargo fmt` would fix, lints
 that `flutter analyze` / `clippy -D warnings` would catch (CI enforces them),
@@ -40,14 +84,19 @@ desktop support (out of scope).
 
 Both partners hold the room key, so either one can craft any encrypted body.
 
-- Every body-borne action (delete, edit, reaction, call frame, any new kind)
-  checks `target.from == requester` **on every path that applies it**: the
-  live router, outbox rehydrate, deferred application inside
-  `add`/`reconcile`, and the `MessageDb` projection. A UI that only shows the
-  button on your own bubbles is not enforcement.
-- The acting identity comes from the authenticated frame/session or room
-  membership, never from a field inside the body (e.g. call peer derived from
-  membership, not the invite's `from`).
+- **Author-only actions** (delete/unsend, edit, and any new action that
+  changes someone's own message) check `target.from == requester` **on every
+  path that applies them**: the live router, outbox rehydrate, deferred
+  application inside `add`/`reconcile`, and the `MessageDb` projection. A UI
+  that only shows the button on your own bubbles is not enforcement.
+- **Actions on the partner's content** (reactions, call frames) must *not*
+  get that check: reacting to the partner's message is the normal case.
+  Instead, the actor is the authenticated frame sender (`f.from`) and the
+  action only changes that actor's own entry (a reaction is keyed by the
+  reactor's username). Decide which kind a new action is, explicitly.
+- For every action, the acting identity comes from the authenticated
+  frame/session or room membership, never from a field inside the body (e.g.
+  call peer derived from membership, not the invite's `from`).
 - Server: nothing in a request names who is acting; signatures cover every
   field the server acts on, are domain-separated, and can't be replayed.
 
@@ -197,7 +246,23 @@ For every new or changed `RoomClientFrame` arm or REST route:
 
 ## Output
 
-Lead with Critical and High findings. For each: file:line, the concrete
-failure scenario (inputs and ordering that trigger it), and the fix. Only
-report something as a bug if you can describe how it fails. If nothing
-survives verification, say so plainly.
+Open the summary with a tally and a merge verdict:
+
+```
+BLOCKER 0 · MAJOR 2 · MINOR 3 · NIT 1. Not mergeable until the 2 MAJOR findings are resolved.
+```
+
+or "No blocking findings" when there are no BLOCKER or MAJOR findings.
+
+Then list findings ordered BLOCKER, MAJOR, MINOR, NIT. Start each one (and
+each inline comment) with its label in bold, e.g. `**[MAJOR]**`, followed by:
+- file:line,
+- the concrete failure scenario (inputs and ordering that trigger it),
+- the fix.
+
+Only grade something BLOCKER or MAJOR if you can describe how it fails. If
+nothing survives verification, say so plainly.
+
+On a re-review, don't re-report resolved threads. Grade new findings the same
+way, and say whether any BLOCKER or MAJOR from the previous round is still
+open.
