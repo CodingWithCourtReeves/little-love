@@ -3,7 +3,7 @@ paths:
   - "server/**/*.rs"
   - "server/**/*.sql"
   - "server/Cargo.toml"
-  - "crypto/**/*.rs"
+  - "crypto/**"
   - "Cargo.toml"
 ---
 
@@ -31,16 +31,18 @@ cargo test --workspace
 ```
 
 **`cargo test` truncates every table** (`tests/common/mod.rs::fresh_store`)
-in whatever `DATABASE_URL` points at, and `scripts/dev-env.sh` points it at
-the dev database. Run tests against a separate database:
+in whatever `DATABASE_URL` points at, and `scripts/dev-env.sh` *exports* it
+pointing at the dev database. Run tests in a subshell so the dev URL never
+leaks into your shell (a later bare `cargo test` would wipe the dev DB):
 
 ```sh
-source scripts/dev-env.sh
-DATABASE_URL="postgres://littlelove:dev@localhost:${POSTGRES_PORT}/littlelove_test" \
-  cargo test --workspace
+( source scripts/dev-env.sh
+  export DATABASE_URL="postgres://littlelove:dev@localhost:${POSTGRES_PORT}/littlelove_test"
+  cargo test --workspace )
 ```
 
-(Create `littlelove_test` once with `createdb` / `CREATE DATABASE`.)
+(Create `littlelove_test` once with `createdb` / `CREATE DATABASE`.) If your
+shell has already sourced `dev-env.sh`, don't run a bare `cargo test` in it.
 
 ## Layout
 
@@ -89,9 +91,8 @@ DATABASE_URL="postgres://littlelove:dev@localhost:${POSTGRES_PORT}/littlelove_te
 - New frames that do DB work, fan out, push, or call a paid API get a rate
   limit: a per-connection `WindowRateLimiter` local in `handle_socket`
   (sequential loop, no locking), replying `RATE_LIMITED` and dropping the
-  frame (typing drops silently). Don't tear the connection down. Today only
-  `Typing`, `RequestUpload`, `CallTurnRequest` and `CallInvite` are limited
-  (see Known gaps).
+  frame (typing drops silently). Don't tear the connection down. Which
+  frames are limited today: see Known gaps.
 - Cap every client-supplied size with a documented `const` (`MAX_BODY_BYTES`,
   `MAX_SEND_RECIPIENTS`, ...) and enforce it before touching the DB.
 - Don't leak existence: a non-member asking for a blob gets `UNKNOWN_BLOB`,
@@ -146,7 +147,8 @@ DATABASE_URL="postgres://littlelove:dev@localhost:${POSTGRES_PORT}/littlelove_te
   delete paths (`leave_room`, account deletion).
 - New migrations get a schema test (`tests/migration_00NN_schema.rs`)
   asserting against `information_schema` / `pg_indexes`
-  (`migration_0011_schema.rs` is a good model).
+  (`accounts_schema.rs` is the model: it already uses `#[file_serial(db)]`;
+  the `migration_00NN_schema.rs` files still use `#[serial]`, see Known gaps).
 
 ## Logging and observability
 
@@ -204,12 +206,15 @@ DATABASE_URL="postgres://littlelove:dev@localhost:${POSTGRES_PORT}/littlelove_te
   `127.0.0.1:0` and use `handshake_as`, `drain_rooms`, `next_frame` (10s
   timeout, skips ping/pong/presence) and the shared seed helpers. Put a
   helper used by more than one file in `common`, not a copy per file.
-- **Every test that touches the database is serialized**, because
+- **Every test that touches the database must be serialized**, because
   `fresh_store()` truncates shared tables. New DB tests use
   `#[file_serial(db)]`: it's a file lock, so it also holds under
   `cargo-nextest` (one process per test, where `#[serial]` does nothing) and
   across two concurrent `cargo test` runs on the same DB. Don't mix
   `serial` and `file_serial` in one file; they are separate locks.
+- **Until the `#[serial]` files in Known gaps are migrated, only plain
+  `cargo test` is safe**: don't run the suite under `cargo-nextest` or run two
+  `cargo test` processes against the same DB, or truncations race.
   Env-mutating tests use `#[serial]` and restore the env.
 - Prove absence with a bounded timeout, not by asserting order.
 - Race tests: `tokio::spawn` + `join_all`.

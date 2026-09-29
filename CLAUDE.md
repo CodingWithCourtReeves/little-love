@@ -7,8 +7,10 @@
   working on matching files; humans should read them too.
 - `REVIEW.md` is the review checklist, built from bugs that actually shipped
   here. **When reviewing code (including `/code-review`), read `REVIEW.md`
-  first and apply it.** The local `/code-review` command doesn't load it on
-  its own; it only follows this file.
+  first and apply its grading rubric and checklist.** If the review tool
+  prescribes its own output format, keep that format and put the rubric
+  label at the start of each finding. The local `/code-review` command
+  doesn't load `REVIEW.md` on its own; it only follows this file.
 - Keep all three current: if a change makes one untrue, update it in the same
   PR.
 

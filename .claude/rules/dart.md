@@ -3,6 +3,7 @@ paths:
   - "app/**/*.dart"
   - "app/pubspec.yaml"
   - "app/analysis_options.yaml"
+  - "app/ios/**"
 ---
 
 # Dart / Flutter coding standards (`app/`)
@@ -90,8 +91,14 @@ also needs a device install via `scripts/ios-deploy.sh` (see `CLAUDE.md`,
   typed `on FooException catch (e)`, and never catch only one exception type
   when others can reach the user (a signup path once swallowed every error
   this way).
-- Fire-and-forget: `unawaited(...)` or `.catchError((_) {})`, never a bare
-  un-awaited future. Anything on a sign-out or teardown path is awaited.
+- Fire-and-forget must handle its own errors; `unawaited(...)` only silences
+  the lint, and an error still reaches the zone handler (crash reporting, or a
+  failed test). Either call something that catches internally, or attach a
+  handler: `unawaited(f.catchError((Object e, StackTrace st) => reportFault(e, st, context: 'label')))`.
+  `.catchError((_) {})` is only valid on `Future<void>`; on e.g.
+  `Future<bool>` the analyzer rejects it
+  (`body_might_complete_normally_catch_error`), so return a value. Anything
+  on a sign-out or teardown path is awaited.
 - Throw `StateError` for programmer/state errors, `ArgumentError` for bad
   input (`'must be 32 bytes, got $n'`), `FormatException` for parse errors.
   Custom exceptions `implements Exception`. No `!` on a value that can
@@ -166,12 +173,13 @@ also needs a device install via `scripts/ios-deploy.sh` (see `CLAUDE.md`,
 
 - Inbound: `sealed class` + `factory fromJson` switching on `'kind'`, throwing
   `FormatException` on unknown kinds. Outbound: plain class with `toJson()`.
-- Required JSON fields `json['x']! as String`; optional
-  `(json['x'] as String?) ?? ''`. Note that a missing or mistyped field throws
+- Required JSON fields `json['x'] as String` (existing code writes
+  `json['x']! as String`; the `!` is redundant, don't add it in new code).
+  Optional: `(json['x'] as String?) ?? ''`. A missing or mistyped field throws
   `TypeError`, not `FormatException`, so code that calls `fromJson` on
   network or disk input catches both (`on FormatException` alone lets a
-  known-kind frame with a missing field escape as an unhandled error). Timestamps: `DateTime.parse(s).toUtc()`;
-  now is `DateTime.now().toUtc()`.
+  known-kind frame with a missing field escape as an unhandled error).
+- Timestamps: `DateTime.parse(s).toUtc()`; now is `DateTime.now().toUtc()`.
 - Data classes are hand-written (`const` ctor, `final` fields, manual
   `fromJson`/`toJson`/`copyWith`). No freezed/json_serializable. `copyWith`
   with `??` cannot clear a field; add a named helper when you need to null one.

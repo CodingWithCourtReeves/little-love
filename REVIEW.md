@@ -80,6 +80,11 @@ desktop support (out of scope).
 
 ## Checklist
 
+The checklist says *what to look for*; the detailed rule lives in
+`.claude/rules/dart.md` or `rust.md` (cited as `dart.md § Section`). The rules
+files are the source of truth: if this list and a rules file disagree, follow
+the rules file and flag the drift.
+
 ### 1. Authorization at the apply layer (E2EE)
 
 Both partners hold the room key, so either one can craft any encrypted body.
@@ -141,9 +146,9 @@ Both partners hold the room key, so either one can craft any encrypted body.
 
 ### 6. Sign-out and device-global state
 
-- Any new persisted store, cache, pref, FTS/index table or keychain item is
-  wiped **and awaited** in `app/lib/identity/sign_out.dart`, and its providers
-  invalidated. Otherwise the next account on the device inherits it.
+- Does the change add anything persisted (store, cache, pref, FTS/index
+  table, keychain item)? Then it must be wiped on sign-out per
+  `dart.md § Persistence`, or the next account on the device inherits it.
 
 ### 7. Server handler gating
 
@@ -151,14 +156,14 @@ For every new or changed `RoomClientFrame` arm or REST route:
 
 - `is_member` check on the named room before any work.
 - Recipient derived from `partner_account_id`, never client-supplied.
-- A **new** frame gets a per-connection rate limit if it does DB work,
-  fan-out, push, or a paid external call (TURN). Existing unlimited frames
-  (`Send`, `MarkRead`, ...) are a known gap tracked in #25; don't flag them
-  on a change that only touches their handler logic.
+- A **new** frame is rate-limited per `rust.md § WebSocket handlers`.
+  Frames already unlimited are listed in `rust.md § Known gaps`; don't flag
+  them on a change that only touches their handler logic.
 - Client-supplied sizes capped with a documented constant, and the client
   encoder guarantees it fits (thumbnails once overflowed the body cap).
 - Existence not leaked (`UNKNOWN_BLOB`, not forbidden).
-- Error codes come from `wire::error_codes`; no internal detail sent.
+- Error codes and client messages follow `rust.md § Wire protocol` and
+  `§ Errors`.
 - New routes are added to both `main.rs` and `tests/common/mod.rs`.
 
 ### 8. Atomicity and migrations
@@ -174,12 +179,10 @@ For every new or changed `RoomClientFrame` arm or REST route:
 
 ### 9. Privacy in logs, crash reports and pushes
 
-- Rust: identifiers are structured fields (`username = %x`), never `{}`
-  interpolated into the message.
-- Dart: `reportFault` context is a constant; no content, names, paths or
-  raw frames.
-- New identifying field names are added to **both** `server/src/scrub.rs`
-  and `app/lib/diagnostics/scrub.dart`.
+- Logging and crash reports follow `rust.md § Logging and observability` and
+  `dart.md § Async, errors, logging`: identifiers as structured fields,
+  constant `reportFault` contexts, and new identifying field names added to
+  both scrub files.
 - APNs/VoIP payloads carry no text, names or senders.
 - No secrets in `Debug` output.
 - No new third-party network requests (fonts, analytics, CDNs).
@@ -234,8 +237,8 @@ For every new or changed `RoomClientFrame` arm or REST route:
   replay, flood).
 - Waits are condition-based (`pumpUntil`, bounded timeouts), not fixed
   delays.
-- Tests are hermetic: no real home dir, no dev DB. New server DB tests use
-  `#[file_serial(db)]`, and a file never mixes it with `#[serial]`.
+- Tests are hermetic: no real home dir, no dev DB. Server DB test
+  serialization follows `rust.md § Tests`.
 - The test drives the production flow when the bug is in navigation or
   wiring, not a screen mounted in isolation.
 
@@ -245,6 +248,11 @@ For every new or changed `RoomClientFrame` arm or REST route:
   `docs/error-monitoring.md` or a code comment untrue, flag it.
 
 ## Output
+
+If the review tool prescribes its own output format (e.g. a structured
+findings list), use that format; just start each finding's summary with its
+label (`[MAJOR] ...`) and keep the tally line wherever a summary goes. The
+format below is for free-text reviews and PR comments.
 
 Open the summary with a tally and a merge verdict:
 
