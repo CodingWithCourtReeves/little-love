@@ -331,7 +331,7 @@ void main() {
   });
 
   group('stuck sends', () {
-    const stillSending = 'Still sending · tap to retry';
+    const stillSending = 'Still sending…';
 
     testWidgets('a fresh send shows only its clock, no caption', (
       tester,
@@ -349,8 +349,23 @@ void main() {
       expect(find.byKey(const Key('status-clock')), findsOneWidget);
     });
 
-    testWidgets('a send still in flight past the threshold says so, keeps its '
-        'clock, and tap retries it', (tester) async {
+    testWidgets('a send still in flight past the threshold says so and keeps '
+        'its clock', (tester) async {
+      final container = _container();
+      addTearDown(container.dispose);
+      await container.read(accountProvider.future);
+      container
+          .read(messageStoreProvider('r1').notifier)
+          .add(_inFlight('cli-1', 'on my way'));
+
+      await _pump(tester, container);
+      await tester.pump(stuckSendAfter + const Duration(seconds: 1));
+      expect(find.text(stillSending), findsOneWidget);
+      expect(find.byKey(const Key('status-clock')), findsOneWidget);
+    });
+
+    testWidgets('tapping a stuck send does not re-send it (the server does not '
+        'dedupe, so a merely slow send would arrive twice)', (tester) async {
       final retried = <String>[];
       final container = _container();
       addTearDown(container.dispose);
@@ -361,16 +376,9 @@ void main() {
 
       await _pump(tester, container, onRetry: retried.add);
       await tester.pump(stuckSendAfter + const Duration(seconds: 1));
-      expect(find.text(stillSending), findsOneWidget);
-      expect(find.byKey(const Key('status-clock')), findsOneWidget);
-
       await tester.tap(find.text('on my way'));
       await tester.pump();
-      expect(retried, ['cli-1']);
-      // The retry restarts the clock on the caption.
-      expect(find.text(stillSending), findsNothing);
-      await tester.pump(stuckSendAfter + const Duration(seconds: 1));
-      expect(find.text(stillSending), findsOneWidget);
+      expect(retried, isEmpty);
     });
 
     testWidgets('a send that lands before the threshold never shows the '
@@ -399,10 +407,7 @@ void main() {
       expect(find.byKey(const Key('status-heart')), findsOneWidget);
     });
 
-    testWidgets('one caption covers a stuck run and tap retries all of it', (
-      tester,
-    ) async {
-      final retried = <String>[];
+    testWidgets('one caption covers a stuck run', (tester) async {
       final container = _container();
       addTearDown(container.dispose);
       await container.read(accountProvider.future);
@@ -410,11 +415,39 @@ void main() {
       store.add(_inFlight('cli-0', 'one'));
       store.add(_inFlight('cli-1', 'two', minute: 1));
 
-      await _pump(tester, container, onRetry: retried.add);
+      await _pump(tester, container);
       await tester.pump(stuckSendAfter + const Duration(seconds: 1));
       expect(find.text(stillSending), findsOneWidget);
-      await tester.tap(find.text('two'));
-      expect(retried, ['cli-0', 'cli-1']);
+    });
+
+    testWidgets('a run with a failed and a stuck send anchors the caption to '
+        'the failure and retries only the failed one', (tester) async {
+      final retried = <String>[];
+      final container = _container();
+      addTearDown(container.dispose);
+      await container.read(accountProvider.future);
+      final store = container.read(messageStoreProvider('r1').notifier);
+      store.add(
+        Msg(
+          id: 'cli-0',
+          from: 'me',
+          to: 'r1',
+          body: 'first',
+          ts: DateTime.utc(2026, 6, 13, 10, 0),
+          clientMsgId: 'cli-0',
+          sendStatus: SendStatus.failed,
+        ),
+      );
+      store.add(_inFlight('cli-1', 'second', minute: 1));
+
+      await _pump(tester, container, onRetry: retried.add);
+      await tester.pump(stuckSendAfter + const Duration(seconds: 1));
+      expect(find.text("Couldn't send · tap to retry"), findsOneWidget);
+      expect(find.text(stillSending), findsNothing);
+      await tester.tap(find.text('second'));
+      expect(retried, isEmpty);
+      await tester.tap(find.text('first'));
+      expect(retried, ['cli-0']);
     });
 
     testWidgets('offline, a stuck send says it is waiting for a connection', (

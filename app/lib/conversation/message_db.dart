@@ -548,14 +548,21 @@ class SqliteMessageDb implements MessageDb {
     );
     if (rows.isEmpty) return null;
     final r = rows.first;
-    return ComposerDraft(
-      text: r['body'] as String,
-      replyTo: r['reply_to'] == null
-          ? null
-          : ReplyRef.fromJson(
-              jsonDecode(r['reply_to'] as String) as Map<String, Object?>,
-            ),
-    );
+    var replyTo = _decodeReply(r['reply_to']);
+    // The quoted message may have been unsent since the draft was saved; don't
+    // bring its text back (or quote it in the next send). Same authorship rule
+    // as the timeline: only a tombstone requested by the author counts.
+    if (replyTo != null) {
+      final tomb = await _db.query(
+        'tombstones',
+        where: 'target_id = ? AND requested_by = ?',
+        whereArgs: [replyTo.id, replyTo.author],
+        limit: 1,
+      );
+      if (tomb.isNotEmpty) replyTo = null;
+    }
+    final draft = ComposerDraft(text: r['body'] as String, replyTo: replyTo);
+    return draft.isEmpty ? null : draft;
   }
 
   @override
@@ -567,9 +574,7 @@ class SqliteMessageDb implements MessageDb {
     await _db.insert('drafts', {
       'room_id': roomId,
       'body': draft.text,
-      'reply_to': draft.replyTo == null
-          ? null
-          : jsonEncode(draft.replyTo!.toJson()),
+      'reply_to': _encodeReply(draft.replyTo),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -615,8 +620,16 @@ class SqliteMessageDb implements MessageDb {
     'reactions': jsonEncode(m.reactions),
     'deleted': 0,
     'edited': m.edited ? 1 : 0,
-    'reply_to': m.replyTo == null ? null : jsonEncode(m.replyTo!.toJson()),
+    'reply_to': _encodeReply(m.replyTo),
   };
+
+  /// JSON column codec for a [ReplyRef] (message rows and drafts share it).
+  static String? _encodeReply(ReplyRef? r) =>
+      r == null ? null : jsonEncode(r.toJson());
+
+  static ReplyRef? _decodeReply(Object? column) => column == null
+      ? null
+      : ReplyRef.fromJson(jsonDecode(column as String) as Map<String, Object?>);
 
   Msg _fromRow(Map<String, Object?> r) => Msg(
     id: r['id'] as String,
@@ -641,11 +654,7 @@ class SqliteMessageDb implements MessageDb {
     reactions: (jsonDecode(r['reactions'] as String) as Map<String, Object?>)
         .map((k, v) => MapEntry(k, v as String)),
     edited: (r['edited'] as int? ?? 0) == 1,
-    replyTo: r['reply_to'] == null
-        ? null
-        : ReplyRef.fromJson(
-            jsonDecode(r['reply_to'] as String) as Map<String, Object?>,
-          ),
+    replyTo: _decodeReply(r['reply_to']),
   );
 }
 

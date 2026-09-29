@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -86,6 +87,7 @@ void main() {
     WidgetTester tester,
     ProviderContainer c, {
     SendCallback? onSend,
+    void Function(String id, String text)? onEdit,
     List<StagedAttachment> pick = const [],
   }) async {
     await tester.pumpWidget(
@@ -98,7 +100,7 @@ void main() {
             selfUsername: 'me',
             onSend: onSend ?? (_, _) {},
             onReact: (_, _) {},
-            onEdit: (_, _) {},
+            onEdit: onEdit ?? (_, _) {},
             onPickMedia: () async => pick,
             onSendMedia: (_, _, _) async {},
           ),
@@ -278,5 +280,118 @@ void main() {
     await tester.tap(find.byKey(const Key('edit-cancel')));
     await tester.pumpAndSettle();
     expect(composerText(tester), 'my draft');
+  });
+
+  Msg mine(String id, String body, int minute) => Msg(
+    id: id,
+    from: 'me',
+    to: 'r1',
+    body: body,
+    ts: DateTime.utc(2026, 6, 13, 10, minute),
+  );
+
+  Future<void> startEditing(WidgetTester tester, String body) async {
+    await tester.longPress(find.text(body));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('action-edit')));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('switching to editing another message without finishing the '
+      'first keeps the original draft', (tester) async {
+    final db = await freshDb();
+    final c = containerFor(db);
+    final store = c.read(messageStoreProvider('r1').notifier);
+    store.add(mine('srv-1', 'first msg', 0));
+    store.add(mine('srv-2', 'second msg', 1));
+    await openRoom(tester, c);
+
+    await tester.enterText(find.byKey(const Key('composer')), 'my draft');
+    await startEditing(tester, 'first msg');
+    // The composer now shows "first msg"; long-press the other bubble.
+    await startEditing(tester, 'second msg');
+    await tester.pump(DraftAutosave.defaultDelay * 2);
+    expect((await db.draftFor('r1'))!.text, 'my draft');
+
+    await tester.tap(find.byKey(const Key('edit-cancel')));
+    await tester.pumpAndSettle();
+    expect(composerText(tester), 'my draft');
+  });
+
+  testWidgets('sending in edit mode commits the edit even with media staged, '
+      'and keeps both the tray and the draft', (tester) async {
+    final db = await freshDb();
+    final c = containerFor(db);
+    c.read(messageStoreProvider('r1').notifier).add(mine('srv-1', 'typo', 0));
+    final edits = <(String, String)>[];
+    await openRoom(
+      tester,
+      c,
+      pick: [_video('clip.mp4')],
+      onEdit: (id, text) => edits.add((id, text)),
+    );
+
+    await tester.enterText(find.byKey(const Key('composer')), 'my draft');
+    await tester.tap(find.byKey(const Key('composer-attach')));
+    await tester.pumpAndSettle();
+    await startEditing(tester, 'typo');
+    await tester.enterText(find.byKey(const Key('composer')), 'fixed');
+    await tester.tap(find.byKey(const Key('composer-send')));
+    await tester.pumpAndSettle();
+
+    expect(edits, [('srv-1', 'fixed')]);
+    expect(find.byKey(const Key('edit-banner')), findsNothing);
+    expect(find.byKey(const Key('staging-tray')), findsOneWidget);
+    expect(composerText(tester), 'my draft');
+    expect((await db.draftFor('r1'))!.text, 'my draft');
+  });
+
+  testWidgets('leaving before the saved draft has loaded does not delete it', (
+    tester,
+  ) async {
+    final db = await freshDb();
+    await db.saveDraft('r1', const ComposerDraft(text: 'keep me'));
+    // A slow first SQLCipher open: the db resolves only after the page is gone.
+    final slowDb = Completer<MessageDb>();
+    final c = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        hermeticReadStateStore(),
+        messageDbProvider.overrideWith((_) => slowDb.future),
+      ],
+    );
+    addTearDown(c.dispose);
+    await openRoom(tester, c);
+    await leaveRoom(tester, c);
+
+    slowDb.complete(db);
+    await tester.pump();
+    expect((await db.draftFor('r1'))!.text, 'keep me');
+  });
+
+  testWidgets('backgrounding before the saved draft has loaded does not '
+      'delete it', (tester) async {
+    final db = await freshDb();
+    await db.saveDraft('r1', const ComposerDraft(text: 'keep me'));
+    final slowDb = Completer<MessageDb>();
+    final c = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        hermeticReadStateStore(),
+        messageDbProvider.overrideWith((_) => slowDb.future),
+      ],
+    );
+    addTearDown(c.dispose);
+    await openRoom(tester, c);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+
+    slowDb.complete(db);
+    await tester.pump();
+    expect((await db.draftFor('r1'))!.text, 'keep me');
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    // ...and it still restores into the composer once the load lands.
+    expect(composerText(tester), 'keep me');
   });
 }

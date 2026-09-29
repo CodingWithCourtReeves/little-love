@@ -371,6 +371,47 @@ void main() {
       },
     );
 
+    test('a restored draft drops its reply chip once the quoted message was '
+        'unsent by its author', () async {
+      final db = await freshDb();
+      await db.upsert(
+        msg('01Q', body: 'dinner?', from: 'kaitlyn'),
+        roomId: 'room1',
+      );
+      await db.saveDraft(
+        'room1',
+        const ComposerDraft(text: 'yes', replyTo: reply),
+      );
+      await db.applyDelete('01Q', requestedBy: 'kaitlyn');
+      final d = await db.draftFor('room1');
+      expect(d!.text, 'yes');
+      expect(d.replyTo, isNull);
+    });
+
+    test('a spoofed tombstone (not the author) does not drop the reply '
+        'chip', () async {
+      final db = await freshDb();
+      await db.saveDraft(
+        'room1',
+        const ComposerDraft(text: 'yes', replyTo: reply),
+      );
+      // Target not stored locally, so the tombstone is recorded; its
+      // requester is not the quoted message's author.
+      await db.applyDelete('01Q', requestedBy: 'mallory');
+      expect((await db.draftFor('room1'))!.replyTo!.id, '01Q');
+    });
+
+    test('a reply-only draft whose target was unsent reads back as no '
+        'draft', () async {
+      final db = await freshDb();
+      await db.saveDraft(
+        'room1',
+        const ComposerDraft(text: '', replyTo: reply),
+      );
+      await db.applyDelete('01Q', requestedBy: 'kaitlyn');
+      expect(await db.draftFor('room1'), isNull);
+    });
+
     test('clear wipes drafts (sign-out)', () async {
       final db = await freshDb();
       await db.saveDraft('room1', const ComposerDraft(text: 'secret'));
