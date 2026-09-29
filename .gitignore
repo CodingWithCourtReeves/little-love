@@ -25,8 +25,13 @@ Cargo.lock
 # Superpowers brainstorming session content
 .superpowers/
 
-# Claude Code agent state + git worktrees (.claude/worktrees can be many GB)
-.claude/
+# Claude Code agent state + git worktrees (.claude/worktrees can be many GB).
+# Ignore everything under any .claude/ (at any depth) except the shared
+# coding-standards rules at the repo root. `**/` is required: a pattern with
+# a slash in it is anchored to the repo root, so plain `.claude/*` would stop
+# ignoring app/.claude/ and server/.claude/.
+**/.claude/*
+!/.claude/rules/
 
 # Flutter / Dart per-user tool state (created when HOME is rerooted into the repo,
 # e.g. demo.sh sandboxing kaitlyn's identity). Never commit these.
