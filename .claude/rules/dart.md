@@ -9,7 +9,9 @@ paths:
 
 These describe how the app is already written. Match them in new code. Where
 the codebase is inconsistent, the rule below says which side to follow; do not
-"fix" the other side in an unrelated change. The E2EE rules in the root
+"fix" the other side in an unrelated change. Rules the existing code doesn't
+fully follow yet are listed under "Known gaps" at the end: apply them to new
+code, and don't flag the existing gaps in review. The E2EE rules in the root
 `CLAUDE.md` ("E2EE message semantics") apply to all of this and are not
 repeated here.
 
@@ -17,17 +19,22 @@ Scope reminder: iOS-only MVP, exactly two partners per room.
 
 ## Gate before you call it done
 
-CI runs exactly this; run it from `app/` before pushing (info-level lints fail CI):
+The CI `flutter` and `ios-build` jobs run these from `app/` (see
+`.github/workflows/ci.yml`); info-level lints fail CI:
 
 ```sh
 dart format --output=none --set-exit-if-changed .
 flutter analyze
 flutter test
+# ios-build job:
+(cd ios && pod install)
+flutter build ios --simulator --no-codesign
 ```
 
-A green `flutter test` does not prove the iOS build works. Any change to
-`pubspec.yaml` plugins needs a real `flutter build ios` / device install (see
-`CLAUDE.md`, "On-device testing").
+A green `flutter test` does not prove the iOS build works: the simulator build
+is what catches federated-plugin breaks. Any change to `pubspec.yaml` plugins
+also needs a device install via `scripts/ios-deploy.sh` (see `CLAUDE.md`,
+"On-device testing").
 
 ## Layout and naming
 
@@ -39,8 +46,10 @@ A green `flutter test` does not prove the iOS build works. Any change to
 - One concept per file, snake_case. Suffixes: `_provider.dart`, `_state.dart`
   (a Notifier), `_store.dart`, `_controller.dart`, `_page.dart` /
   `_screen.dart` (routes), `_sheet.dart`.
-- Inside `lib/`, import with **relative** paths. Tests import
-  `package:littlelove/...`. Order: `dart:`, `package:`, relative.
+- Inside `lib/`, import with **relative** paths. Tests import app code as
+  `package:littlelove/...`; test-only helpers (`test/support/`,
+  `test/outbox/memory_outbox_store.dart`) are imported relatively. Order:
+  `dart:`, `package:`, relative.
 - Do not add to `lib/ws_client.dart` (legacy, test-only).
 
 ## State management: Riverpod 2, hand-written (no codegen)
@@ -76,10 +85,11 @@ A green `flutter test` does not prove the iOS build works. Any change to
 
 - After every `await` in a `State`: `if (!mounted) return;`. In a function
   given a `BuildContext`: `if (!context.mounted) return;`.
-- `catch (e, st)` when you report; `catch (_)` only for best-effort paths, with
-  a `// Best-effort: ...` comment. Prefer typed `on FooException catch (e)`
-  and never catch only one exception type when others can reach the user
-  (a signup path once swallowed every error this way).
+- `catch (e, st)` when you report; `catch (_)` only for best-effort paths.
+  New `catch (_)` sites get a comment saying why swallowing is safe. Prefer
+  typed `on FooException catch (e)`, and never catch only one exception type
+  when others can reach the user (a signup path once swallowed every error
+  this way).
 - Fire-and-forget: `unawaited(...)` or `.catchError((_) {})`, never a bare
   un-awaited future. Anything on a sign-out or teardown path is awaited.
 - Throw `StateError` for programmer/state errors, `ArgumentError` for bad
@@ -171,8 +181,9 @@ A green `flutter test` does not prove the iOS build works. Any change to
 ## Widgets and theming
 
 - `const` constructors and `super.key` everywhere.
-- Colors come from `context.palette` (`AppPalette` theme extension); no raw
-  `Color(0x...)` outside `theme/` and `wallpaper/`. Text geometry from
+- Colors come from `context.palette` (`AppPalette` theme extension). Don't
+  add new raw `Color(0x...)` literals outside `theme/` and `wallpaper/`; add
+  a palette entry instead. Text geometry from
   `TwilightType`, color from the palette.
 - Private widgets used by one screen live in that file as `_PrivateWidget`
   classes. Prefer a small private widget class over a new
@@ -190,8 +201,10 @@ A green `flutter test` does not prove the iOS build works. Any change to
   paths. `RepaintBoundary` only with a measured reason.
 - Widgets used under `MaterialApp.builder` or overlays need their own
   `Material` ancestor for ink, and `StackFit.expand` where they fill the screen.
-- No share, forward or export affordances; content stays between the two
-  partners. No new third-party network requests.
+- Content stays between the two partners. Saving received media to your own
+  Photos library is allowed (`attachment/media_actions.dart`); share-sheet,
+  forward-to-another-app, or export-to-a-third-party affordances are not. No
+  new third-party network requests.
 
 ## Comments
 
@@ -219,8 +232,9 @@ A green `flutter test` does not prove the iOS build works. Any change to
   (`databaseFactoryFfiNoIsolate` inside `testWidgets`) and
   `inMemoryDatabasePath`, running the production `onCreate`/`onUpgrade`.
 - Use real crypto (`deriveIdentity(seed)`), not stubs.
-- Wait on conditions with `pumpUntil(() => ...)`, never a fixed
-  `Future.delayed`.
+- Wait on conditions, never a fixed `Future.delayed`. The `pumpUntil`
+  helper currently lives in `test/conversation/room_message_router_test.dart`;
+  when a second file needs it, move it to `test/support/` instead of copying.
 - Tests must be hermetic: override anything that touches the real home
   directory (`hermeticReadStateStore()`).
 - Name tests as lowercase behaviour sentences that state the invariant:
@@ -235,3 +249,28 @@ A green `flutter test` does not prove the iOS build works. Any change to
   (we ship 13) and that it doesn't pull GoogleMLKit (no arm64 simulator slice).
 - Every `dependency_overrides` entry carries a comment explaining why.
 - Test-only packages go in `dev_dependencies`.
+
+## Known gaps
+
+Existing code that doesn't meet the rules above yet. Apply the rules to new
+and changed code; don't report these as findings on lines a change doesn't
+touch.
+
+- **Raw colors**: ~40 `Color(0x...)` literals outside `theme/`/`wallpaper/`,
+  mostly in `conversation_page.dart`, `call_screen.dart` and `avatar.dart`.
+- **Silent catches**: none of the 29 existing `catch (_)` sites in `lib/`
+  has a comment explaining it.
+- **State paradigms**: `ProfileStore` and the audio controllers are
+  `ChangeNotifier`; `CallController` uses `ValueNotifier`s; several signals
+  are `StateProvider`.
+- **`dynamic` ref**: `inbox/select_room.dart` takes `dynamic reader`.
+- **File size**: `conversation_page.dart` is ~3.9k lines with many
+  `Widget _buildX()` helpers.
+- **Fixed waits**: some older tests still use `Future.delayed` instead of
+  `pumpUntil`.
+- **Config defaults**: `LLOVE_SERVER` defaults differ between
+  `identity/providers.dart` and `pairing/invite_link.dart`.
+- **pubspec**: `toml` is unused; `sqflite_common_ffi` is in `dependencies`
+  but only tests import it.
+- **Reactions**: `applyReaction` is a no-op when the target isn't present
+  yet, unlike edits and read receipts, which are deferred.

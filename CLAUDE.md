@@ -6,7 +6,9 @@
   hold the coding standards. Claude Code loads each automatically when
   working on matching files; humans should read them too.
 - `REVIEW.md` is the review checklist, built from bugs that actually shipped
-  here. `/code-review` reads it.
+  here. **When reviewing code (including `/code-review`), read `REVIEW.md`
+  first and apply it.** The local `/code-review` command doesn't load it on
+  its own; it only follows this file.
 - Keep all three current: if a change makes one untrue, update it in the same
   PR.
 

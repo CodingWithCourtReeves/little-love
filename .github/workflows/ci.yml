@@ -5,17 +5,13 @@ on:
     branches: [main]
     # Docs-only changes skip CI. A run is skipped only when *every* changed
     # file matches, so any code change alongside docs still runs everything.
-    # Keep this list identical to the pull_request one below.
-    paths-ignore:
+    # (`**/*.md` also covers .claude/rules/.)
+    paths-ignore: &docs-only
       - '**/*.md'
       - 'docs/**'
-      - '.claude/rules/**'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - '.claude/rules/**'
+    paths-ignore: *docs-only
 
 jobs:
   rust:

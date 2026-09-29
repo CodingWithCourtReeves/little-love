@@ -11,7 +11,9 @@ paths:
 
 These describe how the server is already written. Match them in new code.
 Where the codebase is inconsistent, the rule below says which side to follow;
-do not "fix" the other side in an unrelated change. The migration rule and
+do not "fix" the other side in an unrelated change. Rules the existing code
+doesn't fully follow yet are listed under "Known gaps" at the end: apply them
+to new code, and don't flag the existing gaps in review. The migration rule and
 E2EE rules in the root `CLAUDE.md` apply and are not repeated here.
 
 Toolchain: edition 2021, Rust 1.88 (workspace `rust-version`, CI and the
@@ -19,11 +21,12 @@ Dockerfile all pin it). No `unsafe`.
 
 ## Gate before you call it done
 
-CI runs exactly this from the repo root:
+The CI `rust` job runs these from the repo root (see `.github/workflows/ci.yml`):
 
 ```sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings   # every warning fails
+cargo build --workspace --all-targets
 cargo test --workspace
 ```
 
@@ -83,10 +86,12 @@ DATABASE_URL="postgres://littlelove:dev@localhost:${POSTGRES_PORT}/littlelove_te
   first. The partner is always resolved from `accounts.partner_account_id`,
   never from a client-supplied target. Identity comes from the authenticated
   `me`, never from a field in the frame.
-- Rate-limit anything that does DB work, fans out, pushes, or calls a paid
-  API: a per-connection `WindowRateLimiter` local in `handle_socket`
+- New frames that do DB work, fan out, push, or call a paid API get a rate
+  limit: a per-connection `WindowRateLimiter` local in `handle_socket`
   (sequential loop, no locking), replying `RATE_LIMITED` and dropping the
-  frame (typing drops silently). Don't tear the connection down.
+  frame (typing drops silently). Don't tear the connection down. Today only
+  `Typing`, `RequestUpload`, `CallTurnRequest` and `CallInvite` are limited
+  (see Known gaps).
 - Cap every client-supplied size with a documented `const` (`MAX_BODY_BYTES`,
   `MAX_SEND_RECIPIENTS`, ...) and enforce it before touching the DB.
 - Don't leak existence: a non-member asking for a blob gets `UNKNOWN_BLOB`,
@@ -137,8 +142,9 @@ DATABASE_URL="postgres://littlelove:dev@localhost:${POSTGRES_PORT}/littlelove_te
   new one.
 - Every new FK states its `ON DELETE` behaviour, checked against the existing
   delete paths (`leave_room`, account deletion).
-- Each migration gets a schema test (`tests/migration_00NN_schema.rs`)
-  asserting against `information_schema` / `pg_indexes`.
+- New migrations get a schema test (`tests/migration_00NN_schema.rs`)
+  asserting against `information_schema` / `pg_indexes`
+  (`migration_0011_schema.rs` is a good model).
 
 ## Logging and observability
 
@@ -163,7 +169,9 @@ DATABASE_URL="postgres://littlelove:dev@localhost:${POSTGRES_PORT}/littlelove_te
 - Never hold a `std::sync::Mutex` guard across `.await`.
 - Every outbound HTTP client has request and connect timeouts.
 - Every in-memory TTL map has a sweeper task.
-- Guard a background job that can overlap with itself (`AtomicBool`).
+- A background job that could be started again while a previous run is
+  still going must guard against overlapping itself (no example in the
+  server today; an `AtomicBool` swap is the simple option).
 - `tokio::time::interval` ticks immediately; use `interval_at(now + d)` when
   the first tick should wait.
 - Compare secrets in constant time.
@@ -194,8 +202,12 @@ DATABASE_URL="postgres://littlelove:dev@localhost:${POSTGRES_PORT}/littlelove_te
   `127.0.0.1:0` and use `handshake_as`, `drain_rooms`, `next_frame` (10s
   timeout, skips ping/pong/presence) and the shared seed helpers. Put a
   helper used by more than one file in `common`, not a copy per file.
-- **Every test that touches the database uses `#[file_serial(db)]`**
-  (cross-process lock). `#[serial]` alone doesn't stop other test binaries.
+- **Every test that touches the database is serialized**, because
+  `fresh_store()` truncates shared tables. New DB tests use
+  `#[file_serial(db)]`: it's a file lock, so it also holds under
+  `cargo-nextest` (one process per test, where `#[serial]` does nothing) and
+  across two concurrent `cargo test` runs on the same DB. Don't mix
+  `serial` and `file_serial` in one file; they are separate locks.
   Env-mutating tests use `#[serial]` and restore the env.
 - Prove absence with a bounded timeout, not by asserting order.
 - Race tests: `tokio::spawn` + `join_all`.
@@ -206,3 +218,28 @@ DATABASE_URL="postgres://littlelove:dev@localhost:${POSTGRES_PORT}/littlelove_te
   `handshake_nonce_is_single_use_per_connection`.
 - Security-relevant handlers get a negative test: non-member, wrong partner,
   replayed signature, over-limit flood.
+
+## Known gaps
+
+Existing code that doesn't meet the rules above yet. Apply the rules to new
+and changed code; don't report these as findings on lines a change doesn't
+touch.
+
+- **Rate limiting**: `Send`, `MarkRead`, `CreateRoom`, `RenameRoom`,
+  `PublishProfile`, `RegisterPush`, `RequestDownload`, `CallAnswer` and
+  `CallIce` have no limiter. Tracked in #25.
+- **Test serialization**: 11 DB test files use plain `#[serial]`
+  (`partner_race.rs`, `room_mutations.rs`, `profiles_store.rs`,
+  `push_tokens_store.rs`, `read_receipts_store.rs`,
+  `store_per_recipient.rs`, `partner_helpers.rs`, `rooms_detail.rs`,
+  `invite_preview_members.rs`, `attachments_store.rs`, the
+  `migration_00NN_schema.rs` files).
+- **Migration schema tests**: only 0006, 0010, 0011 and 0012 have one.
+- **Error codes**: `"Internal"` and `"BadName"` are string literals in
+  `ws.rs`, not `error_codes` constants.
+- **Logging**: some `ws.rs` lines interpolate room and call ids into the
+  message instead of using fields.
+- **Secrets in `Debug`**: the config structs in `config.rs` derive `Debug`.
+- **SQL in `ws.rs`**: one inline `INSERT` in a handler.
+- **Dependencies**: `server/Cargo.toml` re-pins some crates that are in
+  `[workspace.dependencies]`.

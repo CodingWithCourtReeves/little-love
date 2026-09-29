@@ -6,7 +6,10 @@ sqlx + Postgres) server in `server/`, shared primitives in `crypto/`.
 
 Coding standards live in `.claude/rules/dart.md` and `.claude/rules/rust.md`;
 project rules in `CLAUDE.md`. Read the one matching each changed file. A
-violation of those is a finding; restating them is not.
+violation of those in new or changed code is a finding; restating them is
+not. Each rules file ends with a **Known gaps** list of existing code that
+doesn't meet the rules yet: those are not findings unless the change makes
+them worse or touches those lines.
 
 Every item in the checklist below comes from a bug that actually shipped or
 nearly shipped here. Prioritize these over generic advice.
@@ -99,8 +102,10 @@ For every new or changed `RoomClientFrame` arm or REST route:
 
 - `is_member` check on the named room before any work.
 - Recipient derived from `partner_account_id`, never client-supplied.
-- Per-connection rate limit if it does DB work, fan-out, push, or a paid
-  external call (TURN).
+- A **new** frame gets a per-connection rate limit if it does DB work,
+  fan-out, push, or a paid external call (TURN). Existing unlimited frames
+  (`Send`, `MarkRead`, ...) are a known gap tracked in #25; don't flag them
+  on a change that only touches their handler logic.
 - Client-supplied sizes capped with a documented constant, and the client
   encoder guarantees it fits (thumbnails once overflowed the body cap).
 - Existence not leaked (`UNKNOWN_BLOB`, not forbidden).
@@ -129,7 +134,9 @@ For every new or changed `RoomClientFrame` arm or REST route:
 - APNs/VoIP payloads carry no text, names or senders.
 - No secrets in `Debug` output.
 - No new third-party network requests (fonts, analytics, CDNs).
-- No share/forward/export affordances; content stays between the partners.
+- Content stays between the partners: no share-sheet, forward, or
+  export-to-third-party affordances. Saving received media to your own
+  Photos library (Save to Photos, #61) is allowed.
 
 ### 10. Async ordering and lifecycle
 
@@ -178,8 +185,8 @@ For every new or changed `RoomClientFrame` arm or REST route:
   replay, flood).
 - Waits are condition-based (`pumpUntil`, bounded timeouts), not fixed
   delays.
-- Tests are hermetic: no real home dir, no dev DB. Server DB tests use
-  `#[file_serial(db)]`.
+- Tests are hermetic: no real home dir, no dev DB. New server DB tests use
+  `#[file_serial(db)]`, and a file never mixes it with `#[serial]`.
 - The test drives the production flow when the bug is in navigation or
   wiring, not a screen mounted in isolation.
 
