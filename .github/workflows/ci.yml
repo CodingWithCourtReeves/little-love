@@ -6,6 +6,9 @@ on:
     # Docs-only changes skip CI. A run is skipped only when *every* changed
     # file matches, so any code change alongside docs still runs everything.
     # (`**/*.md` also covers .claude/rules/.)
+    # NOTE: a skipped workflow reports no status at all. If rust / flutter /
+    # ios-build ever become *required* checks, docs-only PRs would wait
+    # forever; switch to a path-filter step inside each job instead.
     paths-ignore: &docs-only
       - '**/*.md'
       - 'docs/**'

@@ -110,8 +110,10 @@ DATABASE_URL="postgres://littlelove:dev@localhost:${POSTGRES_PORT}/littlelove_te
   sqlx errors.
 - In WS handlers the shape is a `match` with `Ok(Some)`, `Ok(None)` →
   specific error code, `Err(e)` → log + `send_error(tx, "Internal", "")` +
-  `return` (the literal should become `error_codes::INTERNAL`). Never send
-  internal error detail to the client.
+  `return` (the literal should become `error_codes::INTERNAL`).
+- The error message sent to a client is empty or a short constant string
+  (`"store unavailable"`, `"too many recipients"`, `"name too long"`). Never
+  send error text (`e.to_string()`), ids, usernames or any request data.
 - REST handlers return `(StatusCode, "plain text").into_response()`.
 - `unwrap`/`expect` in production code only for true invariants: static
   regexes, `Mutex::lock()`, conversions of constants. Everything else
@@ -225,15 +227,16 @@ Existing code that doesn't meet the rules above yet. Apply the rules to new
 and changed code; don't report these as findings on lines a change doesn't
 touch.
 
-- **Rate limiting**: `Send`, `MarkRead`, `CreateRoom`, `RenameRoom`,
-  `PublishProfile`, `RegisterPush`, `RequestDownload`, `CallAnswer` and
-  `CallIce` have no limiter. Tracked in #25.
-- **Test serialization**: 11 DB test files use plain `#[serial]`
-  (`partner_race.rs`, `room_mutations.rs`, `profiles_store.rs`,
-  `push_tokens_store.rs`, `read_receipts_store.rs`,
+- **Rate limiting**: every `RoomClientFrame` except `Typing`,
+  `RequestUpload`, `CallTurnRequest` and `CallInvite` has no limiter.
+  `ConsumeInvite` is the most notable (unthrottled invite attempts).
+  Tracked in #25.
+- **Test serialization**: these DB test files use `#[serial_test::serial]`
+  instead of `#[file_serial(db)]`: `partner_race.rs`, `room_mutations.rs`,
+  `profiles_store.rs`, `push_tokens_store.rs`, `read_receipts_store.rs`,
   `store_per_recipient.rs`, `partner_helpers.rs`, `rooms_detail.rs`,
-  `invite_preview_members.rs`, `attachments_store.rs`, the
-  `migration_00NN_schema.rs` files).
+  `invite_preview_members.rs`, `attachments_store.rs`, and the
+  `migration_00NN_schema.rs` files.
 - **Migration schema tests**: only 0006, 0010, 0011 and 0012 have one.
 - **Error codes**: `"Internal"` and `"BadName"` are string literals in
   `ws.rs`, not `error_codes` constants.

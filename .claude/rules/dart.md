@@ -96,7 +96,8 @@ also needs a device install via `scripts/ios-deploy.sh` (see `CLAUDE.md`,
   input (`'must be 32 bytes, got $n'`), `FormatException` for parse errors.
   Custom exceptions `implements Exception`. No `!` on a value that can
   legitimately be null at runtime; throw a descriptive `StateError`.
-- Guard flags (`_ending`, `_sending`) are reset in `finally`.
+- Re-entrancy guard flags (like `CallController._ending`) are reset in
+  `finally`.
 - Logging is `debugPrint` with a short lowercase prefix (`'call: ...'`). No
   `print`, no logger package.
 - Faults go through `reportFault(e, st, context: 'constant_label')`
@@ -134,9 +135,15 @@ also needs a device install via `scripts/ios-deploy.sh` (see `CLAUDE.md`,
 
 ## E2EE and message flow (Dart specifics)
 
-- Encrypt sends only in `conversation/send_fanout.dart` (`buildSendFrame`).
-  Decrypt receives only in `RoomMessageRouter._ingestMessage`. Do not add a
-  second path.
+- Chat messages are encrypted only in `conversation/send_fanout.dart`
+  (`buildSendFrame`) and decrypted only in `RoomMessageRouter._ingestMessage`.
+  Don't add a second path for chat messages.
+- Other sanctioned users of the same primitives: call signaling
+  (`calling/call_signaling.dart`, own HKDF sub-key), the profile envelope
+  (`profile/profile_envelope.dart`), outbox rehydrate decrypting the self-copy
+  (`outbox/outbox_rehydrate.dart`), and attachments
+  (`attachment/file_crypto.dart`, per-file key). New encryption goes through
+  `pairing/encryption.dart` / `crypto/`; don't set up a new cipher elsewhere.
 - `decryptIncoming` never throws; it returns `cannotDecryptSentinel`.
   `MessageContent.decode` falls back to text. Keep both total.
 - HKDF salts (`'littlelove.v0.2.room'`, `'littlelove.v0.2.call-sig'`) are
@@ -160,7 +167,10 @@ also needs a device install via `scripts/ios-deploy.sh` (see `CLAUDE.md`,
 - Inbound: `sealed class` + `factory fromJson` switching on `'kind'`, throwing
   `FormatException` on unknown kinds. Outbound: plain class with `toJson()`.
 - Required JSON fields `json['x']! as String`; optional
-  `(json['x'] as String?) ?? ''`. Timestamps: `DateTime.parse(s).toUtc()`;
+  `(json['x'] as String?) ?? ''`. Note that a missing or mistyped field throws
+  `TypeError`, not `FormatException`, so code that calls `fromJson` on
+  network or disk input catches both (`on FormatException` alone lets a
+  known-kind frame with a missing field escape as an unhandled error). Timestamps: `DateTime.parse(s).toUtc()`;
   now is `DateTime.now().toUtc()`.
 - Data classes are hand-written (`const` ctor, `final` fields, manual
   `fromJson`/`toJson`/`copyWith`). No freezed/json_serializable. `copyWith`
@@ -187,7 +197,7 @@ also needs a device install via `scripts/ios-deploy.sh` (see `CLAUDE.md`,
   `TwilightType`, color from the palette.
 - Private widgets used by one screen live in that file as `_PrivateWidget`
   classes. Prefer a small private widget class over a new
-  `Widget _buildX()` helper method. `conversation_page.dart` (~3.9k lines) is
+  `Widget _buildX()` helper method. `conversation_page.dart` is
   over-large: put new self-contained pieces (bubbles, sheets, overlays) in
   their own file in `conversation/`.
 - Anything a test needs to find gets `const Key('kebab-case-id')`; dynamic
@@ -256,15 +266,18 @@ Existing code that doesn't meet the rules above yet. Apply the rules to new
 and changed code; don't report these as findings on lines a change doesn't
 touch.
 
-- **Raw colors**: ~40 `Color(0x...)` literals outside `theme/`/`wallpaper/`,
+- **Raw colors**: `Color(0x...)` literals outside `theme/`/`wallpaper/`,
   mostly in `conversation_page.dart`, `call_screen.dart` and `avatar.dart`.
-- **Silent catches**: none of the 29 existing `catch (_)` sites in `lib/`
-  has a comment explaining it.
+- **Silent catches**: the existing `catch (_)` sites in `lib/` have no
+  comment explaining them.
+- **Frame parsing**: `wire/live_connection.dart` wraps
+  `RoomServerFrame.fromJson` in `on FormatException` only, so a `TypeError`
+  from a missing field skips the sanitized `room_frame_parse` fault.
 - **State paradigms**: `ProfileStore` and the audio controllers are
   `ChangeNotifier`; `CallController` uses `ValueNotifier`s; several signals
   are `StateProvider`.
 - **`dynamic` ref**: `inbox/select_room.dart` takes `dynamic reader`.
-- **File size**: `conversation_page.dart` is ~3.9k lines with many
+- **File size**: `conversation_page.dart` is very large, with many
   `Widget _buildX()` helpers.
 - **Fixed waits**: some older tests still use `Future.delayed` instead of
   `pumpUntil`.
