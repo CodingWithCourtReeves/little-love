@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/conversation/conversation_page.dart';
 import 'package:littlelove/conversation/message_store.dart';
+import 'package:littlelove/conversation/send_issue_caption.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/wire/frames.dart';
+import 'package:littlelove/wire/live_connection.dart';
 import 'package:littlelove/wire/message.dart';
 
 import '../support/test_read_state.dart';
@@ -53,15 +55,26 @@ Future<void> _pump(
   await tester.pump();
 }
 
-ProviderContainer _container() {
+ProviderContainer _container({bool online = true}) {
   final container = ProviderContainer(
     overrides: [
       accountProvider.overrideWith((_) async => _account),
       hermeticReadStateStore(),
+      connectionUpProvider.overrideWithValue(online),
     ],
   );
   return container;
 }
+
+Msg _inFlight(String id, String body, {int minute = 0}) => Msg(
+  id: id,
+  from: 'me',
+  to: 'r1',
+  body: body,
+  ts: DateTime.utc(2026, 6, 13, 10, minute),
+  clientMsgId: id,
+  sendStatus: SendStatus.sending,
+);
 
 void main() {
   testWidgets('a sent message carries a heart inside its own bubble', (
@@ -86,7 +99,7 @@ void main() {
     await _pump(tester, container);
     expect(find.byKey(const Key('status-heart')), findsOneWidget);
     expect(find.byKey(const Key('status-clock')), findsNothing);
-    expect(find.text('failed · tap to retry'), findsNothing);
+    expect(find.text("Couldn't send · tap to retry"), findsNothing);
   });
 
   testWidgets(
@@ -192,7 +205,7 @@ void main() {
         );
 
     await _pump(tester, container, onRetry: retried.add);
-    expect(find.text('failed · tap to retry'), findsOneWidget);
+    expect(find.text("Couldn't send · tap to retry"), findsOneWidget);
     // A failed message gets no in-bubble heart or clock.
     expect(find.byKey(const Key('status-heart')), findsNothing);
     expect(find.byKey(const Key('status-clock')), findsNothing);
@@ -225,7 +238,7 @@ void main() {
 
       await _pump(tester, container, onRetry: retried.add);
       // Failed stays collapsed: one caption for the whole run.
-      expect(find.text('failed · tap to retry'), findsOneWidget);
+      expect(find.text("Couldn't send · tap to retry"), findsOneWidget);
       await tester.tap(find.text('fail 1'));
       expect(retried, ['cli-0', 'cli-1']);
     },
@@ -266,7 +279,7 @@ void main() {
     );
 
     await _pump(tester, container, onRetry: retried.add);
-    expect(find.text('failed · tap to retry'), findsOneWidget);
+    expect(find.text("Couldn't send · tap to retry"), findsOneWidget);
     expect(find.byKey(const Key('status-clock')), findsOneWidget);
     // The caption anchors to the failed message itself; tapping it re-sends
     // only the failed member. The still-sending sibling is not a retry target.
@@ -308,12 +321,139 @@ void main() {
     );
 
     await _pump(tester, container, onRetry: retried.add);
-    expect(find.text('failed · tap to retry'), findsOneWidget);
+    expect(find.text("Couldn't send · tap to retry"), findsOneWidget);
     // The succeeded sibling keeps its heart and is not a retry target.
     expect(find.byKey(const Key('status-heart')), findsOneWidget);
     await tester.tap(find.text('made it'));
     expect(retried, isEmpty);
     await tester.tap(find.text('oops'));
     expect(retried, ['cli-0']);
+  });
+
+  group('stuck sends', () {
+    const stillSending = 'Still sending · tap to retry';
+
+    testWidgets('a fresh send shows only its clock, no caption', (
+      tester,
+    ) async {
+      final container = _container();
+      addTearDown(container.dispose);
+      await container.read(accountProvider.future);
+      container
+          .read(messageStoreProvider('r1').notifier)
+          .add(_inFlight('cli-1', 'on my way'));
+
+      await _pump(tester, container);
+      await tester.pump(stuckSendAfter - const Duration(seconds: 1));
+      expect(find.byKey(const Key('send-issue-caption')), findsNothing);
+      expect(find.byKey(const Key('status-clock')), findsOneWidget);
+    });
+
+    testWidgets('a send still in flight past the threshold says so, keeps its '
+        'clock, and tap retries it', (tester) async {
+      final retried = <String>[];
+      final container = _container();
+      addTearDown(container.dispose);
+      await container.read(accountProvider.future);
+      container
+          .read(messageStoreProvider('r1').notifier)
+          .add(_inFlight('cli-1', 'on my way'));
+
+      await _pump(tester, container, onRetry: retried.add);
+      await tester.pump(stuckSendAfter + const Duration(seconds: 1));
+      expect(find.text(stillSending), findsOneWidget);
+      expect(find.byKey(const Key('status-clock')), findsOneWidget);
+
+      await tester.tap(find.text('on my way'));
+      await tester.pump();
+      expect(retried, ['cli-1']);
+      // The retry restarts the clock on the caption.
+      expect(find.text(stillSending), findsNothing);
+      await tester.pump(stuckSendAfter + const Duration(seconds: 1));
+      expect(find.text(stillSending), findsOneWidget);
+    });
+
+    testWidgets('a send that lands before the threshold never shows the '
+        'caption', (tester) async {
+      final container = _container();
+      addTearDown(container.dispose);
+      await container.read(accountProvider.future);
+      final store = container.read(messageStoreProvider('r1').notifier);
+      store.add(_inFlight('cli-1', 'quick one'));
+
+      await _pump(tester, container);
+      await tester.pump(const Duration(seconds: 5));
+      store.reconcile(
+        'cli-1',
+        Msg(
+          id: 'srv-1',
+          from: 'me',
+          to: 'r1',
+          body: 'quick one',
+          ts: DateTime.utc(2026, 6, 13, 10),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(stuckSendAfter * 2);
+      expect(find.byKey(const Key('send-issue-caption')), findsNothing);
+      expect(find.byKey(const Key('status-heart')), findsOneWidget);
+    });
+
+    testWidgets('one caption covers a stuck run and tap retries all of it', (
+      tester,
+    ) async {
+      final retried = <String>[];
+      final container = _container();
+      addTearDown(container.dispose);
+      await container.read(accountProvider.future);
+      final store = container.read(messageStoreProvider('r1').notifier);
+      store.add(_inFlight('cli-0', 'one'));
+      store.add(_inFlight('cli-1', 'two', minute: 1));
+
+      await _pump(tester, container, onRetry: retried.add);
+      await tester.pump(stuckSendAfter + const Duration(seconds: 1));
+      expect(find.text(stillSending), findsOneWidget);
+      await tester.tap(find.text('two'));
+      expect(retried, ['cli-0', 'cli-1']);
+    });
+
+    testWidgets('offline, a stuck send says it is waiting for a connection', (
+      tester,
+    ) async {
+      final container = _container(online: false);
+      addTearDown(container.dispose);
+      await container.read(accountProvider.future);
+      container
+          .read(messageStoreProvider('r1').notifier)
+          .add(_inFlight('cli-1', 'on my way'));
+
+      await _pump(tester, container);
+      await tester.pump(stuckSendAfter + const Duration(seconds: 1));
+      expect(find.text('Waiting for connection'), findsOneWidget);
+      expect(find.text(stillSending), findsNothing);
+    });
+
+    testWidgets('offline, a failed send also says it is waiting for a '
+        'connection (the outbox resends on reconnect)', (tester) async {
+      final container = _container(online: false);
+      addTearDown(container.dispose);
+      await container.read(accountProvider.future);
+      container
+          .read(messageStoreProvider('r1').notifier)
+          .add(
+            Msg(
+              id: 'cli-1',
+              from: 'me',
+              to: 'r1',
+              body: 'eh',
+              ts: DateTime.utc(2026, 6, 13, 10),
+              clientMsgId: 'cli-1',
+              sendStatus: SendStatus.failed,
+            ),
+          );
+
+      await _pump(tester, container);
+      expect(find.text('Waiting for connection'), findsOneWidget);
+    });
   });
 }

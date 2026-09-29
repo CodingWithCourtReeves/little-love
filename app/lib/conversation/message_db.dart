@@ -7,6 +7,7 @@ import 'package:sqflite_sqlcipher/sqflite.dart';
 
 import '../attachment/attachment_descriptor.dart';
 import '../wire/message.dart';
+import 'composer_draft.dart';
 import 'link_preview.dart';
 import 'reply_ref.dart';
 import 'message_db_key.dart';
@@ -22,7 +23,7 @@ import 'message_search.dart';
 /// SQLCipher-backed production impl, and a `.test` factory that wraps a plain
 /// ffi [Database] so unit tests skip the native crypto layer.
 abstract class MessageDb {
-  static const schemaVersion = 4;
+  static const schemaVersion = 5;
 
   /// SQLCipher-backed impl living at `<app-support>/messages.db`.
   static Future<MessageDb> open() async {
@@ -85,6 +86,7 @@ abstract class MessageDb {
     ''');
     await _createPendingEdits(db);
     await _createFts(db);
+    await _createDrafts(db);
   }
 
   static Future<void> onUpgrade(Database db, int oldV, int newV) async {
@@ -116,6 +118,27 @@ abstract class MessageDb {
       // null default, so existing rows read as non-replies.
       await db.execute('ALTER TABLE messages ADD COLUMN reply_to TEXT');
     }
+    if (oldV < 5) {
+      // Per-room composer drafts. A new, empty table: nothing to backfill.
+      await _createDrafts(db);
+    }
+  }
+
+  /// One unsent composer draft per room (text + JSON-encoded [ReplyRef]). Kept
+  /// here rather than in SharedPreferences because draft text is message
+  /// plaintext and belongs under SQLCipher with the rest of the history.
+  ///
+  /// `IF NOT EXISTS` because a downgrade (installing an older v4 build over
+  /// this one) only rewinds `user_version` and leaves the table behind; the
+  /// next 4 -> 5 upgrade MUST NOT fail on it and brick the store.
+  static Future<void> _createDrafts(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS drafts (
+        room_id  TEXT PRIMARY KEY,
+        body     TEXT NOT NULL,
+        reply_to TEXT
+      )
+    ''');
   }
 
   /// Edits that arrived before their target row, applied when the target lands
@@ -210,6 +233,14 @@ abstract class MessageDb {
     String? roomId,
     int limit = 50,
   });
+
+  /// The saved composer draft for [roomId], or null if there is none.
+  Future<ComposerDraft?> draftFor(String roomId);
+
+  /// Persist [draft] as [roomId]'s composer draft, replacing any previous one.
+  /// An empty draft ([ComposerDraft.isEmpty]) deletes the stored one, so a sent
+  /// or cleared composer leaves nothing behind.
+  Future<void> saveDraft(String roomId, ComposerDraft draft);
 
   /// Wipe all local state (used on sign-out).
   Future<void> clear();
@@ -508,6 +539,41 @@ class SqliteMessageDb implements MessageDb {
   }
 
   @override
+  Future<ComposerDraft?> draftFor(String roomId) async {
+    final rows = await _db.query(
+      'drafts',
+      where: 'room_id = ?',
+      whereArgs: [roomId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final r = rows.first;
+    return ComposerDraft(
+      text: r['body'] as String,
+      replyTo: r['reply_to'] == null
+          ? null
+          : ReplyRef.fromJson(
+              jsonDecode(r['reply_to'] as String) as Map<String, Object?>,
+            ),
+    );
+  }
+
+  @override
+  Future<void> saveDraft(String roomId, ComposerDraft draft) async {
+    if (draft.isEmpty) {
+      await _db.delete('drafts', where: 'room_id = ?', whereArgs: [roomId]);
+      return;
+    }
+    await _db.insert('drafts', {
+      'room_id': roomId,
+      'body': draft.text,
+      'reply_to': draft.replyTo == null
+          ? null
+          : jsonEncode(draft.replyTo!.toJson()),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  @override
   Future<void> clear() async {
     await _db.delete('messages');
     // Authoritatively empty the FTS index too — don't rely solely on the
@@ -519,6 +585,7 @@ class SqliteMessageDb implements MessageDb {
     await _db.delete('room_sync');
     await _db.delete('tombstones');
     await _db.delete('pending_edits');
+    await _db.delete('drafts');
   }
 
   Future<void> _advanceHwm(String roomId, String id) async {

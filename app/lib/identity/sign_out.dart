@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../conversation/message_db.dart';
+import '../conversation/staged_media_store.dart';
 import '../diagnostics/crash_reporting.dart';
 import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
@@ -63,6 +64,9 @@ Future<void> signOut(WidgetRef ref) async {
   ref.invalidate(requestedRoomProvider);
   // The partner's decrypted profile + cached avatar files belong to this couple.
   ref.invalidate(profileStoreProvider);
+  // Media staged on a composer but never sent (in memory only; the text half
+  // of the draft went with messageDb.clear() above).
+  ref.invalidate(stagedMediaProvider);
   // Reset the toggle's state so the next account sees it off (matches the
   // cleared pref above).
   ref.invalidate(crashReportingProvider);

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/conversation/link_preview.dart';
+import 'package:littlelove/conversation/composer_draft.dart';
 import 'package:littlelove/conversation/message_db.dart';
 import 'package:littlelove/conversation/message_search.dart';
 import 'package:littlelove/identity/account_local.dart';
@@ -82,6 +83,10 @@ class _FakeMessageDb implements MessageDb {
     String? roomId,
     int limit = 50,
   }) async => const [];
+  @override
+  Future<ComposerDraft?> draftFor(String roomId) async => null;
+  @override
+  Future<void> saveDraft(String roomId, ComposerDraft draft) async {}
 }
 
 class _StubStore implements AccountLocalStore {

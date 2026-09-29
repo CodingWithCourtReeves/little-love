@@ -313,3 +313,10 @@ final liveConnectionProvider = FutureProvider<LiveConnection>((ref) async {
     }
   }
 });
+
+/// True while a live socket is up: [liveConnectionProvider] holds data, not a
+/// reconnect in progress (a reload after a drop reads as loading) or an error.
+/// Drives the honest "Waiting for connection" send caption.
+final connectionUpProvider = Provider<bool>(
+  (ref) => ref.watch(liveConnectionProvider) is AsyncData,
+);

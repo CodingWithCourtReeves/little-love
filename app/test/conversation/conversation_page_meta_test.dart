@@ -245,4 +245,83 @@ void main() {
     final timeTop = tester.getRect(find.text('10:06')).top;
     expect(timeTop, greaterThanOrEqualTo(textBottom - 1));
   });
+
+  group('full date/time on long-press', () {
+    Future<void> pumpWithReactions(
+      WidgetTester tester,
+      ProviderContainer container,
+    ) async {
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: ConversationPage(
+              room: _room(),
+              selfUsername: 'me',
+              onSend: (_, _) {},
+              onReact: (_, _) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('long-pressing a partner message shows its full date and '
+        'time above the actions', (tester) async {
+      final container = _container();
+      addTearDown(container.dispose);
+      await container.read(accountProvider.future);
+      container
+          .read(messageStoreProvider('r1').notifier)
+          .add(
+            Msg(
+              id: 'srv-1',
+              from: 'kaitlyn',
+              to: 'r1',
+              body: 'miss you',
+              // Local time so the label is machine-timezone independent.
+              ts: DateTime(2026, 6, 13, 15, 42),
+            ),
+          );
+
+      await pumpWithReactions(tester, container);
+      expect(find.byKey(const Key('message-timestamp')), findsNothing);
+      await tester.longPress(find.text('miss you'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('message-timestamp')),
+          matching: find.text('Saturday, Jun 13, 2026 at 3:42 PM'),
+        ),
+        findsOneWidget,
+      );
+      final stamp = tester.getRect(find.byKey(const Key('message-timestamp')));
+      final copy = tester.getRect(find.byKey(const Key('action-copy')));
+      expect(stamp.bottom, lessThanOrEqualTo(copy.top + 1));
+    });
+
+    testWidgets('my own messages show their full date too', (tester) async {
+      final container = _container();
+      addTearDown(container.dispose);
+      await container.read(accountProvider.future);
+      container
+          .read(messageStoreProvider('r1').notifier)
+          .add(
+            Msg(
+              id: 'srv-1',
+              from: 'me',
+              to: 'r1',
+              body: 'morning',
+              ts: DateTime(2026, 1, 2, 9, 6),
+            ),
+          );
+
+      await pumpWithReactions(tester, container);
+      await tester.longPress(find.text('morning'));
+      await tester.pumpAndSettle();
+      expect(find.text('Friday, Jan 2, 2026 at 9:06 AM'), findsOneWidget);
+    });
+  });
 }
