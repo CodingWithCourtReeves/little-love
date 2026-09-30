@@ -15,5 +15,8 @@ PRODUCT_BUNDLE_DISPLAY_NAME = LittleLove
 DEVELOPMENT_TEAM = 9PVUX2535W
 CODE_SIGN_STYLE = Automatic
 
-// iOS deployment target. Flutter 3.44 stable defaults to iOS 13.0.
-IPHONEOS_DEPLOYMENT_TARGET = 13.0
+// iOS deployment target. This is the value the Runner target actually
+// builds with: it overrides the project-level IPHONEOS_DEPLOYMENT_TARGET in
+// project.pbxproj, so raise both together (plus the Podfile). App Store
+// Connect rejects uploads targeting below 15.0 from April 2027 (ITMS-90068).
+IPHONEOS_DEPLOYMENT_TARGET = 15.0

@@ -91,7 +91,7 @@ attachment paths, room keys), so app reporting is **opt-in and off by default**,
 and everything outbound is content-scrubbed.
 
 We use the **pure-Dart `sentry` package**, not `sentry_flutter`. It has no native
-iOS dependency, so it keeps the app's iOS 13 deployment target and adds no native
+iOS dependency, so it doesn't constrain the app's iOS deployment target and adds no native
 crash handler, screenshots, view-hierarchy capture, or native auto-breadcrumbs,
 each of which is a plaintext leak vector on this app. The trade-off is that hard
 native crashes (OOM, engine-level) aren't captured; the leak risk we care about

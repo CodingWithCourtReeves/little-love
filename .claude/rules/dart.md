@@ -264,7 +264,7 @@ also needs a device install via `scripts/ios-deploy.sh` (see `CLAUDE.md`,
 ## Dependencies
 
 - iOS-only: prefer iOS-native packages; check a plugin's minimum iOS target
-  (we ship 13) and that it doesn't pull GoogleMLKit (no arm64 simulator slice).
+  (we ship 15) and that it doesn't pull GoogleMLKit (no arm64 simulator slice).
 - Every `dependency_overrides` entry carries a comment explaining why.
 - Test-only packages go in `dev_dependencies`.
 
