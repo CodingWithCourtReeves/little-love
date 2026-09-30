@@ -302,6 +302,60 @@ void main() {
       expect(stamp.bottom, lessThanOrEqualTo(copy.top + 1));
     });
 
+    testWidgets('the timestamp row grows with the system text size instead of '
+        'spilling into the actions', (tester) async {
+      final container = _container();
+      addTearDown(container.dispose);
+      await container.read(accountProvider.future);
+      container
+          .read(messageStoreProvider('r1').notifier)
+          .add(
+            Msg(
+              id: 'srv-1',
+              from: 'kaitlyn',
+              to: 'r1',
+              body: 'big text',
+              ts: DateTime(2026, 9, 30, 12, 59),
+            ),
+          );
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(2.5)),
+              child: child!,
+            ),
+            home: ConversationPage(
+              room: _room(),
+              selfUsername: 'me',
+              onSend: (_, _) {},
+              onReact: (_, _) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.longPress(find.text('big text'));
+      await tester.pumpAndSettle();
+
+      final row = tester.getRect(find.byKey(const Key('message-timestamp')));
+      final text = tester.getRect(
+        find.text('Wednesday, Sep 30, 2026 at 12:59 PM'),
+      );
+      expect(text.top, greaterThanOrEqualTo(row.top));
+      expect(text.bottom, lessThanOrEqualTo(row.bottom));
+      // It keeps breathing room around the scaled text rather than clamping
+      // to a fixed height that the text fills (or spills out of).
+      expect(row.height, greaterThanOrEqualTo(text.height + 12));
+      // The first action starts below the (taller) timestamp row.
+      final copy = tester.getRect(find.byKey(const Key('action-copy')));
+      expect(copy.top, greaterThanOrEqualTo(row.bottom));
+    });
+
     testWidgets('my own messages show their full date too', (tester) async {
       final container = _container();
       addTearDown(container.dispose);

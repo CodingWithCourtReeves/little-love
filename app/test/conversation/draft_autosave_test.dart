@@ -35,9 +35,9 @@ void main() {
     fakeAsync((async) {
       final db = _RecordingDb();
       final saver = DraftAutosave(db: Future.value(db), roomId: 'r1');
-      saver.schedule(const ComposerDraft(text: 'h'));
-      saver.schedule(const ComposerDraft(text: 'he'));
-      saver.schedule(const ComposerDraft(text: 'hey'));
+      saver.schedule(() => const ComposerDraft(text: 'h'));
+      saver.schedule(() => const ComposerDraft(text: 'he'));
+      saver.schedule(() => const ComposerDraft(text: 'hey'));
       async.elapse(delay ~/ 2);
       expect(db.writes, 0);
       async.elapse(delay);
@@ -51,7 +51,7 @@ void main() {
     fakeAsync((async) {
       final db = _RecordingDb();
       final saver = DraftAutosave(db: Future.value(db), roomId: 'r1');
-      saver.schedule(const ComposerDraft(text: 'leaving now'));
+      saver.schedule(() => const ComposerDraft(text: 'leaving now'));
       saver.flush();
       async.flushMicrotasks();
       expect(db.drafts['r1']!.text, 'leaving now');
@@ -88,7 +88,7 @@ void main() {
       final db = _RecordingDb();
       db.drafts['r1'] = const ComposerDraft(text: 'old');
       final saver = DraftAutosave(db: Future.value(db), roomId: 'r1');
-      saver.schedule(const ComposerDraft(text: 'about to send'));
+      saver.schedule(() => const ComposerDraft(text: 'about to send'));
       saver.clear();
       async.elapse(delay * 2);
       expect(
@@ -118,7 +118,7 @@ void main() {
       final saver = DraftAutosave(db: Future.value(null), roomId: 'r1');
       ComposerDraft? loaded = const ComposerDraft(text: 'sentinel');
       saver.load().then((d) => loaded = d);
-      saver.schedule(const ComposerDraft(text: 'x'));
+      saver.schedule(() => const ComposerDraft(text: 'x'));
       async.elapse(delay * 2);
       saver.flush(const ComposerDraft(text: 'y'));
       saver.clear();
@@ -132,10 +132,69 @@ void main() {
     fakeAsync((async) {
       final db = _RecordingDb();
       final saver = DraftAutosave(db: Future.value(db), roomId: 'r1');
-      saver.schedule(const ComposerDraft(text: 'x'));
+      saver.schedule(() => const ComposerDraft(text: 'x'));
       saver.dispose();
       async.elapse(delay * 2);
       expect(db.writes, 0);
+    });
+  });
+
+  test('a scheduled save writes the composer as it is when the timer fires, '
+      'not a stale snapshot from when it was scheduled', () {
+    fakeAsync((async) {
+      final db = _RecordingDb();
+      final saver = DraftAutosave(db: Future.value(db), roomId: 'r1');
+      var current = const ComposerDraft(text: '');
+      saver.schedule(() => current);
+      // e.g. the saved draft is restored into the composer meanwhile.
+      current = const ComposerDraft(text: 'restored text');
+      async.elapse(delay * 2);
+      expect(db.drafts['r1']!.text, 'restored text');
+      saver.dispose();
+    });
+  });
+
+  test('writing the same draft again is skipped (backgrounding fires '
+      'inactive, hidden and paused)', () {
+    fakeAsync((async) {
+      final db = _RecordingDb();
+      final saver = DraftAutosave(db: Future.value(db), roomId: 'r1');
+      saver.flush(const ComposerDraft(text: 'same'));
+      saver.flush(const ComposerDraft(text: 'same'));
+      saver.flush(const ComposerDraft(text: 'same'));
+      async.flushMicrotasks();
+      expect(db.writes, 1);
+      saver.flush(const ComposerDraft(text: 'changed'));
+      async.flushMicrotasks();
+      expect(db.writes, 2);
+      saver.dispose();
+    });
+  });
+
+  test('a freshly loaded draft counts as already written', () {
+    fakeAsync((async) {
+      final db = _RecordingDb();
+      db.drafts['r1'] = const ComposerDraft(text: 'as saved');
+      final saver = DraftAutosave(db: Future.value(db), roomId: 'r1');
+      saver.load();
+      async.flushMicrotasks();
+      saver.flush(const ComposerDraft(text: 'as saved'));
+      async.flushMicrotasks();
+      expect(db.writes, 0);
+      saver.dispose();
+    });
+  });
+
+  test('after clear, writing the old text again is not skipped', () {
+    fakeAsync((async) {
+      final db = _RecordingDb();
+      final saver = DraftAutosave(db: Future.value(db), roomId: 'r1');
+      saver.flush(const ComposerDraft(text: 'x'));
+      saver.clear();
+      saver.flush(const ComposerDraft(text: 'x'));
+      async.flushMicrotasks();
+      expect(db.drafts['r1']!.text, 'x');
+      saver.dispose();
     });
   });
 }

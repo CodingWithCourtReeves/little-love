@@ -388,6 +388,32 @@ void main() {
       expect(d.replyTo, isNull);
     });
 
+    test('a reply chip quoting my own not-yet-echoed send (its clientMsgId) '
+        'is dropped once that message is unsent', () async {
+      final db = await freshDb();
+      // The quoted row landed under its server id, keeping its clientMsgId.
+      await db.upsert(
+        Msg(
+          id: '01S',
+          from: 'court',
+          to: 'room1',
+          body: 'oops',
+          ts: DateTime.utc(2026, 6, 24, 12),
+          clientMsgId: 'cli-9',
+        ),
+        roomId: 'room1',
+      );
+      await db.saveDraft(
+        'room1',
+        const ComposerDraft(
+          text: 'wait',
+          replyTo: ReplyRef(id: 'cli-9', author: 'court', kind: 'text'),
+        ),
+      );
+      await db.applyDelete('01S', requestedBy: 'court');
+      expect((await db.draftFor('room1'))!.replyTo, isNull);
+    });
+
     test('a spoofed tombstone (not the author) does not drop the reply '
         'chip', () async {
       final db = await freshDb();

@@ -551,13 +551,15 @@ class SqliteMessageDb implements MessageDb {
     var replyTo = _decodeReply(r['reply_to']);
     // The quoted message may have been unsent since the draft was saved; don't
     // bring its text back (or quote it in the next send). Same authorship rule
-    // as the timeline: only a tombstone requested by the author counts.
+    // as the timeline: only a tombstone requested by the author counts. A reply
+    // to my own not-yet-echoed send quotes its clientMsgId, while tombstones
+    // are keyed by server id, so also match through the row's client_msg_id.
     if (replyTo != null) {
-      final tomb = await _db.query(
-        'tombstones',
-        where: 'target_id = ? AND requested_by = ?',
-        whereArgs: [replyTo.id, replyTo.author],
-        limit: 1,
+      final tomb = await _db.rawQuery(
+        'SELECT 1 FROM tombstones WHERE requested_by = ? AND ('
+        'target_id = ? OR target_id IN '
+        '(SELECT id FROM messages WHERE client_msg_id = ?)) LIMIT 1',
+        [replyTo.author, replyTo.id, replyTo.id],
       );
       if (tomb.isNotEmpty) replyTo = null;
     }

@@ -399,8 +399,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   /// Media picked but not yet sent, shown as a tray above the composer. Send
   /// flushes these (with the composer text as the last item's caption). Held in
-  /// [stagedMediaProvider] (watched in [build]) rather than here, so the tray
-  /// survives leaving the room.
+  /// [stagedMediaProvider] rather than here, so the tray survives leaving the
+  /// room. [build] watches it and passes it down; handlers read it here.
   List<StagedAttachment> get _staged =>
       ref.read(stagedMediaProvider(widget.roomId));
   StagedMediaStore get _stagedTray =>
@@ -481,7 +481,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   void _saveDraftSoon() {
     _draftSettled = true;
-    _drafts.schedule(_currentDraft());
+    _drafts.schedule(_currentDraft);
   }
 
   /// Write the draft now (backgrounding, leaving the room, entering an edit),
@@ -497,9 +497,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final draft = await _drafts.load();
     _draftSettled = true;
     if (!mounted || draft == null) return;
-    if (_controller.text.isNotEmpty || _editingId != null) return;
-    _controller.text = draft.text;
-    _controller.selection = TextSelection.collapsed(offset: draft.text.length);
+    if (_editingId != null) {
+      // An edit started before the load landed: the composer is showing the
+      // message being edited, so the draft goes where cancelling the edit will
+      // put it back (and where [_currentDraft] reads it from meanwhile).
+      if (_textBeforeEdit.isEmpty) _textBeforeEdit = draft.text;
+    } else if (_controller.text.isEmpty) {
+      _controller.text = draft.text;
+      _controller.selection = TextSelection.collapsed(
+        offset: draft.text.length,
+      );
+    }
     if (_replyDraft == null && draft.replyTo != null) {
       setState(() => _replyDraft = draft.replyTo);
     }
@@ -894,6 +902,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // flushes through onSendMedia. An empty caption is fine — just send the
     // media. Text-only sends fall through to onSend below.
     if (_staged.isNotEmpty) {
+      // Media uploads before it can be queued, so unlike text it can't wait in
+      // the outbox: sending it offline would clear the tray and caption and
+      // then fail. Keep everything staged and say why.
+      if (!ref.read(connectionUpProvider)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            key: Key('offline-media-snackbar'),
+            content: Text(
+              "You're offline. Your photos and videos will wait here.",
+            ),
+          ),
+        );
+        return;
+      }
       HapticFeedback.lightImpact();
       final items = List<StagedAttachment>.of(_staged);
       widget.onSendMedia?.call(items, text, _replyDraft);
@@ -1205,8 +1227,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   @override
   Widget build(BuildContext context) {
     final messages = ref.watch(messageStoreProvider(widget.roomId));
-    // Subscribe to the staged-media tray; [_staged] reads it in the composer.
-    ref.watch(stagedMediaProvider(widget.roomId));
+    final staged = ref.watch(stagedMediaProvider(widget.roomId));
     final me = ref.watch(accountProvider).valueOrNull?.username ?? '';
 
     // Seed the pop-in set once the store first has messages, so the existing
@@ -1353,6 +1374,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                     widget.selfUsername,
                     nameFor: nameFor,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 16,
@@ -1505,7 +1528,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             ),
             Padding(
               padding: EdgeInsets.only(bottom: keyboardInset),
-              child: _composer(),
+              child: _composer(staged),
             ),
           ],
         ),
@@ -2334,7 +2357,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  Widget _composer() {
+  Widget _composer(List<StagedAttachment> staged) {
     final shortcuts = <ShortcutActivator, Intent>{
       const SingleActivator(LogicalKeyboardKey.enter, meta: true):
           const _SendIntent(),
@@ -2360,7 +2383,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           children: [
             if (_editingId != null) _editBanner(),
             if (_replyDraft != null) _replyBanner(),
-            if (_staged.isNotEmpty) _stagingTray(),
+            if (staged.isNotEmpty) _stagingTray(staged),
             // Scope recorder-driven rebuilds (timer + live waveform fire
             // ~15×/sec) to the composer only, so the message list isn't
             // re-sorted/re-itemized on every tick while recording.
@@ -2487,7 +2510,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                     ),
                   ),
                   const SizedBox(width: 8),
-                  _trailingButton(),
+                  _trailingButton(staged),
                 ],
               ),
             ),
@@ -2501,7 +2524,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// the active send button, Telegram-style. A cross-fade (not a scale) keeps
   /// whichever child is showing at full layout size, so it stays tappable the
   /// frame it appears.
-  Widget _trailingButton() {
+  Widget _trailingButton(List<StagedAttachment> staged) {
     // Locked (hands-free) recording: the trailing becomes a voice send. While a
     // press-and-hold is still in flight we leave the normal mic path untouched
     // so the active gesture isn't torn out from under the finger.
@@ -2509,7 +2532,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: _controller,
       builder: (context, value, _) {
-        final hasContent = value.text.trim().isNotEmpty || _staged.isNotEmpty;
+        final hasContent = value.text.trim().isNotEmpty || staged.isNotEmpty;
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 160),
           child: hasContent ? _sendButton() : _micButton(),
@@ -2783,7 +2806,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  Widget _stagingTray() {
+  Widget _stagingTray(List<StagedAttachment> staged) {
     return Container(
       key: const Key('staging-tray'),
       height: 76,
@@ -2791,10 +2814,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       alignment: Alignment.centerLeft,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: _staged.length,
+        itemCount: staged.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (_, i) =>
-            _StagedChip(item: _staged[i], onRemove: () => _removeStaged(i)),
+            _StagedChip(item: staged[i], onRemove: () => _removeStaged(i)),
       ),
     );
   }
@@ -3363,7 +3386,26 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
     );
   }
 
-  static const _timestampHeight = 30.0;
+  /// The timestamp row's text style, spelled out in full (not inherited) so
+  /// [_timestampHeight] can measure exactly what the row renders.
+  TextStyle get _timestampStyle => Theme.of(context).textTheme.bodyMedium!
+      .copyWith(fontSize: 12, color: context.palette.textMuted);
+
+  /// The timestamp row's height: its text measured at the system text size,
+  /// plus padding, never below the 30px it is at the default size. Shared by
+  /// the row and the menu's placement math, so large Dynamic Type neither
+  /// spills the row into the actions nor pushes the menu off screen.
+  double get _timestampHeight {
+    final painter = TextPainter(
+      text: TextSpan(text: widget.timestamp, style: _timestampStyle),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final height = painter.height + 16;
+    painter.dispose();
+    return math.max(30, height);
+  }
 
   /// How many action rows the panel shows under the timestamp. The single
   /// source for both the layout height and the divider.
@@ -3385,7 +3427,7 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
         widget.timestamp,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(fontSize: 12, color: context.palette.textMuted),
+        style: _timestampStyle,
       ),
     );
   }

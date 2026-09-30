@@ -16,6 +16,7 @@ import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/theme/app_palette.dart';
 import 'package:littlelove/wire/frames.dart';
+import 'package:littlelove/wire/live_connection.dart';
 import 'package:littlelove/wire/message.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -71,12 +72,13 @@ void main() {
     return MessageDb.test(db);
   }
 
-  ProviderContainer containerFor(MessageDb db) {
+  ProviderContainer containerFor(MessageDb db, {bool online = true}) {
     final c = ProviderContainer(
       overrides: [
         accountProvider.overrideWith((_) async => _account),
         hermeticReadStateStore(),
         messageDbProvider.overrideWith((_) async => db),
+        connectionUpProvider.overrideWithValue(online),
       ],
     );
     addTearDown(c.dispose);
@@ -89,6 +91,7 @@ void main() {
     SendCallback? onSend,
     void Function(String id, String text)? onEdit,
     List<StagedAttachment> pick = const [],
+    List<String>? sentMedia,
   }) async {
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -102,7 +105,9 @@ void main() {
             onReact: (_, _) {},
             onEdit: onEdit ?? (_, _) {},
             onPickMedia: () async => pick,
-            onSendMedia: (_, _, _) async {},
+            onSendMedia: (items, caption, _) async {
+              sentMedia?.add('${items.length}:$caption');
+            },
           ),
         ),
       ),
@@ -393,5 +398,108 @@ void main() {
     await tester.pump();
     // ...and it still restores into the composer once the load lands.
     expect(composerText(tester), 'keep me');
+  });
+
+  testWidgets('sending staged media while offline keeps the tray and caption '
+      'and says why, instead of silently dropping them', (tester) async {
+    final db = await freshDb();
+    final c = containerFor(db, online: false);
+    final sent = <String>[];
+    await openRoom(tester, c, pick: [_video('clip.mp4')], sentMedia: sent);
+
+    await tester.tap(find.byKey(const Key('composer-attach')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('composer')), 'look!');
+    await tester.tap(find.byKey(const Key('composer-send')));
+    await tester.pump();
+
+    expect(sent, isEmpty);
+    expect(find.byKey(const Key('staging-tray')), findsOneWidget);
+    expect(composerText(tester), 'look!');
+    expect(find.byKey(const Key('offline-media-snackbar')), findsOneWidget);
+    await tester.pump(DraftAutosave.defaultDelay * 2);
+    expect((await db.draftFor('r1'))!.text, 'look!');
+  });
+
+  testWidgets('online, staged media sends and the tray clears', (tester) async {
+    final db = await freshDb();
+    final c = containerFor(db);
+    final sent = <String>[];
+    await openRoom(tester, c, pick: [_video('clip.mp4')], sentMedia: sent);
+
+    await tester.tap(find.byKey(const Key('composer-attach')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('composer')), 'look!');
+    await tester.tap(find.byKey(const Key('composer-send')));
+    await tester.pumpAndSettle();
+
+    expect(sent, ['1:look!']);
+    expect(find.byKey(const Key('staging-tray')), findsNothing);
+  });
+
+  testWidgets('starting an edit before the saved draft has loaded still keeps '
+      'the draft, and cancelling brings it back', (tester) async {
+    final db = await freshDb();
+    await db.saveDraft('r1', const ComposerDraft(text: 'keep me'));
+    final slowDb = Completer<MessageDb>();
+    final c = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        hermeticReadStateStore(),
+        messageDbProvider.overrideWith((_) => slowDb.future),
+      ],
+    );
+    addTearDown(c.dispose);
+    c.read(messageStoreProvider('r1').notifier).add(mine('srv-1', 'typo', 0));
+    await openRoom(tester, c);
+
+    await startEditing(tester, 'typo');
+    slowDb.complete(db);
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('edit-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(composerText(tester), 'keep me');
+    await leaveRoom(tester, c);
+    expect((await db.draftFor('r1'))!.text, 'keep me');
+  });
+
+  testWidgets('replying before the saved draft has loaded saves the restored '
+      'text along with the reply', (tester) async {
+    final db = await freshDb();
+    await db.saveDraft('r1', const ComposerDraft(text: 'about tonight'));
+    final slowDb = Completer<MessageDb>();
+    final c = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        hermeticReadStateStore(),
+        messageDbProvider.overrideWith((_) => slowDb.future),
+      ],
+    );
+    addTearDown(c.dispose);
+    c
+        .read(messageStoreProvider('r1').notifier)
+        .add(
+          Msg(
+            id: 'srv-1',
+            from: 'kaitlyn',
+            to: 'r1',
+            body: 'dinner?',
+            ts: DateTime.utc(2026, 6, 13, 10),
+          ),
+        );
+    await openRoom(tester, c);
+
+    await tester.longPress(find.text('dinner?'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('action-reply')));
+    await tester.pump();
+    slowDb.complete(db);
+    await tester.pump();
+    await tester.pump(DraftAutosave.defaultDelay * 2);
+
+    final d = await db.draftFor('r1');
+    expect(d!.text, 'about tonight');
+    expect(d.replyTo!.id, 'srv-1');
   });
 }

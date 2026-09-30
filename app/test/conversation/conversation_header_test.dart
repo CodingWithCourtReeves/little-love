@@ -117,4 +117,48 @@ void main() {
     expect(label.overflow, TextOverflow.ellipsis);
     expect(label.maxLines, 1);
   });
+
+  testWidgets('a long room name stays on one line with an ellipsis', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final c = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        hermeticReadStateStore(),
+      ],
+    );
+    addTearDown(c.dispose);
+    await c.read(accountProvider.future);
+    const longName = 'Our very long shared trip planning room name';
+    final room = Room(
+      roomId: 'r1',
+      name: longName,
+      members: _room().members,
+      createdAt: DateTime.utc(2026, 6, 13),
+    );
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: c,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ConversationPage(
+            room: room,
+            selfUsername: 'me',
+            onSend: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    final name = tester.widget<Text>(find.text(longName));
+    expect(name.maxLines, 1);
+    expect(name.overflow, TextOverflow.ellipsis);
+  });
 }
