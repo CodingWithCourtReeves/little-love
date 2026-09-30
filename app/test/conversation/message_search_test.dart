@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/conversation/composer_draft.dart';
 import 'package:littlelove/conversation/message_db.dart';
 import 'package:littlelove/wire/message.dart';
 import 'package:path/path.dart' as p;
@@ -169,6 +170,9 @@ void main() {
       final db = MessageDb.test(v2);
       final hits = await db.search('legacy');
       expect(hits.single.messageId, '01OLD');
+      // The v5 drafts table came along with the upgrade chain.
+      await db.saveDraft('room1', const ComposerDraft(text: 'half-typed'));
+      expect((await db.draftFor('room1'))!.text, 'half-typed');
     },
   );
 }

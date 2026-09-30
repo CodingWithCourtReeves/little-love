@@ -8,7 +8,6 @@ import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
-import '../calling/call_controller.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:linkify/linkify.dart';
@@ -39,6 +38,8 @@ import '../wire/live_connection.dart';
 import '../wire/message.dart';
 import 'audio_bubble.dart';
 import 'chat_info_page.dart';
+import 'composer_draft.dart';
+import 'draft_autosave.dart';
 import 'link_preview.dart';
 import 'last_seen_label.dart';
 import 'message_db.dart';
@@ -46,6 +47,8 @@ import 'message_store.dart';
 import 'presence_state.dart';
 import 'recording_overlay.dart';
 import 'reply_ref.dart';
+import 'send_issue_caption.dart';
+import 'staged_media_store.dart';
 import 'typing_state.dart';
 
 typedef SendCallback = void Function(String text, ReplyRef? replyTo);
@@ -57,18 +60,6 @@ typedef ReactCallback = void Function(String targetMessageId, String emoji);
 /// Quick-tap reactions in the long-press bar, Telegram style. The first is the
 /// double-tap default.
 const _quickReactions = ['❤️', '👍', '😂', '😮', '😢', '🙏'];
-
-/// The soft circular chip behind a header action icon (video/audio call).
-Widget _headerCircleIcon(BuildContext context, IconData icon) => Container(
-  width: 34,
-  height: 34,
-  alignment: Alignment.center,
-  decoration: BoxDecoration(
-    shape: BoxShape.circle,
-    color: context.palette.bgSurface.withValues(alpha: 0.7),
-  ),
-  child: Icon(icon, color: context.palette.textMuted, size: 20),
-);
 
 class _SendIntent extends Intent {
   const _SendIntent();
@@ -99,16 +90,30 @@ class _GapItem extends _Item {
 /// in-bubble — they collapse to a caption below the run.
 enum _Marker { sent, sending, read }
 
+/// A run's send problem: a failed send, or one stuck in flight past
+/// [stuckSendAfter]. Only failed sends are retried ([retryIds]); a stuck one
+/// is still queued, and re-sending it could deliver it twice (see
+/// [SendIssueCaption]).
+class _RunIssue {
+  const _RunIssue(this.retryIds);
+
+  /// clientMsgIds of the run's failed sends. Empty when the run is only stuck.
+  final List<String> retryIds;
+
+  bool get failed => retryIds.isNotEmpty;
+}
+
 class _StatusModel {
-  const _StatusModel(this.inBubble, this.failedRun);
+  const _StatusModel(this.inBubble, this.issueRun);
 
   /// Marker to draw inside each of my non-failed bubbles, keyed by message id.
   final Map<String, _Marker> inBubble;
 
-  /// For every run that contains a failure, the run's trailing message id maps
-  /// to the clientMsgIds of all failed messages in that run — so one tap on the
-  /// caption retries the whole stack.
-  final Map<String, List<String>> failedRun;
+  /// For every run with a failed or stuck send, the id of the message the
+  /// caption hangs under (the run's last failed send, else its last stuck one)
+  /// maps to the run's [_RunIssue], so one caption (and one tap) covers the
+  /// whole stack.
+  final Map<String, _RunIssue> issueRun;
 }
 
 /// How much larger inline emoji render than the surrounding text. iMessage
@@ -393,8 +398,23 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   bool _scrollScheduled = false;
 
   /// Media picked but not yet sent, shown as a tray above the composer. Send
-  /// flushes these (with the composer text as the last item's caption).
-  final List<StagedAttachment> _staged = [];
+  /// flushes these (with the composer text as the last item's caption). Held in
+  /// [stagedMediaProvider] rather than here, so the tray survives leaving the
+  /// room. [build] watches it and passes it down; handlers read it here.
+  List<StagedAttachment> get _staged =>
+      ref.read(stagedMediaProvider(widget.roomId));
+  StagedMediaStore get _stagedTray =>
+      ref.read(stagedMediaProvider(widget.roomId).notifier);
+
+  /// Persists the composer text + reply chip for this room (see [_currentDraft]).
+  /// Created in [initState] so [dispose] can still flush it.
+  late final DraftAutosave _drafts;
+
+  /// False until the saved draft has been loaded ([_restoreDraft]) or the user
+  /// has changed the composer. Until then the composer's emptiness means
+  /// nothing, and flushing it would delete the saved draft (saving an empty
+  /// draft is a delete), e.g. leaving or backgrounding during a slow db open.
+  bool _draftSettled = false;
 
   /// Drives the hold-to-record voice memo flow. A [ListenableBuilder] in the
   /// composer listens to this, so its frequent (timer + amplitude) ticks rebuild
@@ -408,6 +428,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   bool _cancelArmed = false;
   Future<bool>? _startFuture;
 
+  /// Sends of mine (keyed `clientMsgId ?? id`) seen in flight this session, each
+  /// with a timer that marks it stuck after [stuckSendAfter]. Timed from when
+  /// this page first saw the row sending, not from `Msg.ts`: a retry keeps the
+  /// original timestamp and would otherwise read as stuck immediately. See
+  /// [_trackSendingAge].
+  final Map<String, Timer> _stuckTimers = {};
+  final Set<String> _stuck = {};
+
   /// The live long-press reaction/actions overlay, if one is showing. Tracked
   /// so it can be torn down in [dispose] — otherwise popping the page mid-
   /// display (back-swipe, room switch) leaves the entry mounted against a
@@ -420,6 +448,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   String? _editingId;
   String _editingOriginal = '';
 
+  /// The composer text from before edit mode prefilled it with the message
+  /// being edited. Restored when the edit ends, and saved as the draft while
+  /// editing, so an edit never clobbers what the user was typing.
+  String _textBeforeEdit = '';
+
   /// The message being quoted by the next send, or null when not replying. Set
   /// by swipe-to-reply or the long-press "Reply" action; shown as a chip above
   /// the composer; attached to the next text/media/voice send then cleared.
@@ -428,19 +461,66 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   void _startReply(Msg m) {
     HapticFeedback.lightImpact();
     setState(() => _replyDraft = _replyRefFor(m));
+    _saveDraftSoon();
     _composerFocus.requestFocus();
   }
 
   void _cancelReply() {
     if (_replyDraft == null) return;
     setState(() => _replyDraft = null);
+    _saveDraftSoon();
+  }
+
+  /// What the composer holds right now, as a persistable draft. While editing,
+  /// the composer shows the message being edited, so the draft is the text
+  /// that was there before the edit started.
+  ComposerDraft _currentDraft() => ComposerDraft(
+    text: _editingId != null ? _textBeforeEdit : _controller.text,
+    replyTo: _replyDraft,
+  );
+
+  void _saveDraftSoon() {
+    _draftSettled = true;
+    _drafts.schedule(_currentDraft);
+  }
+
+  /// Write the draft now (backgrounding, leaving the room, entering an edit),
+  /// unless it hasn't settled yet (see [_draftSettled]).
+  void _flushDraft() {
+    if (!_draftSettled) return;
+    unawaited(_drafts.flush(_currentDraft()));
+  }
+
+  /// Put this room's saved draft back in the composer. Skipped if the user
+  /// already started typing (or editing) before the load landed.
+  Future<void> _restoreDraft() async {
+    final draft = await _drafts.load();
+    _draftSettled = true;
+    if (!mounted || draft == null) return;
+    if (_editingId != null) {
+      // An edit started before the load landed: the composer is showing the
+      // message being edited, so the draft goes where cancelling the edit will
+      // put it back (and where [_currentDraft] reads it from meanwhile).
+      if (_textBeforeEdit.isEmpty) _textBeforeEdit = draft.text;
+    } else if (_controller.text.isEmpty) {
+      _controller.text = draft.text;
+      _controller.selection = TextSelection.collapsed(
+        offset: draft.text.length,
+      );
+    }
+    if (_replyDraft == null && draft.replyTo != null) {
+      setState(() => _replyDraft = draft.replyTo);
+    }
   }
 
   /// Flush a recorded voice memo, attaching (and then clearing) any active
   /// reply draft. Shared by the mic gestures and the max-duration auto-send.
   Future<void> _sendVoiceMemo(VoiceRecording rec) async {
     final reply = _replyDraft;
-    if (reply != null) setState(() => _replyDraft = null);
+    if (reply != null) {
+      setState(() => _replyDraft = null);
+      _saveDraftSoon();
+    }
     await widget.onSendVoice?.call(rec, reply);
   }
 
@@ -623,6 +703,15 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     super.initState();
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addObserver(this);
+    _drafts = DraftAutosave(
+      // An unopenable db resolves to null (drafts just don't persist) instead
+      // of surfacing as an unhandled async error; the router reports db faults.
+      db: ref
+          .read(messageDbProvider.future)
+          .then<MessageDb?>((db) => db, onError: (Object _) => null),
+      roomId: widget.roomId,
+    );
+    unawaited(_restoreDraft());
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _jumpToBottom();
       // This chat is now on screen: it owns the read-receipt signal, and
@@ -651,6 +740,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     if (state != AppLifecycleState.resumed) {
       _stopTyping();
       if (_editingId != null) _cancelEdit();
+      // The app may be killed from the background: save the draft now rather
+      // than waiting out the debounce.
+      _flushDraft();
     }
   }
 
@@ -768,6 +860,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       });
     }
     _dismissReactionBar();
+    // Leaving the room mid-compose: save the draft now (the debounce may still
+    // be pending). Must run before the controller is disposed.
+    _flushDraft();
+    _drafts.dispose();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _controller.dispose();
@@ -776,6 +872,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     WidgetsBinding.instance.removeObserver(this);
     _typingStop?.cancel();
     _typingHeartbeat?.cancel();
+    for (final t in _stuckTimers.values) {
+      t.cancel();
+    }
     // Leaving the room while composing: tell the partner we stopped.
     if (_typingActive) widget.onTyping?.call(false);
     super.dispose();
@@ -783,24 +882,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   void _handleSubmit(String value) {
     final text = value.trim();
-    // Staged media takes the composer text as a caption (on the last item) and
-    // flushes through onSendMedia. An empty caption is fine — just send the
-    // media. Text-only sends fall through to onSend below.
-    if (_staged.isNotEmpty) {
-      HapticFeedback.lightImpact();
-      final items = List<StagedAttachment>.of(_staged);
-      widget.onSendMedia?.call(items, text, _replyDraft);
-      ref.read(wallpaperDriftProvider.notifier).bump();
-      setState(() {
-        _staged.clear();
-        _replyDraft = null;
-      });
-      _controller.clear();
-      _stopTyping();
-      return;
-    }
     // In edit mode the send button commits an edit instead of a new message.
-    // An empty edit is a no-op cancel (never a delete); an unchanged edit just
+    // Checked before staged media: an open edit MUST NOT go out as a caption
+    // (and clear the saved draft); the tray just waits for the next send. An
+    // empty edit is a no-op cancel (never a delete); an unchanged edit just
     // exits edit mode without sending a redundant frame.
     final editingId = _editingId;
     if (editingId != null) {
@@ -813,18 +898,53 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       _stopTyping();
       return;
     }
+    // Staged media takes the composer text as a caption (on the last item) and
+    // flushes through onSendMedia. An empty caption is fine — just send the
+    // media. Text-only sends fall through to onSend below.
+    if (_staged.isNotEmpty) {
+      // Media uploads before it can be queued, so unlike text it can't wait in
+      // the outbox: sending it offline would clear the tray and caption and
+      // then fail. Keep everything staged and say why.
+      if (!ref.read(connectionUpProvider)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            key: Key('offline-media-snackbar'),
+            content: Text(
+              "You're offline. Your photos and videos will wait here.",
+            ),
+          ),
+        );
+        return;
+      }
+      HapticFeedback.lightImpact();
+      final items = List<StagedAttachment>.of(_staged);
+      widget.onSendMedia?.call(items, text, _replyDraft);
+      ref.read(wallpaperDriftProvider.notifier).bump();
+      _stagedTray.clear();
+      setState(() => _replyDraft = null);
+      _controller.clear();
+      unawaited(_drafts.clear());
+      _stopTyping();
+      return;
+    }
     if (text.isEmpty) return;
     HapticFeedback.lightImpact();
     widget.onSend(text, _replyDraft);
     ref.read(wallpaperDriftProvider.notifier).bump();
     if (_replyDraft != null) setState(() => _replyDraft = null);
     _controller.clear();
+    unawaited(_drafts.clear());
     _stopTyping();
   }
 
   /// Enter edit mode for [m]: prefill the composer with its text (cursor at the
   /// end) and raise the editing banner. The send button now commits the edit.
   void _enterEditMode(Msg m) {
+    // Save what was being typed before the composer is taken over by the edit.
+    // Only on the first edit: switching straight to editing another message
+    // would otherwise capture the first edit's text as the "draft".
+    if (_editingId == null) _textBeforeEdit = _controller.text;
+    _flushDraft();
     setState(() {
       _editingId = m.id;
       _editingOriginal = m.body;
@@ -834,21 +954,27 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _composerFocus.requestFocus();
   }
 
-  /// Leave edit mode and clear the composer. Transient: also triggered by
-  /// backgrounding the app (see [didChangeAppLifecycleState]).
+  /// Leave edit mode and put back what was in the composer before the edit.
+  /// Transient: also triggered by backgrounding the app (see
+  /// [didChangeAppLifecycleState]).
   void _cancelEdit() {
     if (_editingId == null) return;
     setState(() {
       _editingId = null;
       _editingOriginal = '';
     });
-    _controller.clear();
+    _controller.text = _textBeforeEdit;
+    _controller.selection = TextSelection.collapsed(
+      offset: _textBeforeEdit.length,
+    );
+    _textBeforeEdit = '';
   }
 
   /// Debounced typing presence: the first keystroke after idle emits
   /// `typing:true`; each subsequent keystroke pushes back a stop timer that
   /// emits `typing:false` once composing pauses (or the field empties).
   void _onComposerChanged(String value) {
+    if (_editingId == null) _saveDraftSoon();
     if (widget.onTyping == null) return;
     if (value.trim().isEmpty) {
       _stopTyping();
@@ -880,12 +1006,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   Future<void> _pickMedia() async {
     final picked = await widget.onPickMedia?.call();
     if (picked == null || picked.isEmpty || !mounted) return;
-    setState(() => _staged.addAll(picked));
+    _stagedTray.addAll(picked);
   }
 
-  void _removeStaged(int index) {
-    setState(() => _staged.removeAt(index));
-  }
+  void _removeStaged(int index) => _stagedTray.removeAt(index);
 
   /// Toggle/replace my reaction on [m]: tapping the one I already picked clears
   /// it; any other emoji replaces it (each person has at most one reaction,
@@ -967,6 +1091,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final entry = OverlayEntry(
       builder: (_) => _ReactionBarOverlay(
         anchor: globalPos,
+        timestamp: _formatFull(m.ts.toLocal()),
         selected: m.reactions[widget.selfUsername],
         showReactions: widget.onReact != null,
         onPick: (emoji) {
@@ -1102,6 +1227,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   @override
   Widget build(BuildContext context) {
     final messages = ref.watch(messageStoreProvider(widget.roomId));
+    final staged = ref.watch(stagedMediaProvider(widget.roomId));
     final me = ref.watch(accountProvider).valueOrNull?.username ?? '';
 
     // Seed the pop-in set once the store first has messages, so the existing
@@ -1151,7 +1277,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _prevMessageCount = messages.length;
 
     final sorted = [...messages]..sort((a, b) => a.ts.compareTo(b.ts));
-    final status = _statusModel(sorted, me);
+    _trackSendingAge(sorted, me);
+    final status = _statusModel(sorted, me, _stuck);
     // Reversed, so index 0 is the visual bottom — i.e. the newest message is
     // the true leading edge, which is what lets a reverse list pin to the
     // bottom on its own. The partner's "typing…" indicator deliberately lives
@@ -1247,6 +1374,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                     widget.selfUsername,
                     nameFor: nameFor,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 16,
@@ -1263,65 +1392,30 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             ),
           ),
         ),
+        // Just the partner's avatar. Voice/video call buttons used to sit here
+        // too, but they squeezed the title pill until the "last seen …" line
+        // overflowed it; calls start from the chat-info page instead.
         actions: [
-          // One explicit row of equal 34px slots with equal gaps, so the video
-          // button, the call button and the avatar are evenly spaced (laying them
-          // out as separate AppBar actions left the IconButton sizing uneven).
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 34,
-                  height: 34,
-                  child: IconButton(
-                    key: const Key('video-call-button'),
-                    padding: EdgeInsets.zero,
-                    icon: _headerCircleIcon(context, Icons.videocam),
-                    onPressed: () {
-                      ref
-                          .read(callControllerProvider)
-                          .placeCall(widget.roomId, video: true);
-                    },
+            child: GestureDetector(
+              key: const Key('room-header-avatar'),
+              behavior: HitTestBehavior.opaque,
+              onTap: () async {
+                final focusId = await Navigator.of(context).push(
+                  ChatInfoPage.route(
+                    room: widget.room,
+                    selfUsername: widget.selfUsername,
+                    onRename: widget.onRename,
                   ),
-                ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  width: 34,
-                  height: 34,
-                  child: IconButton(
-                    key: const Key('call-button'),
-                    padding: EdgeInsets.zero,
-                    icon: _headerCircleIcon(context, Icons.call),
-                    onPressed: () {
-                      // The CallOverlay shows the in-app call UI automatically
-                      // once the call is dialing.
-                      ref.read(callControllerProvider).placeCall(widget.roomId);
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                GestureDetector(
-                  key: const Key('room-header-avatar'),
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () async {
-                    final focusId = await Navigator.of(context).push(
-                      ChatInfoPage.route(
-                        room: widget.room,
-                        selfUsername: widget.selfUsername,
-                        onRename: widget.onRename,
-                      ),
-                    );
-                    if (focusId != null) await _focusMessage(focusId);
-                  },
-                  child: Avatar(
-                    seedText: partnerSeed,
-                    imageFile: partnerAvatar,
-                    radius: 17,
-                  ),
-                ),
-              ],
+                );
+                if (focusId != null) await _focusMessage(focusId);
+              },
+              child: Avatar(
+                seedText: partnerSeed,
+                imageFile: partnerAvatar,
+                radius: 17,
+              ),
             ),
           ),
         ],
@@ -1391,7 +1485,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                               msg,
                               me,
                               status.inBubble[msg.id],
-                              status.failedRun[msg.id],
+                              status.issueRun[msg.id],
                             ),
                             _DayItem(:final day) => _daySeparator(day),
                             _GapItem(:final time) => _gapHeader(time),
@@ -1434,7 +1528,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             ),
             Padding(
               padding: EdgeInsets.only(bottom: keyboardInset),
-              child: _composer(),
+              child: _composer(staged),
             ),
           ],
         ),
@@ -1473,13 +1567,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// the room opened (sent and received). [Set.add] returns true only the first
   /// time a key is seen; seeded history and reconciled rows are already present,
   /// so they render without the animation.
-  Widget _bubbleRow(
-    Msg m,
-    String me,
-    _Marker? marker,
-    List<String>? failedIds,
-  ) {
-    final bubble = _bubble(m, me, marker, failedIds);
+  Widget _bubbleRow(Msg m, String me, _Marker? marker, _RunIssue? issue) {
+    final bubble = _bubble(m, me, marker, issue);
     final animKey = m.clientMsgId ?? m.id;
     final firstAppearance = _animatedIds.add(animKey);
     if (!firstAppearance) return bubble;
@@ -1490,7 +1579,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  Widget _bubble(Msg m, String me, _Marker? marker, List<String>? failedIds) {
+  Widget _bubble(Msg m, String me, _Marker? marker, _RunIssue? issue) {
     final mine = m.from == me;
     // The sent/sending marker (if any) is drawn inside the bubble itself; the
     // reply quote (if any) is a banner inside the bubble's top edge, built by
@@ -1516,17 +1605,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       );
     }
 
-    // A failed run collapses a "tap to retry" caption under the trailing
-    // bubble; tapping it retries every failed message in the run.
+    // A run with a failed or stuck send collapses one caption under one bubble;
+    // when the run has failures, tapping that bubble retries all of them.
     Widget result;
-    if (failedIds == null) {
+    if (issue == null) {
       result = content;
     } else {
-      final tappable = widget.onRetry != null
+      final tappable = widget.onRetry != null && issue.failed
           ? GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () {
-                for (final id in failedIds) {
+                for (final id in issue.retryIds) {
                   widget.onRetry!(id);
                 }
               },
@@ -1537,16 +1626,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           tappable,
-          Padding(
-            padding: const EdgeInsets.only(right: 16, top: 2, bottom: 2),
-            child: Text(
-              'failed · tap to retry',
-              style: TextStyle(
-                color: context.palette.warningTone,
-                fontSize: 11,
-              ),
-            ),
-          ),
+          SendIssueCaption(failed: issue.failed),
         ],
       );
     }
@@ -2034,14 +2114,19 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   }
 
   /// Build the status model: a per-message marker for each of my non-failed
-  /// bubbles (heart when sent, clock when in flight), plus — for any run that
-  /// contains a failure — a collapsed caption keyed to the run's trailing
-  /// message so one tap retries every failed message in that run. A failure is
-  /// never hidden: failed messages carry no in-bubble marker and always surface
-  /// the caption.
-  static _StatusModel _statusModel(List<Msg> sorted, String me) {
+  /// bubbles (heart when sent, clock when in flight), plus — for any run with a
+  /// failed send or one in [stuck] — a collapsed caption keyed to the run's
+  /// last failed message (else its last stuck one), so one tap retries every
+  /// failure. A failure is never hidden: failed messages carry no in-bubble
+  /// marker and always surface the caption. A stuck send keeps its clock (it
+  /// is still queued and may yet go).
+  static _StatusModel _statusModel(
+    List<Msg> sorted,
+    String me,
+    Set<String> stuck,
+  ) {
     final inBubble = <String, _Marker>{};
-    final failedRun = <String, List<String>>{};
+    final issueRun = <String, _RunIssue>{};
     var i = 0;
     while (i < sorted.length) {
       if (sorted[i].from != me) {
@@ -2050,15 +2135,18 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       }
       final failedIds = <String>[];
       String? lastFailedId;
+      String? lastStuckId;
       var j = i;
       while (j < sorted.length && sorted[j].from == me) {
         final m = sorted[j];
+        final key = m.clientMsgId ?? m.id;
         switch (m.sendStatus) {
           case SendStatus.failed:
-            failedIds.add(m.clientMsgId ?? m.id);
+            failedIds.add(key);
             lastFailedId = m.id;
           case SendStatus.sending:
             inBubble[m.id] = _Marker.sending;
+            if (stuck.contains(key)) lastStuckId = m.id;
           case SendStatus.sent:
             inBubble[m.id] = _Marker.sent;
           case SendStatus.read:
@@ -2066,12 +2154,39 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         }
         j++;
       }
-      if (lastFailedId != null) {
-        failedRun[lastFailedId] = failedIds;
-      }
+      final anchor = lastFailedId ?? lastStuckId;
+      if (anchor != null) issueRun[anchor] = _RunIssue(failedIds);
       i = j;
     }
-    return _StatusModel(inBubble, failedRun);
+    return _StatusModel(inBubble, issueRun);
+  }
+
+  /// Keep [_stuck] in step with my in-flight sends: start a [stuckSendAfter]
+  /// timer the first time a send is seen sending, and forget sends that have
+  /// left the sending state (echoed, failed, or cancelled). Cheap bookkeeping,
+  /// so it runs on each build rather than hooking every store mutation.
+  void _trackSendingAge(List<Msg> sorted, String me) {
+    final sending = <String>{
+      for (final m in sorted)
+        if (m.from == me && m.sendStatus == SendStatus.sending)
+          m.clientMsgId ?? m.id,
+    };
+    _stuck.retainWhere(sending.contains);
+    _stuckTimers.removeWhere((key, timer) {
+      if (sending.contains(key)) return false;
+      timer.cancel();
+      return true;
+    });
+    for (final key in sending) {
+      if (_stuck.contains(key) || _stuckTimers.containsKey(key)) continue;
+      _stuckTimers[key] = Timer(stuckSendAfter, () {
+        if (!mounted) return;
+        setState(() {
+          _stuckTimers.remove(key);
+          _stuck.add(key);
+        });
+      });
+    }
   }
 
   static DateTime _dateOnly(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
@@ -2096,6 +2211,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final m = t.minute.toString().padLeft(2, '0');
     return '$h:$m';
   }
+
+  /// Absolute date + time for the long-press menu header, e.g.
+  /// "Saturday, Jun 13, 2026 at 3:42 PM". The in-bubble stamp is hh:mm only.
+  static String _formatFull(DateTime t) =>
+      '${_weekdayName(t.weekday)}, ${_monthName(t.month)} ${t.day}, '
+      '${t.year} at ${_formatTime(t)}';
 
   static String _formatTime(DateTime t) {
     final h = t.hour == 0 ? 12 : (t.hour > 12 ? t.hour - 12 : t.hour);
@@ -2236,7 +2357,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  Widget _composer() {
+  Widget _composer(List<StagedAttachment> staged) {
     final shortcuts = <ShortcutActivator, Intent>{
       const SingleActivator(LogicalKeyboardKey.enter, meta: true):
           const _SendIntent(),
@@ -2262,7 +2383,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           children: [
             if (_editingId != null) _editBanner(),
             if (_replyDraft != null) _replyBanner(),
-            if (_staged.isNotEmpty) _stagingTray(),
+            if (staged.isNotEmpty) _stagingTray(staged),
             // Scope recorder-driven rebuilds (timer + live waveform fire
             // ~15×/sec) to the composer only, so the message list isn't
             // re-sorted/re-itemized on every tick while recording.
@@ -2389,7 +2510,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                     ),
                   ),
                   const SizedBox(width: 8),
-                  _trailingButton(),
+                  _trailingButton(staged),
                 ],
               ),
             ),
@@ -2403,7 +2524,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// the active send button, Telegram-style. A cross-fade (not a scale) keeps
   /// whichever child is showing at full layout size, so it stays tappable the
   /// frame it appears.
-  Widget _trailingButton() {
+  Widget _trailingButton(List<StagedAttachment> staged) {
     // Locked (hands-free) recording: the trailing becomes a voice send. While a
     // press-and-hold is still in flight we leave the normal mic path untouched
     // so the active gesture isn't torn out from under the finger.
@@ -2411,7 +2532,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: _controller,
       builder: (context, value, _) {
-        final hasContent = value.text.trim().isNotEmpty || _staged.isNotEmpty;
+        final hasContent = value.text.trim().isNotEmpty || staged.isNotEmpty;
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 160),
           child: hasContent ? _sendButton() : _micButton(),
@@ -2685,7 +2806,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  Widget _stagingTray() {
+  Widget _stagingTray(List<StagedAttachment> staged) {
     return Container(
       key: const Key('staging-tray'),
       height: 76,
@@ -2693,10 +2814,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       alignment: Alignment.centerLeft,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: _staged.length,
+        itemCount: staged.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (_, i) =>
-            _StagedChip(item: _staged[i], onRemove: () => _removeStaged(i)),
+            _StagedChip(item: staged[i], onRemove: () => _removeStaged(i)),
       ),
     );
   }
@@ -2786,14 +2907,21 @@ class _PartnerStatusLineState extends ConsumerState<_PartnerStatusLine> {
           decoration: BoxDecoration(shape: BoxShape.circle, color: tone),
         ),
         const SizedBox(width: 5),
-        Text(
-          label,
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 11,
-            letterSpacing: 0.3,
-            fontWeight: FontWeight.w500,
-            color: tone,
+        // Flexible + ellipsis: a long "last seen Wednesday at 12:59 PM" at a
+        // large text size truncates inside the title pill instead of
+        // overflowing it.
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 11,
+              letterSpacing: 0.3,
+              fontWeight: FontWeight.w500,
+              color: tone,
+            ),
           ),
         ),
       ],
@@ -3066,6 +3194,7 @@ class _ReactionPill extends StatelessWidget {
 class _ReactionBarOverlay extends StatefulWidget {
   const _ReactionBarOverlay({
     required this.anchor,
+    required this.timestamp,
     required this.selected,
     required this.showReactions,
     required this.onPick,
@@ -3078,6 +3207,10 @@ class _ReactionBarOverlay extends StatefulWidget {
     required this.onDismiss,
   });
   final Offset anchor;
+
+  /// The message's full date + time, shown as the actions panel's header (the
+  /// in-bubble stamp is hh:mm only).
+  final String timestamp;
   final String? selected;
   final bool showReactions;
   final void Function(String emoji) onPick;
@@ -3112,13 +3245,13 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
     final padding = MediaQuery.paddingOf(context);
     const menuWidth = 296.0;
     const reactionRow = 48.0 + 8.0; // bar + gap below it
-    final actionCount =
-        (widget.onReply != null ? 1 : 0) +
-        (widget.onCopy != null ? 1 : 0) +
-        (widget.onEdit != null ? 1 : 0) +
-        (widget.onSaveMedia != null ? 1 : 0) +
-        (widget.onDelete != null ? 1 : 0);
-    final actionsHeight = actionCount == 0 ? 0.0 : actionCount * 44.0 + 8.0;
+    final actionCount = _actionCount;
+    // The panel always shows (the timestamp header is always there).
+    final actionsHeight =
+        _timestampHeight +
+        (actionCount == 0 ? 0.0 : 1.0) +
+        actionCount * 44.0 +
+        8.0;
     final totalHeight =
         (widget.showReactions ? reactionRow : 0.0) + actionsHeight;
     final left = (widget.anchor.dx - menuWidth / 2).clamp(
@@ -3158,11 +3291,11 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (widget.showReactions) _bar(),
-                    if (actionCount > 0) ...[
+                    if (widget.showReactions) ...[
+                      _bar(),
                       const SizedBox(height: 8),
-                      _actions(),
                     ],
+                    _actions(),
                   ],
                 ),
               ),
@@ -3205,6 +3338,12 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            _timestampHeader(),
+            if (_actionCount > 0)
+              Divider(
+                height: 1,
+                color: context.palette.textMuted.withValues(alpha: 0.2),
+              ),
             if (widget.onReply != null)
               _actionItem(
                 key: 'action-reply',
@@ -3243,6 +3382,52 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// The timestamp row's text style, spelled out in full (not inherited) so
+  /// [_timestampHeight] can measure exactly what the row renders.
+  TextStyle get _timestampStyle => Theme.of(context).textTheme.bodyMedium!
+      .copyWith(fontSize: 12, color: context.palette.textMuted);
+
+  /// The timestamp row's height: its text measured at the system text size,
+  /// plus padding, never below the 30px it is at the default size. Shared by
+  /// the row and the menu's placement math, so large Dynamic Type neither
+  /// spills the row into the actions nor pushes the menu off screen.
+  double get _timestampHeight {
+    final painter = TextPainter(
+      text: TextSpan(text: widget.timestamp, style: _timestampStyle),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final height = painter.height + 16;
+    painter.dispose();
+    return math.max(30, height);
+  }
+
+  /// How many action rows the panel shows under the timestamp. The single
+  /// source for both the layout height and the divider.
+  int get _actionCount =>
+      (widget.onReply != null ? 1 : 0) +
+      (widget.onCopy != null ? 1 : 0) +
+      (widget.onEdit != null ? 1 : 0) +
+      (widget.onSaveMedia != null ? 1 : 0) +
+      (widget.onDelete != null ? 1 : 0);
+
+  /// Non-interactive first row of the actions panel: when the message was sent.
+  Widget _timestampHeader() {
+    return Container(
+      key: const Key('message-timestamp'),
+      height: _timestampHeight,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      alignment: Alignment.centerLeft,
+      child: Text(
+        widget.timestamp,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: _timestampStyle,
       ),
     );
   }

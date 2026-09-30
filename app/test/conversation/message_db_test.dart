@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/conversation/composer_draft.dart';
 import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_db.dart';
 import 'package:littlelove/conversation/reply_ref.dart';
@@ -289,5 +290,159 @@ void main() {
     final db = await freshDb();
     await db.upsert(msg('01A'), roomId: 'room1');
     expect((await db.messagesFor('room1')).single.replyTo, isNull);
+  });
+
+  group('composer drafts', () {
+    const reply = ReplyRef(
+      id: '01Q',
+      author: 'kaitlyn',
+      kind: 'text',
+      text: 'dinner?',
+    );
+
+    test('a room with no saved draft reads back null', () async {
+      final db = await freshDb();
+      expect(await db.draftFor('room1'), isNull);
+    });
+
+    test('saveDraft round-trips text and the quoted reply', () async {
+      final db = await freshDb();
+      await db.saveDraft(
+        'room1',
+        const ComposerDraft(text: 'yes, 7pm', replyTo: reply),
+      );
+      final d = await db.draftFor('room1');
+      expect(d!.text, 'yes, 7pm');
+      expect(d.replyTo!.id, '01Q');
+      expect(d.replyTo!.text, 'dinner?');
+    });
+
+    test('saveDraft overwrites the previous draft for the room', () async {
+      final db = await freshDb();
+      await db.saveDraft('room1', const ComposerDraft(text: 'first'));
+      await db.saveDraft('room1', const ComposerDraft(text: 'second'));
+      final d = await db.draftFor('room1');
+      expect(d!.text, 'second');
+      expect(d.replyTo, isNull);
+    });
+
+    test('drafts are scoped per room', () async {
+      final db = await freshDb();
+      await db.saveDraft('room1', const ComposerDraft(text: 'one'));
+      await db.saveDraft('room2', const ComposerDraft(text: 'two'));
+      expect((await db.draftFor('room1'))!.text, 'one');
+      expect((await db.draftFor('room2'))!.text, 'two');
+    });
+
+    test('saving an empty draft deletes the stored one', () async {
+      final db = await freshDb();
+      await db.saveDraft('room1', const ComposerDraft(text: 'typing'));
+      await db.saveDraft('room1', const ComposerDraft(text: '   '));
+      expect(await db.draftFor('room1'), isNull);
+    });
+
+    test('a reply with no text is still a draft worth keeping', () async {
+      final db = await freshDb();
+      await db.saveDraft(
+        'room1',
+        const ComposerDraft(text: '', replyTo: reply),
+      );
+      expect((await db.draftFor('room1'))!.replyTo!.id, '01Q');
+    });
+
+    test(
+      'a downgrade then re-upgrade reopens cleanly (drafts table kept)',
+      () async {
+        final raw = await databaseFactory.openDatabase(
+          inMemoryDatabasePath,
+          options: OpenDatabaseOptions(
+            version: MessageDb.schemaVersion,
+            onCreate: MessageDb.onCreate,
+          ),
+        );
+        addTearDown(raw.close);
+        await MessageDb.test(
+          raw,
+        ).saveDraft('room1', const ComposerDraft(text: 'kept'));
+        // An older build opening the store only rewinds user_version.
+        await raw.setVersion(4);
+        await MessageDb.onUpgrade(raw, 4, MessageDb.schemaVersion);
+        expect((await MessageDb.test(raw).draftFor('room1'))!.text, 'kept');
+      },
+    );
+
+    test('a restored draft drops its reply chip once the quoted message was '
+        'unsent by its author', () async {
+      final db = await freshDb();
+      await db.upsert(
+        msg('01Q', body: 'dinner?', from: 'kaitlyn'),
+        roomId: 'room1',
+      );
+      await db.saveDraft(
+        'room1',
+        const ComposerDraft(text: 'yes', replyTo: reply),
+      );
+      await db.applyDelete('01Q', requestedBy: 'kaitlyn');
+      final d = await db.draftFor('room1');
+      expect(d!.text, 'yes');
+      expect(d.replyTo, isNull);
+    });
+
+    test('a reply chip quoting my own not-yet-echoed send (its clientMsgId) '
+        'is dropped once that message is unsent', () async {
+      final db = await freshDb();
+      // The quoted row landed under its server id, keeping its clientMsgId.
+      await db.upsert(
+        Msg(
+          id: '01S',
+          from: 'court',
+          to: 'room1',
+          body: 'oops',
+          ts: DateTime.utc(2026, 6, 24, 12),
+          clientMsgId: 'cli-9',
+        ),
+        roomId: 'room1',
+      );
+      await db.saveDraft(
+        'room1',
+        const ComposerDraft(
+          text: 'wait',
+          replyTo: ReplyRef(id: 'cli-9', author: 'court', kind: 'text'),
+        ),
+      );
+      await db.applyDelete('01S', requestedBy: 'court');
+      expect((await db.draftFor('room1'))!.replyTo, isNull);
+    });
+
+    test('a spoofed tombstone (not the author) does not drop the reply '
+        'chip', () async {
+      final db = await freshDb();
+      await db.saveDraft(
+        'room1',
+        const ComposerDraft(text: 'yes', replyTo: reply),
+      );
+      // Target not stored locally, so the tombstone is recorded; its
+      // requester is not the quoted message's author.
+      await db.applyDelete('01Q', requestedBy: 'mallory');
+      expect((await db.draftFor('room1'))!.replyTo!.id, '01Q');
+    });
+
+    test('a reply-only draft whose target was unsent reads back as no '
+        'draft', () async {
+      final db = await freshDb();
+      await db.saveDraft(
+        'room1',
+        const ComposerDraft(text: '', replyTo: reply),
+      );
+      await db.applyDelete('01Q', requestedBy: 'kaitlyn');
+      expect(await db.draftFor('room1'), isNull);
+    });
+
+    test('clear wipes drafts (sign-out)', () async {
+      final db = await freshDb();
+      await db.saveDraft('room1', const ComposerDraft(text: 'secret'));
+      await db.clear();
+      expect(await db.draftFor('room1'), isNull);
+    });
   });
 }

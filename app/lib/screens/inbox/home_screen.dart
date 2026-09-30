@@ -36,6 +36,7 @@ import '../../inbox/inbox_state.dart';
 import '../../inbox/read_state_provider.dart';
 import '../../inbox/room.dart';
 import '../../outbox/outbox_drain.dart';
+import '../../outbox/outbox_retry.dart';
 import '../../outbox/outbox_store.dart';
 import '../../profile/avatar.dart';
 import '../../profile/profile_store.dart';
@@ -893,16 +894,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _retry(WidgetRef ref, String clientMsgId) async {
     final store = await ref.read(outboxStoreProvider.future);
-    final row = await store.lookup(clientMsgId);
-    if (row == null) return;
-    await store.markAttempt(clientMsgId, reset: true);
-    ref
-        .read(messageStoreProvider(row.roomId).notifier)
-        .updateStatus(clientMsgId, SendStatus.sending);
-    final drain = ref.read(outboxDrainProvider);
-    // The drain's per-cycle dedup set still remembers the prior send; clear
-    // just this id so the retry actually re-sends without a WS reconnect.
-    drain.resetCycle(clientMsgId: clientMsgId);
-    await drain.kick();
+    await retryOutboxSend(
+      store: store,
+      drain: ref.read(outboxDrainProvider),
+      messages: (roomId) => ref.read(messageStoreProvider(roomId).notifier),
+      clientMsgId: clientMsgId,
+    );
   }
 }

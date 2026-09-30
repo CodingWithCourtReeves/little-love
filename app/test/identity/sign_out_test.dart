@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/attachment/staged_attachment.dart';
 import 'package:littlelove/conversation/link_preview.dart';
+import 'package:littlelove/conversation/composer_draft.dart';
 import 'package:littlelove/conversation/message_db.dart';
+import 'package:littlelove/conversation/staged_media_store.dart';
 import 'package:littlelove/conversation/message_search.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/keystore.dart';
@@ -113,6 +117,10 @@ class _FakeMessageDb implements MessageDb {
     String? roomId,
     int limit = 50,
   }) async => const [];
+  @override
+  Future<ComposerDraft?> draftFor(String roomId) async => null;
+  @override
+  Future<void> saveDraft(String roomId, ComposerDraft draft) async {}
 }
 
 /// Mount a trivial Consumer purely to capture a real [WidgetRef] for
@@ -185,6 +193,26 @@ void main() {
     await t.pumpAndSettle();
 
     expect(messageDb.cleared, isTrue);
+  });
+
+  testWidgets('signOut drops staged (unsent) media from memory', (t) async {
+    final ref = await _mountRef(
+      t,
+      baseOverrides(_GatedOutbox(Future<void>.value()), _FakeMessageDb()),
+    );
+    ref.read(stagedMediaProvider('r1').notifier).addAll([
+      StagedAttachment(
+        bytes: Uint8List.fromList([1]),
+        filename: 'a.mp4',
+        mime: 'video/mp4',
+      ),
+    ]);
+
+    await signOut(ref);
+    await t.pumpAndSettle();
+
+    // The next account on this device must not inherit the tray.
+    expect(ref.read(stagedMediaProvider('r1')), isEmpty);
   });
 
   testWidgets('signOut preserves a captured pair-link code', (t) async {

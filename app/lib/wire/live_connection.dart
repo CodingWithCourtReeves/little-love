@@ -313,3 +313,14 @@ final liveConnectionProvider = FutureProvider<LiveConnection>((ref) async {
     }
   }
 });
+
+/// True while a live socket is up. Drives the honest "Waiting for connection"
+/// send caption.
+///
+/// `is AsyncData` alone is **not** enough: a drop triggers `invalidateSelf()`,
+/// which Riverpod treats as a seamless refresh, so for the whole reconnect the
+/// state is `AsyncData(deadConn, isLoading: true)`. Loading means down.
+final connectionUpProvider = Provider<bool>((ref) {
+  final conn = ref.watch(liveConnectionProvider);
+  return conn is AsyncData && !conn.isLoading;
+});
