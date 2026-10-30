@@ -1181,7 +1181,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final entry = OverlayEntry(
       builder: (_) => _ReactionBarOverlay(
         anchor: globalPos,
-        timestamp: _formatFull(m.ts.toLocal()),
+        timestamp: _formatFull(m.ts.toLocal(), use24h: _use24h),
         selected: m.reactions[widget.selfUsername],
         showReactions: widget.onReact != null,
         onPick: (emoji) {
@@ -2034,7 +2034,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          _formatHm(m.ts.toLocal()),
+          clockTime(m.ts.toLocal(), use24h: _use24h),
           style: TextStyle(
             fontSize: 10,
             color: mine
@@ -2147,7 +2147,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           const SizedBox(width: 4),
         ],
         Text(
-          _formatHm(m.ts.toLocal()),
+          clockTime(m.ts.toLocal(), use24h: _use24h),
           style: TextStyle(fontSize: 10, color: metaColor),
         ),
         if (marker != null) ...[
@@ -2194,7 +2194,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   );
 
   Widget _gapHeader(DateTime t) => _centerPill(
-    _formatGapHeader(t),
+    _formatGapHeader(t, use24h: _use24h),
     key: ValueKey('gap-${t.toIso8601String()}'),
     fontSize: 11,
   );
@@ -2325,20 +2325,18 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   static String _formatDaySeparator(DateTime day) =>
       dayLabel(day, now: DateTime.now());
 
-  static String _formatGapHeader(DateTime t) => clockTime(t);
+  static String _formatGapHeader(DateTime t, {required bool use24h}) =>
+      clockTime(t, use24h: use24h);
 
-  /// Compact 24-hour, zero-padded time for the in-bubble stamp (e.g. 09:03).
-  static String _formatHm(DateTime t) {
-    final h = t.hour.toString().padLeft(2, '0');
-    final m = t.minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
+  /// The device's 12/24-hour choice, which every clock time on this page
+  /// (bubble stamps, separators, the long-press header) follows (#85).
+  bool get _use24h => MediaQuery.alwaysUse24HourFormatOf(context);
 
   /// Absolute date + time for the long-press menu header, e.g.
-  /// "Saturday, Jun 13, 2026 at 3:42 PM". The in-bubble stamp is hh:mm only.
-  static String _formatFull(DateTime t) =>
+  /// "Saturday, Jun 13, 2026 at 3:42 PM". The in-bubble stamp is the time only.
+  static String _formatFull(DateTime t, {required bool use24h}) =>
       '${weekdayName(t.weekday)}, ${monthName(t.month)} ${t.day}, '
-      '${t.year} at ${clockTime(t)}';
+      '${t.year} at ${clockTime(t, use24h: use24h)}';
 
   /// Base body text size for message bubbles and the composer. iMessage body
   /// text is ~17pt; matching it also nudges inline emoji up a touch.
@@ -2995,7 +2993,11 @@ class _PartnerStatusLineState extends ConsumerState<_PartnerStatusLine> {
     if (online) {
       label = 'online';
     } else if (presence.lastSeen != null) {
-      label = lastSeenLabel(presence.lastSeen!, now: DateTime.now());
+      label = lastSeenLabel(
+        presence.lastSeen!,
+        now: DateTime.now(),
+        use24h: MediaQuery.alwaysUse24HourFormatOf(context),
+      );
     } else {
       label = 'offline';
     }
@@ -3706,8 +3708,9 @@ class _MediaBubble extends StatelessWidget {
                         right: 6,
                         bottom: 6,
                         child: _MediaMeta(
-                          time: _ConversationPageState._formatHm(
+                          time: clockTime(
                             msg.ts.toLocal(),
+                            use24h: MediaQuery.alwaysUse24HourFormatOf(context),
                           ),
                           marker: marker,
                         ),

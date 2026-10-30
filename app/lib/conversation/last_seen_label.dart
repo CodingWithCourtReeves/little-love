@@ -1,6 +1,14 @@
+import 'time_format.dart';
+
 /// Telegram-style "last seen …" text for an offline partner. Pure function:
 /// pass `now` so it is deterministic and testable. Compares in local time.
-String lastSeenLabel(DateTime lastSeen, {required DateTime now}) {
+/// The time follows the device's 12/24-hour setting ([use24h]), like every
+/// other clock time in the app.
+String lastSeenLabel(
+  DateTime lastSeen, {
+  required DateTime now,
+  required bool use24h,
+}) {
   final seen = lastSeen.toLocal();
   final n = now.toLocal();
   final diff = n.difference(seen);
@@ -14,7 +22,7 @@ String lastSeenLabel(DateTime lastSeen, {required DateTime now}) {
   final today = DateTime(n.year, n.month, n.day);
   final seenDay = DateTime(seen.year, seen.month, seen.day);
   final daysApart = today.difference(seenDay).inDays;
-  final time = _time(seen);
+  final time = clockTime(seen, use24h: use24h);
 
   if (daysApart == 0) return 'last seen today at $time';
   if (daysApart == 1) return 'last seen yesterday at $time';
@@ -23,14 +31,6 @@ String lastSeenLabel(DateTime lastSeen, {required DateTime now}) {
   final mm = seen.month.toString().padLeft(2, '0');
   final dd = seen.day.toString().padLeft(2, '0');
   return 'last seen $mm/$dd/${seen.year}';
-}
-
-String _time(DateTime t) {
-  final ampm = t.hour < 12 ? 'AM' : 'PM';
-  var h = t.hour % 12;
-  if (h == 0) h = 12;
-  final m = t.minute.toString().padLeft(2, '0');
-  return '$h:$m $ampm';
 }
 
 String _weekday(int w) => const [

@@ -1,15 +1,22 @@
 /// Shared date and time wording for the chat and the home list, so a day
 /// separator in a conversation and a row's time on the home screen always use
 /// the same vocabulary ("Yesterday", "Tuesday", "Oct 3", "Mar 14, 2025").
+///
+/// Every clock time goes through [clockTime], which takes the device's
+/// 12/24-hour choice (`MediaQuery.alwaysUse24HourFormatOf`) from the caller, so
+/// one chat never mixes "21:41" and "9:41 PM" (#85).
 library;
 
 /// Midnight of [dt]'s calendar day, in [dt]'s own zone.
 DateTime dateOnly(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
 
-/// 12-hour clock time, e.g. "9:41 PM".
-String clockTime(DateTime t) {
-  final h = t.hour == 0 ? 12 : (t.hour > 12 ? t.hour - 12 : t.hour);
+/// Clock time in the device's format: "21:41" / "09:03" when [use24h], else
+/// "9:41 PM". Callers pass `MediaQuery.alwaysUse24HourFormatOf(context)`; the
+/// flag is required so no surface can quietly fall back to one format.
+String clockTime(DateTime t, {required bool use24h}) {
   final m = t.minute.toString().padLeft(2, '0');
+  if (use24h) return '${t.hour.toString().padLeft(2, '0')}:$m';
+  final h = t.hour == 0 ? 12 : (t.hour > 12 ? t.hour - 12 : t.hour);
   final ampm = t.hour < 12 ? 'AM' : 'PM';
   return '$h:$m $ampm';
 }
@@ -69,5 +76,10 @@ String dayLabel(DateTime day, {required DateTime now}) {
 
 /// The time shown on a home-screen row: the clock time for today's messages,
 /// otherwise the [dayLabel] ("Yesterday", "Tuesday", "Oct 3", ...).
-String listTimeLabel(DateTime t, {required DateTime now}) =>
-    dateOnly(t) == dateOnly(now) ? clockTime(t) : dayLabel(t, now: now);
+String listTimeLabel(
+  DateTime t, {
+  required DateTime now,
+  required bool use24h,
+}) => dateOnly(t) == dateOnly(now)
+    ? clockTime(t, use24h: use24h)
+    : dayLabel(t, now: now);

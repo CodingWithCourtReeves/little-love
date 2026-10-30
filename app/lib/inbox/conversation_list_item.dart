@@ -109,6 +109,9 @@ class ConversationListItem extends StatelessWidget {
                                   listTimeLabel(
                                     at.toLocal(),
                                     now: now ?? DateTime.now(),
+                                    use24h: MediaQuery.alwaysUse24HourFormatOf(
+                                      context,
+                                    ),
                                   ),
                                   key: const Key('row-time'),
                                   style: TextStyle(
