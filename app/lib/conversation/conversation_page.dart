@@ -20,6 +20,7 @@ import '../attachment/attachment_download.dart';
 import '../attachment/media_actions.dart';
 import '../attachment/staged_attachment.dart';
 import '../attachment/thumbnail.dart';
+import '../audio/message_feedback.dart';
 import '../audio/playback_provider.dart';
 import '../audio/recorder_controller.dart';
 import '../audio/waveform.dart';
@@ -43,9 +44,13 @@ import 'draft_autosave.dart';
 import 'draft_preview_state.dart';
 import 'link_preview.dart';
 import 'last_seen_label.dart';
+import 'love_tap.dart';
+import 'love_tap_button.dart';
 import 'message_db.dart';
 import 'message_store.dart';
 import 'presence_state.dart';
+import 'reaction_badge.dart';
+import 'reaction_burst.dart';
 import 'recording_overlay.dart';
 import 'reply_ref.dart';
 import 'send_issue_caption.dart';
@@ -104,6 +109,15 @@ class _RunIssue {
   final List<String> retryIds;
 
   bool get failed => retryIds.isNotEmpty;
+}
+
+/// A queued [ReactionBurst]: which [emoji] flies, and an [id] unique for the
+/// page's lifetime so a newer burst on the same row restarts the animation and
+/// a stale one's `onDone` can't drop its replacement.
+class _Burst {
+  const _Burst(this.id, this.emoji);
+  final int id;
+  final String emoji;
 }
 
 class _StatusModel {
@@ -369,8 +383,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// jump target once its row is built. Created lazily as bubbles render.
   final Map<String, GlobalKey> _bubbleKeys = {};
 
-  GlobalKey _bubbleKeyFor(String id) =>
-      _bubbleKeys.putIfAbsent(id, GlobalKey.new);
+  /// The row's key, made under `clientMsgId ?? id` so it **survives the
+  /// optimistic → server-id reconcile**: with a stable GlobalKey Flutter keeps
+  /// the row's subtree (and any [ReactionBurst] playing in it) across the swap
+  /// instead of rebuilding it, which restarted my own love tap's hearts when
+  /// the echo landed mid-burst. Also filed under the current [Msg.id], so a
+  /// search jump (which knows only the server id) still finds it.
+  GlobalKey _bubbleKeyFor(Msg m) {
+    final key = _bubbleKeys.putIfAbsent(m.clientMsgId ?? m.id, GlobalKey.new);
+    _bubbleKeys[m.id] = key;
+    return key;
+  }
 
   /// Saturation ×1.3 color matrix (luma-weighted rows). Composed over the
   /// composer's backdrop blur to mimic Apple's blur *material*: a plain
@@ -394,6 +417,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// the reconciled row back to the entry the optimistic row already added.
   final Set<String> _animatedIds = {};
   bool _seededAnimics = false;
+
+  /// Each row's reactions as last built, keyed like [_animatedIds]. A reaction
+  /// bursts (#77) only when it *changes* on a row this page has already seen,
+  /// i.e. it landed while the room is open (mine on tap, the partner's live).
+  /// A row's first sighting (history, hydrate, a new message) just records it,
+  /// so opening a room never replays old reactions.
+  final Map<String, Map<String, String>> _seenReactions = {};
+
+  /// Bursts waiting to play or playing, keyed like [_animatedIds]: reactions
+  /// that just landed, and love taps that just arrived. An entry is dropped
+  /// when its [ReactionBurst] finishes or is disposed, so each plays once.
+  final Map<String, _Burst> _reactionBursts = {};
+  final Map<String, _Burst> _loveTapBursts = {};
+  int _burstSeq = 0;
 
   /// Guards against stacking multiple post-frame scroll callbacks when a send
   /// triggers several rebuilds in quick succession (optimistic add → echo
@@ -778,7 +815,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         .any((m) => m.id == messageId);
     if (!present()) {
       final db = await ref.read(messageDbProvider.future);
-      store.setAll(await db.messagesFor(widget.roomId));
+      final history = await db.messagesFor(widget.roomId);
+      // This is old history, not new arrivals: mark it seen before it builds,
+      // or every older row would pop in and an old love tap would burst.
+      for (final m in history) {
+        _animatedIds.add(m.clientMsgId ?? m.id);
+      }
+      store.setAll(history);
       await WidgetsBinding.instance.endOfFrame;
       if (!present()) return; // not in full history (e.g. since unsent)
     }
@@ -1021,8 +1064,49 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// it; any other emoji replaces it (each person has at most one reaction,
   /// Telegram style).
   void _react(Msg m, String emoji) {
-    final mine = m.reactions[widget.selfUsername];
-    widget.onReact?.call(m.id, mine == emoji ? '' : emoji);
+    final onReact = widget.onReact;
+    if (onReact == null) return;
+    final removing = m.reactions[widget.selfUsername] == emoji;
+    // A light tap as the reaction lands; a softer tick for taking it back.
+    if (removing) {
+      HapticFeedback.selectionClick();
+    } else {
+      HapticFeedback.lightImpact();
+    }
+    onReact(m.id, removing ? '' : emoji);
+  }
+
+  /// Record each row's reactions and queue a burst on any row where one just
+  /// landed (see [_seenReactions]). Rows are compared by map identity first:
+  /// the store only replaces a row's reactions map when they change.
+  void _noteReactionChanges(List<Msg> messages, {required bool animate}) {
+    for (final m in messages) {
+      final key = m.clientMsgId ?? m.id;
+      final prev = _seenReactions[key];
+      _seenReactions[key] = m.reactions;
+      if (prev == null || identical(prev, m.reactions) || !animate) continue;
+      String? landed;
+      for (final MapEntry(key: user, value: emoji) in m.reactions.entries) {
+        if (emoji.isNotEmpty && prev[user] != emoji) landed = emoji;
+      }
+      if (landed != null) _reactionBursts[key] = _Burst(++_burstSeq, landed);
+    }
+  }
+
+  /// Drop a finished burst, unless a newer one has already replaced it.
+  void _endBurst(Map<String, _Burst> bursts, String key, _Burst burst) {
+    if (bursts[key]?.id == burst.id) bursts.remove(key);
+  }
+
+  /// The composer heart (#76): send a love tap with its heartbeat haptic. It
+  /// only shows while the composer is empty, so there's no text to clear; a
+  /// reply chip, if any, is sent with it like any other send.
+  void _sendLoveTap() {
+    ref.read(messageFeedbackProvider).heartbeat();
+    widget.onSend(loveTapBody, _replyDraft);
+    ref.read(wallpaperDriftProvider.notifier).bump();
+    if (_replyDraft != null) setState(() => _replyDraft = null);
+    unawaited(_drafts.clear());
   }
 
   /// A message carries copyable text when its body is non-empty (plain text,
@@ -1249,6 +1333,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       }
       _seededAnimics = true;
     }
+    _noteReactionChanges(
+      messages,
+      animate: !MediaQuery.disableAnimationsOf(context),
+    );
 
     // Partner profile drives the header name + avatar (and the room list).
     final profiles = ref.watch(profileStoreProvider);
@@ -1574,9 +1662,16 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// time a key is seen; seeded history and reconciled rows are already present,
   /// so they render without the animation.
   Widget _bubbleRow(Msg m, String me, _Marker? marker, _RunIssue? issue) {
-    final bubble = _bubble(m, me, marker, issue);
     final animKey = m.clientMsgId ?? m.id;
     final firstAppearance = _animatedIds.add(animKey);
+    // A love tap that just arrived (sent or received) bursts hearts from its
+    // jumbomoji (#76). Queued before building the bubble, which reads it.
+    if (firstAppearance &&
+        _isJumboLoveTap(m) &&
+        !MediaQuery.disableAnimationsOf(context)) {
+      _loveTapBursts[animKey] = _Burst(++_burstSeq, loveTapBody);
+    }
+    final bubble = _bubble(m, me, marker, issue);
     if (!firstAppearance) return bubble;
     return _PopIn(
       key: Key('popin-${m.id}'),
@@ -1589,27 +1684,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final mine = m.from == me;
     // The sent/sending marker (if any) is drawn inside the bubble itself; the
     // reply quote (if any) is a banner inside the bubble's top edge, built by
-    // _bubbleContent — see _replyQuoteBanner.
-    Widget content = _bubbleContent(m, me, marker);
-    // Long-press → context menu (reactions + Copy/Delete); double-tap →
-    // default reaction. Wraps both text and media bubbles; the media bubble's
-    // own tap-to-open still wins for a plain tap (deferToChild).
-    final canLongPress =
-        widget.onReact != null ||
-        _canReply(m) ||
-        _canCopy(m) ||
-        _editAction(m, mine) != null ||
-        _deleteAction(m, mine) != null;
-    if (canLongPress) {
-      content = GestureDetector(
-        behavior: HitTestBehavior.deferToChild,
-        onLongPressStart: (d) => _showReactionBar(d.globalPosition, m),
-        onDoubleTap: widget.onReact != null
-            ? () => _react(m, _quickReactions.first)
-            : null,
-        child: content,
-      );
-    }
+    // _bubbleContent — see _replyQuoteBanner. The long-press / double-tap
+    // gestures and the reaction badge are attached by [_side].
+    final content = _bubbleContent(m, me, marker);
 
     // A run with a failed or stuck send collapses one caption under one bubble;
     // when the run has failures, tapping that bubble retries all of them.
@@ -1637,20 +1714,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       );
     }
 
-    final Widget bubble = m.reactions.isEmpty
-        ? result
-        : Column(
-            crossAxisAlignment: mine
-                ? CrossAxisAlignment.end
-                : CrossAxisAlignment.start,
-            children: [result, _reactionPills(m, me, mine)],
-          );
-
     // Keyed so a jump-to-message (search) can ensureVisible it; pulses a tint
     // while it's the highlighted target.
     final highlighted = m.id == _highlightedId;
     final container = AnimatedContainer(
-      key: _bubbleKeyFor(m.id),
+      key: _bubbleKeyFor(m),
       duration: const Duration(milliseconds: 300),
       decoration: BoxDecoration(
         color: highlighted
@@ -1658,7 +1726,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             : Colors.transparent,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: bubble,
+      child: result,
     );
     // Swipe a real bubble toward center (own → left, partner's → right) to
     // reply; call-log rows aren't reply-able.
@@ -1670,33 +1738,101 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  /// Aggregated reaction pills under a bubble (emoji → count). Mine is
-  /// highlighted; tapping a pill toggles my reaction to that emoji. Pills hug
-  /// the message side (flush with the bubble's edge) rather than sitting inset.
-  Widget _reactionPills(Msg m, String me, bool mine) {
-    final counts = <String, int>{};
-    for (final e in m.reactions.values) {
-      counts[e] = (counts[e] ?? 0) + 1;
-    }
-    final mineEmoji = m.reactions[me];
-    return Padding(
-      padding: mine
-          ? const EdgeInsets.only(left: 8, right: 2, top: 2, bottom: 2)
-          : const EdgeInsets.only(left: 2, right: 8, top: 2, bottom: 2),
-      child: Wrap(
-        spacing: 4,
+  /// How far a reacted bubble is pushed down, and in from the middle of the
+  /// screen, to make room for its [ReactionBadge]: the badge overlaps the
+  /// bubble's corner by the rest of its size. Reserving the room (rather than
+  /// letting the badge hang outside) keeps it off the message above and
+  /// inside the row's hit area, so it stays tappable.
+  static const _badgeLift = ReactionBadge.height / 2;
+  static const _badgeInset = 12.0;
+
+  /// Puts a bubble on its side of the row: mine right, the partner's left.
+  /// Every bubble kind ends here, so this is where the bubble picks up its
+  /// gestures and, once someone has reacted, the reaction badge (#79) on its
+  /// top corner toward the middle of the screen.
+  Widget _side(Msg m, bool mine, {required Widget child}) {
+    final alignment = mine ? Alignment.centerRight : Alignment.centerLeft;
+    final bubble = _bubbleGestures(m, mine, child);
+    if (m.reactions.isEmpty) return Align(alignment: alignment, child: bubble);
+    return Align(
+      alignment: alignment,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          for (final entry in counts.entries)
-            _ReactionPill(
-              emoji: entry.key,
-              count: entry.value,
-              mine: entry.key == mineEmoji,
-              onTap: () => _react(m, entry.key),
+          Padding(
+            padding: EdgeInsets.only(
+              top: _badgeLift,
+              left: mine ? _badgeInset : 0,
+              right: mine ? 0 : _badgeInset,
             ),
+            child: bubble,
+          ),
+          Positioned(
+            top: 0,
+            left: mine ? 0 : null,
+            right: mine ? null : 0,
+            child: _burstingBadge(m),
+          ),
         ],
       ),
     );
   }
+
+  /// Long-press → context menu (reactions + Copy/Delete); double-tap → the
+  /// default reaction. Wraps just the bubble, not its reaction badge: a tap on
+  /// the badge must not wait out the double-tap timeout. A media bubble's own
+  /// tap-to-open still wins for a plain tap (deferToChild).
+  Widget _bubbleGestures(Msg m, bool mine, Widget bubble) {
+    final canLongPress =
+        widget.onReact != null ||
+        _canReply(m) ||
+        _canCopy(m) ||
+        _editAction(m, mine) != null ||
+        _deleteAction(m, mine) != null;
+    if (!canLongPress) return bubble;
+    return GestureDetector(
+      behavior: HitTestBehavior.deferToChild,
+      onLongPressStart: (d) => _showReactionBar(d.globalPosition, m),
+      onDoubleTap: widget.onReact != null
+          ? () => _react(m, _quickReactions.first)
+          : null,
+      child: bubble,
+    );
+  }
+
+  /// The [ReactionBadge] for [m], popping in with a burst when a reaction just
+  /// landed on it.
+  Widget _burstingBadge(Msg m) {
+    final me = widget.selfUsername;
+    final theirs = m.reactions.entries
+        .where((e) => e.key != me && e.value.isNotEmpty)
+        .map((e) => e.value);
+    final mineEmoji = m.reactions[me];
+    final key = m.clientMsgId ?? m.id;
+    final badge = ReactionBadge(
+      key: Key('reaction-badge-$key'),
+      emojis: [...theirs, ?mineEmoji],
+      hasMine: mineEmoji != null,
+      // Take mine back, or (only theirs there) match it.
+      onTap: () => _react(m, mineEmoji ?? theirs.first),
+    );
+    final burst = _reactionBursts[key];
+    if (burst == null) return badge;
+    return ReactionBurst(
+      key: ValueKey('reaction-burst-${burst.id}'),
+      emoji: burst.emoji,
+      onDone: () => _endBurst(_reactionBursts, key, burst),
+      child: badge,
+    );
+  }
+
+  /// A love tap shown as the jumbomoji heart: not a reply (that keeps a
+  /// bubble), not media, not a call log.
+  bool _isJumboLoveTap(Msg m) =>
+      isLoveTap(m.body) &&
+      m.replyTo == null &&
+      m.attachment == null &&
+      m.callOutcome == null;
 
   /// Heart (sent), double heart (read) or clock (sending) tucked into a
   /// bubble's bottom-right corner, Telegram style.
@@ -1722,8 +1858,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           ? 'assets/icons/call-video.svg'
           : 'assets/icons/call-audio.svg';
       final label = m.body.replaceFirst(RegExp(r'^(📞|📹)\s*'), '');
-      return Align(
-        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      return _side(
+        m,
+        mine,
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
@@ -1758,8 +1895,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       // Voice memos read as a chat bubble (same background + tail as text),
       // with the player inside; images keep their edge-to-edge media tile.
       if (att.isAudio) return _audioBubble(m, mine, marker, att);
-      return Align(
-        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      return _side(
+        m,
+        mine,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
           child: _MediaBubble(
@@ -1793,14 +1931,29 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         2 => 52.0,
         _ => 44.0,
       };
-      return Align(
-        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      Widget jumbo = Text(
+        m.body.trim(),
+        style: TextStyle(fontSize: emojiSize, height: 1.1),
+      );
+      final key = m.clientMsgId ?? m.id;
+      final burst = _loveTapBursts[key];
+      if (burst != null) {
+        jumbo = ReactionBurst(
+          key: ValueKey('love-tap-burst-${burst.id}'),
+          emoji: burst.emoji,
+          big: true,
+          // The row already pops in; the hearts are the extra.
+          popChild: false,
+          onDone: () => _endBurst(_loveTapBursts, key, burst),
+          child: jumbo,
+        );
+      }
+      return _side(
+        m,
+        mine,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 14),
-          child: Text(
-            m.body.trim(),
-            style: TextStyle(fontSize: emojiSize, height: 1.1),
-          ),
+          child: jumbo,
         ),
       );
     }
@@ -1808,8 +1961,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         ? context.palette.bubbleUserBg
         : context.palette.bubblePartnerBg;
     final bubbleBorder = context.palette.borderSoft;
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+    return _side(
+      m,
+      mine,
       child: Column(
         crossAxisAlignment: mine
             ? CrossAxisAlignment.end
@@ -1894,8 +2048,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         ],
       ],
     );
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+    return _side(
+      m,
+      mine,
       child: Column(
         crossAxisAlignment: mine
             ? CrossAxisAlignment.end
@@ -2432,6 +2587,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                                         ),
                                       ),
                                     ),
+                                    _loveTapSlot(staged),
                                   ],
                                 ),
                         ),
@@ -2446,6 +2602,24 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           ],
         ),
       ),
+    );
+  }
+
+  /// The love-tap heart at the pill's trailing edge (#76), shown only while
+  /// there's nothing to send: no text, no staged media, not editing. Listens to
+  /// the controller itself so typing rebuilds just this slot.
+  Widget _loveTapSlot(List<StagedAttachment> staged) {
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _controller,
+      builder: (context, value, _) {
+        final idle =
+            value.text.trim().isEmpty && staged.isEmpty && _editingId == null;
+        if (!idle) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(right: 2),
+          child: LoveTapButton(onTap: _sendLoveTap),
+        );
+      },
     );
   }
 
@@ -3048,68 +3222,6 @@ class _LinkPreviewCardState extends State<_LinkPreviewCard> {
                 ],
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// A reaction pill under a bubble: the emoji plus a count when more than one
-/// person reacted with it. Highlighted when it's the viewer's own reaction.
-class _ReactionPill extends StatelessWidget {
-  const _ReactionPill({
-    required this.emoji,
-    required this.count,
-    required this.mine,
-    required this.onTap,
-  });
-  final String emoji;
-  final int count;
-  final bool mine;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: mine
-              ? context.palette.accentUser.withValues(alpha: 0.18)
-              : context.palette.bgSurfaceAlt,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: mine
-                ? context.palette.accentUser
-                : context.palette.borderSoft,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              emoji,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 15,
-                height: 1.0,
-                // Split the line's leading evenly so the glyph sits centered
-                // rather than baseline-low (emoji metrics are top-heavy).
-                leadingDistribution: TextLeadingDistribution.even,
-              ),
-            ),
-            if (count > 1) ...[
-              const SizedBox(width: 4),
-              Text(
-                '$count',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: context.palette.textMuted,
-                ),
-              ),
-            ],
           ],
         ),
       ),

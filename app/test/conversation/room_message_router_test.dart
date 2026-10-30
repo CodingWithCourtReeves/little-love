@@ -55,10 +55,18 @@ class _FakeConn implements LiveConnection {
 class _RecordingFeedback extends MessageFeedback {
   int sentCount = 0;
   int receivedCount = 0;
+  int loveTapCount = 0;
+  int reactionCount = 0;
   @override
   void sent() => sentCount++;
   @override
-  void received() => receivedCount++;
+  void received({bool loveTap = false}) {
+    receivedCount++;
+    if (loveTap) loveTapCount++;
+  }
+
+  @override
+  void reactionReceived() => reactionCount++;
 }
 
 Future<MessageDb> _ffiMessageDb() async {
@@ -1756,5 +1764,187 @@ void main() {
       container.read(profileStoreProvider).forUsername('kaitlyn')!.displayName,
       'Kait',
     );
+  });
+
+  group('chat haptics (#76, #77)', () {
+    /// A router with [feedback] over a two-person room1 whose message
+    /// `target-1` (mine) is in both the store and the db; room1 is open when
+    /// [active]. Returns what a test needs to emit sealed frames.
+    Future<
+      ({
+        ProviderContainer container,
+        MessageDb db,
+        _FakeConn conn,
+        Future<String> Function(String plaintext) seal,
+        Future<String> Function(String plaintext) sealSelf,
+      })
+    >
+    rig(_RecordingFeedback feedback, {bool active = true}) async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final conn = _FakeConn();
+      final db = await _ffiMessageDb();
+      final container = await _container(
+        conn: conn,
+        me: me,
+        messageDb: db,
+        outbox: MemoryOutboxStore(),
+        overrides: [messageFeedbackProvider.overrideWithValue(feedback)],
+      );
+      container.read(inboxStateProvider.notifier).setRooms([
+        Room(
+          roomId: 'room1',
+          name: '',
+          members: [_member('court', me), _member('kaitlyn', peer)],
+          createdAt: DateTime.utc(2026, 6, 10),
+        ),
+      ]);
+      final target = Msg(
+        id: 'target-1',
+        from: 'court',
+        to: 'room1',
+        body: 'hi love',
+        ts: DateTime.utc(2026, 6, 10, 12),
+      );
+      container.read(messageStoreProvider('room1').notifier).add(target);
+      await db.upsert(target, roomId: 'room1');
+      if (active) container.read(activeRoomProvider.notifier).state = 'room1';
+      container.read(roomMessageRouterProvider);
+      final key = await deriveRoomKey(
+        me: peer,
+        peerX25519Pub: me.x25519PublicKey,
+        roomId: 'room1',
+      );
+      // My own self-copy is sealed to myself, as buildSendFrame does.
+      final selfKey = await deriveRoomKey(
+        me: me,
+        peerX25519Pub: me.x25519PublicKey,
+        roomId: 'room1',
+      );
+      return (
+        container: container,
+        db: db,
+        conn: conn,
+        seal: (String plaintext) => encryptOutgoing(key, plaintext),
+        sealSelf: (String plaintext) => encryptOutgoing(selfKey, plaintext),
+      );
+    }
+
+    /// Emits a reaction on `target-1` and returns how many reaction taps it
+    /// played. Waits until the db holds the result: the cue decision is made
+    /// before that write, and waiting also keeps teardown from closing the db
+    /// mid-write.
+    Future<int> reactionCue({
+      bool active = true,
+      bool replayed = false,
+      String? clientMsgId,
+      String from = 'kaitlyn',
+      String emoji = '❤️',
+      Map<String, String> before = const {},
+    }) async {
+      final feedback = _RecordingFeedback();
+      final r = await rig(feedback, active: active);
+      for (final e in before.entries) {
+        r.container
+            .read(messageStoreProvider('room1').notifier)
+            .applyReaction('target-1', e.key, e.value);
+        await r.db.applyReaction('target-1', e.key, e.value);
+      }
+      r.conn.emit(
+        MessageFrame(
+          id: 'reaction-1',
+          roomId: 'room1',
+          from: from,
+          ts: DateTime.utc(2026, 6, 10, 12, 1),
+          body: await (from == 'court' ? r.sealSelf : r.seal)(
+            ReactionContent(targetId: 'target-1', emoji: emoji).encode(),
+          ),
+          replayed: replayed,
+          clientMsgId: clientMsgId,
+        ),
+      );
+      final want = emoji.isEmpty ? null : emoji;
+      final sw = Stopwatch()..start();
+      while ((await r.db.messagesFor('room1')).single.reactions[from] != want) {
+        if (sw.elapsed > const Duration(seconds: 5)) {
+          throw StateError('reaction never reached the db');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      return feedback.reactionCount;
+    }
+
+    test(
+      'a live partner reaction in the open room plays the reaction tap',
+      () async {
+        expect(await reactionCue(), 1);
+      },
+    );
+
+    test('a replayed partner reaction plays no tap', () async {
+      expect(await reactionCue(replayed: true), 0);
+    });
+
+    test('a partner reaction in a room not on screen plays no tap', () async {
+      expect(await reactionCue(active: false), 0);
+    });
+
+    test('the partner taking a reaction back plays no tap', () async {
+      expect(await reactionCue(emoji: '', before: const {'kaitlyn': '❤️'}), 0);
+    });
+
+    test(
+      'my own reaction echo plays no tap (mine buzzes on the tap)',
+      () async {
+        expect(
+          await reactionCue(from: 'court', clientMsgId: 'cmid-react-1'),
+          0,
+        );
+      },
+    );
+
+    /// Emits a live partner text and returns the recorded cues once it chimes.
+    Future<_RecordingFeedback> textCue(String text, {ReplyRef? replyTo}) async {
+      final feedback = _RecordingFeedback();
+      final r = await rig(feedback);
+      r.conn.emit(
+        MessageFrame(
+          id: 'm1',
+          roomId: 'room1',
+          from: 'kaitlyn',
+          ts: DateTime.utc(2026, 6, 10, 12, 2),
+          body: await r.seal(TextContent(text, replyTo: replyTo).encode()),
+          replayed: false,
+        ),
+      );
+      await pumpUntil(() => feedback.receivedCount > 0);
+      return feedback;
+    }
+
+    test('a live love tap arrives as the heartbeat', () async {
+      final feedback = await textCue('❤️');
+      expect(feedback.receivedCount, 1);
+      expect(feedback.loveTapCount, 1);
+    });
+
+    test('a heart inside other text plays the plain received cue', () async {
+      final feedback = await textCue('hi ❤️');
+      expect(feedback.receivedCount, 1);
+      expect(feedback.loveTapCount, 0);
+    });
+
+    test('a quoted heart reply plays the plain received cue', () async {
+      final feedback = await textCue(
+        '❤️',
+        replyTo: const ReplyRef(
+          id: 'target-1',
+          author: 'court',
+          kind: 'text',
+          text: 'hi love',
+        ),
+      );
+      expect(feedback.receivedCount, 1);
+      expect(feedback.loveTapCount, 0);
+    });
   });
 }
