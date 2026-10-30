@@ -50,7 +50,8 @@ jobs:
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: build
-        run: cargo build --workspace --all-targets
+        # --locked fails if Cargo.toml changed without the lockfile.
+        run: cargo build --workspace --all-targets --locked
       - name: test
         run: cargo test --workspace
       - name: Stop Postgres

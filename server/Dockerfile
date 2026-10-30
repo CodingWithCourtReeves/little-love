@@ -1,12 +1,12 @@
 FROM rust:1.88-bookworm AS builder
 WORKDIR /build
-COPY Cargo.toml Cargo.lock* ./
+COPY Cargo.toml Cargo.lock ./
 COPY crypto/Cargo.toml crypto/Cargo.toml
 COPY crypto/src crypto/src
 COPY server/Cargo.toml server/Cargo.toml
 COPY server/src server/src
 COPY server/migrations server/migrations
-RUN cargo build --release -p littlelove-api
+RUN cargo build --release --locked -p littlelove-api
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
