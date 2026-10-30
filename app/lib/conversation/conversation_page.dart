@@ -55,6 +55,7 @@ import 'presence_state.dart';
 import 'reaction_badge.dart';
 import 'reaction_burst.dart';
 import 'recording_overlay.dart';
+import 'reply_quote.dart';
 import 'reply_ref.dart';
 import 'send_issue_caption.dart';
 import 'staged_media_store.dart';
@@ -675,70 +676,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _ => null,
   };
 
-  /// Telegram-style reply banner: a quote block at the top *inside* the bubble
-  /// — an accent bar, the original sender on one line, and a single ellipsized
-  /// preview line. Colors adapt to whichever bubble it sits in ([onUserBubble]
-  /// true for my own accent-colored bubble). Resolves the live target when
-  /// present (so it reflects later edits), else the cached [ReplyRef] snippet.
-  /// Tapping jumps to the original.
+  /// The reply quote at the top *inside* a reply's bubble ([ReplyQuote]).
+  /// Resolves the live target when present (so it reflects later edits), else
+  /// the cached [ReplyRef] snippet. [onUserBubble] is true inside my own
+  /// bubble. Tapping it jumps to the original.
   Widget _replyQuoteBanner(Msg m, {required bool onUserBubble}) {
     final live = _lookupMessage(m.replyTo!.id);
     final r = live != null ? _replyRefFor(live) : m.replyTo!;
-    final icon = _replyKindIcon(r.kind);
-    // On my own (accent-filled) bubble the quote reads in the bubble's own text
-    // tone; on the partner's surface-toned bubble it uses the sage accent.
-    final Color nameColor = onUserBubble
-        ? context.palette.bubbleUserText
-        : context.palette.accentSage;
-    final Color textColor = onUserBubble
-        ? context.palette.bubbleUserText.withValues(alpha: 0.75)
-        : context.palette.textMuted;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
+    return ReplyQuote(
+      key: Key('reply-quote-${m.id}'),
+      author: _replyAuthorLabel(r.author),
+      preview: _replyPreviewText(r),
+      icon: _replyKindIcon(r.kind),
+      onUserBubble: onUserBubble,
       onTap: () => _focusMessage(r.id),
-      child: Container(
-        key: Key('reply-quote-${m.id}'),
-        margin: const EdgeInsets.only(bottom: 5),
-        padding: const EdgeInsets.fromLTRB(8, 2, 4, 2),
-        decoration: BoxDecoration(
-          color: nameColor.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(5),
-          border: Border(left: BorderSide(color: nameColor, width: 2.5)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _replyAuthorLabel(r.author),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: nameColor,
-              ),
-            ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (icon != null) ...[
-                  Icon(icon, size: 13, color: textColor),
-                  const SizedBox(width: 4),
-                ],
-                Flexible(
-                  child: Text(
-                    _replyPreviewText(r),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12.5, color: textColor),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
     );
   }
 

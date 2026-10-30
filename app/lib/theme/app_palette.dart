@@ -30,6 +30,8 @@ class AppPalette extends ThemeExtension<AppPalette> {
     required this.bubblePartnerBg,
     required this.separatorText,
     required this.bubblePartnerEdge,
+    required this.replyInsetOnUser,
+    required this.replyNameOnUser,
   });
 
   final Brightness brightness;
@@ -60,6 +62,16 @@ class AppPalette extends ThemeExtension<AppPalette> {
   /// have no outline.
   final Color bubblePartnerEdge;
 
+  /// The reply quote's inset inside my own bubble (#88): white over the pink
+  /// bubble in light; on the dark bubble a light veil (a white inset there
+  /// would wash out the text).
+  final Color replyInsetOnUser;
+
+  /// The quoted author's name inside my own bubble: a darker (light) / softer
+  /// (dark) accent than [accentUser], so 13px text clears 4.5:1 on
+  /// [replyInsetOnUser].
+  final Color replyNameOnUser;
+
   /// "The hour the lamps come on" — pale rose / aubergine neutrals. Values are
   /// the original Twilight light palette, unchanged.
   static const AppPalette light = AppPalette(
@@ -81,6 +93,8 @@ class AppPalette extends ThemeExtension<AppPalette> {
     bubblePartnerBg: Color(0xFFFFFAFB),
     separatorText: Color(0xFF4A3D48),
     bubblePartnerEdge: Color(0x8CD9C7CD),
+    replyInsetOnUser: Color(0x80FFFFFF),
+    replyNameOnUser: Color(0xFF7E3753),
   );
 
   /// "Deep dusk" — the Deep Dusk wallpaper world as the app canvas. The rose
@@ -105,6 +119,8 @@ class AppPalette extends ThemeExtension<AppPalette> {
     bubblePartnerBg: Color(0xFF2E2233),
     separatorText: Color(0xFFEADFE4),
     bubblePartnerEdge: Color(0x8C3D2E42),
+    replyInsetOnUser: Color(0x14FFFFFF),
+    replyNameOnUser: Color(0xFFE0B6C6),
   );
 
   /// The palette for a given brightness — the seam the wallpaper drives.
@@ -131,6 +147,8 @@ class AppPalette extends ThemeExtension<AppPalette> {
     Color? bubblePartnerBg,
     Color? separatorText,
     Color? bubblePartnerEdge,
+    Color? replyInsetOnUser,
+    Color? replyNameOnUser,
   }) {
     return AppPalette(
       brightness: brightness ?? this.brightness,
@@ -151,6 +169,8 @@ class AppPalette extends ThemeExtension<AppPalette> {
       bubblePartnerBg: bubblePartnerBg ?? this.bubblePartnerBg,
       separatorText: separatorText ?? this.separatorText,
       bubblePartnerEdge: bubblePartnerEdge ?? this.bubblePartnerEdge,
+      replyInsetOnUser: replyInsetOnUser ?? this.replyInsetOnUser,
+      replyNameOnUser: replyNameOnUser ?? this.replyNameOnUser,
     );
   }
 
@@ -181,6 +201,12 @@ class AppPalette extends ThemeExtension<AppPalette> {
         other.bubblePartnerEdge,
         t,
       )!,
+      replyInsetOnUser: Color.lerp(
+        replyInsetOnUser,
+        other.replyInsetOnUser,
+        t,
+      )!,
+      replyNameOnUser: Color.lerp(replyNameOnUser, other.replyNameOnUser, t)!,
     );
   }
 }
