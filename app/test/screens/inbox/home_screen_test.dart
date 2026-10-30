@@ -64,7 +64,10 @@ Widget _app(ProviderContainer c, LocalAccount acct) =>
       child: MaterialApp(home: HomeScreen(account: acct)),
     );
 
-ProviderContainer _container() {
+/// A session for [HomeScreen]. [synced] stands in for the router having
+/// delivered the room list and loaded each room's history (most tests set
+/// rooms directly, without a router).
+ProviderContainer _container({bool synced = true}) {
   final c = ProviderContainer(
     overrides: [
       // The router/drain watch the live connection; keep it perpetually
@@ -79,6 +82,7 @@ ProviderContainer _container() {
     ],
   );
   addTearDown(c.dispose);
+  c.read(inboxSyncedProvider.notifier).state = synced;
   return c;
 }
 
@@ -97,7 +101,8 @@ void main() {
   testWidgets('empty inbox before first sync shows no pairing flash', (
     tester,
   ) async {
-    final c = _container(); // not synced; live connection held pending
+    // Not synced; live connection held pending.
+    final c = _container(synced: false);
     await tester.pumpWidget(_app(c, _acct()));
     await tester.pump();
     // Blank canvas while the room list is still in flight — no pairing screen.
@@ -105,7 +110,29 @@ void main() {
     expect(find.byType(ConversationPage), findsNothing);
   });
 
-  testWidgets('a room with an unread partner message shows an unread dot', (
+  testWidgets('rooms that have arrived but not yet loaded draw no rows '
+      '(no half-filled list that then reorders)', (tester) async {
+    final c = _container(synced: false);
+    c.read(inboxStateProvider.notifier).setRooms([
+      _partnerRoom('room1'),
+      Room(
+        roomId: 'room2',
+        name: 'Travel',
+        members: _partnerRoom('room2').members,
+        createdAt: DateTime.utc(2026, 6, 11),
+      ),
+    ]);
+    await tester.pumpWidget(_app(c, _acct()));
+    await tester.pump();
+    expect(find.byKey(const Key('home-room-room2')), findsNothing);
+    expect(find.text('PAIR WITH YOUR PARTNER'), findsNothing);
+
+    c.read(inboxSyncedProvider.notifier).state = true;
+    await tester.pump();
+    expect(find.byKey(const Key('home-room-room2')), findsOneWidget);
+  });
+
+  testWidgets('a room with an unread partner message shows an unread count', (
     tester,
   ) async {
     final c = _container();
@@ -136,17 +163,168 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const Key('home-room-room2')),
-        matching: find.byKey(const Key('unread-dot')),
+        matching: find.byKey(const Key('unread-count')),
       ),
       findsOneWidget,
     );
     expect(
       find.descendant(
         of: find.byKey(const Key('home-room-room1')),
-        matching: find.byKey(const Key('unread-dot')),
+        matching: find.byKey(const Key('unread-count')),
       ),
       findsNothing,
     );
+  });
+
+  testWidgets('each row previews its latest message', (tester) async {
+    final c = _container();
+    c.read(inboxStateProvider.notifier).setRooms([
+      _partnerRoom('room1'),
+      Room(
+        roomId: 'room2',
+        name: 'Travel',
+        members: _partnerRoom('room2').members,
+        createdAt: DateTime.utc(2026, 6, 11),
+      ),
+    ]);
+    final store = c.read(messageStoreProvider('room2').notifier);
+    store.add(
+      Msg(
+        id: '1',
+        from: 'kaitlyn',
+        to: 'room2',
+        body: 'found a place in Alfama',
+        ts: DateTime.utc(2026, 6, 12, 9),
+      ),
+    );
+    store.add(
+      Msg(
+        id: '2',
+        from: 'court',
+        to: 'room2',
+        body: 'book it',
+        ts: DateTime.utc(2026, 6, 12, 10),
+      ),
+    );
+    await tester.pumpWidget(_app(c, _acct()));
+    await tester.pump();
+
+    final preview = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const Key('home-room-room2')),
+        matching: find.byKey(const Key('row-preview')),
+      ),
+    );
+    expect(preview.textSpan!.toPlainText(), 'You: book it');
+    // Nothing is marked read, so her message still counts: one unread. My own
+    // reply never does.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('home-room-room2')),
+        matching: find.text('1'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the partner chat is pinned first and channels follow by latest '
+      'message, not creation date', (tester) async {
+    final c = _container();
+    Room channel(String id, int createdDay) => Room(
+      roomId: id,
+      name: id,
+      members: _partnerRoom(id).members,
+      createdAt: DateTime.utc(2026, 6, createdDay),
+    );
+    c.read(inboxStateProvider.notifier).setRooms([
+      channel('older-channel', 11),
+      _partnerRoom('partner'),
+      channel('newer-channel', 12),
+    ]);
+    // The older channel has the newest message, newer than the partner chat's.
+    void say(String roomId, int hour) => c
+        .read(messageStoreProvider(roomId).notifier)
+        .add(
+          Msg(
+            id: '$roomId-$hour',
+            from: 'kaitlyn',
+            to: roomId,
+            body: 'hi',
+            ts: DateTime.utc(2026, 6, 20, hour),
+          ),
+        );
+    say('partner', 9);
+    say('newer-channel', 10);
+    say('older-channel', 11);
+    await tester.pumpWidget(_app(c, _acct()));
+    await tester.pump();
+
+    double top(String roomId) =>
+        tester.getTopLeft(find.byKey(Key('home-room-$roomId'))).dy;
+    expect(top('partner'), lessThan(top('older-channel')));
+    expect(top('older-channel'), lessThan(top('newer-channel')));
+    expect(find.text('CHANNELS'), findsOneWidget);
+    expect(find.text('PARTNER'), findsNothing);
+  });
+
+  testWidgets('channel rows lead with a # tile; the partner keeps the avatar', (
+    tester,
+  ) async {
+    final c = _container();
+    c.read(inboxStateProvider.notifier).setRooms([
+      _partnerRoom('partner'),
+      Room(
+        roomId: 'travel',
+        name: 'Travel',
+        members: _partnerRoom('travel').members,
+        createdAt: DateTime.utc(2026, 6, 11),
+      ),
+    ]);
+    await tester.pumpWidget(_app(c, _acct()));
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('home-room-travel')),
+        matching: find.byKey(const Key('channel-tile')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('home-room-partner')),
+        matching: find.byKey(const Key('channel-tile')),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('the channel list ends in a New channel row, with a hint only '
+      'while there are no channels', (tester) async {
+    final c = _container();
+    c.read(inboxStateProvider.notifier).setRooms([_partnerRoom('partner')]);
+    // A lone partner room auto-opens its chat; go back to the list.
+    await tester.pumpWidget(_app(c, _acct()));
+    await tester.pump();
+    await tester.pumpAndSettle();
+    if (find.byType(ConversationPage).evaluate().isNotEmpty) {
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+    }
+    expect(find.byKey(const Key('home-new-channel-row')), findsOneWidget);
+    expect(find.text('A topic room just for the two of you.'), findsOneWidget);
+
+    c.read(inboxStateProvider.notifier).setRooms([
+      _partnerRoom('partner'),
+      Room(
+        roomId: 'travel',
+        name: 'Travel',
+        members: _partnerRoom('travel').members,
+        createdAt: DateTime.utc(2026, 6, 11),
+      ),
+    ]);
+    await tester.pump();
+    expect(find.byKey(const Key('home-new-channel-row')), findsOneWidget);
+    expect(find.text('A topic room just for the two of you.'), findsNothing);
   });
 
   testWidgets('my own message does not mark a room unread', (tester) async {
@@ -173,7 +351,7 @@ void main() {
         );
     await tester.pumpWidget(_app(c, _acct()));
     await tester.pump();
-    expect(find.byKey(const Key('unread-dot')), findsNothing);
+    expect(find.byKey(const Key('unread-count')), findsNothing);
   });
 
   testWidgets(
@@ -263,11 +441,45 @@ void main() {
 
       await tester.tap(find.byKey(const Key('home-new-chat')));
       await tester.pumpAndSettle();
-      // The create-channel sheet, not the pairing options.
-      expect(find.text('New channel'), findsOneWidget);
+      // The create-channel sheet, not the pairing options. (The list's own
+      // "New channel" row is outside the sheet.)
+      expect(
+        find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.text('New channel'),
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Invite them with a code'), findsNothing);
     },
   );
+
+  testWidgets('the New channel row opens the same sheet as [+]', (
+    tester,
+  ) async {
+    final c = _container();
+    c.read(inboxStateProvider.notifier).setRooms([
+      _partnerRoom('room1'),
+      Room(
+        roomId: 'room2',
+        name: 'Travel',
+        members: _partnerRoom('room2').members,
+        createdAt: DateTime.utc(2026, 6, 11),
+      ),
+    ]);
+    await tester.pumpWidget(_app(c, _acct()));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('home-new-channel-row')));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(BottomSheet),
+        matching: find.text('New channel'),
+      ),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('single room auto-opens into the conversation', (tester) async {
     final c = _container();

@@ -40,6 +40,7 @@ import 'audio_bubble.dart';
 import 'chat_info_page.dart';
 import 'composer_draft.dart';
 import 'draft_autosave.dart';
+import 'draft_preview_state.dart';
 import 'link_preview.dart';
 import 'last_seen_label.dart';
 import 'message_db.dart';
@@ -49,6 +50,8 @@ import 'recording_overlay.dart';
 import 'reply_ref.dart';
 import 'send_issue_caption.dart';
 import 'staged_media_store.dart';
+import 'status_marker.dart';
+import 'time_format.dart';
 import 'typing_state.dart';
 
 typedef SendCallback = void Function(String text, ReplyRef? replyTo);
@@ -710,6 +713,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           .read(messageDbProvider.future)
           .then<MessageDb?>((db) => db, onError: (Object _) => null),
       roomId: widget.roomId,
+      // Captured now, not read per write: the teardown flush in dispose()
+      // completes after this widget is unmounted, when `ref` is unusable.
+      onWritten: ref.read(draftPreviewProvider(widget.roomId).notifier).set,
     );
     unawaited(_restoreDraft());
     SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -1692,41 +1698,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  /// Heart (sent) or clock (sending) tucked into a bubble's bottom-right
-  /// corner, Telegram style.
-  static Widget _markerWidget(_Marker marker, AppPalette palette) {
-    return switch (marker) {
-      _Marker.sent => _heart(palette.accentUser, key: 'status-heart'),
-      // Read = a double heart: a soft trailing heart with the full-accent heart
-      // overlapping on top. Both tones come from theme tokens (not baked into
-      // the asset) so a future palette switcher recolors them together.
-      _Marker.read => SizedBox(
-        key: const Key('status-double-heart'),
-        height: 11,
-        width: 18,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Positioned(left: 0, child: _heart(palette.accentUserSoft)),
-            Positioned(left: 6, child: _heart(palette.accentUser)),
-          ],
-        ),
-      ),
-      _Marker.sending => Icon(
-        Icons.schedule,
-        key: const Key('status-clock'),
-        size: 12,
-        color: palette.textMuted,
-      ),
-    };
-  }
-
-  static Widget _heart(Color color, {String? key}) => SvgPicture.asset(
-    'assets/icons/heart-sent.svg',
-    key: key == null ? null : Key(key),
-    height: 11,
-    colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
-  );
+  /// Heart (sent), double heart (read) or clock (sending) tucked into a
+  /// bubble's bottom-right corner, Telegram style.
+  static Widget _markerWidget(_Marker marker) => StatusMarker(switch (marker) {
+    _Marker.sending => StatusMark.sending,
+    _Marker.sent => StatusMark.sent,
+    _Marker.read => StatusMark.read,
+  });
 
   Widget _bubbleContent(Msg m, String me, _Marker? marker) {
     final mine = m.from == me;
@@ -1912,7 +1890,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         ),
         if (marker != null) ...[
           const SizedBox(width: 4),
-          _markerWidget(marker, context.palette),
+          _markerWidget(marker),
         ],
       ],
     );
@@ -2019,7 +1997,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         ),
         if (marker != null) ...[
           const SizedBox(width: 4),
-          _markerWidget(marker, context.palette),
+          _markerWidget(marker),
         ],
       ],
     );
@@ -2101,9 +2079,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     for (final m in sorted) {
       final local = m.ts.toLocal();
       if (prevLocal == null) {
-        out.add(_DayItem(_dateOnly(local)));
-      } else if (_dateOnly(local) != _dateOnly(prevLocal)) {
-        out.add(_DayItem(_dateOnly(local)));
+        out.add(_DayItem(dateOnly(local)));
+      } else if (dateOnly(local) != dateOnly(prevLocal)) {
+        out.add(_DayItem(dateOnly(local)));
       } else if (local.difference(prevLocal) >= gapThreshold) {
         out.add(_GapItem(local));
       }
@@ -2189,21 +2167,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     }
   }
 
-  static DateTime _dateOnly(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
+  static String _formatDaySeparator(DateTime day) =>
+      dayLabel(day, now: DateTime.now());
 
-  static String _formatDaySeparator(DateTime day) {
-    final today = _dateOnly(DateTime.now());
-    if (day == today) return 'Today';
-    if (day == today.subtract(const Duration(days: 1))) return 'Yesterday';
-    final diff = today.difference(day).inDays;
-    if (diff > 0 && diff < 7) return _weekdayName(day.weekday);
-    if (day.year == today.year) return '${_monthName(day.month)} ${day.day}';
-    return '${_monthName(day.month)} ${day.day}, ${day.year}';
-  }
-
-  static String _formatGapHeader(DateTime t) {
-    return _formatTime(t);
-  }
+  static String _formatGapHeader(DateTime t) => clockTime(t);
 
   /// Compact 24-hour, zero-padded time for the in-bubble stamp (e.g. 09:03).
   static String _formatHm(DateTime t) {
@@ -2215,46 +2182,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// Absolute date + time for the long-press menu header, e.g.
   /// "Saturday, Jun 13, 2026 at 3:42 PM". The in-bubble stamp is hh:mm only.
   static String _formatFull(DateTime t) =>
-      '${_weekdayName(t.weekday)}, ${_monthName(t.month)} ${t.day}, '
-      '${t.year} at ${_formatTime(t)}';
-
-  static String _formatTime(DateTime t) {
-    final h = t.hour == 0 ? 12 : (t.hour > 12 ? t.hour - 12 : t.hour);
-    final m = t.minute.toString().padLeft(2, '0');
-    final ampm = t.hour < 12 ? 'AM' : 'PM';
-    return '$h:$m $ampm';
-  }
-
-  static String _weekdayName(int wd) {
-    const names = [
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-      'Sunday',
-    ];
-    return names[wd - 1];
-  }
-
-  static String _monthName(int month) {
-    const names = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return names[month - 1];
-  }
+      '${weekdayName(t.weekday)}, ${monthName(t.month)} ${t.day}, '
+      '${t.year} at ${clockTime(t)}';
 
   /// Base body text size for message bubbles and the composer. iMessage body
   /// text is ~17pt; matching it also nudges inline emoji up a touch.
@@ -3718,7 +3647,7 @@ class _MediaMeta extends StatelessWidget {
           Text(time, style: const TextStyle(fontSize: 10, color: Colors.white)),
           if (marker != null) ...[
             const SizedBox(width: 4),
-            _ConversationPageState._markerWidget(marker!, context.palette),
+            _ConversationPageState._markerWidget(marker!),
           ],
         ],
       ),

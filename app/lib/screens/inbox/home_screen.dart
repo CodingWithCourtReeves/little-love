@@ -30,10 +30,11 @@ import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
 import '../../identity/providers.dart';
 import '../../inbox/active_room_provider.dart';
+import '../../inbox/channel_order.dart';
 import '../../inbox/conversation_list_item.dart';
 import '../../inbox/global_search_page.dart';
 import '../../inbox/inbox_state.dart';
-import '../../inbox/read_state_provider.dart';
+import '../../inbox/room_preview.dart';
 import '../../inbox/room.dart';
 import '../../outbox/outbox_drain.dart';
 import '../../outbox/outbox_retry.dart';
@@ -198,50 +199,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _body(List<Room> rooms) {
-    if (rooms.isNotEmpty) return _roomList(rooms);
-    // Empty inbox: distinguish "still syncing" from "genuinely unpaired" so we
-    // don't flash the pairing screen on launch before the room list arrives.
+    // Until the first sync finishes — the room list has arrived AND each room's
+    // local history has loaded — show a blank canvas. That keeps an empty
+    // inbox from flashing the pairing screen before the list arrives, and a
+    // full one from drawing rows that then fill in and reorder as rooms load.
     final synced = ref.watch(inboxSyncedProvider);
     final connFailed = ref.watch(liveConnectionProvider).hasError;
-    if (synced || connFailed) return _emptyState();
-    // First sync in flight — a blank canvas (no flash).
-    return const SizedBox.expand();
-  }
-
-  /// True iff [roomId] has an incoming (partner) message past its read marker.
-  bool _roomUnread(String roomId, Map<String, DateTime> markers) {
-    final marker = markers[roomId];
-    for (final m in ref.watch(messageStoreProvider(roomId))) {
-      if (m.from == _me) continue;
-      if (marker == null || m.ts.isAfter(marker)) return true;
-    }
-    return false;
+    if (!synced && !connFailed) return const SizedBox.expand();
+    if (rooms.isNotEmpty) return _roomList(rooms);
+    return _emptyState();
   }
 
   Widget _emptyState() {
     return PairingScreen(selfUsername: _me);
   }
 
+  /// The partner chat pinned first (no header: being first is the pin), then
+  /// a CHANNELS section ordered by latest activity ([channelsByActivity]),
+  /// ending in a "New channel" row.
   Widget _roomList(List<Room> rooms) {
-    final markers = ref.watch(readStateProvider);
     final profiles = ref.watch(profileStoreProvider);
     String? nameFor(String username) =>
         profiles.forUsername(username)?.displayName;
-    List<Room> bucket(RoomShape shape) =>
-        rooms.where((r) => r.shape(_me) == shape).toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final partners = bucket(RoomShape.partner);
-    final chats = bucket(RoomShape.chat);
-
-    Widget header(String label) => Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: context.palette.textMuted,
-          letterSpacing: 1.2,
-        ),
-      ),
+    final previews = {
+      for (final r in rooms)
+        r.roomId: ref.watch(roomPreviewProvider((me: _me, roomId: r.roomId))),
+    };
+    final partners = rooms.where((r) => r.shape(_me) == RoomShape.partner);
+    final channels = channelsByActivity(
+      rooms.where((r) => r.shape(_me) == RoomShape.chat),
+      (roomId) => previews[roomId]?.at,
     );
 
     // The partner avatar for a room: the first other member's profile image,
@@ -257,25 +244,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return Avatar(
         seedText: seed,
         imageFile: profiles.avatarFileFor(partner),
-        radius: 18,
+        radius: 26,
       );
     }
 
-    Widget item(Room r) => ConversationListItem(
+    Widget item(Room r, {required Widget? leading}) => ConversationListItem(
       key: Key('home-room-${r.roomId}'),
       label: r.displayName(_me, nameFor: nameFor),
-      selected: false,
-      unread: _roomUnread(r.roomId, markers),
-      leading: avatarFor(r),
+      preview: previews[r.roomId] ?? const RoomPreview(),
+      leading: leading,
       onTap: () => _openRoom(r),
     );
 
     return ListView(
       children: [
-        if (partners.isNotEmpty) header('PARTNER'),
-        ...partners.map(item),
-        if (chats.isNotEmpty) ...[const SizedBox(height: 16), header('CHATS')],
-        ...chats.map(item),
+        for (final r in partners) item(r, leading: avatarFor(r)),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 6),
+          child: Text(
+            'CHANNELS',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: context.palette.textMuted,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ),
+        for (final r in channels) item(r, leading: const _ChannelTile.hash()),
+        _NewChannelRow(
+          showHint: channels.isEmpty,
+          onTap: () => showCreateChannelSheet(context, ref),
+        ),
       ],
     );
   }
@@ -899,6 +897,96 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       drain: ref.read(outboxDrainProvider),
       messages: (roomId) => ref.read(messageStoreProvider(roomId).notifier),
       clientMsgId: clientMsgId,
+    );
+  }
+}
+
+/// The square leading a channel row ("#") or the "New channel" row ("+"), the
+/// same size as the partner's avatar so every row's text lines up.
+class _ChannelTile extends StatelessWidget {
+  const _ChannelTile.hash() : _isNew = false;
+  const _ChannelTile.plus() : _isNew = true;
+
+  /// The "New channel" row's "+" rather than a channel's "#".
+  final bool _isNew;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Container(
+      key: Key(_isNew ? 'new-channel-tile' : 'channel-tile'),
+      width: 52,
+      height: 52,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: p.bgSurfaceAlt,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Text(
+        _isNew ? '+' : '#',
+        style: TextStyle(
+          fontSize: _isNew ? 26 : 24,
+          fontWeight: _isNew ? FontWeight.w400 : FontWeight.w600,
+          color: p.accentUser,
+        ),
+      ),
+    );
+  }
+}
+
+/// The last row of the CHANNELS section, opening the create sheet (the same
+/// as the app bar's +), the way Slack ends a section with "Add channel". With
+/// no channels yet it carries a one-line hint about what a channel is.
+class _NewChannelRow extends StatelessWidget {
+  const _NewChannelRow({required this.showHint, required this.onTap});
+
+  final bool showHint;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: const Key('home-new-channel-row'),
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: showHint ? 72 : 64),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+            child: Row(
+              children: [
+                const _ChannelTile.plus(),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'New channel',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          color: p.accentUser,
+                        ),
+                      ),
+                      if (showHint) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          'A topic room just for the two of you.',
+                          style: TextStyle(fontSize: 14, color: p.textMuted),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

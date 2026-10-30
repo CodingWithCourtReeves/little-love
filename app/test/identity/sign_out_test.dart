@@ -8,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/attachment/staged_attachment.dart';
 import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/composer_draft.dart';
+import 'package:littlelove/conversation/draft_preview_state.dart';
+import 'package:littlelove/conversation/room_hydration_state.dart';
 import 'package:littlelove/conversation/message_db.dart';
 import 'package:littlelove/conversation/staged_media_store.dart';
 import 'package:littlelove/conversation/message_search.dart';
@@ -213,6 +215,26 @@ void main() {
 
     // The next account on this device must not inherit the tray.
     expect(ref.read(stagedMediaProvider('r1')), isEmpty);
+  });
+
+  testWidgets('signOut forgets draft previews and loaded-history flags', (
+    t,
+  ) async {
+    final ref = await _mountRef(
+      t,
+      baseOverrides(_GatedOutbox(Future<void>.value()), _FakeMessageDb()),
+    );
+    ref
+        .read(draftPreviewProvider('r1').notifier)
+        .set(const ComposerDraft(text: 'for your eyes only'));
+    ref.read(roomHydratedProvider('r1').notifier).markHydrated();
+
+    await signOut(ref);
+    await t.pumpAndSettle();
+
+    // The next account must not see the last one's draft text on a row.
+    expect(ref.read(draftPreviewProvider('r1')), isNull);
+    expect(ref.read(roomHydratedProvider('r1')), isFalse);
   });
 
   testWidgets('signOut preserves a captured pair-link code', (t) async {

@@ -6,6 +6,7 @@ import '../attachment/attachment_descriptor.dart';
 import '../attachment/attachment_download.dart';
 import '../audio/message_feedback.dart';
 import '../calling/call_log.dart';
+import '../diagnostics/crash_reporting.dart';
 import '../identity/current_identity.dart';
 import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
@@ -25,6 +26,7 @@ import 'message_content.dart';
 import 'message_db.dart';
 import 'message_store.dart';
 import 'presence_state.dart';
+import 'room_hydration_state.dart';
 import 'room_key_cache.dart';
 import 'typing_state.dart';
 
@@ -69,9 +71,26 @@ class RoomMessageRouter {
               ),
             )
             .toList(growable: false);
+        // Publish the list before any await: frames are handled concurrently,
+        // and the ones the server sends right behind Rooms (the partner's
+        // Profile, Presence) look their room up in the inbox. Publishing after
+        // a db read drops them.
         ref.read(inboxStateProvider.notifier).setRooms(mapped);
-        // The authoritative room list has landed — the inbox is now synced, so
-        // an empty list reads as "unpaired" rather than "still loading".
+        // Load every room's local history before the inbox reads as synced,
+        // so the home list's first frame already has each row's preview and
+        // the channels in activity order: no "No messages yet" flash and no
+        // rows reordering as rooms load one by one. A db that won't open is
+        // reported and the inbox still syncs, as it did before.
+        for (final r in mapped) {
+          try {
+            await _hydrate(r.roomId);
+          } catch (e, st) {
+            reportFault(e, st, context: 'room_hydrate');
+          }
+        }
+        // The authoritative room list has landed and loaded — the inbox is now
+        // synced, so an empty list reads as "unpaired" rather than "still
+        // loading".
         ref.read(inboxSyncedProvider.notifier).state = true;
         for (final r in mapped) {
           await _subscribe(r.roomId);
@@ -230,17 +249,26 @@ class RoomMessageRouter {
     ref.read(inboxStateProvider.notifier).setRooms(current);
   }
 
-  Future<void> _subscribe(String roomId) async {
-    if (!_subscribed.add(roomId)) return;
+  /// Hydrate the in-memory store from the local projection so history is on
+  /// screen instantly (and offline), then mark the room hydrated. Once per
+  /// room: a reconnect's RoomsFrame doesn't reload over live state.
+  Future<void> _hydrate(String roomId) async {
+    if (ref.read(roomHydratedProvider(roomId))) return;
     final db = await ref.read(messageDbProvider.future);
-    // Hydrate the in-memory store from the local projection so history is on
-    // screen instantly (and offline). MUST complete before the Subscribe is
-    // sent, so server replay frames land on top of the hydrated buffer rather
-    // than racing it — the server doesn't replay until it gets the Subscribe.
     final cached = await db.messagesFor(roomId);
     if (cached.isNotEmpty) {
       ref.read(messageStoreProvider(roomId).notifier).setAll(cached);
     }
+    ref.read(roomHydratedProvider(roomId).notifier).markHydrated();
+  }
+
+  Future<void> _subscribe(String roomId) async {
+    if (!_subscribed.add(roomId)) return;
+    // Hydration MUST complete before the Subscribe is sent, so server replay
+    // frames land on top of the hydrated buffer rather than racing it — the
+    // server doesn't replay until it gets the Subscribe.
+    await _hydrate(roomId);
+    final db = await ref.read(messageDbProvider.future);
     // Resume from the local high-water-mark: the server replays only the delta
     // (null on first run → a full seed).
     final hwm = await db.highWaterMark(roomId);

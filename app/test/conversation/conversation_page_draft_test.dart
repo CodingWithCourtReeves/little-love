@@ -8,6 +8,7 @@ import 'package:littlelove/attachment/staged_attachment.dart';
 import 'package:littlelove/conversation/composer_draft.dart';
 import 'package:littlelove/conversation/conversation_page.dart';
 import 'package:littlelove/conversation/draft_autosave.dart';
+import 'package:littlelove/conversation/draft_preview_state.dart';
 import 'package:littlelove/conversation/message_db.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/conversation/reply_ref.dart';
@@ -151,6 +152,32 @@ void main() {
     await leaveRoom(tester, c);
     await openRoom(tester, c);
     expect(composerText(tester), 'half a thought');
+  });
+
+  testWidgets('a saved draft reaches the home-list preview, and sending '
+      'clears it', (tester) async {
+    final db = await freshDb();
+    final c = containerFor(db);
+    await openRoom(tester, c);
+
+    await tester.enterText(find.byKey(const Key('composer')), 'oat milk');
+    await tester.pump(DraftAutosave.defaultDelay * 2);
+    expect(c.read(draftPreviewProvider('r1')), 'oat milk');
+
+    await tester.tap(find.byKey(const Key('composer-send')));
+    await tester.pumpAndSettle();
+    expect(c.read(draftPreviewProvider('r1')), isNull);
+  });
+
+  testWidgets('the draft flushed on leaving the room reaches the preview '
+      '(the write lands after the page is gone)', (tester) async {
+    final db = await freshDb();
+    final c = containerFor(db);
+    await openRoom(tester, c);
+
+    await tester.enterText(find.byKey(const Key('composer')), 'quick exit');
+    await leaveRoom(tester, c);
+    expect(c.read(draftPreviewProvider('r1')), 'quick exit');
   });
 
   testWidgets('leaving the room mid-typing still saves the draft', (

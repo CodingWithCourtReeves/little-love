@@ -10,16 +10,23 @@ import 'package:littlelove/conversation/message_db.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/conversation/reply_ref.dart';
 import 'package:littlelove/conversation/presence_state.dart';
+import 'package:littlelove/conversation/room_hydration_state.dart';
 import 'package:littlelove/conversation/room_message_router.dart';
 import 'package:littlelove/conversation/typing_state.dart';
 import 'package:littlelove/audio/message_feedback.dart';
 import 'package:littlelove/crypto/ecdh.dart';
+import 'package:littlelove/conversation/room_key_cache.dart';
+import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/current_identity.dart';
+import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/identity/keypair.dart';
 import 'package:littlelove/inbox/active_room_provider.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/outbox/outbox_store.dart';
+import 'package:littlelove/profile/profile_envelope.dart';
+import 'package:littlelove/profile/profile_service.dart';
+import 'package:littlelove/profile/profile_store.dart';
 import 'package:littlelove/pairing/encryption.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/live_connection.dart';
@@ -1617,5 +1624,137 @@ void main() {
     // Subscribe carried the high-water-mark as the delta anchor.
     final subs = _sentOfKind(conn, 'Subscribe');
     expect((subs.single as Map<String, Object?>)['since_message_id'], '01B');
+  });
+
+  test('the room list publishes at once, but the inbox reads as synced only '
+      'after every room\'s local history has loaded', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final messageDb = await _ffiMessageDb();
+    await messageDb.upsert(
+      Msg(
+        id: '01A',
+        from: 'kaitlyn',
+        to: 'room2',
+        body: 'cached',
+        ts: DateTime.utc(2026, 6, 10, 12),
+      ),
+      roomId: 'room2',
+    );
+    final container = await _container(
+      conn: conn,
+      me: me,
+      messageDb: messageDb,
+    );
+    container.read(roomMessageRouterProvider);
+
+    // Whether any room had loaded when the list was published: none should
+    // have, since publishing comes before any db read, so frames that follow
+    // the room list (the partner's profile, presence) find their room.
+    bool? anyHydratedAtPublish;
+    container.listen(inboxStateProvider, (_, next) {
+      if (next.rooms.isEmpty || anyHydratedAtPublish != null) return;
+      anyHydratedAtPublish = [
+        'room1',
+        'room2',
+      ].any((id) => container.read(roomHydratedProvider(id)));
+    });
+    // Snapshot both rooms' state at the moment the home list is allowed to
+    // show (synced flips true).
+    final atSynced = <String, (bool, int)>{};
+    container.listen(inboxSyncedProvider, (_, synced) {
+      if (!synced || atSynced.isNotEmpty) return;
+      for (final id in ['room1', 'room2']) {
+        atSynced[id] = (
+          container.read(roomHydratedProvider(id)),
+          container.read(messageStoreProvider(id)).length,
+        );
+      }
+    });
+
+    RoomDetail detail(String id) => RoomDetail(
+      roomId: id,
+      name: id == 'room1' ? '' : id,
+      members: [_member('court', me), _member('kaitlyn', peer)],
+      createdAt: DateTime.utc(2026, 6, 10),
+    );
+    conn.emit(RoomsFrame(rooms: [detail('room1'), detail('room2')]));
+    await pumpUntil(() => _sentOfKind(conn, 'Subscribe').length == 2);
+
+    expect(anyHydratedAtPublish, isFalse);
+    expect(atSynced['room1'], (true, 0));
+    expect(atSynced['room2'], (true, 1));
+  });
+
+  test('the partner\'s profile sent right after the room list lands, even '
+      'while room history is still loading', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final container = await _container(
+      conn: conn,
+      me: me,
+      overrides: [
+        accountProvider.overrideWith(
+          (_) async => LocalAccount(
+            username: 'court',
+            ed25519PubBase64: base64.encode(me.ed25519PublicKey),
+            x25519PubBase64: base64.encode(me.x25519PublicKey),
+            createdAt: DateTime.utc(2026, 6, 10),
+          ),
+        ),
+      ],
+    );
+    await container.read(accountProvider.future);
+    container.read(roomMessageRouterProvider);
+
+    final room = Room(
+      roomId: 'room1',
+      name: '',
+      members: [_member('court', me), _member('kaitlyn', peer)],
+      createdAt: DateTime.utc(2026, 6, 10),
+    );
+    // Kaitlyn's sealed profile, as the server replays it on connect.
+    final capture = _FakeConn();
+    await publishProfile(
+      conn: capture,
+      coupleRoom: room,
+      me: peer,
+      selfUsername: 'kaitlyn',
+      data: const ProfileData(displayName: 'Kait', avatar: null),
+      cache: RoomKeyCache(),
+    );
+    final envelope =
+        (_sentOfKind(capture, 'PublishProfile').single
+                as Map<String, Object?>)['envelope']!
+            as String;
+
+    // The server's connect order: Rooms, then Presence, then the profile,
+    // back to back.
+    conn.emit(
+      RoomsFrame(
+        rooms: [
+          RoomDetail(
+            roomId: room.roomId,
+            name: room.name,
+            members: room.members,
+            createdAt: room.createdAt,
+          ),
+        ],
+      ),
+    );
+    conn.emit(ProfileFrame(user: 'kaitlyn', envelopeB64: envelope));
+
+    await pumpUntil(
+      () => container.read(profileStoreProvider).forUsername('kaitlyn') != null,
+    );
+    // Let the room finish loading and subscribing before teardown closes the
+    // db under it.
+    await pumpUntil(() => _sentOfKind(conn, 'Subscribe').isNotEmpty);
+    expect(
+      container.read(profileStoreProvider).forUsername('kaitlyn')!.displayName,
+      'Kait',
+    );
   });
 }

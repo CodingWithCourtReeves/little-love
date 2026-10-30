@@ -21,6 +21,7 @@ class DraftAutosave {
     required this._db,
     required this.roomId,
     this.delay = defaultDelay,
+    this.onWritten,
   });
 
   static const defaultDelay = Duration(milliseconds: 400);
@@ -28,6 +29,11 @@ class DraftAutosave {
   final Future<MessageDb?> _db;
   final String roomId;
   final Duration delay;
+
+  /// Called after each draft is durably saved (an empty one means it was
+  /// deleted), so the home list can show it. Runs after the db write, never
+  /// synchronously from [flush] or [clear].
+  final void Function(ComposerDraft draft)? onWritten;
 
   Timer? _timer;
   ComposerDraft Function()? _pending;
@@ -91,10 +97,20 @@ class DraftAutosave {
     // released on failure so the next attempt still writes.
     _lastWritten = sig;
     try {
-      await (await _db)?.saveDraft(roomId, draft);
+      final db = await _db;
+      if (db == null) return;
+      await db.saveDraft(roomId, draft);
     } catch (e, st) {
       _lastWritten = null;
       reportFault(e, st, context: 'draft_save');
+      return;
+    }
+    // Outside the try: the save succeeded, so a throwing listener must not
+    // un-claim it or be reported as a failed save.
+    try {
+      onWritten?.call(draft);
+    } catch (e, st) {
+      reportFault(e, st, context: 'draft_written_listener');
     }
   }
 
