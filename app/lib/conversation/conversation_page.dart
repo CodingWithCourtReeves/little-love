@@ -38,6 +38,8 @@ import '../wallpaper/wallpaper_controller.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
 import 'audio_bubble.dart';
+import 'bubble_background.dart';
+import 'bubble_run.dart';
 import 'chat_separator.dart';
 import 'chat_info_page.dart';
 import 'composer_draft.dart';
@@ -79,8 +81,18 @@ sealed class _Item {
 }
 
 class _BubbleItem extends _Item {
-  const _BubbleItem(this.msg);
+  const _BubbleItem(
+    this.msg, {
+    required this.position,
+    required this.afterSeparator,
+  });
   final Msg msg;
+
+  /// Where the bubble sits in its run of same-sender messages (#84).
+  final RunPosition position;
+
+  /// Whether a day separator or gap header sits directly above this row.
+  final bool afterSeparator;
 }
 
 /// The start of a calendar day. [time] is the day's first message (local), so
@@ -1562,7 +1574,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                               4 +
                               MediaQuery.of(context).padding.top +
                               kToolbarHeight,
-                          bottom: 12,
+                          // The newest bubble has no margin of its own now
+                          // (run spacing sits above each row), so this is the
+                          // whole gap above the composer.
+                          bottom: 16,
                         ),
                         itemCount: items.length,
                         // Relocate existing keyed rows by identity when an
@@ -1579,12 +1594,26 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                         itemBuilder: (_, i) {
                           final item = items[i];
                           final child = switch (item) {
-                            _BubbleItem(:final msg) => _bubbleRow(
-                              msg,
-                              me,
-                              status.inBubble[msg.id],
-                              status.issueRun[msg.id],
-                            ),
+                            _BubbleItem(
+                              :final msg,
+                              :final position,
+                              :final afterSeparator,
+                            ) =>
+                              Padding(
+                                padding: EdgeInsets.only(
+                                  top: runGapAbove(
+                                    position,
+                                    afterSeparator: afterSeparator,
+                                  ),
+                                ),
+                                child: _bubbleRow(
+                                  msg,
+                                  me,
+                                  position,
+                                  status.inBubble[msg.id],
+                                  status.issueRun[msg.id],
+                                ),
+                              ),
                             _DayItem(:final time) => _daySeparator(time),
                             _GapItem(:final time) => _gapHeader(time),
                           };
@@ -1665,7 +1694,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// the room opened (sent and received). [Set.add] returns true only the first
   /// time a key is seen; seeded history and reconciled rows are already present,
   /// so they render without the animation.
-  Widget _bubbleRow(Msg m, String me, _Marker? marker, _RunIssue? issue) {
+  Widget _bubbleRow(
+    Msg m,
+    String me,
+    RunPosition position,
+    _Marker? marker,
+    _RunIssue? issue,
+  ) {
     final animKey = m.clientMsgId ?? m.id;
     final firstAppearance = _animatedIds.add(animKey);
     // A love tap that just arrived (sent or received) bursts hearts from its
@@ -1675,7 +1710,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         !MediaQuery.disableAnimationsOf(context)) {
       _loveTapBursts[animKey] = _Burst(++_burstSeq, loveTapBody);
     }
-    final bubble = _bubble(m, me, marker, issue);
+    final bubble = _bubble(m, me, position, marker, issue);
     if (!firstAppearance) return bubble;
     return _PopIn(
       key: Key('popin-${m.id}'),
@@ -1684,13 +1719,19 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  Widget _bubble(Msg m, String me, _Marker? marker, _RunIssue? issue) {
+  Widget _bubble(
+    Msg m,
+    String me,
+    RunPosition position,
+    _Marker? marker,
+    _RunIssue? issue,
+  ) {
     final mine = m.from == me;
     // The sent/sending marker (if any) is drawn inside the bubble itself; the
     // reply quote (if any) is a banner inside the bubble's top edge, built by
     // _bubbleContent — see _replyQuoteBanner. The long-press / double-tap
     // gestures and the reaction badge are attached by [_side].
-    final content = _bubbleContent(m, me, marker);
+    final content = _bubbleContent(m, me, position, marker);
 
     // A run with a failed or stuck send collapses one caption under one bubble;
     // when the run has failures, tapping that bubble retries all of them.
@@ -1846,7 +1887,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _Marker.read => StatusMark.read,
   });
 
-  Widget _bubbleContent(Msg m, String me, _Marker? marker) {
+  Widget _bubbleContent(
+    Msg m,
+    String me,
+    RunPosition position,
+    _Marker? marker,
+  ) {
     final mine = m.from == me;
     // A call-log entry: a side-aligned pill (outgoing → right, incoming → left,
     // Telegram-style) keeping our phone glyphs. Missed/declined show red.
@@ -1866,7 +1912,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         m,
         mine,
         child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
+          margin: const EdgeInsets.symmetric(horizontal: 8),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
             color: context.palette.bgSurface.withValues(alpha: 0.65),
@@ -1898,12 +1944,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       final att = m.attachment!;
       // Voice memos read as a chat bubble (same background + tail as text),
       // with the player inside; images keep their edge-to-edge media tile.
-      if (att.isAudio) return _audioBubble(m, mine, marker, att);
+      if (att.isAudio) return _audioBubble(m, mine, position, marker, att);
       return _side(
         m,
         mine,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 2),
           child: _MediaBubble(
             msg: m,
             isMe: mine,
@@ -1956,7 +2002,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         m,
         mine,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
           child: jumbo,
         ),
       );
@@ -1989,14 +2035,15 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
               ),
             ),
           Container(
-            margin: const EdgeInsets.symmetric(vertical: 4),
             constraints: BoxConstraints(maxWidth: maxBubbleWidth),
             child: CustomPaint(
               key: Key('bubble-bg-${m.clientMsgId ?? m.id}'),
-              painter: _BubbleBackground(
+              painter: BubbleBackground(
                 color: bubbleColor,
                 border: bubbleBorder,
                 mine: mine,
+                tail: position.hasTail,
+                radius: BubbleBackground.cornersFor(position, mine: mine),
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
@@ -2021,12 +2068,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  /// A voice memo rendered inside a chat bubble — same [_BubbleBackground]
-  /// (colour + tail + border) as a text message, with the audio player on top
-  /// and the hh:mm timestamp + status marker tucked bottom-right.
+  /// A voice memo rendered inside a chat bubble — same [BubbleBackground]
+  /// (colour, run shape and tail) as a text message, with the audio player on
+  /// top and the timestamp + status marker tucked bottom-right.
   Widget _audioBubble(
     Msg m,
     bool mine,
+    RunPosition position,
     _Marker? marker,
     AttachmentDescriptor att,
   ) {
@@ -2075,32 +2123,31 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 ),
               ),
             ),
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 4),
-            child: CustomPaint(
-              key: Key('bubble-bg-${m.clientMsgId ?? m.id}'),
-              painter: _BubbleBackground(
-                color: bubbleColor,
-                border: context.palette.borderSoft,
-                mine: mine,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(6, 4, 10, 6),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    if (m.replyTo != null)
-                      _replyQuoteBanner(m, onUserBubble: mine),
-                    AudioBubble(
-                      descriptor: att,
-                      isMe: mine,
-                      controller: ref.read(voicePlaybackControllerProvider),
-                      conn: ref.read(liveConnectionProvider).asData?.value,
-                    ),
-                    meta,
-                  ],
-                ),
+          CustomPaint(
+            key: Key('bubble-bg-${m.clientMsgId ?? m.id}'),
+            painter: BubbleBackground(
+              color: bubbleColor,
+              border: context.palette.borderSoft,
+              mine: mine,
+              tail: position.hasTail,
+              radius: BubbleBackground.cornersFor(position, mine: mine),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(6, 4, 10, 6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (m.replyTo != null)
+                    _replyQuoteBanner(m, onUserBubble: mine),
+                  AudioBubble(
+                    descriptor: att,
+                    isMe: mine,
+                    controller: ref.read(voicePlaybackControllerProvider),
+                    conn: ref.read(liveConnectionProvider).asData?.value,
+                  ),
+                  meta,
+                ],
               ),
             ),
           ),
@@ -2207,22 +2254,44 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   );
 
   /// Group messages by day and insert separators for date changes and for
-  /// gaps of >= 1 hour within a day.
+  /// gaps of >= 1 hour within a day, marking each bubble's place in its run
+  /// (#84). A run breaks at a separator, a sender change and a call-log row.
   static List<_Item> _itemize(List<Msg> sorted) {
     const gapThreshold = Duration(hours: 1);
-    final out = <_Item>[];
+    // First pass: the separator (if any) above each message.
+    final headers = <_Item?>[];
     DateTime? prevLocal;
     for (final m in sorted) {
       final local = m.ts.toLocal();
-      if (prevLocal == null) {
-        out.add(_DayItem(local));
-      } else if (dateOnly(local) != dateOnly(prevLocal)) {
-        out.add(_DayItem(local));
+      if (prevLocal == null || dateOnly(local) != dateOnly(prevLocal)) {
+        headers.add(_DayItem(local));
       } else if (local.difference(prevLocal) >= gapThreshold) {
-        out.add(_GapItem(local));
+        headers.add(_GapItem(local));
+      } else {
+        headers.add(null);
       }
-      out.add(_BubbleItem(m));
       prevLocal = local;
+    }
+    bool breaksBefore(int i) =>
+        i == 0 ||
+        headers[i] != null ||
+        sorted[i].from != sorted[i - 1].from ||
+        sorted[i].callOutcome != null ||
+        sorted[i - 1].callOutcome != null;
+    final out = <_Item>[];
+    for (var i = 0; i < sorted.length; i++) {
+      final header = headers[i];
+      if (header != null) out.add(header);
+      out.add(
+        _BubbleItem(
+          sorted[i],
+          position: RunPosition.of(
+            starts: breaksBefore(i),
+            ends: i == sorted.length - 1 || breaksBefore(i + 1),
+          ),
+          afterSeparator: header != null,
+        ),
+      );
     }
     return out;
   }
@@ -3885,90 +3954,6 @@ class _MediaImageState extends ConsumerState<_MediaImage> {
             ),
     );
   }
-}
-
-/// Paints a chat bubble: a rounded rectangle with a small tail curling out of
-/// the bottom corner on the sender's side — right for my messages, left for the
-/// partner's — like iMessage. The tail isn't a flat flare: the edge runs down
-/// past the corner, pokes out to the box edge, then *hooks back inward* with a
-/// little curl (the control points dip just past the bottom edge). The body
-/// fills the full box; the tail lives entirely inside the bottom corner.
-class _BubbleBackground extends CustomPainter {
-  const _BubbleBackground({
-    required this.color,
-    required this.border,
-    required this.mine,
-  });
-
-  final Color color;
-  final Color border;
-  final bool mine;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = _path(size);
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = color
-        ..isAntiAlias = true
-        ..style = PaintingStyle.fill,
-    );
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = border
-        ..isAntiAlias = true
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1,
-    );
-  }
-
-  /// The canonical iMessage bubble path: 15px rounded corners on three sides,
-  /// and a curled tail at the bottom corner on the sender's side. Coordinates
-  /// are the fixed pixel landmarks from Apple's shape (tail spans ~20px), so it
-  /// reads identically at any bubble size.
-  Path _path(Size size) {
-    final w = size.width;
-    final h = size.height;
-    final path = Path();
-    if (mine) {
-      // Tail at the bottom-right; mirror of the received geometry (x -> w - x).
-      path
-        ..moveTo(w - 20, h)
-        ..lineTo(15, h)
-        ..cubicTo(8, h, 0, h - 8, 0, h - 15) // bottom-left corner
-        ..lineTo(0, 15)
-        ..cubicTo(0, 8, 8, 0, 15, 0) // top-left corner
-        ..lineTo(w - 20, 0)
-        ..cubicTo(w - 12, 0, w - 5, 8, w - 5, 15) // top-right corner
-        ..lineTo(w - 5, h - 10) // right edge runs down past the corner
-        ..cubicTo(w - 5, h - 1, w, h, w, h) // poke out to the tail tip
-        ..cubicTo(w - 4, h + 1, w - 8, h - 1, w - 12, h - 4) // curl back in
-        ..cubicTo(w - 15, h - 1, w - 18, h, w - 20, h) // rejoin bottom edge
-        ..close();
-    } else {
-      // Tail at the bottom-left (received).
-      path
-        ..moveTo(20, h)
-        ..lineTo(w - 15, h)
-        ..cubicTo(w - 8, h, w, h - 8, w, h - 15) // bottom-right corner
-        ..lineTo(w, 15)
-        ..cubicTo(w, 8, w - 8, 0, w - 15, 0) // top-right corner
-        ..lineTo(20, 0)
-        ..cubicTo(12, 0, 5, 8, 5, 15) // top-left corner
-        ..lineTo(5, h - 10) // left edge runs down past the corner
-        ..cubicTo(5, h - 1, 0, h, 0, h) // poke out to the tail tip
-        ..cubicTo(4, h + 1, 8, h - 1, 12, h - 4) // curl back in
-        ..cubicTo(15, h - 1, 18, h, 20, h) // rejoin bottom edge
-        ..close();
-    }
-    return path;
-  }
-
-  @override
-  bool shouldRepaint(_BubbleBackground old) =>
-      old.color != color || old.border != border || old.mine != mine;
 }
 
 class _PlayBadge extends StatelessWidget {
