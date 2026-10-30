@@ -25,6 +25,7 @@ import 'message_content.dart';
 import 'message_db.dart';
 import 'message_store.dart';
 import 'presence_state.dart';
+import 'room_hydration_state.dart';
 import 'room_key_cache.dart';
 import 'typing_state.dart';
 
@@ -241,6 +242,7 @@ class RoomMessageRouter {
     if (cached.isNotEmpty) {
       ref.read(messageStoreProvider(roomId).notifier).setAll(cached);
     }
+    ref.read(roomHydratedProvider(roomId).notifier).markHydrated();
     // Resume from the local high-water-mark: the server replays only the delta
     // (null on first run → a full seed).
     final hwm = await db.highWaterMark(roomId);

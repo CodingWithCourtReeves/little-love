@@ -128,6 +128,42 @@ void main() {
     });
   });
 
+  test('onWritten reports each saved draft, including the delete on send', () {
+    fakeAsync((async) {
+      final db = _RecordingDb();
+      final reported = <String>[];
+      final saver = DraftAutosave(
+        db: Future.value(db),
+        roomId: 'r1',
+        onWritten: (d) => reported.add(d.text),
+      );
+      saver.flush(const ComposerDraft(text: 'oat milk'));
+      // Reported after the write, not synchronously from flush().
+      expect(reported, isEmpty);
+      async.flushMicrotasks();
+      expect(reported, ['oat milk']);
+      saver.clear();
+      async.flushMicrotasks();
+      expect(reported, ['oat milk', '']);
+      saver.dispose();
+    });
+  });
+
+  test('onWritten is not called when the db is unavailable', () {
+    fakeAsync((async) {
+      var calls = 0;
+      final saver = DraftAutosave(
+        db: Future.value(null),
+        roomId: 'r1',
+        onWritten: (_) => calls++,
+      );
+      saver.flush(const ComposerDraft(text: 'x'));
+      async.flushMicrotasks();
+      expect(calls, 0);
+      saver.dispose();
+    });
+  });
+
   test('dispose cancels a pending save without writing', () {
     fakeAsync((async) {
       final db = _RecordingDb();

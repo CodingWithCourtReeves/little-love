@@ -157,4 +157,29 @@ void main() {
         );
     expect(c.read(unreadElsewhereCountProvider(key)), 0);
   });
+
+  test('a call-log row never counts as unread (badge or row count)', () {
+    final c = makeContainer();
+    addTearDown(c.dispose);
+    c.read(inboxStateProvider.notifier).setRooms([roomFor('room-a')]);
+    const key = (me: 'court', roomId: 'room-a');
+    c.listen(roomUnreadCountProvider(key), (_, _) {});
+    c.listen(totalUnreadProvider('court'), (_, _) {});
+    final store = c.read(messageStoreProvider('room-a').notifier);
+    store.add(
+      Msg(
+        id: 'call',
+        from: 'kaitlyn',
+        to: 'room-a',
+        body: '📞 Missed call',
+        ts: DateTime.utc(2026, 6, 14, 12),
+        callOutcome: 'missed',
+      ),
+    );
+    expect(c.read(roomUnreadCountProvider(key)), 0);
+    expect(c.read(totalUnreadProvider('court')), 0);
+    store.add(msg('a1', DateTime.utc(2026, 6, 14, 13)));
+    expect(c.read(roomUnreadCountProvider(key)), 1);
+    expect(c.read(totalUnreadProvider('court')), 1);
+  });
 }

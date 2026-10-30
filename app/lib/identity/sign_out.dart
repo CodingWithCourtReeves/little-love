@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../conversation/draft_preview_state.dart';
 import '../conversation/message_db.dart';
+import '../conversation/room_hydration_state.dart';
 import '../conversation/staged_media_store.dart';
 import '../diagnostics/crash_reporting.dart';
 import '../inbox/active_room_provider.dart';
@@ -67,6 +69,10 @@ Future<void> signOut(WidgetRef ref) async {
   // Media staged on a composer but never sent (in memory only; the text half
   // of the draft went with messageDb.clear() above).
   ref.invalidate(stagedMediaProvider);
+  // Per-room home-list state: the draft previews (their text was wiped with
+  // messageDb.clear() above) and whether each room's history has loaded.
+  ref.invalidate(draftPreviewProvider);
+  ref.invalidate(roomHydratedProvider);
   // Reset the toggle's state so the next account sees it off (matches the
   // cleared pref above).
   ref.invalidate(crashReportingProvider);

@@ -67,20 +67,37 @@ final anyUnreadProvider = Provider.family<bool, String>((ref, excludeRoomId) {
   return false;
 });
 
+/// Unread incoming messages in one room: my partner's messages newer than the
+/// room's last-read marker (all of them when there is no marker yet). Call-log
+/// rows don't count: like reactions and edits they aren't conversation turns
+/// (REVIEW.md, "Non-timeline kinds ... don't bump unread"). This is
+/// the single per-room definition that the app-icon badge
+/// ([totalUnreadProvider]), the conversation back-button badge
+/// ([unreadElsewhereCountProvider]) and the home row's count all use, so they
+/// never disagree. Keyed by the (me, roomId) record so the family caches per
+/// room.
+final roomUnreadCountProvider =
+    Provider.family<int, ({String me, String roomId})>((ref, key) {
+      final marker = ref.watch(
+        readStateProvider.select((markers) => markers[key.roomId]),
+      );
+      var count = 0;
+      for (final m in ref.watch(messageStoreProvider(key.roomId))) {
+        if (m.from == key.me || m.callOutcome != null) continue;
+        if (marker == null || m.ts.isAfter(marker)) count++;
+      }
+      return count;
+    });
+
 /// Total unread incoming messages across all rooms — drives the app-icon badge.
-/// Counts messages newer than each room's last-read marker, excluding the
-/// user's own ([selfUsername]) messages. Keyed by username so the family caches
-/// correctly.
+/// Sums [roomUnreadCountProvider] over every room. Keyed by username so the
+/// family caches correctly.
 final totalUnreadProvider = Provider.family<int, String>((ref, selfUsername) {
-  final rooms = ref.watch(inboxStateProvider).rooms;
-  final lastRead = ref.watch(readStateProvider);
   var total = 0;
-  for (final r in rooms) {
-    final marker = lastRead[r.roomId];
-    for (final m in ref.watch(messageStoreProvider(r.roomId))) {
-      if (m.from == selfUsername) continue;
-      if (marker == null || m.ts.isAfter(marker)) total++;
-    }
+  for (final r in ref.watch(inboxStateProvider).rooms) {
+    total += ref.watch(
+      roomUnreadCountProvider((me: selfUsername, roomId: r.roomId)),
+    );
   }
   return total;
 });
@@ -97,16 +114,12 @@ final totalUnreadProvider = Provider.family<int, String>((ref, selfUsername) {
 /// pending refresh. Taking the room id as a parameter sidesteps that entirely.
 final unreadElsewhereCountProvider =
     Provider.family<int, ({String me, String roomId})>((ref, key) {
-      final rooms = ref.watch(inboxStateProvider).rooms;
-      final lastRead = ref.watch(readStateProvider);
       var total = 0;
-      for (final r in rooms) {
+      for (final r in ref.watch(inboxStateProvider).rooms) {
         if (r.roomId == key.roomId) continue;
-        final marker = lastRead[r.roomId];
-        for (final m in ref.watch(messageStoreProvider(r.roomId))) {
-          if (m.from == key.me) continue;
-          if (marker == null || m.ts.isAfter(marker)) total++;
-        }
+        total += ref.watch(
+          roomUnreadCountProvider((me: key.me, roomId: r.roomId)),
+        );
       }
       return total;
     });
