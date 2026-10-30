@@ -215,6 +215,15 @@ class _UnreadCount extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A bare "3" means nothing to VoiceOver; say what it counts.
+    return Semantics(
+      label: '$count unread',
+      excludeSemantics: true,
+      child: _badge(context),
+    );
+  }
+
+  Widget _badge(BuildContext context) {
     return Container(
       key: const Key('unread-count'),
       constraints: const BoxConstraints(minWidth: 20, minHeight: 20),

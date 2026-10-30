@@ -183,6 +183,30 @@ void main() {
     expect(find.byKey(const Key('status-double-heart')), findsOneWidget);
   });
 
+  testWidgets('VoiceOver hears the delivery mark and what the count counts', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    await tester.pumpWidget(
+      _host(
+        _row(
+          RoomPreview(
+            text: 'Booked it',
+            fromMe: true,
+            mark: StatusMark.read,
+            at: DateTime(2026, 10, 29, 20, 15),
+            unread: 3,
+          ),
+        ),
+      ),
+    );
+    // The tappable row merges its children into one spoken label, so check
+    // the parts are in it rather than separate nodes.
+    expect(find.bySemanticsLabel(RegExp(r'\bRead\b')), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp(r'\b3 unread\b')), findsOneWidget);
+    handle.dispose();
+  });
+
   testWidgets('a failed send shows the not-sent mark', (tester) async {
     await tester.pumpWidget(
       _host(

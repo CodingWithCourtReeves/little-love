@@ -191,6 +191,12 @@ void main() {
     expect(p.text, 'oat milk eggs bread');
   });
 
+  test('a multi-line draft collapses like a message', () {
+    final p = _preview(const [], draft: 'oat milk\n\n\neggs   bread');
+    expect(p.text, 'oat milk eggs bread');
+    expect(p.isDraft, isTrue);
+  });
+
   test('the unread count passes through', () {
     expect(_preview([_msg('1', 'kaitlyn', 'hi')], unread: 3).unread, 3);
   });

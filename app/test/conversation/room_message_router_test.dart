@@ -10,6 +10,7 @@ import 'package:littlelove/conversation/message_db.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/conversation/reply_ref.dart';
 import 'package:littlelove/conversation/presence_state.dart';
+import 'package:littlelove/conversation/room_hydration_state.dart';
 import 'package:littlelove/conversation/room_message_router.dart';
 import 'package:littlelove/conversation/typing_state.dart';
 import 'package:littlelove/audio/message_feedback.dart';
@@ -1617,5 +1618,53 @@ void main() {
     // Subscribe carried the high-water-mark as the delta anchor.
     final subs = _sentOfKind(conn, 'Subscribe');
     expect((subs.single as Map<String, Object?>)['since_message_id'], '01B');
+  });
+
+  test('the room list is published only after every room\'s local history '
+      'has loaded, so the home list never shows a half-loaded state', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final messageDb = await _ffiMessageDb();
+    await messageDb.upsert(
+      Msg(
+        id: '01A',
+        from: 'kaitlyn',
+        to: 'room2',
+        body: 'cached',
+        ts: DateTime.utc(2026, 6, 10, 12),
+      ),
+      roomId: 'room2',
+    );
+    final container = await _container(
+      conn: conn,
+      me: me,
+      messageDb: messageDb,
+    );
+    container.read(roomMessageRouterProvider);
+
+    // Snapshot both rooms' state at the moment the list is published.
+    final atPublish = <String, (bool, int)>{};
+    container.listen(inboxStateProvider, (_, next) {
+      if (next.rooms.isEmpty || atPublish.isNotEmpty) return;
+      for (final id in ['room1', 'room2']) {
+        atPublish[id] = (
+          container.read(roomHydratedProvider(id)),
+          container.read(messageStoreProvider(id)).length,
+        );
+      }
+    });
+
+    RoomDetail detail(String id) => RoomDetail(
+      roomId: id,
+      name: id == 'room1' ? '' : id,
+      members: [_member('court', me), _member('kaitlyn', peer)],
+      createdAt: DateTime.utc(2026, 6, 10),
+    );
+    conn.emit(RoomsFrame(rooms: [detail('room1'), detail('room2')]));
+    await pumpUntil(() => _sentOfKind(conn, 'Subscribe').length == 2);
+
+    expect(atPublish['room1'], (true, 0));
+    expect(atPublish['room2'], (true, 1));
   });
 }

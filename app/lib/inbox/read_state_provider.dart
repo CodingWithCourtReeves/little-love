@@ -70,11 +70,11 @@ final anyUnreadProvider = Provider.family<bool, String>((ref, excludeRoomId) {
 /// Unread incoming messages in one room: my partner's messages newer than the
 /// room's last-read marker (all of them when there is no marker yet). Call-log
 /// rows don't count: like reactions and edits they aren't conversation turns
-/// (REVIEW.md, "Non-timeline kinds ... don't bump unread"). This is
-/// the single per-room definition that the app-icon badge
-/// ([totalUnreadProvider]), the conversation back-button badge
-/// ([unreadElsewhereCountProvider]) and the home row's count all use, so they
-/// never disagree. Keyed by the (me, roomId) record so the family caches per
+/// (REVIEW.md, "Non-timeline kinds ... don't bump unread"). The app-icon
+/// badge ([totalUnreadProvider]), the conversation back-button badge
+/// ([unreadElsewhereCountProvider]) and the home row's count all sum this, so
+/// those three never disagree. (The older yes/no [roomUnreadProvider] uses a
+/// looser rule and drives none of them.) Keyed by the (me, roomId) record so the family caches per
 /// room.
 final roomUnreadCountProvider =
     Provider.family<int, ({String me, String roomId})>((ref, key) {

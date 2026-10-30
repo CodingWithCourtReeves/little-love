@@ -19,7 +19,19 @@ class StatusMarker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.palette;
+    // Spoken by VoiceOver in place of the glyphs, which say nothing alone.
+    return Semantics(
+      label: switch (mark) {
+        StatusMark.sending => 'Sending',
+        StatusMark.sent => 'Sent',
+        StatusMark.read => 'Read',
+      },
+      excludeSemantics: true,
+      child: _glyph(context.palette),
+    );
+  }
+
+  Widget _glyph(AppPalette palette) {
     return switch (mark) {
       StatusMark.sent => _heart(palette.accentUser, key: 'status-heart'),
       // Read = a double heart: a soft trailing heart with the full-accent heart

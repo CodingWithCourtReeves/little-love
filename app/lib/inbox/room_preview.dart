@@ -86,7 +86,14 @@ RoomPreview roomPreviewFor({
     );
   }
   if (draft != null) {
-    return RoomPreview(text: draft, isDraft: true, at: at, unread: unread);
+    // Collapsed like a message, so a multi-line draft flows instead of
+    // spending the two preview lines on line breaks.
+    return RoomPreview(
+      text: _collapse(draft),
+      isDraft: true,
+      at: at,
+      unread: unread,
+    );
   }
   if (latest == null) {
     // Before hydration an empty store means "not loaded yet", not "empty".

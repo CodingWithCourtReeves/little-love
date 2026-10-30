@@ -903,17 +903,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 /// The square leading a channel row ("#") or the "New channel" row ("+"), the
 /// same size as the partner's avatar so every row's text lines up.
 class _ChannelTile extends StatelessWidget {
-  const _ChannelTile.hash() : _glyph = '#';
-  const _ChannelTile.plus() : _glyph = '+';
+  const _ChannelTile.hash() : _isNew = false;
+  const _ChannelTile.plus() : _isNew = true;
 
-  final String _glyph;
+  /// The "New channel" row's "+" rather than a channel's "#".
+  final bool _isNew;
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final hash = _glyph == '#';
     return Container(
-      key: Key(hash ? 'channel-tile' : 'new-channel-tile'),
+      key: Key(_isNew ? 'new-channel-tile' : 'channel-tile'),
       width: 52,
       height: 52,
       alignment: Alignment.center,
@@ -922,10 +922,10 @@ class _ChannelTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
       ),
       child: Text(
-        _glyph,
+        _isNew ? '+' : '#',
         style: TextStyle(
-          fontSize: hash ? 24 : 26,
-          fontWeight: hash ? FontWeight.w600 : FontWeight.w400,
+          fontSize: _isNew ? 26 : 24,
+          fontWeight: _isNew ? FontWeight.w400 : FontWeight.w600,
           color: p.accentUser,
         ),
       ),
