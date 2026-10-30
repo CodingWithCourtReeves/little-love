@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/attachment/attachment_descriptor.dart';
 import 'package:littlelove/conversation/bubble_background.dart';
 import 'package:littlelove/conversation/conversation_page.dart';
 import 'package:littlelove/conversation/message_store.dart';
@@ -9,6 +12,7 @@ import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/theme/app_palette.dart';
 import 'package:littlelove/wire/frames.dart';
+import 'package:littlelove/wire/live_connection.dart';
 import 'package:littlelove/wire/message.dart';
 
 import '../support/test_read_state.dart';
@@ -39,6 +43,10 @@ Future<ProviderContainer> _container(WidgetTester tester) async {
     overrides: [
       accountProvider.overrideWith((_) async => _account),
       hermeticReadStateStore(),
+      // Voice bubbles read the socket for downloads; never connect in tests.
+      liveConnectionProvider.overrideWith(
+        (_) => Completer<LiveConnection>().future,
+      ),
     ],
   );
   addTearDown(container.dispose);
@@ -46,12 +54,16 @@ Future<ProviderContainer> _container(WidgetTester tester) async {
   return container;
 }
 
-Future<void> _pump(WidgetTester tester, ProviderContainer container) async {
+Future<void> _pump(
+  WidgetTester tester,
+  ProviderContainer container, {
+  AppPalette palette = AppPalette.light,
+}) async {
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
       child: MaterialApp(
-        theme: buildAppTheme(AppPalette.light),
+        theme: buildAppTheme(palette),
         home: ConversationPage(
           room: _room(),
           selfUsername: 'me',
@@ -85,6 +97,30 @@ Msg _msg(
   sendStatus: sendStatus,
   reactions: reactions,
   callOutcome: callOutcome,
+);
+
+final _voice = AttachmentDescriptor(
+  blobKey: 'voice-1',
+  contentKeyB64: 'k',
+  nonceB64: 'n',
+  mime: 'audio/mp4',
+  filename: 'voice.m4a',
+  size: 999,
+  width: 0,
+  height: 0,
+  durationMs: 4200,
+  thumbB64: '',
+  waveform: List<int>.filled(64, 9),
+);
+
+/// A voice memo from [from] at 10:[m].
+Msg _voiceMsg(String id, String from, {required int m}) => Msg(
+  id: id,
+  from: from,
+  to: 'r1',
+  body: '',
+  ts: DateTime(2026, 6, 13, 10, m),
+  attachment: _voice,
 );
 
 BubbleBackground _painter(WidgetTester tester, String key) =>
@@ -239,4 +275,30 @@ void main() {
       same(before),
     );
   });
+
+  for (final palette in [AppPalette.light, AppPalette.dark]) {
+    testWidgets('my bubbles have no outline; the partner\'s has only its faint '
+        'edge (${palette.brightness.name})', (tester) async {
+      final container = await _container(tester);
+      final store = container.read(messageStoreProvider('r1').notifier);
+      store.add(_msg('mine', 'me', m: 0));
+      store.add(_voiceMsg('mine-voice', 'me', m: 1));
+      store.add(_msg('theirs', 'kaitlyn', m: 2));
+      store.add(_voiceMsg('theirs-voice', 'kaitlyn', m: 3));
+
+      await _pump(tester, container, palette: palette);
+      for (final key in ['mine', 'mine-voice']) {
+        expect(_painter(tester, key).border, isNull, reason: key);
+      }
+      for (final key in ['theirs', 'theirs-voice']) {
+        expect(
+          _painter(tester, key).border,
+          palette.bubblePartnerEdge,
+          reason: key,
+        );
+      }
+      // Faint: about half the strength of the old full borderSoft line.
+      expect(palette.bubblePartnerEdge.a, lessThan(0.6));
+    });
+  }
 }

@@ -2012,7 +2012,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final bubbleColor = mine
         ? context.palette.bubbleUserBg
         : context.palette.bubblePartnerBg;
-    final bubbleBorder = context.palette.borderSoft;
+    // No outline on mine; a faint edge on the partner's pale bubble (#87).
+    final bubbleBorder = mine ? null : context.palette.bubblePartnerEdge;
     return _side(
       m,
       mine,
@@ -2071,7 +2072,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   }
 
   /// A voice memo rendered inside a chat bubble — same [BubbleBackground]
-  /// (colour, run shape and tail) as a text message, with the audio player on
+  /// (colour, edge, run shape and tail) as a text message, with the audio player on
   /// top and the timestamp + status marker tucked bottom-right.
   Widget _audioBubble(
     Msg m,
@@ -2129,7 +2130,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             key: Key('bubble-bg-${m.clientMsgId ?? m.id}'),
             painter: BubbleBackground(
               color: bubbleColor,
-              border: context.palette.borderSoft,
+              border: mine ? null : context.palette.bubblePartnerEdge,
               mine: mine,
               tail: position.hasTail,
               radius: BubbleBackground.cornersFor(position, mine: mine),
