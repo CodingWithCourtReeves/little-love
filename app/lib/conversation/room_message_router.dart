@@ -22,6 +22,7 @@ import '../wire/frames.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
 import 'incoming_banner_provider.dart';
+import 'love_tap.dart';
 import 'message_content.dart';
 import 'message_db.dart';
 import 'message_store.dart';
@@ -308,6 +309,16 @@ class RoomMessageRouter {
     // echo just like a normal send (otherwise the drain resends it).
     if (content is ReactionContent) {
       store.applyReaction(content.targetId, f.from, content.emoji);
+      // The partner's reaction landing live in the open room gets a light tap
+      // timed to its pop-in (#77). Same live-partner test as the chime
+      // below (`clientMsgId == null && !replayed`); taking a reaction away is
+      // silent. My own reactions buzz on the tap, in the page.
+      if (f.clientMsgId == null &&
+          !f.replayed &&
+          content.emoji.isNotEmpty &&
+          ref.read(activeRoomProvider) == f.roomId) {
+        ref.read(messageFeedbackProvider).reactionReceived();
+      }
       await db.applyReaction(content.targetId, f.from, content.emoji);
       if (f.clientMsgId != null) {
         final outbox = await ref.read(outboxStoreProvider.future);
@@ -436,7 +447,13 @@ class RoomMessageRouter {
           // call-log entry (emitted when a call ends) is not a message to chime
           // about — same exclusion the banner makes below.
           if (content is! CallContent) {
-            ref.read(messageFeedbackProvider).received();
+            // A love tap (#76) arrives as a heartbeat instead of the light tap.
+            // A quoted reply isn't one: it renders as a bubble, not the heart.
+            final loveTap =
+                content is TextContent &&
+                content.replyTo == null &&
+                isLoveTap(content.text);
+            ref.read(messageFeedbackProvider).received(loveTap: loveTap);
           }
           // Flip the sender's bubble to a double heart now (not on the next
           // reopen). Tell the server AND advance our local read marker, so
