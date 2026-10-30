@@ -13,6 +13,7 @@ import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/profile/avatar.dart';
 import 'package:littlelove/theme/app_palette.dart';
 import 'package:littlelove/wallpaper/wallpaper_background.dart';
+import 'package:littlelove/wallpaper/wallpaper_screen.dart';
 import 'package:littlelove/wallpaper/wallpaper_selection.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
@@ -216,6 +217,8 @@ void main() {
         ),
       ),
     );
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('chat-info-rename')));
     await tester.pump();
     await tester.tap(find.byKey(const Key('chat-info-rename')));
     await tester.pumpAndSettle();
@@ -483,6 +486,62 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('chat-info-media-2')));
       expect(opened, ['p5', 'p3']);
+    });
+  });
+
+  group('This chat and the encryption note (#93)', () {
+    testWidgets('the Wallpaper row shows the current wallpaper and opens the '
+        'picker', (tester) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      await tester.pumpWidget(_app(c));
+      await tester.pump();
+      final row = find.byKey(const Key('chat-info-wallpaper'));
+      expect(
+        find.descendant(
+          of: row,
+          matching: find.text(WallpaperSelection.defaults.gradient.label),
+        ),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(row);
+      await tester.pump();
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      expect(find.byType(WallpaperScreen), findsOneWidget);
+    });
+
+    testWidgets('the encryption note names the partner', (tester) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      await tester.pumpWidget(_app(c, room: _dm()));
+      await tester.pump();
+      // The last thing on the page, below the fold in the test window.
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('chat-info-e2ee')),
+        200,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('chat-info-e2ee')),
+          matching: find.text(
+            'Messages, calls and media are end-to-end encrypted. '
+            'Only you and Kaitlyn can see them.',
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the partner DM has no Rename row; This chat still shows', (
+      tester,
+    ) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      await tester.pumpWidget(_app(c, room: _dm()));
+      await tester.pump();
+      expect(find.byKey(const Key('chat-info-wallpaper')), findsOneWidget);
+      expect(find.byKey(const Key('chat-info-rename')), findsNothing);
     });
   });
 }

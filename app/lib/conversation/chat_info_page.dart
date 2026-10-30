@@ -10,6 +10,9 @@ import '../profile/avatar.dart';
 import '../profile/profile_store.dart';
 import '../theme/app_palette.dart';
 import '../theme/love_toast.dart';
+import '../wallpaper/wallpaper_controller.dart';
+import '../wallpaper/wallpaper_screen.dart';
+import '../wallpaper/wallpaper_selection.dart';
 import '../wire/message.dart';
 import 'chat_info_chrome.dart';
 import 'message_search_page.dart';
@@ -114,7 +117,8 @@ class ChatInfoPage extends ConsumerWidget {
           _header(context, name, avatarFile, subtitle),
           _actionRow(context, ref),
           _sharedSection(context, shared),
-          _settings(context),
+          _thisChatSection(context, ref),
+          _encryptionNote(context, withWhom),
         ],
       ),
     );
@@ -234,16 +238,64 @@ class ChatInfoPage extends ConsumerWidget {
     );
   }
 
-  /// Room settings moved off the chat header. Rename only — wallpaper lives on
-  /// the profile page, not here.
-  Widget _settings(BuildContext context) {
+  /// "This chat" (#93): the wallpaper (global, so this opens the same picker
+  /// the profile page hosts) and, for a channel, Rename. The partner DM can't
+  /// be renamed ([onRename] is null), since a name would turn it into a
+  /// channel.
+  Widget _thisChatSection(BuildContext context, WidgetRef ref) {
+    final wallpaper = ref.watch(wallpaperControllerProvider).gradient;
+    return InfoSection(
+      caption: 'THIS CHAT',
+      children: [
+        InfoRow(
+          key: const Key('chat-info-wallpaper'),
+          icon: Icons.wallpaper_outlined,
+          label: 'Wallpaper',
+          value: wallpaper.label,
+          onTap: () => Navigator.of(context).push(WallpaperScreen.route()),
+        ),
+        if (onRename != null)
+          InfoRow(
+            key: const Key('chat-info-rename'),
+            icon: Icons.edit_outlined,
+            label: 'Rename chat',
+            onTap: () => _rename(context),
+          ),
+      ],
+    );
+  }
+
+  /// One quiet line under the cards, iMessage style. Every claim holds:
+  /// messages go under the room key, media under per-file keys, and calls are
+  /// WebRTC (DTLS-SRTP) whose fingerprints are exchanged inside the encrypted
+  /// signaling envelope, so even a TURN relay only forwards ciphertext.
+  Widget _encryptionNote(BuildContext context, String? withWhom) {
     final p = context.palette;
-    if (onRename == null) return const SizedBox.shrink();
-    return ListTile(
-      key: const Key('chat-info-rename'),
-      leading: Icon(Icons.edit_outlined, color: p.accentUser),
-      title: const Text('Rename chat'),
-      onTap: () => _rename(context),
+    final who = withWhom == null ? 'you' : 'you and $withWhom';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(28, 18, 28, 0),
+      child: Row(
+        key: const Key('chat-info-e2ee'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(Icons.lock_outline, size: 14, color: p.separatorText),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Messages, calls and media are end-to-end encrypted. '
+              'Only $who can see them.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: p.separatorText,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
