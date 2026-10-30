@@ -1,38 +1,34 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../attachment/attachment_descriptor.dart';
-import '../audio/playback_provider.dart';
 import '../calling/call_controller.dart';
 import '../inbox/room.dart';
 import '../profile/avatar.dart';
 import '../profile/profile_store.dart';
 import '../theme/app_palette.dart';
 import '../theme/love_toast.dart';
-import '../wire/live_connection.dart';
-import '../wallpaper/wallpaper_background.dart';
 import '../wire/message.dart';
-import 'audio_bubble.dart';
+import 'chat_info_chrome.dart';
 import 'message_search_page.dart';
 import 'message_store.dart';
 import 'partner_status_line.dart';
+import 'shared_media_page.dart';
 
 /// Chat-info page, reached by tapping the room name or avatar in a chat. It
-/// sits on the chat's own wallpaper (#91) under a [veilAlpha] veil, with a
-/// header (avatar, name, presence), Call / Video / Search tiles, and tabs over
-/// the room's shared content (Media, Voice, Links). All data is read from the
-/// local [MessageStore]; nothing new is fetched.
+/// sits on the chat's own wallpaper (#91, see [InfoScaffold]) with a header
+/// (avatar, name, presence), Call / Video / Search tiles, and a Shared card
+/// (#92) whose rows open the full-screen [SharedMediaPage]. All data is read
+/// from the local [MessageStore]; nothing new is fetched.
 class ChatInfoPage extends ConsumerWidget {
   const ChatInfoPage({
     super.key,
     required this.room,
     required this.selfUsername,
     this.onRename,
+    this.onOpenAttachment,
   });
 
   final Room room;
@@ -42,18 +38,9 @@ class ChatInfoPage extends ConsumerWidget {
   /// partner DM). When set, a "Rename chat" row appears here.
   final void Function(String newName)? onRename;
 
-  /// Opacity of the `bgCanvas` veil over the wallpaper. Bare text can't reach
-  /// 4.5:1 on any shipped wallpaper (Twilight is mid-tone), so the page tones
-  /// the wallpaper down instead: at this strength `textPrimary` and
-  /// `separatorText` pass everywhere (checked in `chat_info_page_test.dart`).
-  static const double veilAlpha = 0.6;
-
-  /// Opacity of the frosted cards and tiles that sit on the veil.
-  static const double cardAlpha = 0.85;
-
-  /// The fill of a card or tile on this page.
-  static Color cardColor(AppPalette p) =>
-      p.bubblePartnerBg.withValues(alpha: cardAlpha);
+  /// Opens a shared photo or video in the chat's viewer (the conversation's
+  /// own callback, passed through). Null leaves the thumbnails display-only.
+  final void Function(AttachmentDescriptor descriptor)? onOpenAttachment;
 
   /// Pops a message id when the user picks an in-channel search result (so the
   /// conversation beneath can scroll to it); pops null on a plain back.
@@ -61,11 +48,13 @@ class ChatInfoPage extends ConsumerWidget {
     required Room room,
     required String selfUsername,
     void Function(String newName)? onRename,
+    void Function(AttachmentDescriptor descriptor)? onOpenAttachment,
   }) => MaterialPageRoute<String>(
     builder: (_) => ChatInfoPage(
       room: room,
       selfUsername: selfUsername,
       onRename: onRename,
+      onOpenAttachment: onOpenAttachment,
     ),
   );
 
@@ -80,20 +69,7 @@ class ChatInfoPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.palette;
-    final messages = ref.watch(messageStoreProvider(room.roomId));
-    // Newest first for both galleries.
-    final media = [
-      for (final m in messages.reversed)
-        if (m.attachment != null && !m.attachment!.isAudio) m,
-    ];
-    final voice = [
-      for (final m in messages.reversed)
-        if (m.attachment != null && m.attachment!.isAudio) m,
-    ];
-    final links = [
-      for (final m in messages.reversed)
-        if (_linkUrl(m) != null) m,
-    ];
+    final shared = sharedContent(ref.watch(messageStoreProvider(room.roomId)));
     final profiles = ref.watch(profileStoreProvider);
     final partner = _partnerUsername();
     final partnerProfile = partner != null
@@ -131,84 +107,91 @@ class ChatInfoPage extends ConsumerWidget {
             fontSize: 14,
             labelColor: p.separatorText,
           );
-    return DefaultTabController(
-      length: 3,
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        extendBodyBehindAppBar: true,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          scrolledUnderElevation: 0,
-          surfaceTintColor: Colors.transparent,
-          automaticallyImplyLeading: false,
-          // Status-bar icons follow the palette, which follows the wallpaper.
-          systemOverlayStyle: p.brightness == Brightness.dark
-              ? SystemUiOverlayStyle.light
-              : SystemUiOverlayStyle.dark,
-          leading: Navigator.of(context).canPop()
-              ? IconButton(
-                  key: const Key('chat-info-back'),
-                  tooltip: 'Back',
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  icon: Container(
-                    width: 34,
-                    height: 34,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: cardColor(p),
-                    ),
-                    child: Icon(
-                      Icons.arrow_back_ios_new,
-                      color: p.textPrimary,
-                      size: 18,
-                    ),
-                  ),
-                )
-              : null,
-        ),
-        body: WallpaperBackground(
-          // A Material (not a ColoredBox) so the rows' ink paints on the veil
-          // rather than under it.
-          child: Material(
-            color: p.bgCanvas.withValues(alpha: veilAlpha),
-            child: SafeArea(
-              bottom: false,
-              child: Column(
-                children: [
-                  _header(context, name, avatarFile, subtitle),
-                  _actionRow(context, ref),
-                  const SizedBox(height: 8),
-                  _settings(context),
-                  const SizedBox(height: 8),
-                  TabBar(
-                    labelColor: p.accentUser,
-                    unselectedLabelColor: p.textMuted,
-                    indicatorColor: p.accentUser,
-                    // Drop M3's full-width divider line under the tabs.
-                    dividerColor: Colors.transparent,
-                    tabs: const [
-                      Tab(text: 'Media'),
-                      Tab(text: 'Voice'),
-                      Tab(text: 'Links'),
-                    ],
-                  ),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        _mediaTab(context, media),
-                        _voiceTab(context, ref, voice),
-                        _linksTab(context, links),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
+    return InfoScaffold(
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 32),
+        children: [
+          _header(context, name, avatarFile, subtitle),
+          _actionRow(context, ref),
+          _sharedSection(context, shared),
+          _settings(context),
+        ],
       ),
+    );
+  }
+
+  /// "Photos and videos 48" (with the newest four as a strip), "Voice messages
+  /// 12", "Links 9". Each row opens the [SharedMediaPage] on its kind.
+  Widget _sharedSection(BuildContext context, SharedContent shared) {
+    String count(List<Msg> l) => l.isEmpty ? 'None' : '${l.length}';
+    void open(int tab) => Navigator.of(context).push(
+      SharedMediaPage.route(
+        room: room,
+        initialTab: tab,
+        onOpenAttachment: onOpenAttachment,
+      ),
+    );
+    final strip = shared.media.take(4).toList();
+    return InfoSection(
+      caption: 'SHARED',
+      children: [
+        Column(
+          children: [
+            InfoRow(
+              key: const Key('chat-info-shared-media'),
+              icon: Icons.photo_outlined,
+              label: 'Photos and videos',
+              value: count(shared.media),
+              onTap: () => open(0),
+            ),
+            if (strip.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                child: Row(
+                  key: const Key('chat-info-media-strip'),
+                  children: [
+                    for (var i = 0; i < 4; i++) ...[
+                      if (i > 0) const SizedBox(width: 4),
+                      Expanded(
+                        child: AspectRatio(
+                          aspectRatio: 1,
+                          child: i < strip.length
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: SharedMediaTile(
+                                    key: Key('chat-info-strip-$i'),
+                                    descriptor: strip[i].attachment!,
+                                    onTap: onOpenAttachment == null
+                                        ? null
+                                        : () => onOpenAttachment!(
+                                            strip[i].attachment!,
+                                          ),
+                                  ),
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+          ],
+        ),
+        InfoRow(
+          key: const Key('chat-info-shared-voice'),
+          icon: Icons.mic_none,
+          label: 'Voice messages',
+          value: count(shared.voice),
+          onTap: () => open(1),
+        ),
+        InfoRow(
+          key: const Key('chat-info-shared-links'),
+          icon: Icons.link,
+          label: 'Links',
+          value: count(shared.links),
+          onTap: () => open(2),
+        ),
+      ],
     );
   }
 
@@ -226,7 +209,7 @@ class ChatInfoPage extends ConsumerWidget {
           DecoratedBox(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: cardColor(p), width: 4),
+              border: Border.all(color: infoCardColor(p), width: 4),
             ),
             child: Avatar(seedText: name, imageFile: avatarFile, radius: 48),
           ),
@@ -360,7 +343,7 @@ class ChatInfoPage extends ConsumerWidget {
     final p = context.palette;
     return Expanded(
       child: Material(
-        color: cardColor(p),
+        color: infoCardColor(p),
         borderRadius: BorderRadius.circular(14),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -386,183 +369,6 @@ class ChatInfoPage extends ConsumerWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _mediaTab(BuildContext context, List<Msg> media) {
-    if (media.isEmpty) return _emptyTab(context, 'No media yet');
-    return GridView.builder(
-      key: const Key('chat-info-media-grid'),
-      padding: const EdgeInsets.all(2),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 2,
-        crossAxisSpacing: 2,
-      ),
-      itemCount: media.length,
-      itemBuilder: (_, i) => _MediaTile(
-        key: Key('chat-info-media-$i'),
-        descriptor: media[i].attachment!,
-      ),
-    );
-  }
-
-  Widget _voiceTab(BuildContext context, WidgetRef ref, List<Msg> voice) {
-    if (voice.isEmpty) return _emptyTab(context, 'No voice messages yet');
-    final controller = ref.read(voicePlaybackControllerProvider);
-    final conn = ref.read(liveConnectionProvider).asData?.value;
-    return ListView.builder(
-      key: const Key('chat-info-voice-list'),
-      itemCount: voice.length,
-      itemBuilder: (_, i) => ListTile(
-        key: Key('chat-info-voice-$i'),
-        title: AudioBubble(
-          descriptor: voice[i].attachment!,
-          isMe: false,
-          controller: controller,
-          conn: conn,
-        ),
-      ),
-    );
-  }
-
-  Widget _linksTab(BuildContext context, List<Msg> links) {
-    if (links.isEmpty) return _emptyTab(context, 'No links yet');
-    final p = context.palette;
-    return ListView.separated(
-      key: const Key('chat-info-links-list'),
-      itemCount: links.length,
-      separatorBuilder: (_, _) => Divider(height: 1, color: p.borderSoft),
-      itemBuilder: (_, i) {
-        final m = links[i];
-        final url = _linkUrl(m)!;
-        final title = m.linkPreview?.title?.trim();
-        return ListTile(
-          key: Key('chat-info-link-$i'),
-          leading: _linkLeading(p, m.linkPreview?.imageB64),
-          title: Text(
-            (title != null && title.isNotEmpty) ? title : url,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: p.textPrimary, fontWeight: FontWeight.w500),
-          ),
-          subtitle: Text(
-            url,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: p.textMuted, fontSize: 12),
-          ),
-          onTap: () => _open(url),
-        );
-      },
-    );
-  }
-
-  /// Leading thumbnail for a link row: the link preview's image when it has
-  /// one, else the default link icon.
-  Widget _linkLeading(AppPalette p, String? imageB64) {
-    Uint8List? bytes;
-    if (imageB64 != null && imageB64.isNotEmpty) {
-      try {
-        bytes = base64.decode(imageB64);
-      } catch (_) {
-        bytes = null;
-      }
-    }
-    final icon = SizedBox(
-      width: 40,
-      height: 40,
-      child: Icon(Icons.link, color: p.accentUser),
-    );
-    if (bytes == null) return icon;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
-      child: Image.memory(
-        bytes,
-        width: 40,
-        height: 40,
-        fit: BoxFit.cover,
-        gaplessPlayback: true,
-        errorBuilder: (_, _, _) => icon,
-      ),
-    );
-  }
-
-  Widget _emptyTab(BuildContext context, String message) {
-    return Center(
-      child: Text(
-        message,
-        style: TextStyle(color: context.palette.textMuted, fontSize: 14),
-      ),
-    );
-  }
-
-  Future<void> _open(String url) async {
-    final normalized = url.startsWith('http') ? url : 'https://$url';
-    final uri = Uri.tryParse(normalized);
-    if (uri != null) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
-  }
-}
-
-/// First URL in a message — from its fetched link preview if present, else a
-/// loose scan of the body. Null when the message carries no link.
-String? _linkUrl(Msg m) {
-  final preview = m.linkPreview?.url;
-  if (preview != null && preview.isNotEmpty) return preview;
-  return _urlPattern.firstMatch(m.body)?.group(0);
-}
-
-final RegExp _urlPattern = RegExp(
-  r'(https?://[^\s]+)|(\bwww\.[^\s]+)',
-  caseSensitive: false,
-);
-
-/// A single media tile: the inline encrypted thumbnail decoded to bytes, with a
-/// play badge over videos. Display-only for now (no full-screen viewer yet).
-class _MediaTile extends StatefulWidget {
-  const _MediaTile({super.key, required this.descriptor});
-  final AttachmentDescriptor descriptor;
-  @override
-  State<_MediaTile> createState() => _MediaTileState();
-}
-
-class _MediaTileState extends State<_MediaTile> {
-  late final Future<Uint8List> _bytes = decodeThumb(widget.descriptor.thumbB64);
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    return DecoratedBox(
-      decoration: BoxDecoration(color: p.bgSurfaceAlt),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          FutureBuilder<Uint8List>(
-            future: _bytes,
-            builder: (_, snap) {
-              if (snap.hasData) {
-                return Image.memory(
-                  snap.data!,
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                  filterQuality: FilterQuality.medium,
-                );
-              }
-              return const SizedBox.shrink();
-            },
-          ),
-          if (widget.descriptor.isVideo)
-            const Center(
-              child: Icon(
-                Icons.play_circle_fill,
-                color: Colors.white,
-                size: 32,
-              ),
-            ),
-        ],
       ),
     );
   }

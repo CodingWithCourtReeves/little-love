@@ -1418,6 +1418,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 room: widget.room,
                 selfUsername: widget.selfUsername,
                 onRename: widget.onRename,
+                onOpenAttachment: widget.onOpenAttachment,
               ),
             );
             if (focusId != null) await _focusMessage(focusId);
@@ -1469,6 +1470,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                     room: widget.room,
                     selfUsername: widget.selfUsername,
                     onRename: widget.onRename,
+                    onOpenAttachment: widget.onOpenAttachment,
                   ),
                 );
                 if (focusId != null) await _focusMessage(focusId);

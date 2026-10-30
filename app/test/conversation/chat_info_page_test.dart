@@ -4,10 +4,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/conversation/chat_info_chrome.dart';
 import 'package:littlelove/conversation/chat_info_page.dart';
 import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_store.dart';
+import 'package:littlelove/conversation/shared_media_page.dart';
 import 'package:littlelove/inbox/room.dart';
+import 'package:littlelove/profile/avatar.dart';
 import 'package:littlelove/theme/app_palette.dart';
 import 'package:littlelove/wallpaper/wallpaper_background.dart';
 import 'package:littlelove/wallpaper/wallpaper_selection.dart';
@@ -65,9 +68,8 @@ double _contrast(Color a, Color b) {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('header shows the partner name; tabs render media and links', (
-    tester,
-  ) async {
+  testWidgets('header shows the name; the shared gallery renders media and '
+      'links', (tester) async {
     final c = ProviderContainer();
     addTearDown(c.dispose);
     c.read(messageStoreProvider('roomA').notifier).setAll([
@@ -97,7 +99,9 @@ void main() {
     expect(find.byKey(const Key('chat-info-name')), findsOneWidget);
     expect(find.text('Kaitlyn'), findsOneWidget);
 
-    // Media tab (default) shows the one attachment tile.
+    await tester.tap(find.byKey(const Key('chat-info-shared-media')));
+    await tester.pumpAndSettle();
+    // The gallery opens on Photos, with the one attachment tile.
     expect(find.byKey(const Key('chat-info-media-grid')), findsOneWidget);
     expect(find.byKey(const Key('chat-info-media-0')), findsOneWidget);
 
@@ -129,7 +133,9 @@ void main() {
     ]);
     await tester.pumpWidget(_app(c));
     await tester.pump();
-    await tester.tap(find.text('Links'));
+    await tester.ensureVisible(find.byKey(const Key('chat-info-shared-links')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('chat-info-shared-links')));
     await tester.pumpAndSettle();
 
     // The leading thumbnail is an Image (decoded preview), not the link icon.
@@ -147,10 +153,14 @@ void main() {
   ) async {
     final c = ProviderContainer();
     addTearDown(c.dispose);
-    // No messages at all.
+    // No messages at all: every Shared row says None.
     await tester.pumpWidget(_app(c));
     await tester.pump();
-    expect(find.text('No media yet'), findsOneWidget);
+    expect(find.text('None'), findsNWidgets(3));
+    expect(find.byKey(const Key('chat-info-media-strip')), findsNothing);
+    await tester.tap(find.byKey(const Key('chat-info-shared-media')));
+    await tester.pumpAndSettle();
+    expect(find.text('No photos or videos yet'), findsOneWidget);
 
     await tester.tap(find.text('Voice'));
     await tester.pumpAndSettle();
@@ -230,6 +240,11 @@ void main() {
           matching: find.byType(WallpaperBackground),
         ),
         findsOneWidget,
+      ); // The page runs behind its transparent app bar, but the content starts
+      // below the toolbar, never under the back pill.
+      expect(
+        tester.getRect(find.byType(Avatar)).top,
+        greaterThanOrEqualTo(kToolbarHeight),
       );
     });
 
@@ -302,10 +317,10 @@ void main() {
             Color.alphaBlend(wallpaper.doodleInk, spot),
           ]) {
             final veil = Color.alphaBlend(
-              p.bgCanvas.withValues(alpha: ChatInfoPage.veilAlpha),
+              p.bgCanvas.withValues(alpha: veilAlpha),
               ground,
             );
-            final card = Color.alphaBlend(ChatInfoPage.cardColor(p), veil);
+            final card = Color.alphaBlend(infoCardColor(p), veil);
             final reason = '${wallpaper.label} at $ground';
             expect(
               _contrast(p.textPrimary, veil),
@@ -325,6 +340,149 @@ void main() {
           }
         }
       }
+    });
+  });
+
+  group('the Shared card (#92)', () {
+    AttachmentDescriptor photo(String key) => AttachmentDescriptor(
+      blobKey: key,
+      contentKeyB64: 'k',
+      nonceB64: 'n',
+      mime: 'image/jpeg',
+      filename: '$key.jpg',
+      size: 1234,
+      width: 100,
+      height: 80,
+      durationMs: null,
+      thumbB64: 'thumb',
+    );
+    final voice = AttachmentDescriptor(
+      blobKey: 'v',
+      contentKeyB64: 'k',
+      nonceB64: 'n',
+      mime: 'audio/mp4',
+      filename: 'voice.m4a',
+      size: 999,
+      width: 0,
+      height: 0,
+      durationMs: 4200,
+      thumbB64: '',
+      waveform: List<int>.filled(64, 9),
+    );
+
+    /// Six photos (p0 oldest … p5 newest), two voice memos and one link.
+    List<Msg> history() => [
+      for (var i = 0; i < 6; i++)
+        Msg(
+          id: 'p$i',
+          from: 'kaitlyn',
+          to: 'court',
+          body: '',
+          ts: DateTime.utc(2026, 6, 10, 9, i),
+          attachment: photo('p$i'),
+        ),
+      for (var i = 0; i < 2; i++)
+        Msg(
+          id: 'v$i',
+          from: 'court',
+          to: 'kaitlyn',
+          body: '',
+          ts: DateTime.utc(2026, 6, 10, 10, i),
+          attachment: voice,
+        ),
+      Msg(
+        id: 'l0',
+        from: 'kaitlyn',
+        to: 'court',
+        body: 'https://example.com',
+        ts: DateTime.utc(2026, 6, 10, 11),
+      ),
+    ];
+
+    Widget app(
+      ProviderContainer c, {
+      void Function(AttachmentDescriptor d)? onOpen,
+    }) => UncontrolledProviderScope(
+      container: c,
+      child: MaterialApp(
+        theme: buildAppTheme(AppPalette.light),
+        home: ChatInfoPage(
+          room: _room(),
+          selfUsername: 'court',
+          onOpenAttachment: onOpen,
+        ),
+      ),
+    );
+
+    Finder valueOf(String row, String value) =>
+        find.descendant(of: find.byKey(Key(row)), matching: find.text(value));
+
+    testWidgets('counts each kind, with the four newest photos as a strip', (
+      tester,
+    ) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      c.read(messageStoreProvider('roomA').notifier).setAll(history());
+      await tester.pumpWidget(app(c));
+      await tester.pump();
+
+      expect(valueOf('chat-info-shared-media', '6'), findsOneWidget);
+      expect(valueOf('chat-info-shared-voice', '2'), findsOneWidget);
+      expect(valueOf('chat-info-shared-links', '1'), findsOneWidget);
+      final strip = [
+        for (var i = 0; i < 4; i++)
+          tester
+              .widget<SharedMediaTile>(find.byKey(Key('chat-info-strip-$i')))
+              .descriptor
+              .blobKey,
+      ];
+      expect(strip, ['p5', 'p4', 'p3', 'p2']);
+      expect(find.byKey(const Key('chat-info-strip-4')), findsNothing);
+    });
+
+    testWidgets('each row opens the gallery on its own kind', (tester) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      c.read(messageStoreProvider('roomA').notifier).setAll(history());
+      await tester.pumpWidget(app(c));
+      await tester.pump();
+
+      await tester.ensureVisible(
+        find.byKey(const Key('chat-info-shared-voice')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('chat-info-shared-voice')));
+      await tester.pumpAndSettle();
+      expect(find.byType(SharedMediaPage), findsOneWidget);
+      expect(find.byKey(const Key('chat-info-voice-list')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('chat-info-back')));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const Key('chat-info-shared-links')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('chat-info-shared-links')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('chat-info-links-list')), findsOneWidget);
+    });
+
+    testWidgets('a shared photo opens in the viewer, from the strip and from '
+        'the gallery', (tester) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      c.read(messageStoreProvider('roomA').notifier).setAll(history());
+      final opened = <String>[];
+      await tester.pumpWidget(app(c, onOpen: (d) => opened.add(d.blobKey)));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('chat-info-strip-0')));
+      expect(opened, ['p5']);
+
+      await tester.tap(find.byKey(const Key('chat-info-shared-media')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('chat-info-media-2')));
+      expect(opened, ['p5', 'p3']);
     });
   });
 }

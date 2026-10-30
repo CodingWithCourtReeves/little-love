@@ -83,6 +83,16 @@ void main() {
     ]);
     await tester.pumpWidget(_app(c));
     await tester.pump();
+    // The Shared card counts them apart, and opens the gallery on Photos.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('chat-info-shared-voice')),
+        matching: find.text('1'),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('chat-info-shared-media')));
+    await tester.pumpAndSettle();
 
     // Media grid shows only the image (audio excluded): one tile, no second.
     expect(find.byKey(const Key('chat-info-media-0')), findsOneWidget);
