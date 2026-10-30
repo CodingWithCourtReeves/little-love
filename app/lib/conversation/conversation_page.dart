@@ -108,10 +108,10 @@ class _GapItem extends _Item {
   final DateTime time;
 }
 
-/// Per-message status marker drawn inside my own bubble, Telegram style: a
-/// heart once the server acks (sent), a double heart once the partner opens the
-/// chat (read), a clock while still in flight (sending). Failed sends are not
-/// in-bubble — they collapse to a caption below the run.
+/// Status marker drawn inside the last bubble of each run of mine (#86),
+/// iMessage style: a heart once the server acks (sent), a double heart once the
+/// partner opens the chat (read), a clock while still in flight (sending).
+/// Failed sends are not in-bubble — they collapse to a caption below the run.
 enum _Marker { sent, sending, read }
 
 /// A run's send problem: a failed send, or one stuck in flight past
@@ -139,7 +139,8 @@ class _Burst {
 class _StatusModel {
   const _StatusModel(this.inBubble, this.issueRun);
 
-  /// Marker to draw inside each of my non-failed bubbles, keyed by message id.
+  /// The one marker each run of mine shows, keyed by the id of the run's last
+  /// non-failed message (whose own status it is).
   final Map<String, _Marker> inBubble;
 
   /// For every run with a failed or stuck send, the id of the message the
@@ -1388,12 +1389,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
     final sorted = [...messages]..sort((a, b) => a.ts.compareTo(b.ts));
     _trackSendingAge(sorted, me);
-    final status = _statusModel(sorted, me, _stuck);
+    final chronological = _itemize(sorted);
+    final status = _statusModel(chronological, me, _stuck);
     // Reversed, so index 0 is the visual bottom — i.e. the newest message is
     // the true leading edge, which is what lets a reverse list pin to the
     // bottom on its own. The partner's "typing…" indicator deliberately lives
     // in the app bar (not as a bottom row) so it never reflows this list.
-    final items = _itemize(sorted).reversed.toList();
+    final items = chronological.reversed.toList();
     // Keyboard height. We keep the wallpaper full-bleed behind the keyboard
     // (Telegram-style) by turning off Scaffold's auto-resize and instead
     // lifting the composer + the list's reserved bottom by this inset
@@ -2296,50 +2298,57 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     return out;
   }
 
-  /// Build the status model: a per-message marker for each of my non-failed
-  /// bubbles (heart when sent, clock when in flight), plus — for any run with a
-  /// failed send or one in [stuck] — a collapsed caption keyed to the run's
-  /// last failed message (else its last stuck one), so one tap retries every
-  /// failure. A failure is never hidden: failed messages carry no in-bubble
-  /// marker and always surface the caption. A stuck send keeps its clock (it
-  /// is still queued and may yet go).
+  /// Build the status model over the runs [_itemize] marked (#84), so status
+  /// and bubble shape agree on where a run ends. Each run of mine gets one
+  /// marker, on its last non-failed message and showing that message's own
+  /// status (#86): a clock while it sends, a heart once sent, a double heart
+  /// once read. A run with a failed send or one in [stuck] also gets a
+  /// collapsed caption keyed to its last failed message (else its last stuck
+  /// one), so one tap retries every failure. A failure is never hidden: failed
+  /// messages carry no in-bubble marker and always surface the caption. A
+  /// stuck send keeps its clock (it is still queued and may yet go).
+  ///
+  /// Positions are recomputed from the store on every build and rows are
+  /// keyed by `clientMsgId ?? id`, so the marker stays on the same bubble when
+  /// its optimistic row reconciles to the server id.
   static _StatusModel _statusModel(
-    List<Msg> sorted,
+    List<_Item> chronological,
     String me,
     Set<String> stuck,
   ) {
     final inBubble = <String, _Marker>{};
     final issueRun = <String, _RunIssue>{};
-    var i = 0;
-    while (i < sorted.length) {
-      if (sorted[i].from != me) {
-        i++;
-        continue;
+    var failedIds = <String>[];
+    String? lastFailedId;
+    String? lastStuckId;
+    // The run's latest non-failed message so far, and its marker.
+    (String, _Marker)? latest;
+    for (final item in chronological) {
+      // A run is one sender's, so my runs never interleave with the partner's.
+      if (item is! _BubbleItem || item.msg.from != me) continue;
+      if (item.position.startsRun) {
+        failedIds = <String>[];
+        lastFailedId = lastStuckId = null;
+        latest = null;
       }
-      final failedIds = <String>[];
-      String? lastFailedId;
-      String? lastStuckId;
-      var j = i;
-      while (j < sorted.length && sorted[j].from == me) {
-        final m = sorted[j];
-        final key = m.clientMsgId ?? m.id;
-        switch (m.sendStatus) {
-          case SendStatus.failed:
-            failedIds.add(key);
-            lastFailedId = m.id;
-          case SendStatus.sending:
-            inBubble[m.id] = _Marker.sending;
-            if (stuck.contains(key)) lastStuckId = m.id;
-          case SendStatus.sent:
-            inBubble[m.id] = _Marker.sent;
-          case SendStatus.read:
-            inBubble[m.id] = _Marker.read;
-        }
-        j++;
+      final m = item.msg;
+      final key = m.clientMsgId ?? m.id;
+      switch (m.sendStatus) {
+        case SendStatus.failed:
+          failedIds.add(key);
+          lastFailedId = m.id;
+        case SendStatus.sending:
+          latest = (m.id, _Marker.sending);
+          if (stuck.contains(key)) lastStuckId = m.id;
+        case SendStatus.sent:
+          latest = (m.id, _Marker.sent);
+        case SendStatus.read:
+          latest = (m.id, _Marker.read);
       }
+      if (!item.position.endsRun) continue;
+      if (latest case (final id, final mark)) inBubble[id] = mark;
       final anchor = lastFailedId ?? lastStuckId;
       if (anchor != null) issueRun[anchor] = _RunIssue(failedIds);
-      i = j;
     }
     return _StatusModel(inBubble, issueRun);
   }
