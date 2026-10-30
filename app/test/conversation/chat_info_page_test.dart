@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +9,8 @@ import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/theme/app_palette.dart';
+import 'package:littlelove/wallpaper/wallpaper_background.dart';
+import 'package:littlelove/wallpaper/wallpaper_selection.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
 import 'package:littlelove/attachment/attachment_descriptor.dart';
@@ -36,13 +39,28 @@ const _descriptor = AttachmentDescriptor(
   thumbB64: 'thumb',
 );
 
-Widget _app(ProviderContainer c) => UncontrolledProviderScope(
+/// The partner DM: unnamed, just the two of you.
+Room _dm() => Room(
+  roomId: 'roomA',
+  name: '',
+  members: _room().members,
+  createdAt: DateTime.utc(2026, 6, 10),
+);
+
+Widget _app(ProviderContainer c, {Room? room}) => UncontrolledProviderScope(
   container: c,
   child: MaterialApp(
     theme: buildAppTheme(AppPalette.light),
-    home: ChatInfoPage(room: _room(), selfUsername: 'court'),
+    home: ChatInfoPage(room: room ?? _room(), selfUsername: 'court'),
   ),
 );
+
+/// WCAG contrast ratio between two opaque colors.
+double _contrast(Color a, Color b) {
+  final la = a.computeLuminance();
+  final lb = b.computeLuminance();
+  return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
+}
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -198,5 +216,115 @@ void main() {
     await tester.tap(find.byKey(const Key('rename-dialog-save')));
     await tester.pumpAndSettle();
     expect(renamed, 'Trip planning');
+  });
+
+  group('on the wallpaper (#91)', () {
+    testWidgets('chat info sits on the chat\'s wallpaper', (tester) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      await tester.pumpWidget(_app(c));
+      await tester.pump();
+      expect(
+        find.descendant(
+          of: find.byType(ChatInfoPage),
+          matching: find.byType(WallpaperBackground),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets("the partner DM's header shows the partner's presence", (
+      tester,
+    ) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      await tester.pumpWidget(_app(c, room: _dm()));
+      await tester.pump();
+      expect(find.text('Kaitlyn'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('chat-info-subtitle')),
+          matching: find.text('offline'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets("a channel's header shows its own name and who it's with", (
+      tester,
+    ) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      final channel = Room(
+        roomId: 'roomA',
+        name: 'Trip planning',
+        members: _room().members,
+        createdAt: DateTime.utc(2026, 6, 10),
+      );
+      await tester.pumpWidget(_app(c, room: channel));
+      await tester.pump();
+      expect(
+        tester.widget<Text>(find.byKey(const Key('chat-info-name'))).data,
+        'Trip planning',
+      );
+      expect(find.text('Channel with Kaitlyn'), findsOneWidget);
+    });
+
+    testWidgets('Call, Video and Search are equal-width tiles, at least 44pt '
+        'tall', (tester) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      await tester.pumpWidget(_app(c));
+      await tester.pump();
+      final rects = [
+        for (final k in [
+          'chat-info-call',
+          'chat-info-video',
+          'chat-info-search',
+        ])
+          tester.getRect(find.byKey(Key(k))),
+      ];
+      for (final r in rects) {
+        expect(r.width, moreOrLessEquals(rects.first.width, epsilon: 0.5));
+        expect(r.height, greaterThanOrEqualTo(44));
+      }
+      // Together they span the row, not a centred cluster of small circles.
+      expect(rects.first.width * 3, greaterThan(300));
+    });
+
+    test('header text and tile labels pass 4.5:1 over the veil on every '
+        'wallpaper, light and dark', () {
+      for (final wallpaper in WallpaperGradient.values) {
+        final p = AppPalette.of(wallpaper.brightness);
+        for (final spot in [...wallpaper.colors, wallpaper.base]) {
+          for (final ground in [
+            spot,
+            Color.alphaBlend(wallpaper.doodleInk, spot),
+          ]) {
+            final veil = Color.alphaBlend(
+              p.bgCanvas.withValues(alpha: ChatInfoPage.veilAlpha),
+              ground,
+            );
+            final card = Color.alphaBlend(ChatInfoPage.cardColor(p), veil);
+            final reason = '${wallpaper.label} at $ground';
+            expect(
+              _contrast(p.textPrimary, veil),
+              greaterThanOrEqualTo(4.5),
+              reason: 'name, $reason',
+            );
+            expect(
+              _contrast(p.separatorText, veil),
+              greaterThanOrEqualTo(4.5),
+              reason: 'subtitle, $reason',
+            );
+            expect(
+              _contrast(p.accentUser, card),
+              greaterThanOrEqualTo(4.5),
+              reason: 'tile label, $reason',
+            );
+          }
+        }
+      }
+    });
   });
 }

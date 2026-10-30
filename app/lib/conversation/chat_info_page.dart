@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -15,15 +15,17 @@ import '../profile/profile_store.dart';
 import '../theme/app_palette.dart';
 import '../theme/love_toast.dart';
 import '../wire/live_connection.dart';
+import '../wallpaper/wallpaper_background.dart';
 import '../wire/message.dart';
 import 'audio_bubble.dart';
 import 'message_search_page.dart';
 import 'message_store.dart';
+import 'partner_status_line.dart';
 
-/// Telegram-style chat-info page, reached by tapping the room name in a chat.
-/// A header (avatar + name), an action row (Call / Video / Search — stubbed
-/// until that infrastructure exists), and tabs over the room's shared content:
-/// Media (real), Voice (real), Links (real). All data is read from the
+/// Chat-info page, reached by tapping the room name or avatar in a chat. It
+/// sits on the chat's own wallpaper (#91) under a [veilAlpha] veil, with a
+/// header (avatar, name, presence), Call / Video / Search tiles, and tabs over
+/// the room's shared content (Media, Voice, Links). All data is read from the
 /// local [MessageStore]; nothing new is fetched.
 class ChatInfoPage extends ConsumerWidget {
   const ChatInfoPage({
@@ -39,6 +41,19 @@ class ChatInfoPage extends ConsumerWidget {
   /// Renames the room; null when the room can't be renamed (e.g. the bare
   /// partner DM). When set, a "Rename chat" row appears here.
   final void Function(String newName)? onRename;
+
+  /// Opacity of the `bgCanvas` veil over the wallpaper. Bare text can't reach
+  /// 4.5:1 on any shipped wallpaper (Twilight is mid-tone), so the page tones
+  /// the wallpaper down instead: at this strength `textPrimary` and
+  /// `separatorText` pass everywhere (checked in `chat_info_page_test.dart`).
+  static const double veilAlpha = 0.6;
+
+  /// Opacity of the frosted cards and tiles that sit on the veil.
+  static const double cardAlpha = 0.85;
+
+  /// The fill of a card or tile on this page.
+  static Color cardColor(AppPalette p) =>
+      p.bubblePartnerBg.withValues(alpha: cardAlpha);
 
   /// Pops a message id when the user picks an in-channel search result (so the
   /// conversation beneath can scroll to it); pops null on a plain back.
@@ -84,68 +99,153 @@ class ChatInfoPage extends ConsumerWidget {
     final partnerProfile = partner != null
         ? profiles.forUsername(partner)
         : null;
-    final avatarFile = partner != null ? profiles.avatarFileFor(partner) : null;
-    final name = (partnerProfile?.displayName?.isNotEmpty ?? false)
+    final partnerName = (partnerProfile?.displayName?.isNotEmpty ?? false)
         ? partnerProfile!.displayName!
-        : room.displayName(selfUsername);
+        : null;
+    // The partner DM is about the partner (their name, photo and presence); a
+    // channel is about itself (its name, and who it's with).
+    final isChannel = room.shape(selfUsername) == RoomShape.chat;
+    final name = isChannel
+        ? room.displayName(selfUsername)
+        : partnerName ?? room.displayName(selfUsername);
+    final avatarFile = !isChannel && partner != null
+        ? profiles.avatarFileFor(partner)
+        : null;
+    // Who a channel is with: the partner's display name, else their username
+    // capitalized the way the room list does it.
+    final withWhom =
+        partnerName ??
+        (partner == null || partner.isEmpty
+            ? null
+            : partner[0].toUpperCase() + partner.substring(1));
+    final Widget subtitle = isChannel
+        ? Text(
+            withWhom == null ? 'Channel' : 'Channel with $withWhom',
+            key: const Key('chat-info-subtitle'),
+            style: TextStyle(fontSize: 14, color: p.separatorText),
+          )
+        : PartnerStatusLine(
+            key: const Key('chat-info-subtitle'),
+            roomId: room.roomId,
+            partner: partner,
+            fontSize: 14,
+            labelColor: p.separatorText,
+          );
     return DefaultTabController(
       length: 3,
       child: Scaffold(
-        backgroundColor: p.bgCanvas,
-        appBar: AppBar(title: const Text('Info')),
-        body: Column(
-          children: [
-            _header(context, name, avatarFile),
-            _actionRow(context, ref),
-            const SizedBox(height: 8),
-            _settings(context),
-            const SizedBox(height: 8),
-            TabBar(
-              labelColor: p.accentUser,
-              unselectedLabelColor: p.textMuted,
-              indicatorColor: p.accentUser,
-              // Drop M3's full-width divider line under the tabs.
-              dividerColor: Colors.transparent,
-              tabs: const [
-                Tab(text: 'Media'),
-                Tab(text: 'Voice'),
-                Tab(text: 'Links'),
-              ],
-            ),
-            Expanded(
-              child: TabBarView(
+        backgroundColor: Colors.transparent,
+        extendBodyBehindAppBar: true,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          surfaceTintColor: Colors.transparent,
+          automaticallyImplyLeading: false,
+          // Status-bar icons follow the palette, which follows the wallpaper.
+          systemOverlayStyle: p.brightness == Brightness.dark
+              ? SystemUiOverlayStyle.light
+              : SystemUiOverlayStyle.dark,
+          leading: Navigator.of(context).canPop()
+              ? IconButton(
+                  key: const Key('chat-info-back'),
+                  tooltip: 'Back',
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: Container(
+                    width: 34,
+                    height: 34,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: cardColor(p),
+                    ),
+                    child: Icon(
+                      Icons.arrow_back_ios_new,
+                      color: p.textPrimary,
+                      size: 18,
+                    ),
+                  ),
+                )
+              : null,
+        ),
+        body: WallpaperBackground(
+          // A Material (not a ColoredBox) so the rows' ink paints on the veil
+          // rather than under it.
+          child: Material(
+            color: p.bgCanvas.withValues(alpha: veilAlpha),
+            child: SafeArea(
+              bottom: false,
+              child: Column(
                 children: [
-                  _mediaTab(context, media),
-                  _voiceTab(context, ref, voice),
-                  _linksTab(context, links),
+                  _header(context, name, avatarFile, subtitle),
+                  _actionRow(context, ref),
+                  const SizedBox(height: 8),
+                  _settings(context),
+                  const SizedBox(height: 8),
+                  TabBar(
+                    labelColor: p.accentUser,
+                    unselectedLabelColor: p.textMuted,
+                    indicatorColor: p.accentUser,
+                    // Drop M3's full-width divider line under the tabs.
+                    dividerColor: Colors.transparent,
+                    tabs: const [
+                      Tab(text: 'Media'),
+                      Tab(text: 'Voice'),
+                      Tab(text: 'Links'),
+                    ],
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        _mediaTab(context, media),
+                        _voiceTab(context, ref, voice),
+                        _linksTab(context, links),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _header(BuildContext context, String name, File? avatarFile) {
+  Widget _header(
+    BuildContext context,
+    String name,
+    File? avatarFile,
+    Widget subtitle,
+  ) {
     final p = context.palette;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
       child: Column(
         children: [
-          Avatar(seedText: name, imageFile: avatarFile, radius: 42),
-          const SizedBox(height: 12),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: cardColor(p), width: 4),
+            ),
+            child: Avatar(seedText: name, imageFile: avatarFile, radius: 48),
+          ),
+          const SizedBox(height: 10),
           Text(
             name,
             key: const Key('chat-info-name'),
             textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontFamily: 'Inter',
-              fontSize: 22,
-              fontWeight: FontWeight.w600,
+              fontSize: 26,
+              fontWeight: FontWeight.w700,
               color: p.textPrimary,
             ),
           ),
+          const SizedBox(height: 4),
+          subtitle,
         ],
       ),
     );
@@ -194,57 +294,61 @@ class ChatInfoPage extends ConsumerWidget {
   }
 
   Widget _actionRow(BuildContext context, WidgetRef ref) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        _action(
-          context,
-          'chat-info-call',
-          Icons.call,
-          'Call',
-          'Calls',
-          onTap: () {
-            // Close the info page, then place the call — the CallOverlay shows
-            // the in-app call UI once it's dialing.
-            Navigator.of(context).pop();
-            ref.read(callControllerProvider).placeCall(room.roomId);
-          },
-        ),
-        const SizedBox(width: 28),
-        _action(
-          context,
-          'chat-info-video',
-          Icons.videocam,
-          'Video',
-          'Video calls',
-          onTap: () {
-            Navigator.of(context).pop();
-            ref
-                .read(callControllerProvider)
-                .placeCall(room.roomId, video: true);
-          },
-        ),
-        const SizedBox(width: 28),
-        _action(
-          context,
-          'chat-info-search',
-          Icons.search,
-          'Search',
-          'Search',
-          onTap: () async {
-            final messageId = await Navigator.of(context).push(
-              MessageSearchPage.route(room: room, selfUsername: selfUsername),
-            );
-            if (messageId == null) return;
-            // Pop the info page with the chosen id; the conversation below
-            // receives it and scrolls to that message.
-            if (context.mounted) Navigator.of(context).pop(messageId);
-          },
-        ),
-      ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          _action(
+            context,
+            'chat-info-call',
+            Icons.call,
+            'Call',
+            'Calls',
+            onTap: () {
+              // Close the info page, then place the call — the CallOverlay shows
+              // the in-app call UI once it's dialing.
+              Navigator.of(context).pop();
+              ref.read(callControllerProvider).placeCall(room.roomId);
+            },
+          ),
+          const SizedBox(width: 8),
+          _action(
+            context,
+            'chat-info-video',
+            Icons.videocam,
+            'Video',
+            'Video calls',
+            onTap: () {
+              Navigator.of(context).pop();
+              ref
+                  .read(callControllerProvider)
+                  .placeCall(room.roomId, video: true);
+            },
+          ),
+          const SizedBox(width: 8),
+          _action(
+            context,
+            'chat-info-search',
+            Icons.search,
+            'Search',
+            'Search',
+            onTap: () async {
+              final messageId = await Navigator.of(context).push(
+                MessageSearchPage.route(room: room, selfUsername: selfUsername),
+              );
+              if (messageId == null) return;
+              // Pop the info page with the chosen id; the conversation below
+              // receives it and scrolls to that message.
+              if (context.mounted) Navigator.of(context).pop(messageId);
+            },
+          ),
+        ],
+      ),
     );
   }
 
+  /// One of the Call / Video / Search tiles: an equal share of the row, icon
+  /// over label, at least 44pt tall.
   Widget _action(
     BuildContext context,
     String key,
@@ -254,25 +358,34 @@ class ChatInfoPage extends ConsumerWidget {
     VoidCallback? onTap,
   }) {
     final p = context.palette;
-    return GestureDetector(
-      key: Key(key),
-      onTap: onTap ?? () => showLoveToast(context, '$feature are coming soon'),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: p.bgSurfaceAlt,
+    return Expanded(
+      child: Material(
+        color: cardColor(p),
+        borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: Key(key),
+          onTap:
+              onTap ?? () => showLoveToast(context, '$feature are coming soon'),
+          child: SizedBox(
+            height: 64,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, color: p.accentUser, size: 22),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: p.accentUser,
+                  ),
+                ),
+              ],
             ),
-            child: Icon(icon, color: p.accentUser, size: 24),
           ),
-          const SizedBox(height: 6),
-          Text(label, style: TextStyle(fontSize: 12, color: p.textMuted)),
-        ],
+        ),
       ),
     );
   }

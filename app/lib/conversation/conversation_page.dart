@@ -46,12 +46,11 @@ import 'composer_draft.dart';
 import 'draft_autosave.dart';
 import 'draft_preview_state.dart';
 import 'link_preview.dart';
-import 'last_seen_label.dart';
 import 'love_tap.dart';
 import 'love_tap_button.dart';
 import 'message_db.dart';
 import 'message_store.dart';
-import 'presence_state.dart';
+import 'partner_status_line.dart';
 import 'reaction_badge.dart';
 import 'reaction_burst.dart';
 import 'recording_overlay.dart';
@@ -1447,7 +1446,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                     color: context.palette.textPrimary,
                   ),
                 ),
-                _PartnerStatusLine(
+                PartnerStatusLine(
                   roomId: widget.roomId,
                   partner: _partnerUsername(),
                 ),
@@ -2930,174 +2929,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         itemBuilder: (_, i) =>
             _StagedChip(item: staged[i], onRemove: () => _removeStaged(i)),
       ),
-    );
-  }
-}
-
-/// Top-bar status for the conversation: the partner's "Typing…" with gently
-/// pulsing dots while they compose, and nothing when idle. Living in the app
-/// bar (not as a list row) keeps the partner's typing state from reflowing the
-/// message list — which otherwise nudged the list on send.
-/// The status line under the room name in the title pill. Shows "typing" with
-/// animated dots while the partner is composing; otherwise the partner's
-/// online / offline presence. Empty when there's no partner (a solo room).
-class _PartnerStatusLine extends ConsumerStatefulWidget {
-  const _PartnerStatusLine({required this.roomId, required this.partner});
-  final String roomId;
-  final String? partner;
-
-  @override
-  ConsumerState<_PartnerStatusLine> createState() => _PartnerStatusLineState();
-}
-
-class _PartnerStatusLineState extends ConsumerState<_PartnerStatusLine> {
-  Timer? _tick;
-
-  @override
-  void initState() {
-    super.initState();
-    // Recompute the relative "last seen …" label once a minute so it advances
-    // (e.g. "5 minutes ago" → "6 minutes ago") without any new network traffic.
-    _tick = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    _tick?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final typing = ref.watch(typingProvider(widget.roomId));
-    if (typing) {
-      return Row(
-        key: const Key('typing-indicator'),
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'typing',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 11,
-              letterSpacing: 0.3,
-              fontWeight: FontWeight.w500,
-              color: context.palette.accentSage,
-            ),
-          ),
-          const SizedBox(width: 5),
-          const _PulsingDots(),
-        ],
-      );
-    }
-    if (widget.partner == null) return const SizedBox.shrink();
-    final presence = ref.watch(presenceProvider(widget.partner!));
-    final online = presence.online;
-    final tone = online
-        ? context.palette.accentSage
-        : context.palette.textMuted;
-
-    final String label;
-    if (online) {
-      label = 'online';
-    } else if (presence.lastSeen != null) {
-      label = lastSeenLabel(
-        presence.lastSeen!,
-        now: DateTime.now(),
-        use24h: MediaQuery.alwaysUse24HourFormatOf(context),
-      );
-    } else {
-      label = 'offline';
-    }
-
-    return Row(
-      key: const Key('presence-indicator'),
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 6,
-          height: 6,
-          decoration: BoxDecoration(shape: BoxShape.circle, color: tone),
-        ),
-        const SizedBox(width: 5),
-        // Flexible + ellipsis: a long "last seen Wednesday at 12:59 PM" at a
-        // large text size truncates inside the title pill instead of
-        // overflowing it.
-        Flexible(
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 11,
-              letterSpacing: 0.3,
-              fontWeight: FontWeight.w500,
-              color: tone,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Three sage dots whose opacity pulses in a gentle staggered wave (no bounce).
-class _PulsingDots extends StatefulWidget {
-  const _PulsingDots();
-
-  @override
-  State<_PulsingDots> createState() => _PulsingDotsState();
-}
-
-class _PulsingDotsState extends State<_PulsingDots>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1200),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (_, _) {
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (var i = 0; i < 3; i++)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 1.5),
-                child: Opacity(
-                  // Staggered sine pulse: each dot fades out of phase, 0.25→1.
-                  opacity:
-                      (0.25 +
-                              0.75 *
-                                  math.sin(
-                                    ((_c.value + i * 0.2) % 1.0) * math.pi,
-                                  ))
-                          .clamp(0.0, 1.0),
-                  child: Container(
-                    width: 5,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: context.palette.accentSage,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
     );
   }
 }
