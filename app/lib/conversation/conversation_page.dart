@@ -38,6 +38,9 @@ import '../wallpaper/wallpaper_controller.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
 import 'audio_bubble.dart';
+import 'bubble_background.dart';
+import 'bubble_run.dart';
+import 'chat_separator.dart';
 import 'chat_info_page.dart';
 import 'composer_draft.dart';
 import 'draft_autosave.dart';
@@ -52,6 +55,7 @@ import 'presence_state.dart';
 import 'reaction_badge.dart';
 import 'reaction_burst.dart';
 import 'recording_overlay.dart';
+import 'reply_quote.dart';
 import 'reply_ref.dart';
 import 'send_issue_caption.dart';
 import 'staged_media_store.dart';
@@ -78,13 +82,26 @@ sealed class _Item {
 }
 
 class _BubbleItem extends _Item {
-  const _BubbleItem(this.msg);
+  const _BubbleItem(
+    this.msg, {
+    required this.position,
+    required this.afterSeparator,
+  });
   final Msg msg;
+
+  /// Where the bubble sits in its run of same-sender messages (#84).
+  final RunPosition position;
+
+  /// Whether a day separator or gap header sits directly above this row.
+  final bool afterSeparator;
 }
 
+/// The start of a calendar day. [time] is the day's first message (local), so
+/// the separator can read "Today 6:12 PM"; the row is keyed by [day].
 class _DayItem extends _Item {
-  const _DayItem(this.day);
-  final DateTime day;
+  const _DayItem(this.time);
+  final DateTime time;
+  DateTime get day => dateOnly(time);
 }
 
 class _GapItem extends _Item {
@@ -92,10 +109,10 @@ class _GapItem extends _Item {
   final DateTime time;
 }
 
-/// Per-message status marker drawn inside my own bubble, Telegram style: a
-/// heart once the server acks (sent), a double heart once the partner opens the
-/// chat (read), a clock while still in flight (sending). Failed sends are not
-/// in-bubble — they collapse to a caption below the run.
+/// Status marker drawn inside the last bubble of each run of mine (#86),
+/// iMessage style: a heart once the server acks (sent), a double heart once the
+/// partner opens the chat (read), a clock while still in flight (sending).
+/// Failed sends are not in-bubble — they collapse to a caption below the run.
 enum _Marker { sent, sending, read }
 
 /// A run's send problem: a failed send, or one stuck in flight past
@@ -123,7 +140,8 @@ class _Burst {
 class _StatusModel {
   const _StatusModel(this.inBubble, this.issueRun);
 
-  /// Marker to draw inside each of my non-failed bubbles, keyed by message id.
+  /// The one marker each run of mine shows, keyed by the id of the run's last
+  /// non-failed message (whose own status it is).
   final Map<String, _Marker> inBubble;
 
   /// For every run with a failed or stuck send, the id of the message the
@@ -658,70 +676,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _ => null,
   };
 
-  /// Telegram-style reply banner: a quote block at the top *inside* the bubble
-  /// — an accent bar, the original sender on one line, and a single ellipsized
-  /// preview line. Colors adapt to whichever bubble it sits in ([onUserBubble]
-  /// true for my own accent-colored bubble). Resolves the live target when
-  /// present (so it reflects later edits), else the cached [ReplyRef] snippet.
-  /// Tapping jumps to the original.
+  /// The reply quote at the top *inside* a reply's bubble ([ReplyQuote]).
+  /// Resolves the live target when present (so it reflects later edits), else
+  /// the cached [ReplyRef] snippet. [onUserBubble] is true inside my own
+  /// bubble. Tapping it jumps to the original.
   Widget _replyQuoteBanner(Msg m, {required bool onUserBubble}) {
     final live = _lookupMessage(m.replyTo!.id);
     final r = live != null ? _replyRefFor(live) : m.replyTo!;
-    final icon = _replyKindIcon(r.kind);
-    // On my own (accent-filled) bubble the quote reads in the bubble's own text
-    // tone; on the partner's surface-toned bubble it uses the sage accent.
-    final Color nameColor = onUserBubble
-        ? context.palette.bubbleUserText
-        : context.palette.accentSage;
-    final Color textColor = onUserBubble
-        ? context.palette.bubbleUserText.withValues(alpha: 0.75)
-        : context.palette.textMuted;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
+    return ReplyQuote(
+      key: Key('reply-quote-${m.id}'),
+      author: _replyAuthorLabel(r.author),
+      preview: _replyPreviewText(r),
+      icon: _replyKindIcon(r.kind),
+      onUserBubble: onUserBubble,
       onTap: () => _focusMessage(r.id),
-      child: Container(
-        key: Key('reply-quote-${m.id}'),
-        margin: const EdgeInsets.only(bottom: 5),
-        padding: const EdgeInsets.fromLTRB(8, 2, 4, 2),
-        decoration: BoxDecoration(
-          color: nameColor.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(5),
-          border: Border(left: BorderSide(color: nameColor, width: 2.5)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _replyAuthorLabel(r.author),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: nameColor,
-              ),
-            ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (icon != null) ...[
-                  Icon(icon, size: 13, color: textColor),
-                  const SizedBox(width: 4),
-                ],
-                Flexible(
-                  child: Text(
-                    _replyPreviewText(r),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12.5, color: textColor),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -1181,7 +1149,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final entry = OverlayEntry(
       builder: (_) => _ReactionBarOverlay(
         anchor: globalPos,
-        timestamp: _formatFull(m.ts.toLocal()),
+        timestamp: _formatFull(m.ts.toLocal(), use24h: _use24h),
         selected: m.reactions[widget.selfUsername],
         showReactions: widget.onReact != null,
         onPick: (emoji) {
@@ -1372,12 +1340,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
     final sorted = [...messages]..sort((a, b) => a.ts.compareTo(b.ts));
     _trackSendingAge(sorted, me);
-    final status = _statusModel(sorted, me, _stuck);
+    final chronological = _itemize(sorted);
+    final status = _statusModel(chronological, me, _stuck);
     // Reversed, so index 0 is the visual bottom — i.e. the newest message is
     // the true leading edge, which is what lets a reverse list pin to the
     // bottom on its own. The partner's "typing…" indicator deliberately lives
     // in the app bar (not as a bottom row) so it never reflows this list.
-    final items = _itemize(sorted).reversed.toList();
+    final items = chronological.reversed.toList();
     // Keyboard height. We keep the wallpaper full-bleed behind the keyboard
     // (Telegram-style) by turning off Scaffold's auto-resize and instead
     // lifting the composer + the list's reserved bottom by this inset
@@ -1558,7 +1527,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                               4 +
                               MediaQuery.of(context).padding.top +
                               kToolbarHeight,
-                          bottom: 12,
+                          // The newest bubble has no margin of its own now
+                          // (run spacing sits above each row), so this is the
+                          // whole gap above the composer.
+                          bottom: 16,
                         ),
                         itemCount: items.length,
                         // Relocate existing keyed rows by identity when an
@@ -1575,13 +1547,27 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                         itemBuilder: (_, i) {
                           final item = items[i];
                           final child = switch (item) {
-                            _BubbleItem(:final msg) => _bubbleRow(
-                              msg,
-                              me,
-                              status.inBubble[msg.id],
-                              status.issueRun[msg.id],
-                            ),
-                            _DayItem(:final day) => _daySeparator(day),
+                            _BubbleItem(
+                              :final msg,
+                              :final position,
+                              :final afterSeparator,
+                            ) =>
+                              Padding(
+                                padding: EdgeInsets.only(
+                                  top: runGapAbove(
+                                    position,
+                                    afterSeparator: afterSeparator,
+                                  ),
+                                ),
+                                child: _bubbleRow(
+                                  msg,
+                                  me,
+                                  position,
+                                  status.inBubble[msg.id],
+                                  status.issueRun[msg.id],
+                                ),
+                              ),
+                            _DayItem(:final time) => _daySeparator(time),
                             _GapItem(:final time) => _gapHeader(time),
                           };
                           return KeyedSubtree(
@@ -1661,7 +1647,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// the room opened (sent and received). [Set.add] returns true only the first
   /// time a key is seen; seeded history and reconciled rows are already present,
   /// so they render without the animation.
-  Widget _bubbleRow(Msg m, String me, _Marker? marker, _RunIssue? issue) {
+  Widget _bubbleRow(
+    Msg m,
+    String me,
+    RunPosition position,
+    _Marker? marker,
+    _RunIssue? issue,
+  ) {
     final animKey = m.clientMsgId ?? m.id;
     final firstAppearance = _animatedIds.add(animKey);
     // A love tap that just arrived (sent or received) bursts hearts from its
@@ -1671,7 +1663,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         !MediaQuery.disableAnimationsOf(context)) {
       _loveTapBursts[animKey] = _Burst(++_burstSeq, loveTapBody);
     }
-    final bubble = _bubble(m, me, marker, issue);
+    final bubble = _bubble(m, me, position, marker, issue);
     if (!firstAppearance) return bubble;
     return _PopIn(
       key: Key('popin-${m.id}'),
@@ -1680,13 +1672,19 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  Widget _bubble(Msg m, String me, _Marker? marker, _RunIssue? issue) {
+  Widget _bubble(
+    Msg m,
+    String me,
+    RunPosition position,
+    _Marker? marker,
+    _RunIssue? issue,
+  ) {
     final mine = m.from == me;
     // The sent/sending marker (if any) is drawn inside the bubble itself; the
     // reply quote (if any) is a banner inside the bubble's top edge, built by
     // _bubbleContent — see _replyQuoteBanner. The long-press / double-tap
     // gestures and the reaction badge are attached by [_side].
-    final content = _bubbleContent(m, me, marker);
+    final content = _bubbleContent(m, me, position, marker);
 
     // A run with a failed or stuck send collapses one caption under one bubble;
     // when the run has failures, tapping that bubble retries all of them.
@@ -1842,7 +1840,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _Marker.read => StatusMark.read,
   });
 
-  Widget _bubbleContent(Msg m, String me, _Marker? marker) {
+  Widget _bubbleContent(
+    Msg m,
+    String me,
+    RunPosition position,
+    _Marker? marker,
+  ) {
     final mine = m.from == me;
     // A call-log entry: a side-aligned pill (outgoing → right, incoming → left,
     // Telegram-style) keeping our phone glyphs. Missed/declined show red.
@@ -1862,7 +1865,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         m,
         mine,
         child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
+          margin: const EdgeInsets.symmetric(horizontal: 8),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
             color: context.palette.bgSurface.withValues(alpha: 0.65),
@@ -1894,12 +1897,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       final att = m.attachment!;
       // Voice memos read as a chat bubble (same background + tail as text),
       // with the player inside; images keep their edge-to-edge media tile.
-      if (att.isAudio) return _audioBubble(m, mine, marker, att);
+      if (att.isAudio) return _audioBubble(m, mine, position, marker, att);
       return _side(
         m,
         mine,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 2),
           child: _MediaBubble(
             msg: m,
             isMe: mine,
@@ -1952,7 +1955,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         m,
         mine,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
           child: jumbo,
         ),
       );
@@ -1960,7 +1963,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final bubbleColor = mine
         ? context.palette.bubbleUserBg
         : context.palette.bubblePartnerBg;
-    final bubbleBorder = context.palette.borderSoft;
+    // No outline on mine; a faint edge on the partner's pale bubble (#87).
+    final bubbleBorder = mine ? null : context.palette.bubblePartnerEdge;
     return _side(
       m,
       mine,
@@ -1985,14 +1989,15 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
               ),
             ),
           Container(
-            margin: const EdgeInsets.symmetric(vertical: 4),
             constraints: BoxConstraints(maxWidth: maxBubbleWidth),
             child: CustomPaint(
               key: Key('bubble-bg-${m.clientMsgId ?? m.id}'),
-              painter: _BubbleBackground(
+              painter: BubbleBackground(
                 color: bubbleColor,
                 border: bubbleBorder,
                 mine: mine,
+                tail: position.hasTail,
+                radius: BubbleBackground.cornersFor(position, mine: mine),
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
@@ -2017,12 +2022,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  /// A voice memo rendered inside a chat bubble — same [_BubbleBackground]
-  /// (colour + tail + border) as a text message, with the audio player on top
-  /// and the hh:mm timestamp + status marker tucked bottom-right.
+  /// A voice memo rendered inside a chat bubble — same [BubbleBackground]
+  /// (colour, edge, run shape and tail) as a text message, with the audio player on
+  /// top and the timestamp + status marker tucked bottom-right.
   Widget _audioBubble(
     Msg m,
     bool mine,
+    RunPosition position,
     _Marker? marker,
     AttachmentDescriptor att,
   ) {
@@ -2034,7 +2040,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          _formatHm(m.ts.toLocal()),
+          clockTime(m.ts.toLocal(), use24h: _use24h),
           style: TextStyle(
             fontSize: 10,
             color: mine
@@ -2071,32 +2077,31 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 ),
               ),
             ),
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 4),
-            child: CustomPaint(
-              key: Key('bubble-bg-${m.clientMsgId ?? m.id}'),
-              painter: _BubbleBackground(
-                color: bubbleColor,
-                border: context.palette.borderSoft,
-                mine: mine,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(6, 4, 10, 6),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    if (m.replyTo != null)
-                      _replyQuoteBanner(m, onUserBubble: mine),
-                    AudioBubble(
-                      descriptor: att,
-                      isMe: mine,
-                      controller: ref.read(voicePlaybackControllerProvider),
-                      conn: ref.read(liveConnectionProvider).asData?.value,
-                    ),
-                    meta,
-                  ],
-                ),
+          CustomPaint(
+            key: Key('bubble-bg-${m.clientMsgId ?? m.id}'),
+            painter: BubbleBackground(
+              color: bubbleColor,
+              border: mine ? null : context.palette.bubblePartnerEdge,
+              mine: mine,
+              tail: position.hasTail,
+              radius: BubbleBackground.cornersFor(position, mine: mine),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(6, 4, 10, 6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (m.replyTo != null)
+                    _replyQuoteBanner(m, onUserBubble: mine),
+                  AudioBubble(
+                    descriptor: att,
+                    isMe: mine,
+                    controller: ref.read(voicePlaybackControllerProvider),
+                    conn: ref.read(liveConnectionProvider).asData?.value,
+                  ),
+                  meta,
+                ],
               ),
             ),
           ),
@@ -2147,7 +2152,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           const SizedBox(width: 4),
         ],
         Text(
-          _formatHm(m.ts.toLocal()),
+          clockTime(m.ts.toLocal(), use24h: _use24h),
           style: TextStyle(fontSize: 10, color: metaColor),
         ),
         if (marker != null) ...[
@@ -2188,108 +2193,114 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  Widget _daySeparator(DateTime day) => _centerPill(
-    _formatDaySeparator(day),
-    key: ValueKey('day-${day.toIso8601String()}'),
+  /// The separator at the start of a day: the day and its first message's
+  /// time on one line ("Today 6:12 PM").
+  Widget _daySeparator(DateTime first) => ChatSeparator(
+    _separatorLabel(first),
+    key: ValueKey('day-${dateOnly(first).toIso8601String()}'),
   );
 
-  Widget _gapHeader(DateTime t) => _centerPill(
-    _formatGapHeader(t),
+  /// The header after an hour or more of silence, worded like the day
+  /// separator ("Today 8:05 PM") so the two read as one system.
+  Widget _gapHeader(DateTime t) => ChatSeparator(
+    _separatorLabel(t),
     key: ValueKey('gap-${t.toIso8601String()}'),
-    fontSize: 11,
   );
-
-  /// Centered translucent pill for day/gap headers — anchors the label over
-  /// the wallpaper (iMessage/Telegram style) instead of bare text on lines.
-  Widget _centerPill(String text, {required Key key, double fontSize = 12}) {
-    return Padding(
-      key: key,
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-          decoration: BoxDecoration(
-            color: context.palette.bgSurface.withValues(alpha: 0.86),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Text(
-            text,
-            style: TextStyle(
-              color: context.palette.textMuted,
-              fontSize: fontSize,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
   /// Group messages by day and insert separators for date changes and for
-  /// gaps of >= 1 hour within a day.
+  /// gaps of >= 1 hour within a day, marking each bubble's place in its run
+  /// (#84). A run breaks at a separator, a sender change and a call-log row.
   static List<_Item> _itemize(List<Msg> sorted) {
     const gapThreshold = Duration(hours: 1);
-    final out = <_Item>[];
+    // First pass: the separator (if any) above each message.
+    final headers = <_Item?>[];
     DateTime? prevLocal;
     for (final m in sorted) {
       final local = m.ts.toLocal();
-      if (prevLocal == null) {
-        out.add(_DayItem(dateOnly(local)));
-      } else if (dateOnly(local) != dateOnly(prevLocal)) {
-        out.add(_DayItem(dateOnly(local)));
+      if (prevLocal == null || dateOnly(local) != dateOnly(prevLocal)) {
+        headers.add(_DayItem(local));
       } else if (local.difference(prevLocal) >= gapThreshold) {
-        out.add(_GapItem(local));
+        headers.add(_GapItem(local));
+      } else {
+        headers.add(null);
       }
-      out.add(_BubbleItem(m));
       prevLocal = local;
+    }
+    bool breaksBefore(int i) =>
+        i == 0 ||
+        headers[i] != null ||
+        sorted[i].from != sorted[i - 1].from ||
+        sorted[i].callOutcome != null ||
+        sorted[i - 1].callOutcome != null;
+    final out = <_Item>[];
+    for (var i = 0; i < sorted.length; i++) {
+      final header = headers[i];
+      if (header != null) out.add(header);
+      out.add(
+        _BubbleItem(
+          sorted[i],
+          position: RunPosition.of(
+            starts: breaksBefore(i),
+            ends: i == sorted.length - 1 || breaksBefore(i + 1),
+          ),
+          afterSeparator: header != null,
+        ),
+      );
     }
     return out;
   }
 
-  /// Build the status model: a per-message marker for each of my non-failed
-  /// bubbles (heart when sent, clock when in flight), plus — for any run with a
-  /// failed send or one in [stuck] — a collapsed caption keyed to the run's
-  /// last failed message (else its last stuck one), so one tap retries every
-  /// failure. A failure is never hidden: failed messages carry no in-bubble
-  /// marker and always surface the caption. A stuck send keeps its clock (it
-  /// is still queued and may yet go).
+  /// Build the status model over the runs [_itemize] marked (#84), so status
+  /// and bubble shape agree on where a run ends. Each run of mine gets one
+  /// marker, on its last non-failed message and showing that message's own
+  /// status (#86): a clock while it sends, a heart once sent, a double heart
+  /// once read. A run with a failed send or one in [stuck] also gets a
+  /// collapsed caption keyed to its last failed message (else its last stuck
+  /// one), so one tap retries every failure. A failure is never hidden: failed
+  /// messages carry no in-bubble marker and always surface the caption. A
+  /// stuck send keeps its clock (it is still queued and may yet go).
+  ///
+  /// Positions are recomputed from the store on every build and rows are
+  /// keyed by `clientMsgId ?? id`, so the marker stays on the same bubble when
+  /// its optimistic row reconciles to the server id.
   static _StatusModel _statusModel(
-    List<Msg> sorted,
+    List<_Item> chronological,
     String me,
     Set<String> stuck,
   ) {
     final inBubble = <String, _Marker>{};
     final issueRun = <String, _RunIssue>{};
-    var i = 0;
-    while (i < sorted.length) {
-      if (sorted[i].from != me) {
-        i++;
-        continue;
+    var failedIds = <String>[];
+    String? lastFailedId;
+    String? lastStuckId;
+    // The run's latest non-failed message so far, and its marker.
+    (String, _Marker)? latest;
+    for (final item in chronological) {
+      // A run is one sender's, so my runs never interleave with the partner's.
+      if (item is! _BubbleItem || item.msg.from != me) continue;
+      if (item.position.startsRun) {
+        failedIds = <String>[];
+        lastFailedId = lastStuckId = null;
+        latest = null;
       }
-      final failedIds = <String>[];
-      String? lastFailedId;
-      String? lastStuckId;
-      var j = i;
-      while (j < sorted.length && sorted[j].from == me) {
-        final m = sorted[j];
-        final key = m.clientMsgId ?? m.id;
-        switch (m.sendStatus) {
-          case SendStatus.failed:
-            failedIds.add(key);
-            lastFailedId = m.id;
-          case SendStatus.sending:
-            inBubble[m.id] = _Marker.sending;
-            if (stuck.contains(key)) lastStuckId = m.id;
-          case SendStatus.sent:
-            inBubble[m.id] = _Marker.sent;
-          case SendStatus.read:
-            inBubble[m.id] = _Marker.read;
-        }
-        j++;
+      final m = item.msg;
+      final key = m.clientMsgId ?? m.id;
+      switch (m.sendStatus) {
+        case SendStatus.failed:
+          failedIds.add(key);
+          lastFailedId = m.id;
+        case SendStatus.sending:
+          latest = (m.id, _Marker.sending);
+          if (stuck.contains(key)) lastStuckId = m.id;
+        case SendStatus.sent:
+          latest = (m.id, _Marker.sent);
+        case SendStatus.read:
+          latest = (m.id, _Marker.read);
       }
+      if (!item.position.endsRun) continue;
+      if (latest case (final id, final mark)) inBubble[id] = mark;
       final anchor = lastFailedId ?? lastStuckId;
       if (anchor != null) issueRun[anchor] = _RunIssue(failedIds);
-      i = j;
     }
     return _StatusModel(inBubble, issueRun);
   }
@@ -2322,23 +2333,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     }
   }
 
-  static String _formatDaySeparator(DateTime day) =>
-      dayLabel(day, now: DateTime.now());
+  /// "Today 6:12 PM", "Yesterday 21:41", "Oct 3 9:41 PM": [dayLabel] and the
+  /// clock time in the device's format (#85, #89).
+  String _separatorLabel(DateTime t) =>
+      '${dayLabel(t, now: DateTime.now())} ${clockTime(t, use24h: _use24h)}';
 
-  static String _formatGapHeader(DateTime t) => clockTime(t);
-
-  /// Compact 24-hour, zero-padded time for the in-bubble stamp (e.g. 09:03).
-  static String _formatHm(DateTime t) {
-    final h = t.hour.toString().padLeft(2, '0');
-    final m = t.minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
+  /// The device's 12/24-hour choice, which every clock time on this page
+  /// (bubble stamps, separators, the long-press header) follows (#85).
+  bool get _use24h => MediaQuery.alwaysUse24HourFormatOf(context);
 
   /// Absolute date + time for the long-press menu header, e.g.
-  /// "Saturday, Jun 13, 2026 at 3:42 PM". The in-bubble stamp is hh:mm only.
-  static String _formatFull(DateTime t) =>
+  /// "Saturday, Jun 13, 2026 at 3:42 PM". The in-bubble stamp is the time only.
+  static String _formatFull(DateTime t, {required bool use24h}) =>
       '${weekdayName(t.weekday)}, ${monthName(t.month)} ${t.day}, '
-      '${t.year} at ${clockTime(t)}';
+      '${t.year} at ${clockTime(t, use24h: use24h)}';
 
   /// Base body text size for message bubbles and the composer. iMessage body
   /// text is ~17pt; matching it also nudges inline emoji up a touch.
@@ -2995,7 +3003,11 @@ class _PartnerStatusLineState extends ConsumerState<_PartnerStatusLine> {
     if (online) {
       label = 'online';
     } else if (presence.lastSeen != null) {
-      label = lastSeenLabel(presence.lastSeen!, now: DateTime.now());
+      label = lastSeenLabel(
+        presence.lastSeen!,
+        now: DateTime.now(),
+        use24h: MediaQuery.alwaysUse24HourFormatOf(context),
+      );
     } else {
       label = 'offline';
     }
@@ -3706,8 +3718,9 @@ class _MediaBubble extends StatelessWidget {
                         right: 6,
                         bottom: 6,
                         child: _MediaMeta(
-                          time: _ConversationPageState._formatHm(
+                          time: clockTime(
                             msg.ts.toLocal(),
+                            use24h: MediaQuery.alwaysUse24HourFormatOf(context),
                           ),
                           marker: marker,
                         ),
@@ -3902,90 +3915,6 @@ class _MediaImageState extends ConsumerState<_MediaImage> {
             ),
     );
   }
-}
-
-/// Paints a chat bubble: a rounded rectangle with a small tail curling out of
-/// the bottom corner on the sender's side — right for my messages, left for the
-/// partner's — like iMessage. The tail isn't a flat flare: the edge runs down
-/// past the corner, pokes out to the box edge, then *hooks back inward* with a
-/// little curl (the control points dip just past the bottom edge). The body
-/// fills the full box; the tail lives entirely inside the bottom corner.
-class _BubbleBackground extends CustomPainter {
-  const _BubbleBackground({
-    required this.color,
-    required this.border,
-    required this.mine,
-  });
-
-  final Color color;
-  final Color border;
-  final bool mine;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = _path(size);
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = color
-        ..isAntiAlias = true
-        ..style = PaintingStyle.fill,
-    );
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = border
-        ..isAntiAlias = true
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1,
-    );
-  }
-
-  /// The canonical iMessage bubble path: 15px rounded corners on three sides,
-  /// and a curled tail at the bottom corner on the sender's side. Coordinates
-  /// are the fixed pixel landmarks from Apple's shape (tail spans ~20px), so it
-  /// reads identically at any bubble size.
-  Path _path(Size size) {
-    final w = size.width;
-    final h = size.height;
-    final path = Path();
-    if (mine) {
-      // Tail at the bottom-right; mirror of the received geometry (x -> w - x).
-      path
-        ..moveTo(w - 20, h)
-        ..lineTo(15, h)
-        ..cubicTo(8, h, 0, h - 8, 0, h - 15) // bottom-left corner
-        ..lineTo(0, 15)
-        ..cubicTo(0, 8, 8, 0, 15, 0) // top-left corner
-        ..lineTo(w - 20, 0)
-        ..cubicTo(w - 12, 0, w - 5, 8, w - 5, 15) // top-right corner
-        ..lineTo(w - 5, h - 10) // right edge runs down past the corner
-        ..cubicTo(w - 5, h - 1, w, h, w, h) // poke out to the tail tip
-        ..cubicTo(w - 4, h + 1, w - 8, h - 1, w - 12, h - 4) // curl back in
-        ..cubicTo(w - 15, h - 1, w - 18, h, w - 20, h) // rejoin bottom edge
-        ..close();
-    } else {
-      // Tail at the bottom-left (received).
-      path
-        ..moveTo(20, h)
-        ..lineTo(w - 15, h)
-        ..cubicTo(w - 8, h, w, h - 8, w, h - 15) // bottom-right corner
-        ..lineTo(w, 15)
-        ..cubicTo(w, 8, w - 8, 0, w - 15, 0) // top-right corner
-        ..lineTo(20, 0)
-        ..cubicTo(12, 0, 5, 8, 5, 15) // top-left corner
-        ..lineTo(5, h - 10) // left edge runs down past the corner
-        ..cubicTo(5, h - 1, 0, h, 0, h) // poke out to the tail tip
-        ..cubicTo(4, h + 1, 8, h - 1, 12, h - 4) // curl back in
-        ..cubicTo(15, h - 1, 18, h, 20, h) // rejoin bottom edge
-        ..close();
-    }
-    return path;
-  }
-
-  @override
-  bool shouldRepaint(_BubbleBackground old) =>
-      old.color != color || old.border != border || old.mine != mine;
 }
 
 class _PlayBadge extends StatelessWidget {

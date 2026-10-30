@@ -39,15 +39,26 @@ ProviderContainer _container() => ProviderContainer(
   ],
 );
 
-Future<void> _pump(WidgetTester tester, ProviderContainer container) async {
+/// Pumps the page as a device set to 24-hour time ([use24h]) or 12-hour.
+Future<void> _pump(
+  WidgetTester tester,
+  ProviderContainer container, {
+  bool use24h = false,
+  ReactCallback? onReact,
+}) async {
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
       child: MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: use24h),
+          child: child!,
+        ),
         home: ConversationPage(
           room: _room(),
           selfUsername: 'me',
           onSend: (_, _) {},
+          onReact: onReact,
         ),
       ),
     ),
@@ -77,7 +88,7 @@ void main() {
         );
 
     await _pump(tester, container);
-    expect(find.text('10:05'), findsOneWidget);
+    expect(find.text('10:05 AM'), findsOneWidget);
     expect(find.byKey(const Key('status-heart')), findsOneWidget);
   });
 
@@ -127,7 +138,7 @@ void main() {
         );
 
     await _pump(tester, container);
-    expect(find.text('10:07'), findsOneWidget);
+    expect(find.text('10:07 AM'), findsOneWidget);
     expect(find.byKey(const Key('status-heart')), findsNothing);
     expect(find.byKey(const Key('status-clock')), findsNothing);
   });
@@ -154,15 +165,14 @@ void main() {
         );
 
     await _pump(tester, container);
-    expect(find.text('10:09'), findsOneWidget);
+    expect(find.text('10:09 AM'), findsOneWidget);
     expect(find.byKey(const Key('status-clock')), findsOneWidget);
   });
 
-  testWidgets('timestamps are 24-hour and zero-padded', (tester) async {
-    final container = _container();
-    addTearDown(container.dispose);
-    await container.read(accountProvider.future);
-
+  /// Today, mine at 09:03 then the partner's at 14:32 after a gap, so the day
+  /// separator and the gap header carry those times too.
+  void addMorningAndAfternoon(ProviderContainer container) {
+    final now = DateTime.now();
     final store = container.read(messageStoreProvider('r1').notifier);
     store.add(
       Msg(
@@ -170,22 +180,90 @@ void main() {
         from: 'me',
         to: 'r1',
         body: 'morning',
-        ts: DateTime(2026, 6, 13, 9, 3),
+        ts: DateTime(now.year, now.month, now.day, 9, 3),
       ),
     );
     store.add(
       Msg(
         id: 'srv-4',
-        from: 'me',
+        from: 'kaitlyn',
         to: 'r1',
         body: 'afternoon',
-        ts: DateTime(2026, 6, 13, 14, 32),
+        ts: DateTime(now.year, now.month, now.day, 14, 32),
+      ),
+    );
+  }
+
+  testWidgets('a 12-hour device shows 12-hour stamps, matching the '
+      'separators', (tester) async {
+    final container = _container();
+    addTearDown(container.dispose);
+    await container.read(accountProvider.future);
+    addMorningAndAfternoon(container);
+
+    await _pump(tester, container);
+    expect(find.text('9:03 AM'), findsOneWidget);
+    expect(find.text('2:32 PM'), findsOneWidget);
+    // The separators use the same clock as the bubbles.
+    expect(find.text('Today 9:03 AM'), findsOneWidget);
+    expect(find.text('Today 2:32 PM'), findsOneWidget);
+    expect(find.text('09:03'), findsNothing);
+    expect(find.text('14:32'), findsNothing);
+  });
+
+  testWidgets('a 24-hour device shows 24-hour stamps and separators', (
+    tester,
+  ) async {
+    final container = _container();
+    addTearDown(container.dispose);
+    await container.read(accountProvider.future);
+    addMorningAndAfternoon(container);
+
+    await _pump(tester, container, use24h: true, onReact: (_, _) {});
+    expect(find.text('09:03'), findsOneWidget);
+    expect(find.text('14:32'), findsOneWidget);
+    expect(find.text('Today 09:03'), findsOneWidget);
+    expect(find.text('Today 14:32'), findsOneWidget);
+    expect(find.textContaining('PM'), findsNothing);
+
+    // The long-press header follows the same setting.
+    await tester.longPress(find.text('afternoon'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining(' at 14:32'), findsOneWidget);
+  });
+
+  testWidgets('separators put the day and time on one line, for older days '
+      'too', (tester) async {
+    final container = _container();
+    addTearDown(container.dispose);
+    await container.read(accountProvider.future);
+    final now = DateTime.now();
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(
+      Msg(
+        id: 'srv-y',
+        from: 'kaitlyn',
+        to: 'r1',
+        body: 'night',
+        ts: DateTime(now.year, now.month, now.day - 1, 21, 41),
+      ),
+    );
+    store.add(
+      Msg(
+        id: 'srv-t',
+        from: 'me',
+        to: 'r1',
+        body: 'morning',
+        ts: DateTime(now.year, now.month, now.day, 6, 12),
       ),
     );
 
     await _pump(tester, container);
-    expect(find.text('09:03'), findsOneWidget);
-    expect(find.text('14:32'), findsOneWidget);
+    expect(find.text('Yesterday 9:41 PM'), findsOneWidget);
+    expect(find.text('Today 6:12 AM'), findsOneWidget);
+    // No bare day label left over from the old two-part headers.
+    expect(find.text('Today'), findsNothing);
+    expect(find.text('Yesterday'), findsNothing);
   });
 
   testWidgets('message bubbles have no hover tooltip', (tester) async {
@@ -242,7 +320,7 @@ void main() {
     // empty column down the right. The meta should instead follow the text
     // block — its top at or below the text's bottom.
     final textBottom = tester.getRect(find.text(longBody)).bottom;
-    final timeTop = tester.getRect(find.text('10:06')).top;
+    final timeTop = tester.getRect(find.text('10:06 AM')).top;
     expect(timeTop, greaterThanOrEqualTo(textBottom - 1));
   });
 

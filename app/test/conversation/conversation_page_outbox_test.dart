@@ -76,6 +76,13 @@ Msg _inFlight(String id, String body, {int minute = 0}) => Msg(
   sendStatus: SendStatus.sending,
 );
 
+/// The status marker [markKey] inside the bubble keyed [rowKey]
+/// (`clientMsgId ?? id`).
+Finder _mark(String rowKey, String markKey) => find.descendant(
+  of: find.byKey(Key('bubble-bg-$rowKey')),
+  matching: find.byKey(Key(markKey)),
+);
+
 void main() {
   testWidgets('a sent message carries a heart inside its own bubble', (
     tester,
@@ -102,31 +109,125 @@ void main() {
     expect(find.text("Couldn't send · tap to retry"), findsNothing);
   });
 
-  testWidgets(
-    'every message in a sent run gets its own heart — no collapsing',
-    (tester) async {
-      final container = _container();
-      addTearDown(container.dispose);
-      await container.read(accountProvider.future);
+  testWidgets("status marker only on my run's last bubble", (tester) async {
+    final container = _container();
+    addTearDown(container.dispose);
+    await container.read(accountProvider.future);
 
-      final store = container.read(messageStoreProvider('r1').notifier);
-      for (var i = 0; i < 3; i++) {
-        store.add(
-          Msg(
-            id: 'srv-$i',
-            from: 'me',
-            to: 'r1',
-            body: 'msg $i',
-            ts: DateTime.utc(2026, 6, 13, 10, i),
-          ),
-        );
-      }
+    final store = container.read(messageStoreProvider('r1').notifier);
+    for (var i = 0; i < 3; i++) {
+      store.add(
+        Msg(
+          id: 'srv-$i',
+          from: 'me',
+          to: 'r1',
+          body: 'msg $i',
+          ts: DateTime.utc(2026, 6, 13, 10, i),
+        ),
+      );
+    }
 
-      await _pump(tester, container);
-      // Telegram style: three sent messages → three hearts, one per bubble.
-      expect(find.byKey(const Key('status-heart')), findsNWidgets(3));
-    },
-  );
+    await _pump(tester, container);
+    // iMessage style: three sent messages, one heart, on the newest.
+    expect(find.byKey(const Key('status-heart')), findsOneWidget);
+    expect(_mark('srv-2', 'status-heart'), findsOneWidget);
+  });
+
+  testWidgets('each run of mine gets its own marker', (tester) async {
+    final container = _container();
+    addTearDown(container.dispose);
+    await container.read(accountProvider.future);
+
+    final store = container.read(messageStoreProvider('r1').notifier);
+    for (final (i, from) in ['me', 'me', 'kaitlyn', 'me'].indexed) {
+      store.add(
+        Msg(
+          id: 'srv-$i',
+          from: from,
+          to: 'r1',
+          body: 'msg $i',
+          ts: DateTime.utc(2026, 6, 13, 10, i),
+        ),
+      );
+    }
+
+    await _pump(tester, container);
+    expect(find.byKey(const Key('status-heart')), findsNWidgets(2));
+    expect(_mark('srv-1', 'status-heart'), findsOneWidget);
+    expect(_mark('srv-3', 'status-heart'), findsOneWidget);
+  });
+
+  testWidgets("the run's marker is its last message's own status", (
+    tester,
+  ) async {
+    final container = _container();
+    addTearDown(container.dispose);
+    await container.read(accountProvider.future);
+
+    // Read, then a newer one only sent: the run says "sent", not "read".
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(
+      Msg(
+        id: 'srv-0',
+        from: 'me',
+        to: 'r1',
+        body: 'seen',
+        ts: DateTime.utc(2026, 6, 13, 10, 0),
+        sendStatus: SendStatus.read,
+      ),
+    );
+    store.add(
+      Msg(
+        id: 'srv-1',
+        from: 'me',
+        to: 'r1',
+        body: 'not yet',
+        ts: DateTime.utc(2026, 6, 13, 10, 1),
+      ),
+    );
+
+    await _pump(tester, container);
+    expect(find.byKey(const Key('status-double-heart')), findsNothing);
+    expect(_mark('srv-1', 'status-heart'), findsOneWidget);
+  });
+
+  testWidgets('the marker stays on the last bubble when its optimistic row '
+      'reconciles', (tester) async {
+    final container = _container();
+    addTearDown(container.dispose);
+    await container.read(accountProvider.future);
+
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(
+      Msg(
+        id: 'srv-0',
+        from: 'me',
+        to: 'r1',
+        body: 'earlier',
+        ts: DateTime.utc(2026, 6, 13, 10, 0),
+      ),
+    );
+    store.add(_inFlight('cli-1', 'newest', minute: 1));
+
+    await _pump(tester, container);
+    expect(_mark('cli-1', 'status-clock'), findsOneWidget);
+    expect(find.byKey(const Key('status-heart')), findsNothing);
+
+    store.reconcile(
+      'cli-1',
+      Msg(
+        id: 'srv-1',
+        from: 'me',
+        to: 'r1',
+        body: 'newest',
+        ts: DateTime.utc(2026, 6, 13, 10, 1),
+      ),
+    );
+    await tester.pump();
+    expect(_mark('cli-1', 'status-heart'), findsOneWidget);
+    expect(find.byKey(const Key('status-heart')), findsOneWidget);
+    expect(find.byKey(const Key('status-clock')), findsNothing);
+  });
 
   testWidgets('a message in flight shows a clock, not a "sending…" caption', (
     tester,
@@ -155,7 +256,7 @@ void main() {
     expect(find.text('sending…'), findsNothing);
   });
 
-  testWidgets('every in-flight message in a run gets its own clock', (
+  testWidgets('a sending run shows one clock, on its newest bubble', (
     tester,
   ) async {
     final container = _container();
@@ -164,21 +265,12 @@ void main() {
 
     final store = container.read(messageStoreProvider('r1').notifier);
     for (var i = 0; i < 2; i++) {
-      store.add(
-        Msg(
-          id: 'cli-$i',
-          from: 'me',
-          to: 'r1',
-          body: 'msg $i',
-          ts: DateTime.utc(2026, 6, 13, 10, i),
-          clientMsgId: 'cli-$i',
-          sendStatus: SendStatus.sending,
-        ),
-      );
+      store.add(_inFlight('cli-$i', 'msg $i', minute: i));
     }
 
     await _pump(tester, container);
-    expect(find.byKey(const Key('status-clock')), findsNWidgets(2));
+    expect(find.byKey(const Key('status-clock')), findsOneWidget);
+    expect(_mark('cli-1', 'status-clock'), findsOneWidget);
     expect(find.byKey(const Key('status-heart')), findsNothing);
   });
 
@@ -324,10 +416,45 @@ void main() {
     expect(find.text("Couldn't send · tap to retry"), findsOneWidget);
     // The succeeded sibling keeps its heart and is not a retry target.
     expect(find.byKey(const Key('status-heart')), findsOneWidget);
+    expect(_mark('srv-1', 'status-heart'), findsOneWidget);
     await tester.tap(find.text('made it'));
     expect(retried, isEmpty);
     await tester.tap(find.text('oops'));
     expect(retried, ['cli-0']);
+  });
+
+  testWidgets('a run that ends in a failed send keeps its marker on its last '
+      'delivered bubble', (tester) async {
+    final container = _container();
+    addTearDown(container.dispose);
+    await container.read(accountProvider.future);
+
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(
+      Msg(
+        id: 'srv-0',
+        from: 'me',
+        to: 'r1',
+        body: 'made it',
+        ts: DateTime.utc(2026, 6, 13, 10, 0),
+      ),
+    );
+    store.add(
+      Msg(
+        id: 'cli-1',
+        from: 'me',
+        to: 'r1',
+        body: 'oops',
+        ts: DateTime.utc(2026, 6, 13, 10, 1),
+        clientMsgId: 'cli-1',
+        sendStatus: SendStatus.failed,
+      ),
+    );
+
+    await _pump(tester, container);
+    expect(find.text("Couldn't send · tap to retry"), findsOneWidget);
+    expect(_mark('srv-0', 'status-heart'), findsOneWidget);
+    expect(_mark('cli-1', 'status-heart'), findsNothing);
   });
 
   group('stuck sends', () {

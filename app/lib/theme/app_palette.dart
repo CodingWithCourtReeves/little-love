@@ -28,6 +28,10 @@ class AppPalette extends ThemeExtension<AppPalette> {
     required this.bubbleUserBg,
     required this.bubbleUserText,
     required this.bubblePartnerBg,
+    required this.separatorText,
+    required this.bubblePartnerEdge,
+    required this.replyInsetOnUser,
+    required this.replyNameOnUser,
   });
 
   final Brightness brightness;
@@ -46,6 +50,27 @@ class AppPalette extends ThemeExtension<AppPalette> {
   final Color bubbleUserBg;
   final Color bubbleUserText;
   final Color bubblePartnerBg;
+
+  /// Day and time separators in the chat, drawn on a translucent
+  /// [bgSurface] scrim over the wallpaper. Darker (light) / lighter (dark) than
+  /// [textMuted] so the quiet label still passes 4.5:1 at the busiest point of
+  /// every wallpaper (see `ChatSeparator`).
+  final Color separatorText;
+
+  /// The faint 1px edge on the partner's bubble ([borderSoft] at ~55%), just
+  /// enough to hold the pale bubble against a pale wallpaper (#87). My bubbles
+  /// have no outline.
+  final Color bubblePartnerEdge;
+
+  /// The reply quote's inset inside my own bubble (#88): white over the pink
+  /// bubble in light; on the dark bubble a light veil (a white inset there
+  /// would wash out the text).
+  final Color replyInsetOnUser;
+
+  /// The quoted author's name inside my own bubble: a darker (light) / softer
+  /// (dark) accent than [accentUser], so 13px text clears 4.5:1 on
+  /// [replyInsetOnUser].
+  final Color replyNameOnUser;
 
   /// "The hour the lamps come on" — pale rose / aubergine neutrals. Values are
   /// the original Twilight light palette, unchanged.
@@ -66,6 +91,10 @@ class AppPalette extends ThemeExtension<AppPalette> {
     bubbleUserBg: Color(0xFFE8C8D2),
     bubbleUserText: Color(0xFF3A1424),
     bubblePartnerBg: Color(0xFFFFFAFB),
+    separatorText: Color(0xFF4A3D48),
+    bubblePartnerEdge: Color(0x8CD9C7CD),
+    replyInsetOnUser: Color(0x80FFFFFF),
+    replyNameOnUser: Color(0xFF7E3753),
   );
 
   /// "Deep dusk" — the Deep Dusk wallpaper world as the app canvas. The rose
@@ -88,6 +117,10 @@ class AppPalette extends ThemeExtension<AppPalette> {
     bubbleUserBg: Color(0xFF5E2C49),
     bubbleUserText: Color(0xFFF6E5EC),
     bubblePartnerBg: Color(0xFF2E2233),
+    separatorText: Color(0xFFEADFE4),
+    bubblePartnerEdge: Color(0x8C3D2E42),
+    replyInsetOnUser: Color(0x14FFFFFF),
+    replyNameOnUser: Color(0xFFE0B6C6),
   );
 
   /// The palette for a given brightness — the seam the wallpaper drives.
@@ -112,6 +145,10 @@ class AppPalette extends ThemeExtension<AppPalette> {
     Color? bubbleUserBg,
     Color? bubbleUserText,
     Color? bubblePartnerBg,
+    Color? separatorText,
+    Color? bubblePartnerEdge,
+    Color? replyInsetOnUser,
+    Color? replyNameOnUser,
   }) {
     return AppPalette(
       brightness: brightness ?? this.brightness,
@@ -130,6 +167,10 @@ class AppPalette extends ThemeExtension<AppPalette> {
       bubbleUserBg: bubbleUserBg ?? this.bubbleUserBg,
       bubbleUserText: bubbleUserText ?? this.bubbleUserText,
       bubblePartnerBg: bubblePartnerBg ?? this.bubblePartnerBg,
+      separatorText: separatorText ?? this.separatorText,
+      bubblePartnerEdge: bubblePartnerEdge ?? this.bubblePartnerEdge,
+      replyInsetOnUser: replyInsetOnUser ?? this.replyInsetOnUser,
+      replyNameOnUser: replyNameOnUser ?? this.replyNameOnUser,
     );
   }
 
@@ -154,6 +195,18 @@ class AppPalette extends ThemeExtension<AppPalette> {
       bubbleUserBg: Color.lerp(bubbleUserBg, other.bubbleUserBg, t)!,
       bubbleUserText: Color.lerp(bubbleUserText, other.bubbleUserText, t)!,
       bubblePartnerBg: Color.lerp(bubblePartnerBg, other.bubblePartnerBg, t)!,
+      separatorText: Color.lerp(separatorText, other.separatorText, t)!,
+      bubblePartnerEdge: Color.lerp(
+        bubblePartnerEdge,
+        other.bubblePartnerEdge,
+        t,
+      )!,
+      replyInsetOnUser: Color.lerp(
+        replyInsetOnUser,
+        other.replyInsetOnUser,
+        t,
+      )!,
+      replyNameOnUser: Color.lerp(replyNameOnUser, other.replyNameOnUser, t)!,
     );
   }
 }

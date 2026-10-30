@@ -8,13 +8,17 @@ import 'package:littlelove/theme/app_palette.dart';
 // Thursday, Oct 29 2026, 9:41 PM local.
 final _now = DateTime(2026, 10, 29, 21, 41);
 
-Widget _host(Widget child, {double textScale = 1.0}) => MaterialApp(
-  theme: buildAppTheme(AppPalette.light),
-  home: MediaQuery(
-    data: MediaQueryData(textScaler: TextScaler.linear(textScale)),
-    child: Scaffold(body: Column(children: [child])),
-  ),
-);
+Widget _host(Widget child, {double textScale = 1.0, bool use24h = false}) =>
+    MaterialApp(
+      theme: buildAppTheme(AppPalette.light),
+      home: MediaQuery(
+        data: MediaQueryData(
+          textScaler: TextScaler.linear(textScale),
+          alwaysUse24HourFormat: use24h,
+        ),
+        child: Scaffold(body: Column(children: [child])),
+      ),
+    );
 
 ConversationListItem _row(
   RoomPreview preview, {
@@ -125,6 +129,18 @@ void main() {
       _host(_row(RoomPreview(text: 'hi', at: DateTime(2026, 10, 28, 9)))),
     );
     expect(find.text('Yesterday'), findsOneWidget);
+  });
+
+  testWidgets("a 24-hour device shows today's time in 24-hour format", (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        _row(RoomPreview(text: 'hi', at: DateTime(2026, 10, 29, 21, 38))),
+        use24h: true,
+      ),
+    );
+    expect(find.text('21:38'), findsOneWidget);
   });
 
   testWidgets('no time is shown for a room with no messages', (tester) async {
