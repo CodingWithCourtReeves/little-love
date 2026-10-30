@@ -383,8 +383,17 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// jump target once its row is built. Created lazily as bubbles render.
   final Map<String, GlobalKey> _bubbleKeys = {};
 
-  GlobalKey _bubbleKeyFor(String id) =>
-      _bubbleKeys.putIfAbsent(id, GlobalKey.new);
+  /// The row's key, made under `clientMsgId ?? id` so it **survives the
+  /// optimistic → server-id reconcile**: with a stable GlobalKey Flutter keeps
+  /// the row's subtree (and any [ReactionBurst] playing in it) across the swap
+  /// instead of rebuilding it, which restarted my own love tap's hearts when
+  /// the echo landed mid-burst. Also filed under the current [Msg.id], so a
+  /// search jump (which knows only the server id) still finds it.
+  GlobalKey _bubbleKeyFor(Msg m) {
+    final key = _bubbleKeys.putIfAbsent(m.clientMsgId ?? m.id, GlobalKey.new);
+    _bubbleKeys[m.id] = key;
+    return key;
+  }
 
   /// Saturation ×1.3 color matrix (luma-weighted rows). Composed over the
   /// composer's backdrop blur to mimic Apple's blur *material*: a plain
@@ -806,7 +815,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         .any((m) => m.id == messageId);
     if (!present()) {
       final db = await ref.read(messageDbProvider.future);
-      store.setAll(await db.messagesFor(widget.roomId));
+      final history = await db.messagesFor(widget.roomId);
+      // This is old history, not new arrivals: mark it seen before it builds,
+      // or every older row would pop in and an old love tap would burst.
+      for (final m in history) {
+        _animatedIds.add(m.clientMsgId ?? m.id);
+      }
+      store.setAll(history);
       await WidgetsBinding.instance.endOfFrame;
       if (!present()) return; // not in full history (e.g. since unsent)
     }
@@ -1703,7 +1718,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     // while it's the highlighted target.
     final highlighted = m.id == _highlightedId;
     final container = AnimatedContainer(
-      key: _bubbleKeyFor(m.id),
+      key: _bubbleKeyFor(m),
       duration: const Duration(milliseconds: 300),
       decoration: BoxDecoration(
         color: highlighted
