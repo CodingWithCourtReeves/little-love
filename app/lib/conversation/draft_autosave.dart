@@ -100,10 +100,17 @@ class DraftAutosave {
       final db = await _db;
       if (db == null) return;
       await db.saveDraft(roomId, draft);
-      onWritten?.call(draft);
     } catch (e, st) {
       _lastWritten = null;
       reportFault(e, st, context: 'draft_save');
+      return;
+    }
+    // Outside the try: the save succeeded, so a throwing listener must not
+    // un-claim it or be reported as a failed save.
+    try {
+      onWritten?.call(draft);
+    } catch (e, st) {
+      reportFault(e, st, context: 'draft_written_listener');
     }
   }
 

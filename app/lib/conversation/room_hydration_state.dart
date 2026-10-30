@@ -2,11 +2,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Whether a room's local history has been loaded into its [MessageStore].
 ///
-/// The room list lands before each room is hydrated from [MessageDb] (see
-/// `RoomMessageRouter._subscribe`), so for a moment every store is empty. The
-/// home list reads this to tell "not loaded yet" (show no preview) from "no
-/// messages" (show "No messages yet"), instead of flashing the latter on
-/// every launch.
+/// The initial room list is only shown once every room has loaded (see
+/// `inboxSyncedProvider`), but a room can still be on screen with an empty
+/// store before it's hydrated from [MessageDb]: one that arrives later
+/// (`RoomCreated`, `InviteConsumed`), or one whose load failed. The home list
+/// reads this to tell "not loaded yet" (show no preview) from "no messages"
+/// (show "No messages yet").
 class RoomHydrationNotifier extends FamilyNotifier<bool, String> {
   @override
   bool build(String roomId) => false;

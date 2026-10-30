@@ -81,10 +81,12 @@ final inboxStateProvider = NotifierProvider<InboxNotifier, InboxState>(
   InboxNotifier.new,
 );
 
-/// Flips to true the first time the server's room list lands (a `Rooms` frame),
-/// and stays true. Lets the UI tell "no rooms yet, still syncing" apart from
-/// "genuinely unpaired" — so a paired user doesn't flash the pairing screen on
-/// launch before their rooms arrive over the socket.
+/// Flips to true the first time the server's room list lands (a `Rooms` frame)
+/// and each room's local history has loaded, and stays true. Lets the UI tell
+/// "no rooms yet, still syncing" apart from "genuinely unpaired" — so a paired
+/// user doesn't flash the pairing screen on launch before their rooms arrive
+/// over the socket — and keeps the home list from drawing rows that then fill
+/// in and reorder as rooms load.
 final inboxSyncedProvider = StateProvider<bool>((ref) => false);
 
 /// The room to open by default ("home"): the partner DM if one exists,

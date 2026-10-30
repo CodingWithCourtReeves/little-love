@@ -71,11 +71,16 @@ class RoomMessageRouter {
               ),
             )
             .toList(growable: false);
-        // Load every room's local history before publishing the list, so the
-        // home screen's first frame already has each row's preview and the
-        // channels in activity order: no "No messages yet" flash and no rows
-        // reordering as rooms load one by one. A db that won't open is
-        // reported and the list still publishes, as it did before.
+        // Publish the list before any await: frames are handled concurrently,
+        // and the ones the server sends right behind Rooms (the partner's
+        // Profile, Presence) look their room up in the inbox. Publishing after
+        // a db read drops them.
+        ref.read(inboxStateProvider.notifier).setRooms(mapped);
+        // Load every room's local history before the inbox reads as synced,
+        // so the home list's first frame already has each row's preview and
+        // the channels in activity order: no "No messages yet" flash and no
+        // rows reordering as rooms load one by one. A db that won't open is
+        // reported and the inbox still syncs, as it did before.
         for (final r in mapped) {
           try {
             await _hydrate(r.roomId);
@@ -83,9 +88,9 @@ class RoomMessageRouter {
             reportFault(e, st, context: 'room_hydrate');
           }
         }
-        ref.read(inboxStateProvider.notifier).setRooms(mapped);
-        // The authoritative room list has landed — the inbox is now synced, so
-        // an empty list reads as "unpaired" rather than "still loading".
+        // The authoritative room list has landed and loaded — the inbox is now
+        // synced, so an empty list reads as "unpaired" rather than "still
+        // loading".
         ref.read(inboxSyncedProvider.notifier).state = true;
         for (final r in mapped) {
           await _subscribe(r.roomId);

@@ -64,7 +64,10 @@ Widget _app(ProviderContainer c, LocalAccount acct) =>
       child: MaterialApp(home: HomeScreen(account: acct)),
     );
 
-ProviderContainer _container() {
+/// A session for [HomeScreen]. [synced] stands in for the router having
+/// delivered the room list and loaded each room's history (most tests set
+/// rooms directly, without a router).
+ProviderContainer _container({bool synced = true}) {
   final c = ProviderContainer(
     overrides: [
       // The router/drain watch the live connection; keep it perpetually
@@ -79,6 +82,7 @@ ProviderContainer _container() {
     ],
   );
   addTearDown(c.dispose);
+  c.read(inboxSyncedProvider.notifier).state = synced;
   return c;
 }
 
@@ -97,12 +101,35 @@ void main() {
   testWidgets('empty inbox before first sync shows no pairing flash', (
     tester,
   ) async {
-    final c = _container(); // not synced; live connection held pending
+    // Not synced; live connection held pending.
+    final c = _container(synced: false);
     await tester.pumpWidget(_app(c, _acct()));
     await tester.pump();
     // Blank canvas while the room list is still in flight — no pairing screen.
     expect(find.text('PAIR WITH YOUR PARTNER'), findsNothing);
     expect(find.byType(ConversationPage), findsNothing);
+  });
+
+  testWidgets('rooms that have arrived but not yet loaded draw no rows '
+      '(no half-filled list that then reorders)', (tester) async {
+    final c = _container(synced: false);
+    c.read(inboxStateProvider.notifier).setRooms([
+      _partnerRoom('room1'),
+      Room(
+        roomId: 'room2',
+        name: 'Travel',
+        members: _partnerRoom('room2').members,
+        createdAt: DateTime.utc(2026, 6, 11),
+      ),
+    ]);
+    await tester.pumpWidget(_app(c, _acct()));
+    await tester.pump();
+    expect(find.byKey(const Key('home-room-room2')), findsNothing);
+    expect(find.text('PAIR WITH YOUR PARTNER'), findsNothing);
+
+    c.read(inboxSyncedProvider.notifier).state = true;
+    await tester.pump();
+    expect(find.byKey(const Key('home-room-room2')), findsOneWidget);
   });
 
   testWidgets('a room with an unread partner message shows an unread count', (

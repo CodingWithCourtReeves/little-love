@@ -199,14 +199,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _body(List<Room> rooms) {
-    if (rooms.isNotEmpty) return _roomList(rooms);
-    // Empty inbox: distinguish "still syncing" from "genuinely unpaired" so we
-    // don't flash the pairing screen on launch before the room list arrives.
+    // Until the first sync finishes — the room list has arrived AND each room's
+    // local history has loaded — show a blank canvas. That keeps an empty
+    // inbox from flashing the pairing screen before the list arrives, and a
+    // full one from drawing rows that then fill in and reorder as rooms load.
     final synced = ref.watch(inboxSyncedProvider);
     final connFailed = ref.watch(liveConnectionProvider).hasError;
-    if (synced || connFailed) return _emptyState();
-    // First sync in flight — a blank canvas (no flash).
-    return const SizedBox.expand();
+    if (!synced && !connFailed) return const SizedBox.expand();
+    if (rooms.isNotEmpty) return _roomList(rooms);
+    return _emptyState();
   }
 
   Widget _emptyState() {
