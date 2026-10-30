@@ -28,6 +28,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     required this.bubbleUserBg,
     required this.bubbleUserText,
     required this.bubblePartnerBg,
+    required this.separatorText,
   });
 
   final Brightness brightness;
@@ -46,6 +47,12 @@ class AppPalette extends ThemeExtension<AppPalette> {
   final Color bubbleUserBg;
   final Color bubbleUserText;
   final Color bubblePartnerBg;
+
+  /// Day and time separators in the chat, drawn on a translucent
+  /// [bgSurface] scrim over the wallpaper. Darker (light) / lighter (dark) than
+  /// [textMuted] so the quiet label still passes 4.5:1 at the busiest point of
+  /// every wallpaper (see `ChatSeparator`).
+  final Color separatorText;
 
   /// "The hour the lamps come on" — pale rose / aubergine neutrals. Values are
   /// the original Twilight light palette, unchanged.
@@ -66,6 +73,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     bubbleUserBg: Color(0xFFE8C8D2),
     bubbleUserText: Color(0xFF3A1424),
     bubblePartnerBg: Color(0xFFFFFAFB),
+    separatorText: Color(0xFF4A3D48),
   );
 
   /// "Deep dusk" — the Deep Dusk wallpaper world as the app canvas. The rose
@@ -88,6 +96,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     bubbleUserBg: Color(0xFF5E2C49),
     bubbleUserText: Color(0xFFF6E5EC),
     bubblePartnerBg: Color(0xFF2E2233),
+    separatorText: Color(0xFFEADFE4),
   );
 
   /// The palette for a given brightness — the seam the wallpaper drives.
@@ -112,6 +121,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     Color? bubbleUserBg,
     Color? bubbleUserText,
     Color? bubblePartnerBg,
+    Color? separatorText,
   }) {
     return AppPalette(
       brightness: brightness ?? this.brightness,
@@ -130,6 +140,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
       bubbleUserBg: bubbleUserBg ?? this.bubbleUserBg,
       bubbleUserText: bubbleUserText ?? this.bubbleUserText,
       bubblePartnerBg: bubblePartnerBg ?? this.bubblePartnerBg,
+      separatorText: separatorText ?? this.separatorText,
     );
   }
 
@@ -154,6 +165,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
       bubbleUserBg: Color.lerp(bubbleUserBg, other.bubbleUserBg, t)!,
       bubbleUserText: Color.lerp(bubbleUserText, other.bubbleUserText, t)!,
       bubblePartnerBg: Color.lerp(bubblePartnerBg, other.bubblePartnerBg, t)!,
+      separatorText: Color.lerp(separatorText, other.separatorText, t)!,
     );
   }
 }

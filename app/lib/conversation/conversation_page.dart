@@ -38,6 +38,7 @@ import '../wallpaper/wallpaper_controller.dart';
 import '../wire/live_connection.dart';
 import '../wire/message.dart';
 import 'audio_bubble.dart';
+import 'chat_separator.dart';
 import 'chat_info_page.dart';
 import 'composer_draft.dart';
 import 'draft_autosave.dart';
@@ -82,9 +83,12 @@ class _BubbleItem extends _Item {
   final Msg msg;
 }
 
+/// The start of a calendar day. [time] is the day's first message (local), so
+/// the separator can read "Today 6:12 PM"; the row is keyed by [day].
 class _DayItem extends _Item {
-  const _DayItem(this.day);
-  final DateTime day;
+  const _DayItem(this.time);
+  final DateTime time;
+  DateTime get day => dateOnly(time);
 }
 
 class _GapItem extends _Item {
@@ -1581,7 +1585,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                               status.inBubble[msg.id],
                               status.issueRun[msg.id],
                             ),
-                            _DayItem(:final day) => _daySeparator(day),
+                            _DayItem(:final time) => _daySeparator(time),
                             _GapItem(:final time) => _gapHeader(time),
                           };
                           return KeyedSubtree(
@@ -2188,42 +2192,19 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     );
   }
 
-  Widget _daySeparator(DateTime day) => _centerPill(
-    _formatDaySeparator(day),
-    key: ValueKey('day-${day.toIso8601String()}'),
+  /// The separator at the start of a day: the day and its first message's
+  /// time on one line ("Today 6:12 PM").
+  Widget _daySeparator(DateTime first) => ChatSeparator(
+    _separatorLabel(first),
+    key: ValueKey('day-${dateOnly(first).toIso8601String()}'),
   );
 
-  Widget _gapHeader(DateTime t) => _centerPill(
-    _formatGapHeader(t, use24h: _use24h),
+  /// The header after an hour or more of silence, worded like the day
+  /// separator ("Today 8:05 PM") so the two read as one system.
+  Widget _gapHeader(DateTime t) => ChatSeparator(
+    _separatorLabel(t),
     key: ValueKey('gap-${t.toIso8601String()}'),
-    fontSize: 11,
   );
-
-  /// Centered translucent pill for day/gap headers — anchors the label over
-  /// the wallpaper (iMessage/Telegram style) instead of bare text on lines.
-  Widget _centerPill(String text, {required Key key, double fontSize = 12}) {
-    return Padding(
-      key: key,
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-          decoration: BoxDecoration(
-            color: context.palette.bgSurface.withValues(alpha: 0.86),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Text(
-            text,
-            style: TextStyle(
-              color: context.palette.textMuted,
-              fontSize: fontSize,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
   /// Group messages by day and insert separators for date changes and for
   /// gaps of >= 1 hour within a day.
@@ -2234,9 +2215,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     for (final m in sorted) {
       final local = m.ts.toLocal();
       if (prevLocal == null) {
-        out.add(_DayItem(dateOnly(local)));
+        out.add(_DayItem(local));
       } else if (dateOnly(local) != dateOnly(prevLocal)) {
-        out.add(_DayItem(dateOnly(local)));
+        out.add(_DayItem(local));
       } else if (local.difference(prevLocal) >= gapThreshold) {
         out.add(_GapItem(local));
       }
@@ -2322,11 +2303,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     }
   }
 
-  static String _formatDaySeparator(DateTime day) =>
-      dayLabel(day, now: DateTime.now());
-
-  static String _formatGapHeader(DateTime t, {required bool use24h}) =>
-      clockTime(t, use24h: use24h);
+  /// "Today 6:12 PM", "Yesterday 21:41", "Oct 3 9:41 PM": [dayLabel] and the
+  /// clock time in the device's format (#85, #89).
+  String _separatorLabel(DateTime t) =>
+      '${dayLabel(t, now: DateTime.now())} ${clockTime(t, use24h: _use24h)}';
 
   /// The device's 12/24-hour choice, which every clock time on this page
   /// (bubble stamps, separators, the long-press header) follows (#85).

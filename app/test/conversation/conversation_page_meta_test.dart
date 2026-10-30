@@ -169,9 +169,10 @@ void main() {
     expect(find.byKey(const Key('status-clock')), findsOneWidget);
   });
 
-  /// Two of my messages (09:03, then 14:32 after a gap, so a gap header
-  /// stamps 14:32 too) from the partner's side and mine.
+  /// Today, mine at 09:03 then the partner's at 14:32 after a gap, so the day
+  /// separator and the gap header carry those times too.
   void addMorningAndAfternoon(ProviderContainer container) {
+    final now = DateTime.now();
     final store = container.read(messageStoreProvider('r1').notifier);
     store.add(
       Msg(
@@ -179,7 +180,7 @@ void main() {
         from: 'me',
         to: 'r1',
         body: 'morning',
-        ts: DateTime(2026, 6, 13, 9, 3),
+        ts: DateTime(now.year, now.month, now.day, 9, 3),
       ),
     );
     store.add(
@@ -188,7 +189,7 @@ void main() {
         from: 'kaitlyn',
         to: 'r1',
         body: 'afternoon',
-        ts: DateTime(2026, 6, 13, 14, 32),
+        ts: DateTime(now.year, now.month, now.day, 14, 32),
       ),
     );
   }
@@ -202,8 +203,10 @@ void main() {
 
     await _pump(tester, container);
     expect(find.text('9:03 AM'), findsOneWidget);
-    // The 14:32 bubble stamp and the gap header above it say the same thing.
-    expect(find.text('2:32 PM'), findsNWidgets(2));
+    expect(find.text('2:32 PM'), findsOneWidget);
+    // The separators use the same clock as the bubbles.
+    expect(find.text('Today 9:03 AM'), findsOneWidget);
+    expect(find.text('Today 2:32 PM'), findsOneWidget);
     expect(find.text('09:03'), findsNothing);
     expect(find.text('14:32'), findsNothing);
   });
@@ -218,13 +221,49 @@ void main() {
 
     await _pump(tester, container, use24h: true, onReact: (_, _) {});
     expect(find.text('09:03'), findsOneWidget);
-    expect(find.text('14:32'), findsNWidgets(2));
+    expect(find.text('14:32'), findsOneWidget);
+    expect(find.text('Today 09:03'), findsOneWidget);
+    expect(find.text('Today 14:32'), findsOneWidget);
     expect(find.textContaining('PM'), findsNothing);
 
     // The long-press header follows the same setting.
     await tester.longPress(find.text('afternoon'));
     await tester.pumpAndSettle();
-    expect(find.text('Saturday, Jun 13, 2026 at 14:32'), findsOneWidget);
+    expect(find.textContaining(' at 14:32'), findsOneWidget);
+  });
+
+  testWidgets('separators put the day and time on one line, for older days '
+      'too', (tester) async {
+    final container = _container();
+    addTearDown(container.dispose);
+    await container.read(accountProvider.future);
+    final now = DateTime.now();
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(
+      Msg(
+        id: 'srv-y',
+        from: 'kaitlyn',
+        to: 'r1',
+        body: 'night',
+        ts: DateTime(now.year, now.month, now.day - 1, 21, 41),
+      ),
+    );
+    store.add(
+      Msg(
+        id: 'srv-t',
+        from: 'me',
+        to: 'r1',
+        body: 'morning',
+        ts: DateTime(now.year, now.month, now.day, 6, 12),
+      ),
+    );
+
+    await _pump(tester, container);
+    expect(find.text('Yesterday 9:41 PM'), findsOneWidget);
+    expect(find.text('Today 6:12 AM'), findsOneWidget);
+    // No bare day label left over from the old two-part headers.
+    expect(find.text('Today'), findsNothing);
+    expect(find.text('Yesterday'), findsNothing);
   });
 
   testWidgets('message bubbles have no hover tooltip', (tester) async {
