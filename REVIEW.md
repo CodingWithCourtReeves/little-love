@@ -199,6 +199,15 @@ For every new or changed `RoomClientFrame` arm or REST route:
   moment it fires? PushKit tokens and the first `Rooms` frame were both lost
   this way. Prefer pull or buffered APIs; long-lived listeners must be
   eagerly instantiated.
+- Anything a VoIP wake needs (connection, rooms, call controller) must run
+  with no frames: iOS draws none in the background, so widget builds never
+  run and a mounted scope's invalidated providers don't rebuild until read.
+  Start it from `main` (`keepCallStackRunning`), never from a screen's
+  `build`. Incoming calls on a locked phone were unanswerable this way.
+- WebRTC: remote ICE candidates that arrive before the remote description
+  (or before the callee answers) are held, not dropped; offers and answers
+  carry their gathered candidates. Dropping them broke every call that
+  wasn't on one Wi-Fi.
 - Guard flags reset in `finally`; side effects emitted before a teardown that
   can re-enter.
 - Every outbox enqueue followed by `drain.kick()`.

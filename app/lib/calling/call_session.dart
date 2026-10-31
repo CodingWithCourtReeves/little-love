@@ -3,6 +3,36 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import 'hold_until_ready.dart';
+
+/// How long an offer or answer waits for this phone's network addresses before
+/// going out anyway. The server logs show a full set (host, STUN and TURN) in
+/// under half a second, so the cap only bites on a stalled TURN server.
+const iceGatheringCap = Duration(seconds: 2);
+
+/// Wait until ICE gathering is complete, or [cap] passes.
+///
+/// The offer and answer carry this phone's addresses inside the SDP, so the
+/// other phone has them the moment it applies the description. Trickled
+/// candidates alone were not enough: the callee can't use any until it answers,
+/// and a phone woken by a VoIP push never receives the ones sent while it slept.
+Future<void> waitForIceGathering(
+  Stream<RTCIceGatheringState> states, {
+  required RTCIceGatheringState? current,
+  Duration cap = iceGatheringCap,
+}) async {
+  if (current == RTCIceGatheringState.RTCIceGatheringStateComplete) return;
+  try {
+    await states
+        .firstWhere(
+          (s) => s == RTCIceGatheringState.RTCIceGatheringStateComplete,
+        )
+        .timeout(cap);
+  } catch (_) {
+    // Timed out or the session closed: send what has been gathered so far.
+  }
+}
+
 /// Wraps a single call's [RTCPeerConnection]: mic (and, for video calls, camera)
 /// capture, offer/answer, trickle ICE. Pure WebRTC mechanics — no signaling,
 /// CallKit, or crypto knowledge; the controller drives it and ferries the
@@ -76,6 +106,13 @@ class CallSession {
   Stream<String> get onStats => _statsCtl.stream;
 
   final _localCandidates = StreamController<RTCIceCandidate>.broadcast();
+  final _gatheringStates = StreamController<RTCIceGatheringState>.broadcast();
+
+  // Remote candidates can't be added before the remote description is set; the
+  // ones that arrive first (the partner's, racing their answer) wait here.
+  late final _remoteCandidates = HoldUntilReady<RTCIceCandidate>(
+    (c) async => _pc?.addCandidate(c),
+  );
   final _connectionStates =
       StreamController<RTCPeerConnectionState>.broadcast();
   final _remoteStreams = StreamController<MediaStream>.broadcast();
@@ -118,6 +155,9 @@ class CallSession {
       if (candidate.candidate != null) _localCandidates.add(candidate);
     };
     pc.onConnectionState = (state) => _connectionStates.add(state);
+    pc.onIceGatheringState = (state) {
+      if (!_gatheringStates.isClosed) _gatheringStates.add(state);
+    };
     // Surface the partner's stream for the remote renderer.
     pc.onTrack = (event) {
       if (event.streams.isNotEmpty) _remoteStreams.add(event.streams.first);
@@ -279,42 +319,58 @@ class CallSession {
     }
   }
 
-  /// Caller: create the SDP offer (sets local description).
+  /// Caller: create the SDP offer (sets local description). Returns once this
+  /// phone's addresses are gathered (see [waitForIceGathering]), with them in
+  /// the SDP.
   Future<String> createOffer() async {
     await _ensurePc();
     final offer = await _pc!.createOffer(<String, dynamic>{});
     await _pc!.setLocalDescription(offer);
-    final sdp = offer.sdp;
+    final sdp = await _gatheredSdp() ?? offer.sdp;
     if (sdp == null) throw StateError('WebRTC produced a null offer SDP');
     return sdp;
   }
 
   /// Callee: apply the remote offer and produce an answer (sets local + remote).
+  /// Like [createOffer], the answer carries this phone's gathered addresses.
   Future<String> acceptOffer(String remoteSdp) async {
     await _ensurePc();
     await _pc!.setRemoteDescription(RTCSessionDescription(remoteSdp, 'offer'));
+    await _remoteCandidates.ready();
     final answer = await _pc!.createAnswer(<String, dynamic>{});
     await _pc!.setLocalDescription(answer);
-    final sdp = answer.sdp;
+    final sdp = await _gatheredSdp() ?? answer.sdp;
     if (sdp == null) throw StateError('WebRTC produced a null answer SDP');
     return sdp;
+  }
+
+  /// The local description once gathering completes (or the cap passes), which
+  /// by then lists the gathered candidates. Null if WebRTC has none to give.
+  Future<String?> _gatheredSdp() async {
+    final pc = _pc!;
+    await waitForIceGathering(
+      _gatheringStates.stream,
+      current: pc.iceGatheringState,
+    );
+    return (await pc.getLocalDescription())?.sdp;
   }
 
   /// Caller: apply the remote answer.
   Future<void> setAnswer(String remoteSdp) async {
     await _pc?.setRemoteDescription(RTCSessionDescription(remoteSdp, 'answer'));
+    await _remoteCandidates.ready();
   }
 
-  /// Add a trickled remote ICE candidate (decoded from a CallIce payload).
-  Future<void> addRemoteCandidate(Map<String, dynamic> json) async {
-    await _pc?.addCandidate(
-      RTCIceCandidate(
-        json['candidate'] as String?,
-        json['sdpMid'] as String?,
-        (json['sdpMLineIndex'] as num?)?.toInt(),
-      ),
-    );
-  }
+  /// Add a trickled remote ICE candidate (decoded from a CallIce payload). One
+  /// that arrives before the remote description is held until it's set.
+  Future<void> addRemoteCandidate(Map<String, dynamic> json) =>
+      _remoteCandidates.add(
+        RTCIceCandidate(
+          json['candidate'] as String?,
+          json['sdpMid'] as String?,
+          (json['sdpMLineIndex'] as num?)?.toInt(),
+        ),
+      );
 
   /// Encode a local candidate to the JSON shape carried in a CallIce payload.
   static Map<String, dynamic> encodeCandidate(RTCIceCandidate c) =>
@@ -409,6 +465,7 @@ class CallSession {
     await _pc?.dispose();
     _pc = null;
     await _localCandidates.close();
+    await _gatheringStates.close();
     await _connectionStates.close();
     await _remoteStreams.close();
   }
