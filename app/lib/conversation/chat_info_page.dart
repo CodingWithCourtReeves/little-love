@@ -161,9 +161,10 @@ class ChatInfoPage extends ConsumerWidget {
                           aspectRatio: 1,
                           child: i < strip.length
                               ? ClipRRect(
+                                  key: Key('chat-info-strip-$i'),
                                   borderRadius: BorderRadius.circular(8),
                                   child: SharedMediaTile(
-                                    key: Key('chat-info-strip-$i'),
+                                    key: sharedTileKey(strip[i]),
                                     descriptor: strip[i].attachment!,
                                     onTap: onOpenAttachment == null
                                         ? null

@@ -435,7 +435,12 @@ void main() {
       final strip = [
         for (var i = 0; i < 4; i++)
           tester
-              .widget<SharedMediaTile>(find.byKey(Key('chat-info-strip-$i')))
+              .widget<SharedMediaTile>(
+                find.descendant(
+                  of: find.byKey(Key('chat-info-strip-$i')),
+                  matching: find.byType(SharedMediaTile),
+                ),
+              )
               .descriptor
               .blobKey,
       ];
@@ -468,6 +473,84 @@ void main() {
       await tester.tap(find.byKey(const Key('chat-info-shared-links')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('chat-info-links-list')), findsOneWidget);
+    });
+
+    /// The tile [State] in slot [key] (positional), for tracking it across a
+    /// change to the list.
+    State<SharedMediaTile> tileState(WidgetTester tester, String key) =>
+        tester.state<State<SharedMediaTile>>(
+          find.descendant(
+            of: find.byKey(Key(key)),
+            matching: find.byType(SharedMediaTile),
+            // The tile itself, or the tile inside the keyed slot.
+            matchRoot: true,
+          ),
+        );
+
+    Msg newPhoto(String id, {SendStatus status = SendStatus.sent}) => Msg(
+      id: id,
+      from: 'kaitlyn',
+      to: 'court',
+      body: '',
+      ts: DateTime.utc(2026, 6, 10, 12),
+      attachment: photo(id),
+      sendStatus: status,
+    );
+
+    testWidgets('a photo arriving while the strip and gallery are open never '
+        'moves a tile onto a different photo', (tester) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      final store = c.read(messageStoreProvider('roomA').notifier);
+      store.setAll(history());
+      await tester.pumpWidget(app(c));
+      await tester.pump();
+
+      // The strip: p5 leads. A newer photo lands and every slot shifts.
+      final stripTile = tileState(tester, 'chat-info-strip-0');
+      expect(stripTile.widget.descriptor.blobKey, 'p5');
+      store.add(newPhoto('p6'));
+      await tester.pump();
+      // A tile only ever shows the photo it decoded: it either still holds
+      // p5 or was replaced, never re-pointed at p6 with p5's thumbnail.
+      expect(
+        !stripTile.mounted || stripTile.widget.descriptor.blobKey == 'p5',
+        isTrue,
+      );
+      expect(
+        tileState(tester, 'chat-info-strip-0').widget.descriptor.blobKey,
+        'p6',
+      );
+
+      // The gallery, the same way.
+      await tester.tap(find.byKey(const Key('chat-info-shared-media')));
+      await tester.pumpAndSettle();
+      final gridTile = tileState(tester, 'chat-info-media-0');
+      expect(gridTile.widget.descriptor.blobKey, 'p6');
+      store.add(newPhoto('p7'));
+      await tester.pump();
+      expect(
+        !gridTile.mounted || gridTile.widget.descriptor.blobKey == 'p6',
+        isTrue,
+      );
+    });
+
+    testWidgets('a failed send is not counted or shown as shared', (
+      tester,
+    ) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      c.read(messageStoreProvider('roomA').notifier).setAll([
+        ...history(),
+        newPhoto('never-sent', status: SendStatus.failed),
+      ]);
+      await tester.pumpWidget(app(c));
+      await tester.pump();
+      expect(valueOf('chat-info-shared-media', '6'), findsOneWidget);
+      expect(
+        tileState(tester, 'chat-info-strip-0').widget.descriptor.blobKey,
+        'p5',
+      );
     });
 
     testWidgets('a shared photo opens in the viewer, from the strip and from '

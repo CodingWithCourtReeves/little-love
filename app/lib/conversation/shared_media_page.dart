@@ -23,20 +23,37 @@ typedef SharedContent = ({List<Msg> media, List<Msg> voice, List<Msg> links});
 /// [SharedContent]. The store holds the room's whole history once the router
 /// has hydrated it from `MessageDb` (it loads every row and never trims), so
 /// these lists and their counts cover the full room, not a recent window.
-SharedContent sharedContent(List<Msg> messages) => (
-  media: [
+///
+/// A failed send is left out: it never reached the partner, so it isn't
+/// shared. A send still in flight stays in, since it's on its way (dropping it
+/// would make the count blink on every send).
+SharedContent sharedContent(List<Msg> messages) {
+  final shared = [
     for (final m in messages.reversed)
-      if (m.attachment != null && !m.attachment!.isAudio) m,
-  ],
-  voice: [
-    for (final m in messages.reversed)
-      if (m.attachment != null && m.attachment!.isAudio) m,
-  ],
-  links: [
-    for (final m in messages.reversed)
-      if (linkUrlOf(m) != null) m,
-  ],
-);
+      if (m.sendStatus != SendStatus.failed) m,
+  ];
+  return (
+    media: [
+      for (final m in shared)
+        if (m.attachment != null && !m.attachment!.isAudio) m,
+    ],
+    voice: [
+      for (final m in shared)
+        if (m.attachment != null && m.attachment!.isAudio) m,
+    ],
+    links: [
+      for (final m in shared)
+        if (linkUrlOf(m) != null) m,
+    ],
+  );
+}
+
+/// Identity for a shared tile: its message, as it survives the
+/// optimistic-to-server-id swap. A [SharedMediaTile] keeps its decoded
+/// thumbnail for its whole life, so it MUST be keyed by message, never by
+/// position: the lists are newest first and live, and a positional tile would
+/// keep showing the old photo while opening the one now in its slot.
+Key sharedTileKey(Msg m) => ValueKey('shared-media-${m.clientMsgId ?? m.id}');
 
 /// Full-screen gallery of a room's shared content (#92), opened from the
 /// chat-info page's Shared card: Photos / Voice / Links as a segmented
@@ -142,10 +159,15 @@ class SharedMediaPage extends ConsumerWidget {
       itemCount: media.length,
       itemBuilder: (_, i) {
         final d = media[i].attachment!;
-        return SharedMediaTile(
+        // The positional key is only for finding a slot in tests; the tile
+        // inside is keyed by its message (see [sharedTileKey]).
+        return KeyedSubtree(
           key: Key('chat-info-media-$i'),
-          descriptor: d,
-          onTap: onOpenAttachment == null ? null : () => onOpenAttachment!(d),
+          child: SharedMediaTile(
+            key: sharedTileKey(media[i]),
+            descriptor: d,
+            onTap: onOpenAttachment == null ? null : () => onOpenAttachment!(d),
+          ),
         );
       },
     );
