@@ -5,7 +5,6 @@ import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -235,7 +234,7 @@ class _MessageBody extends StatefulWidget {
     required this.baseStyle,
     required this.linkStyle,
     required this.onOpenUrl,
-    this.highlights = const [],
+    this.highlightQuery = '',
     this.highlightStyle,
   });
 
@@ -244,9 +243,10 @@ class _MessageBody extends StatefulWidget {
   final TextStyle linkStyle;
   final void Function(String url) onOpenUrl;
 
-  /// Search matches in [body] ([searchMatchRanges]), drawn with
-  /// [highlightStyle] merged over the text's own style. Empty outside search.
-  final List<TextRange> highlights;
+  /// The in-chat search query whose matches ([searchMatchRanges]) are drawn
+  /// with [highlightStyle] merged over the text's own style. Empty outside
+  /// search, or when this message isn't a hit.
+  final String highlightQuery;
   final TextStyle? highlightStyle;
 
   @override
@@ -269,7 +269,7 @@ class _MessageBodyState extends State<_MessageBody> {
     if (old.body != widget.body ||
         old.baseStyle != widget.baseStyle ||
         old.linkStyle != widget.linkStyle ||
-        !listEquals(old.highlights, widget.highlights) ||
+        old.highlightQuery != widget.highlightQuery ||
         old.highlightStyle != widget.highlightStyle) {
       _disposeRecognizers();
       _span = _build();
@@ -294,21 +294,18 @@ class _MessageBodyState extends State<_MessageBody> {
       widget.body,
       options: const LinkifyOptions(humanize: false, looseUrl: true),
     );
-    // Match offsets index the whole body; walk the elements' texts alongside
-    // it. If linkify ever rewrote the text, the offsets would land on the
-    // wrong letters, so mark nothing instead.
+    // Matches are found in each element's own text, as shown: linkify rewrites
+    // a bare "www.…" link to "http://www.…", so offsets into the body would
+    // land on the wrong letters.
     final highlightStyle = widget.highlightStyle;
-    final highlights =
-        highlightStyle == null ||
-            elements.fold<int>(0, (n, el) => n + el.text.length) !=
-                widget.body.length
-        ? const <TextRange>[]
-        : widget.highlights;
+    final query = highlightStyle == null ? '' : widget.highlightQuery;
     final children = <InlineSpan>[];
-    var offset = 0;
     for (final el in elements) {
-      final pieces = splitByRanges(el.text, offset, highlights);
-      offset += el.text.length;
+      final pieces = splitByRanges(
+        el.text,
+        0,
+        searchMatchRanges(el.text, query),
+      );
       if (el is LinkableElement) {
         final recognizer = TapGestureRecognizer()
           ..onTap = () => widget.onOpenUrl(el.url);
@@ -438,6 +435,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   /// Message id to briefly highlight after a jump-to-message (from search).
   String? _highlightedId;
+
+  /// Bumped by each [_focusMessage], so only the latest jump keeps scrolling
+  /// and clears the highlight.
+  int _focusToken = 0;
 
   // In-chat search (#96). While [_searching], the title pill is a search
   // field, the composer is a [SearchMatchBar], and matches are marked in their
@@ -841,6 +842,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// be built yet, so jump toward its proportional offset until its element
   /// exists, then [Scrollable.ensureVisible] aligns it precisely.
   Future<void> _focusMessage(String messageId) async {
+    // A newer jump (stepping through search matches quickly) supersedes this
+    // one: it stops after its next await, and leaves the highlight alone.
+    final token = ++_focusToken;
+    bool superseded() => !mounted || token != _focusToken;
     final store = ref.read(messageStoreProvider(widget.roomId).notifier);
     bool present() => ref
         .read(messageStoreProvider(widget.roomId))
@@ -853,11 +858,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       for (final m in history) {
         _animatedIds.add(m.clientMsgId ?? m.id);
       }
+      if (superseded()) return;
       store.setAll(history);
       await WidgetsBinding.instance.endOfFrame;
       if (!present()) return; // not in full history (e.g. since unsent)
     }
-    if (!mounted) return;
+    if (superseded()) return;
     setState(() => _highlightedId = messageId);
 
     // The message set is stable during the focus op, so compute the target's
@@ -871,7 +877,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
     for (var attempt = 0; attempt < 18; attempt++) {
       await WidgetsBinding.instance.endOfFrame;
-      if (!mounted || !_scrollController.hasClients) return;
+      if (superseded() || !_scrollController.hasClients) return;
       final ctx = _bubbleKeys[messageId]?.currentContext;
       if (ctx != null && ctx.mounted) {
         // The row is laid out (often already, thanks to the list's cacheExtent):
@@ -899,7 +905,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     }
 
     await Future<void>.delayed(const Duration(milliseconds: 1600));
-    if (mounted) setState(() => _highlightedId = null);
+    if (!superseded()) setState(() => _highlightedId = null);
   }
 
   /// The chat-info page, from the title pill or the avatar. Its Search tile
@@ -975,11 +981,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     if (target != null) await _focusMatch(target);
   }
 
-  /// [_focusMessage] for a search match. It can load history from the DB, so
-  /// a failure is reported here rather than escaping from a fire-and-forget
-  /// tap or debounce.
-  Future<void> _focusMatch(String messageId) =>
-      _focusMessage(messageId).catchError(
+  /// [_focusMessage] for a search match. A hit found while its row was still
+  /// optimistic carries the `clientMsgId`; once the echo reconciles the row,
+  /// the store knows it by its server id, so jump to that. It can load history
+  /// from the DB, so a failure is reported here rather than escaping from a
+  /// fire-and-forget tap or debounce.
+  Future<void> _focusMatch(String hitId) =>
+      _focusMessage(_rowIdFor(hitId)).catchError(
         (Object e, StackTrace st) =>
             reportFault(e, st, context: 'chat_search_focus'),
       );
@@ -1021,10 +1029,29 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     return '${_searchIndex + 1} of ${_searchHits.length}$more';
   }
 
-  /// Where [m]'s text matches the search, or none outside search mode.
-  List<TextRange> _searchRangesFor(Msg m) {
-    if (!_searching || !_searchHitIds.contains(m.id)) return const [];
-    return searchMatchRanges(m.body, _searchQuery);
+  /// The store's current id for the row a search hit names: the hit's own id,
+  /// or the server id its optimistic row was reconciled to since.
+  String _rowIdFor(String hitId) {
+    for (final m in ref.read(messageStoreProvider(widget.roomId))) {
+      if (_isHit(m, hitId)) return m.id;
+    }
+    return hitId;
+  }
+
+  /// Whether a search hit with [hitId] is [m]. A hit keeps the id the row had
+  /// when it was found, which is its `clientMsgId` if it was still optimistic.
+  static bool _isHit(Msg m, String hitId) =>
+      m.id == hitId || m.clientMsgId == hitId;
+
+  /// The query to mark in [m]: the search's, when [m] is one of its hits;
+  /// '' outside search mode or for any other message.
+  String _searchQueryFor(Msg m) {
+    if (!_searching) return '';
+    final cid = m.clientMsgId;
+    final hit =
+        _searchHitIds.contains(m.id) ||
+        (cid != null && _searchHitIds.contains(cid));
+    return hit ? _searchQuery : '';
   }
 
   /// How [m]'s matches are drawn: a solid mark on the current match, a tint
@@ -1032,7 +1059,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   TextStyle _searchMarkFor(Msg m) {
     final p = context.palette;
     final current =
-        _searchHits.isNotEmpty && _searchHits[_searchIndex].messageId == m.id;
+        _searchHits.isNotEmpty &&
+        _isHit(m, _searchHits[_searchIndex].messageId);
     return current
         ? TextStyle(
             backgroundColor: p.searchMatchCurrent,
@@ -2134,7 +2162,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             msg: m,
             isMe: mine,
             marker: marker,
-            captionHighlights: _searchRangesFor(m),
+            captionHighlights: searchMatchRanges(m.body, _searchQueryFor(m)),
             captionHighlightStyle: _searchMarkFor(m),
             onOpen: () => widget.onOpenAttachment?.call(att),
             replyBanner: m.replyTo == null
@@ -2349,7 +2377,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final textColor = mine
         ? context.palette.bubbleUserText
         : context.palette.textPrimary;
-    final highlights = _searchRangesFor(m);
+    final highlightQuery = _searchQueryFor(m);
     final text = _MessageBody(
       body: m.body,
       baseStyle: TextStyle(color: textColor, fontSize: _bodyFontSize),
@@ -2360,8 +2388,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         decorationColor: textColor.withValues(alpha: 0.6),
       ),
       onOpenUrl: _openUrl,
-      highlights: highlights,
-      highlightStyle: highlights.isEmpty ? null : _searchMarkFor(m),
+      highlightQuery: highlightQuery,
+      highlightStyle: highlightQuery.isEmpty ? null : _searchMarkFor(m),
     );
     // Every bubble carries an hh:mm timestamp bottom-right; my bubbles add the
     // sent/sending marker just to the right of the time. An edited message gets

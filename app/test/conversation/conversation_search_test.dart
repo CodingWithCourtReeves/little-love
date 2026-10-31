@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/conversation/composer_draft.dart';
 import 'package:littlelove/conversation/conversation_page.dart';
 import 'package:littlelove/conversation/message_db.dart';
+import 'package:littlelove/conversation/message_search.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/conversation/reply_ref.dart';
 import 'package:littlelove/identity/account_local.dart';
@@ -60,6 +63,34 @@ List<Msg> _history() {
   ];
 }
 
+/// The real DB, except each search waits until the test releases it, so a
+/// test can make a search finish late or out of order.
+class _GatedSearchDb extends SqliteMessageDb {
+  _GatedSearchDb(super.db);
+
+  final pending = <Completer<void>>[];
+
+  @override
+  Future<List<SearchHit>> search(
+    String query, {
+    String? roomId,
+    String? from,
+    int limit = 50,
+    SearchOrder order = SearchOrder.relevance,
+  }) async {
+    final gate = Completer<void>();
+    pending.add(gate);
+    await gate.future;
+    return super.search(
+      query,
+      roomId: roomId,
+      from: from,
+      limit: limit,
+      order: order,
+    );
+  }
+}
+
 void main() {
   setUpAll(() {
     sqfliteFfiInit();
@@ -69,7 +100,7 @@ void main() {
   });
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  Future<MessageDb> seededDb() async {
+  Future<Database> openDb() async {
     final db = await databaseFactory.openDatabase(
       inMemoryDatabasePath,
       options: OpenDatabaseOptions(
@@ -79,16 +110,26 @@ void main() {
       ),
     );
     addTearDown(db.close);
-    final mdb = MessageDb.test(db);
-    for (final m in _history()) {
+    return db;
+  }
+
+  Future<MessageDb> seed(MessageDb mdb, List<Msg> extra) async {
+    for (final m in [..._history(), ...extra]) {
       await mdb.upsert(m, roomId: 'r1');
     }
     return mdb;
   }
 
+  Future<MessageDb> seededDb({List<Msg> extra = const []}) async =>
+      seed(MessageDb.test(await openDb()), extra);
+
   /// The chat as the app shows it: pushed over a home route (so back has
   /// somewhere to go), its history in both the store and the DB.
-  Future<void> openRoom(WidgetTester tester, MessageDb db) async {
+  Future<ProviderContainer> openRoom(
+    WidgetTester tester,
+    MessageDb db, {
+    List<Msg> extra = const [],
+  }) async {
     final c = ProviderContainer(
       overrides: [
         accountProvider.overrideWith((_) async => _account),
@@ -98,7 +139,10 @@ void main() {
       ],
     );
     addTearDown(c.dispose);
-    c.read(messageStoreProvider('r1').notifier).setAll(_history());
+    c.read(messageStoreProvider('r1').notifier).setAll([
+      ..._history(),
+      ...extra,
+    ]);
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: c,
@@ -124,6 +168,7 @@ void main() {
     );
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
+    return c;
   }
 
   /// Title pill → chat info → Search, as a user gets there.
@@ -370,5 +415,117 @@ void main() {
       expect(size.height, greaterThanOrEqualTo(44), reason: key);
       expect(size.width, greaterThanOrEqualTo(44), reason: key);
     }
+  });
+
+  testWidgets('a hit found while its row was optimistic stays marked and '
+      'reachable after the echo reconciles it', (tester) async {
+    // My newest send, still optimistic: the store and the DB know it by its
+    // clientMsgId until the server's echo swaps in the server id.
+    final optimistic = Msg(
+      id: 'cmid-jam',
+      clientMsgId: 'cmid-jam',
+      from: 'me',
+      to: 'r1',
+      body: 'strawberry jam too',
+      ts: DateTime.utc(2026, 6, 13, 18, 40),
+      sendStatus: SendStatus.sending,
+    );
+    final db = await seededDb(extra: [optimistic]);
+    final c = await openRoom(tester, db, extra: [optimistic]);
+    await enterSearch(tester);
+    await search(tester, 'strawberr', '1 of 3');
+    final p = AppPalette.light;
+    expect(markBehind(tester, 'jam too', 'strawberry'), p.searchMatchCurrent);
+
+    c
+        .read(messageStoreProvider('r1').notifier)
+        .reconcile(
+          'cmid-jam',
+          Msg(
+            id: 'srv-jam',
+            from: 'me',
+            to: 'r1',
+            body: 'strawberry jam too',
+            ts: DateTime.utc(2026, 6, 13, 18, 40),
+          ),
+        );
+    await tester.pump();
+    expect(markBehind(tester, 'jam too', 'strawberry'), p.searchMatchCurrent);
+
+    // Step away and back: the jump finds the row under its server id.
+    await tester.tap(find.byKey(const Key('search-older')));
+    await pumpUntilTrue(tester, () => counter(tester) == '2 of 3');
+    await letPulseFinish(tester);
+    await tester.tap(find.byKey(const Key('search-newer')));
+    await pumpUntilTrue(tester, () => counter(tester) == '1 of 3');
+    await letPulseFinish(tester);
+    expect(markBehind(tester, 'jam too', 'strawberry'), p.searchMatchCurrent);
+    expect(onScreen(tester, bubbleText('jam too')), isTrue);
+  });
+
+  testWidgets('a search that finishes after Cancel, or after a newer search, '
+      'changes nothing', (tester) async {
+    final db = _GatedSearchDb(await openDb());
+    await seed(db, const []);
+    await openRoom(tester, db);
+    await enterSearch(tester);
+
+    // Two searches in flight; the older one finishes last.
+    await tester.enterText(
+      find.byKey(const Key('chat-search-field')),
+      'strawberr',
+    );
+    await pumpUntilTrue(tester, () => db.pending.length == 1);
+    await tester.enterText(find.byKey(const Key('chat-search-field')), 'yes');
+    await pumpUntilTrue(tester, () => db.pending.length == 2);
+    db.pending[1].complete();
+    await pumpUntilTrue(tester, () => counter(tester) == '1 of 1');
+    db.pending[0].complete();
+    await letPulseFinish(tester);
+    expect(counter(tester), '1 of 1');
+    expect(markBehind(tester, 'shortcake', 'Strawberry'), isNull);
+
+    // One more in flight, then Cancel before it lands.
+    await tester.enterText(
+      find.byKey(const Key('chat-search-field')),
+      'strawberr',
+    );
+    await pumpUntilTrue(tester, () => db.pending.length == 3);
+    await tester.tap(find.byKey(const Key('chat-search-cancel')));
+    await tester.pump();
+    db.pending[2].complete();
+    await letPulseFinish(tester);
+    expect(find.byKey(const Key('search-match-bar')), findsNothing);
+    expect(find.byKey(const Key('composer')), findsOneWidget);
+    expect(markBehind(tester, 'shortcake', 'Strawberry'), isNull);
+  });
+
+  testWidgets('a match inside a link is marked and the link still opens', (
+    tester,
+  ) async {
+    final link = Msg(
+      id: 'srv-link',
+      from: 'kaitlyn',
+      to: 'r1',
+      body: 'see www.strawberryfest.com tonight',
+      ts: DateTime.utc(2026, 6, 13, 18, 50),
+    );
+    final db = await seededDb(extra: [link]);
+    await openRoom(tester, db, extra: [link]);
+    await enterSearch(tester);
+    await search(tester, 'strawberr', '1 of 3');
+
+    final text = tester.widget<RichText>(bubbleText('tonight').first).text;
+    TextSpan? marked;
+    text.visitChildren((s) {
+      if (s is TextSpan && s.text == 'strawberryfest') marked = s;
+      return marked == null;
+    });
+    expect(marked, isNotNull);
+    expect(marked!.style?.backgroundColor, AppPalette.light.searchMatchCurrent);
+    // Still part of the tappable link, and still underlined.
+    expect(marked!.recognizer, isNotNull);
+    expect(marked!.style?.decoration, TextDecoration.underline);
+    await letPulseFinish(tester);
   });
 }

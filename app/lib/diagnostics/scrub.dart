@@ -30,6 +30,12 @@ class _Pass {
 /// the ULID (Crockford uppercase) and base64 passes stay case-sensitive to match
 /// the server.
 final List<_Pass> _passes = [
+  // sqflite's DatabaseException.toString() appends the statement and its
+  // bound arguments: `… sql 'INSERT …' args [<draft text>, …]`. The arguments
+  // are plaintext (message bodies, drafts, search terms), and the SQL can
+  // quote literals, so everything from ` sql '` to the end of the line goes.
+  // App-only: the server never sees sqflite errors, so scrub.rs has no twin.
+  _Pass(RegExp(r" sql '[^\n]*"), ' sql [redacted]'),
   // scheme://user:pass@host/... or scheme://key@host/... (DSN, DB URL)
   _Pass(
     RegExp(r'\b[a-z][a-z0-9+.\-]*://[^\s/@]+@\S+', caseSensitive: false),
