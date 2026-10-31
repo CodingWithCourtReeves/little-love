@@ -1,13 +1,12 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../attachment/attachment_descriptor.dart';
+import '../../attachment/square_image.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../diagnostics/crash_reporting.dart';
 import '../../identity/account_local.dart';
@@ -231,7 +230,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     // if it fails, that's the real failure.
     try {
       final raw = await picked.readAsBytes();
-      final squared = _squareJpeg(raw, 512);
+      final squared = squareJpeg(raw);
       final dir = await getApplicationDocumentsDirectory();
       final path =
           '${dir.path}/avatar_${DateTime.now().millisecondsSinceEpoch}.jpg';
@@ -268,26 +267,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       synced ? 'Photo updated' : 'Photo updated — will sync when connected',
     );
     if (mounted) setState(() => _busy = false);
-  }
-
-  /// Center-crop to a square and resize to [size]², encoded as JPEG.
-  Uint8List _squareJpeg(Uint8List bytes, int size) {
-    final decoded = img.decodeImage(bytes);
-    if (decoded == null) throw const FormatException('undecodable image');
-    final side = decoded.width < decoded.height
-        ? decoded.width
-        : decoded.height;
-    final x = (decoded.width - side) ~/ 2;
-    final y = (decoded.height - side) ~/ 2;
-    final cropped = img.copyCrop(
-      decoded,
-      x: x,
-      y: y,
-      width: side,
-      height: side,
-    );
-    final resized = img.copyResize(cropped, width: size, height: size);
-    return Uint8List.fromList(img.encodeJpg(resized, quality: 88));
   }
 
   /// Upload the avatar (via the shared, retry-able helper) and publish the full
