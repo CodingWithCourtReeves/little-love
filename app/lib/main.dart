@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'calling/call_screen.dart';
@@ -14,6 +16,13 @@ const _fixtures = String.fromEnvironment('LLOVE_FIXTURES', defaultValue: '');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // The channel symbol icons are Lucide (ISC); show their licence in the
+  // About screen's licence page.
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks([
+      'lucide',
+    ], await rootBundle.loadString('assets/channel_symbols/LICENSE'));
+  });
   final container = ProviderContainer();
   if (_fixtures == 'demo') {
     seedDemoFixtures(container);
