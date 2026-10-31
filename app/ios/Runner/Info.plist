@@ -103,5 +103,17 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- Export compliance, answered here so App Store Connect stops asking on
+	     every build. The app's end-to-end encryption uses standard published
+	     algorithms (X25519, Ed25519, HKDF-SHA256, XChaCha20-Poly1305 via the
+	     Dart `cryptography` package; SQLCipher; WebRTC DTLS-SRTP), not Apple's
+	     OS encryption alone. Apple's documentation lists a French encryption
+	     declaration as the only paperwork for that category, and only for apps
+	     distributed in France, which this app is not. So it is exempt from
+	     documentation: NO. If the app ever ships in France, upload the French
+	     declaration in App Store Connect, set this to YES and add the
+	     ITSEncryptionExportComplianceCode Apple issues. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
