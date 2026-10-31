@@ -28,7 +28,8 @@ void keepCallStackRunning(ProviderContainer container) {
     next,
   ) {
     final conn = next.valueOrNull;
-    if (conn == null || next.isLoading) return;
+    // An error (signed out) can still carry the old, dead connection.
+    if (conn == null || next.isLoading || next.hasError) return;
     // Same turn as the controller's own subscription, so both get the buffer.
     container.read(roomMessageRouterProvider);
     unawaited(

@@ -259,6 +259,9 @@ class CallController with WidgetsBindingObserver {
     _wireSession();
 
     final offer = await _session!.createOffer();
+    // Gathering can take a couple of seconds; a hangup in that window has
+    // already reset this call.
+    if (_callId != callId) return;
     // Asked for video but the camera was denied/unavailable → the session fell
     // back to audio; advertise (and render) the call as audio to match.
     if (video && !_session!.hasVideo) {
@@ -388,13 +391,19 @@ class CallController with WidgetsBindingObserver {
     final early = List<String>.of(_earlyIce);
     _earlyIce.clear();
     for (final enc in early) {
-      await _applyRemoteIce(enc);
+      // One bad candidate must not stop the answer.
+      try {
+        await _applyRemoteIce(enc);
+      } catch (_) {}
     }
 
     // `offer` is the encrypted wire string — decrypt to the raw SDP before
     // handing it to WebRTC.
     final offerSdp = await decryptSignal(_sigKey!, offer);
+    final answering = _callId;
     final answer = await _session!.acceptOffer(offerSdp);
+    // Declined or hung up while gathering: this call is already reset.
+    if (_callId != answering || _sigKey == null) return;
     final encAnswer = await encryptSignal(_sigKey!, answer);
     _conn?.send(
       CallAnswerClientFrame(
