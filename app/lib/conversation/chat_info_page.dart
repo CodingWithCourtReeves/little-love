@@ -430,10 +430,15 @@ class ChatInfoPage extends ConsumerWidget {
             onPressed: () => Navigator.of(ctx).pop(null),
             child: const Text('Cancel'),
           ),
-          FilledButton(
-            key: const Key('rename-dialog-save'),
-            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-            child: const Text('Save'),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (_, value, _) => FilledButton(
+              key: const Key('rename-dialog-save'),
+              onPressed: value.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.of(ctx).pop(controller.text.trim()),
+              child: const Text('Save'),
+            ),
           ),
         ],
       ),

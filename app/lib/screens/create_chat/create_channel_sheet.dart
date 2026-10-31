@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../channel/channel_picture.dart';
+import '../../channel/channel_picture_sheet.dart';
+import '../../channel/channel_tile.dart';
+import '../../channel/pending_channel_actions.dart';
 import '../../theme/app_palette.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
@@ -46,6 +50,7 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
   final _controller = TextEditingController();
   final _focus = FocusNode();
   bool _submitting = false;
+  ChannelPictureChoice? _choice;
 
   @override
   void initState() {
@@ -76,8 +81,82 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
       return;
     }
     setState(() => _submitting = true);
+    final choice = _choice;
+    if (choice != null) {
+      ref.read(pendingChannelActionsProvider).expectCreated(name, choice);
+    }
     conn.send(CreateRoomFrame(name: name, inviteHumanPartner: true).toJson());
     if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _pickPicture() async {
+    final choice = _choice;
+    final choice2 = await showChannelPictureSheet(
+      context,
+      name: _formatted,
+      colorSeed: _formatted,
+      current: choice is ChooseSymbol
+          ? SymbolPicture(choice.symbol, choice.color)
+          : null,
+      currentPhoto: choice is ChoosePhoto
+          ? MemoryImage(choice.squaredJpeg)
+          : null,
+    );
+    if (!mounted || choice2 == null) return;
+    setState(() => _choice = choice2 is ChooseNone ? null : choice2);
+  }
+
+  Widget _pictureTile(BuildContext context) {
+    final p = context.palette;
+    const size = 44.0;
+    final radius = BorderRadius.circular(size * 14 / 52);
+    final choice = _choice;
+    final name = _formatted;
+    final Widget tile;
+    if (choice is ChooseSymbol) {
+      tile = ChannelPictureView(
+        name: name,
+        colorSeed: name,
+        picture: SymbolPicture(choice.symbol, choice.color),
+        size: size,
+      );
+    } else if (choice is ChoosePhoto) {
+      tile = ChannelPictureView(
+        name: name,
+        colorSeed: name,
+        photo: MemoryImage(choice.squaredJpeg),
+        size: size,
+      );
+    } else {
+      // Neutral, so the tile does not change colour once the room has an id.
+      tile = Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(color: p.bgSurfaceAlt, borderRadius: radius),
+        child: name.isEmpty
+            ? Icon(Icons.photo_camera_outlined, size: 20, color: p.textMuted)
+            : Text(
+                name.characters.first.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: p.accentUser,
+                ),
+              ),
+      );
+    }
+    return Semantics(
+      button: true,
+      label: 'Channel picture',
+      excludeSemantics: true,
+      child: GestureDetector(
+        key: const Key('channel-name-picture'),
+        behavior: HitTestBehavior.opaque,
+        onTap: _pickPicture,
+        child: SizedBox(width: size, height: size, child: tile),
+      ),
+    );
   }
 
   @override
@@ -117,15 +196,8 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
             const SizedBox(height: 20),
             Row(
               children: [
-                Text(
-                  '#',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                    color: context.palette.textMuted,
-                  ),
-                ),
-                const SizedBox(width: 6),
+                _pictureTile(context),
+                const SizedBox(width: 10),
                 Expanded(
                   child: TextField(
                     key: const Key('channel-name-field'),

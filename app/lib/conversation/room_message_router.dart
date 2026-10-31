@@ -6,6 +6,9 @@ import '../attachment/attachment_descriptor.dart';
 import '../attachment/attachment_download.dart';
 import '../audio/message_feedback.dart';
 import '../calling/call_log.dart';
+import '../channel/channel_picture.dart';
+import '../channel/channel_update_sender.dart';
+import '../channel/pending_channel_actions.dart';
 import '../diagnostics/crash_reporting.dart';
 import '../identity/current_identity.dart';
 import '../identity/providers.dart';
@@ -109,6 +112,10 @@ class RoomMessageRouter {
       case RoomCreatedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
         await _subscribe(roomId);
+        final choice = ref
+            .read(pendingChannelActionsProvider)
+            .takeCreated(name);
+        if (choice != null) unawaited(_applyCreatedPicture(roomId, choice));
 
       case InviteConsumedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
@@ -116,6 +123,9 @@ class RoomMessageRouter {
 
       case RoomRenamedFrame(:final roomId, :final name):
         ref.read(inboxStateProvider.notifier).renameRoom(roomId, name);
+        if (ref.read(pendingChannelActionsProvider).takeRename(roomId, name)) {
+          unawaited(_sendRenameLine(roomId, name));
+        }
 
       case MemberLeftFrame(:final roomId, :final username):
         ref.read(inboxStateProvider.notifier).removeMember(roomId, username);
@@ -193,6 +203,53 @@ class RoomMessageRouter {
       } catch (_) {
         // Best-effort: keep the initials fallback if the blob can't be fetched.
       }
+    }
+  }
+
+  Room? _roomById(String roomId) {
+    for (final r in ref.read(inboxStateProvider).rooms) {
+      if (r.roomId == roomId) return r;
+    }
+    return null;
+  }
+
+  /// Sends the picture picked in the new-channel sheet, now that the server
+  /// has confirmed the room. The sender reports its own failures.
+  Future<void> _applyCreatedPicture(
+    String roomId,
+    ChannelPictureChoice choice,
+  ) async {
+    try {
+      final account = await ref.read(accountProvider.future);
+      final room = _roomById(roomId);
+      if (account == null || room == null) return;
+      await ref
+          .read(channelUpdateSenderProvider)
+          .applyChoice(
+            room: room,
+            selfUsername: account.username,
+            choice: choice,
+          );
+    } catch (e, st) {
+      reportFault(e, st, context: 'channel_created_picture');
+    }
+  }
+
+  /// Sends "renamed the channel to X" once the server confirmed my rename.
+  Future<void> _sendRenameLine(String roomId, String name) async {
+    try {
+      final account = await ref.read(accountProvider.future);
+      final room = _roomById(roomId);
+      if (account == null || room == null) return;
+      await ref
+          .read(channelUpdateSenderProvider)
+          .sendRenameLine(
+            room: room,
+            selfUsername: account.username,
+            name: name,
+          );
+    } catch (e, st) {
+      reportFault(e, st, context: 'channel_rename_line');
     }
   }
 

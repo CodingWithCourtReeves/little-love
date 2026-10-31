@@ -25,6 +25,7 @@ import '../../conversation/message_store.dart';
 import '../../channel/channel_picture.dart';
 import '../../channel/channel_tile.dart';
 import '../../channel/channel_update_sender.dart';
+import '../../channel/pending_channel_actions.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../conversation/room_message_router.dart';
 import '../../conversation/send_fanout.dart';
@@ -316,6 +317,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           onRename: room.shape(_me) == RoomShape.partner
               ? null
               : (newName) {
+                  ref
+                      .read(pendingChannelActionsProvider)
+                      .expectRename(room.roomId, newName);
                   final conn = ref.read(liveConnectionProvider).asData?.value;
                   conn?.send(
                     RenameRoomFrame(

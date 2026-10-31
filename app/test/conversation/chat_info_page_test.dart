@@ -247,6 +247,41 @@ void main() {
     expect(renamed, 'Trip planning');
   });
 
+  testWidgets('rename Save is disabled for an empty name', (tester) async {
+    final c = ProviderContainer();
+    addTearDown(c.dispose);
+    String? renamed;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: c,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: ChatInfoPage(
+            room: _room(),
+            selfUsername: 'court',
+            onRename: (n) => renamed = n,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('chat-info-rename')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('chat-info-rename')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('rename-dialog-field')), '   ');
+    await tester.pump();
+    final save = find.byKey(const Key('rename-dialog-save'));
+    expect(tester.widget<FilledButton>(save).onPressed, isNull);
+    await tester.tap(save, warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('rename-dialog-field')), findsOneWidget);
+    expect(renamed, isNull);
+    await tester.enterText(find.byKey(const Key('rename-dialog-field')), 'x');
+    await tester.pump();
+    expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+  });
+
   group('on the wallpaper (#91)', () {
     testWidgets('chat info sits on the chat\'s wallpaper', (tester) async {
       final c = ProviderContainer();

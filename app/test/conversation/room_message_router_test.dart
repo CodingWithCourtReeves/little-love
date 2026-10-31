@@ -4,6 +4,9 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/channel/channel_picture.dart';
+import 'package:littlelove/channel/channel_update_sender.dart';
+import 'package:littlelove/channel/pending_channel_actions.dart';
 import 'package:littlelove/conversation/incoming_banner_provider.dart';
 import 'package:littlelove/conversation/message_content.dart';
 import 'package:littlelove/conversation/message_db.dart';
@@ -160,6 +163,39 @@ Future<void> dbSettledAt(MessageDb db, String roomId, String id) async {
   throw StateError('db never reached $id');
 }
 
+/// Records what the router asks the channel sender to send.
+class _RecordingSender extends ChannelUpdateSender {
+  _RecordingSender(super.ref);
+  final List<String> renames = [];
+  final List<ChannelPictureChoice> choices = [];
+  final List<String> selfNames = [];
+  final List<String> roomIds = [];
+
+  @override
+  Future<bool> sendRenameLine({
+    required Room room,
+    required String selfUsername,
+    required String name,
+  }) async {
+    renames.add(name);
+    selfNames.add(selfUsername);
+    roomIds.add(room.roomId);
+    return true;
+  }
+
+  @override
+  Future<bool> applyChoice({
+    required Room room,
+    required String selfUsername,
+    required ChannelPictureChoice choice,
+  }) async {
+    choices.add(choice);
+    selfNames.add(selfUsername);
+    roomIds.add(room.roomId);
+    return true;
+  }
+}
+
 void main() {
   setUpAll(() {
     sqfliteFfiInit();
@@ -302,6 +338,93 @@ void main() {
         .where((m) => m['kind'] == 'Subscribe')
         .toList();
     expect(subs.single['room_id'], 'room2');
+  });
+
+  group('channel updates after the server confirms', () {
+    Future<(ProviderContainer, _FakeConn, _RecordingSender, DerivedIdentity)>
+    setup() async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final conn = _FakeConn();
+      late _RecordingSender sender;
+      final container = await _container(
+        conn: conn,
+        me: me,
+        overrides: [
+          accountProvider.overrideWith(
+            (_) async => LocalAccount(
+              username: 'court',
+              ed25519PubBase64: base64.encode(me.ed25519PublicKey),
+              x25519PubBase64: base64.encode(me.x25519PublicKey),
+              createdAt: DateTime.utc(2026, 6, 10),
+            ),
+          ),
+          channelUpdateSenderProvider.overrideWith(
+            (ref) => sender = _RecordingSender(ref),
+          ),
+        ],
+      );
+      await container.read(accountProvider.future);
+      container.read(channelUpdateSenderProvider);
+      container.read(inboxStateProvider.notifier).setRooms([
+        Room(
+          roomId: 'room1',
+          name: 'old',
+          members: [_member('court', me), _member('kaitlyn', peer)],
+          createdAt: DateTime.utc(2026, 6, 10),
+        ),
+      ]);
+      container.read(roomMessageRouterProvider);
+      return (container, conn, sender, me);
+    }
+
+    test('a confirmed rename I asked for sends one rename line', () async {
+      final (c, conn, sender, _) = await setup();
+      c.read(pendingChannelActionsProvider).expectRename('room1', 'New');
+
+      conn.emit(const RoomRenamedFrame(roomId: 'room1', name: 'New'));
+      await pumpUntil(() => sender.renames.isNotEmpty);
+      // A repeat of the same frame is not mine to announce again.
+      conn.emit(const RoomRenamedFrame(roomId: 'room1', name: 'New'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(sender.renames, ['New']);
+      expect(sender.selfNames, ['court']);
+      expect(sender.roomIds, ['room1']);
+      expect(c.read(inboxStateProvider).rooms.single.name, 'New');
+    });
+
+    test('a rename from the partner sends no line from me', () async {
+      final (c, conn, sender, _) = await setup();
+
+      conn.emit(const RoomRenamedFrame(roomId: 'room1', name: 'Theirs'));
+      await pumpUntil(
+        () => c.read(inboxStateProvider).rooms.single.name == 'Theirs',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(sender.renames, isEmpty);
+    });
+
+    test('a created room with a pending picture sends it once', () async {
+      final (c, conn, sender, me) = await setup();
+      const choice = ChooseSymbol(ChannelSymbol.moon, ChannelColor.sky);
+      c.read(pendingChannelActionsProvider).expectCreated('trips', choice);
+
+      final frame = RoomCreatedFrame(
+        roomId: 'room2',
+        name: 'trips',
+        members: [_member('court', me)],
+        pendingInvite: null,
+      );
+      conn.emit(frame);
+      await pumpUntil(() => sender.choices.isNotEmpty);
+      conn.emit(frame);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(sender.choices, [choice]);
+      expect(sender.roomIds, ['room2']);
+    });
   });
 
   test('RoomRenamed updates the inbox name', () async {
