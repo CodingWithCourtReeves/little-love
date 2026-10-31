@@ -85,6 +85,9 @@ void main() {
       // Rename now lives on the chat-info page, reached via the header avatar.
       await tester.tap(find.byKey(const Key('room-header-avatar')));
       await tester.pumpAndSettle();
+      // Rename sits in the "This chat" card, below the fold here.
+      await tester.ensureVisible(find.byKey(const Key('chat-info-rename')));
+      await tester.pump();
       await tester.tap(find.byKey(const Key('chat-info-rename')));
       await tester.pumpAndSettle();
 
