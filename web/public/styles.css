@@ -262,31 +262,18 @@ a { color: inherit; text-decoration: none; }
 /* ── CHANNELS ────────────────────────────────────────────────────────── */
 .chan { color: var(--accent-user); white-space: nowrap; }
 
-.chanlist {
-  border: 1px solid var(--rule); border-radius: 4px; padding: 0.6rem 0;
-  align-self: center; max-width: 30rem; width: 100%; justify-self: end;
+/* a real screen recording of the app, cropped to the top of the screen
+   (the list ends there) and faded out at the bottom */
+.appshot { justify-self: center; width: min(100%, 360px); }
+.appshot__screen {
+  position: relative; overflow: hidden; aspect-ratio: 1206 / 1900;
+  border-radius: 34px 34px 0 0; border: 1px solid var(--rule); border-bottom: 0;
+  background: #19111b; /* the app's own canvas, so the frame matches the video */
+  -webkit-mask-image: linear-gradient(to bottom, #000 90%, transparent);
+  mask-image: linear-gradient(to bottom, #000 90%, transparent);
 }
-@media (max-width: 860px) { .chanlist { justify-self: stretch; max-width: none; } }
-.chanlist__row {
-  display: grid; grid-template-columns: 2rem 1fr auto; column-gap: 0.7rem; align-items: baseline;
-  padding: 0.75rem 1.2rem; position: relative; background: var(--bg-canvas);
-}
-.chanlist__row--pinned { border-bottom: 1px solid var(--border-soft); padding-bottom: 0.95rem; }
-.chanlist__avatar {
-  grid-row: span 2; align-self: center; width: 2rem; height: 2rem; border-radius: 50%;
-  background: var(--accent-user); color: var(--bg-canvas); display: grid; place-items: center; font-size: 1rem;
-}
-.chanlist__hash { grid-row: span 2; align-self: center; text-align: center; font-size: 1.6rem; line-height: 1; color: var(--accent-user); }
-.chanlist__name { font-size: 1.15rem; }
-.chanlist__time { font-size: 0.85rem; color: var(--text-muted); font-style: italic; }
-.chanlist__preview { grid-column: 2 / -1; font-size: 0.95rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.chanlist__group { font-size: 0.9rem; font-style: italic; color: var(--text-muted); padding: 0.9rem 1.2rem 0.2rem; }
-.chanlist__new { font-size: 0.95rem; color: var(--text-muted); padding: 0.7rem 1.2rem 0.4rem; border-top: 1px dashed var(--border-soft); margin-top: 0.3rem; }
-.chanlist__row.is-new .chanlist__time { color: var(--accent-user); font-style: normal; }
-.chanlist__row.is-new::before {
-  content: ""; position: absolute; left: 0.45rem; top: 50%; width: 6px; height: 6px; margin-top: -3px;
-  border-radius: 50%; background: var(--accent-user);
-}
+.appshot__video { display: block; width: 100%; height: auto; }
+.appshot__cap { font-size: 0.95rem; font-style: italic; color: var(--text-muted); margin-top: 0.4rem; text-align: center; }
 
 /* ── HOW IT WORKS ────────────────────────────────────────────────────── */
 .steps {
@@ -492,11 +479,6 @@ a { color: inherit; text-decoration: none; }
 .js .features li:nth-child(2) .art .draw { transition-delay: 0.15s; }
 .js .features li:nth-child(3) .art .draw { transition-delay: 0.3s; }
 .js .features li:nth-child(4) .art .draw { transition-delay: 0.45s; }
-
-/* channels: a bumped channel slides to the top (FLIP, driven by main.js) */
-.chanlist__row.is-moving { transition: transform 0.6s var(--ease); z-index: 1; }
-.chanlist__row.is-new { animation: arrive 1.2s var(--ease); }
-@keyframes arrive { from { background: color-mix(in srgb, var(--accent-user) 12%, var(--bg-canvas)); } to { background: var(--bg-canvas); } }
 
 /* how it works: the step numbers rise in turn */
 .js .steps li { opacity: 0; transform: translateY(14px); transition: opacity 0.7s var(--ease), transform 0.7s var(--ease); }

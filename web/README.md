@@ -64,11 +64,19 @@ base64 output under "What we see". Nothing leaves the page. The app
 itself uses XChaCha20-Poly1305; the demo uses what browsers ship. Until the
 visitor touches it, it moves through the channel tabs and types a line in each.
 
-The channel list in the Channels section is an illustration; `main.js` bumps
-the oldest channel to the top every few seconds (FLIP slide), the way the app
-sorts channels by latest activity. Channel names are not end-to-end encrypted
-(the server stores them), so page copy says what's *in* a channel is
-encrypted, never the channel itself; the privacy policy says the same. With JS
+The Channels section shows a real screen recording of the app
+(`public/assets/app/channels.mp4`, poster `channels-poster.jpg`), made on the
+simulator against the local dev stack with the seeded test couple
+(`scripts/sim-couple.sh`): Court's home screen while channels jump to the top
+as Kaitlyn's messages arrive. It's a debug build with the DEBUG banner hidden
+for the capture, status bar set with `xcrun simctl status_bar ... override`,
+recorded with `xcrun simctl io <udid> recordVideo --codec=h264`, and trimmed
+with `avconvert --start`. `main.js` plays it only while it's on screen, and
+reduced motion keeps the poster. Re-record it when the home screen changes.
+
+Channel names are not end-to-end encrypted (the server stores them), so page
+copy says what's *in* a channel is encrypted, never the channel itself; the
+privacy policy says the same. With JS
 off, the box shows a static sample.
 
 ## Motion

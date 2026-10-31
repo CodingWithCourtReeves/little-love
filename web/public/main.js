@@ -119,38 +119,14 @@
     tabs.forEach((t, i) => t.addEventListener("click", () => { stop(); pick(i); }));
   }
 
-  /* ── channel list: bump a channel to the top every few seconds, the way the
-     app sorts channels by latest activity. FLIP so the rows slide. ── */
-  const chanlist = document.querySelector("[data-chanlist]");
-  if (chanlist && !reduceMotion) {
-    const previews = {
-      travel: ["Found a cabin for our trip.", "Flights are booked!", "Window or aisle?"],
-      "the-house": ["Can you grab paint on the way home?", "The plumber comes Tuesday.", "Sage green or cream?"],
-      "date-night": ["That Thai place, Friday?", "Movie at 8?", "I'll pick the wine."],
-      "daily-life": ["Did you make it home okay?", "Call you in five.", "Good morning, you."],
-    };
-    const times = ["now", "1h", "3h", "1d"];
-    let onScreen = false, turn = 0;
-    new IntersectionObserver(([e]) => { onScreen = e.isIntersecting; }).observe(chanlist);
-    setInterval(() => {
-      if (!onScreen || document.hidden) return;
-      const rows = [...chanlist.children];
-      const row = rows[rows.length - 1];
-      const before = new Map(rows.map((r) => [r, r.getBoundingClientRect().top]));
-      chanlist.prepend(row);
-      const name = row.querySelector(".chanlist__name").textContent;
-      const pool = previews[name] || [];
-      if (pool.length) row.querySelector(".chanlist__preview").textContent = pool[++turn % pool.length];
-      [...chanlist.children].forEach((r, i) => {
-        r.querySelector(".chanlist__time").textContent = times[i] || "";
-        r.classList.toggle("is-new", i === 0);
-        const dy = before.get(r) - r.getBoundingClientRect().top;
-        r.classList.remove("is-moving");
-        r.style.transform = `translateY(${dy}px)`;
-      });
-      void chanlist.offsetWidth;
-      [...chanlist.children].forEach((r) => { r.classList.add("is-moving"); r.style.transform = ""; });
-    }, 3800);
+  /* ── app recording: play only while on screen; reduced motion keeps the
+     poster frame. ── */
+  const appshot = document.querySelector("[data-appshot]");
+  if (appshot && !reduceMotion && "IntersectionObserver" in window) {
+    new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) appshot.play().catch(() => {}); // autoplay can be refused; the poster stays
+      else appshot.pause();
+    }, { threshold: 0.25 }).observe(appshot);
   }
 
   /* ── contact forms (hero request + footer note) → Pages Function → Resend */

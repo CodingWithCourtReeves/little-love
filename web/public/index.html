@@ -145,44 +145,18 @@
         </ul>
       </div>
 
-      <!-- Illustration of the channel list. main.js bumps a channel to the
-           top every few seconds, the way the app sorts by latest activity. -->
-      <div class="band__body chanlist reveal" aria-hidden="true">
-        <div class="chanlist__row chanlist__row--pinned">
-          <span class="chanlist__avatar">K</span>
-          <span class="chanlist__name">Kaitlyn</span>
-          <span class="chanlist__time">pinned</span>
-          <span class="chanlist__preview">Good. I missed your voice today.</span>
+      <!-- A real recording of the app (local dev stack, the seeded test
+           couple): channels jump to the top as messages arrive. main.js plays
+           it only when on screen and never under reduced motion. -->
+      <figure class="band__body appshot reveal">
+        <div class="appshot__screen">
+          <video class="appshot__video" data-appshot muted loop playsinline preload="metadata"
+                 poster="/assets/app/channels-poster.jpg" aria-label="The LittleLove home screen: Kaitlyn pinned on top, channels below moving up as new messages arrive.">
+            <source src="/assets/app/channels.mp4" type="video/mp4" />
+          </video>
         </div>
-        <p class="chanlist__group">Channels</p>
-        <div class="chanlist__list" data-chanlist>
-          <div class="chanlist__row is-new">
-            <span class="chanlist__hash">#</span>
-            <span class="chanlist__name">travel</span>
-            <span class="chanlist__time">now</span>
-            <span class="chanlist__preview">Found a cabin for our trip.</span>
-          </div>
-          <div class="chanlist__row">
-            <span class="chanlist__hash">#</span>
-            <span class="chanlist__name">the-house</span>
-            <span class="chanlist__time">1h</span>
-            <span class="chanlist__preview">Can you grab paint on the way home?</span>
-          </div>
-          <div class="chanlist__row">
-            <span class="chanlist__hash">#</span>
-            <span class="chanlist__name">date-night</span>
-            <span class="chanlist__time">3h</span>
-            <span class="chanlist__preview">That Thai place, Friday?</span>
-          </div>
-          <div class="chanlist__row">
-            <span class="chanlist__hash">#</span>
-            <span class="chanlist__name">daily-life</span>
-            <span class="chanlist__time">1d</span>
-            <span class="chanlist__preview">Did you make it home okay?</span>
-          </div>
-        </div>
-        <p class="chanlist__new">+ New channel</p>
-      </div>
+        <figcaption class="appshot__cap">The real app. New messages bring their channel to the top.</figcaption>
+      </figure>
     </section>
 
     <!-- ────────────── WHAT YOU CAN DO TOGETHER ────────────── -->
