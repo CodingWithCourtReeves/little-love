@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,8 +54,12 @@ void main() {
     );
   });
 
-  testWidgets('every symbol asset loads and renders', (t) async {
+  testWidgets('every symbol asset exists in the bundle and renders', (t) async {
     for (final s in ChannelSymbol.values) {
+      final svg = await t.runAsync(
+        () => rootBundle.loadString('assets/channel_symbols/${s.name}.svg'),
+      );
+      expect(svg, contains('<svg'), reason: s.name);
       await t.pumpWidget(
         _host(
           ChannelPictureView(
@@ -64,9 +69,7 @@ void main() {
           ),
         ),
       );
-      await t.pump();
       expect(find.byType(SvgPicture), findsOneWidget, reason: s.name);
-      expect(t.takeException(), isNull, reason: s.name);
     }
   });
 
@@ -173,5 +176,61 @@ void main() {
     );
     expect(clip.borderRadius, BorderRadius.circular(14));
     expect(t.getSize(find.byType(ChannelPictureView)), const Size(52, 52));
+  });
+
+  for (final bad in ['not base64!!', '']) {
+    testWidgets('a malformed thumbnail falls back to the letter tile '
+        '("$bad")', (t) async {
+      final room = Room(
+        roomId: 'room-1',
+        name: 'trips',
+        members: const [],
+        createdAt: DateTime(2026),
+      );
+      final desc = AttachmentDescriptor(
+        blobKey: 'k',
+        contentKeyB64: '',
+        nonceB64: '',
+        mime: 'image/jpeg',
+        filename: 'p.jpg',
+        size: 1,
+        width: 512,
+        height: 512,
+        durationMs: null,
+        thumbB64: bad,
+      );
+      await t.pumpWidget(
+        _host(
+          ChannelTile(room: room, selfUsername: 'me'),
+          overrides: [
+            currentChannelPictureProvider(
+              'room-1',
+            ).overrideWithValue(PhotoPicture(desc)),
+            channelPhotoFileProvider('room-1').overrideWith((ref) => null),
+          ],
+        ),
+      );
+      await t.pump();
+      expect(t.takeException(), isNull);
+      expect(find.byType(Image), findsNothing);
+      expect(find.text('T'), findsOneWidget);
+    });
+  }
+
+  testWidgets('an undecodable photo falls back to the letter tile', (t) async {
+    await t.pumpWidget(
+      _host(
+        ChannelPictureView(
+          name: 'trips',
+          colorSeed: 'r1',
+          photo: MemoryImage(Uint8List.fromList(List.filled(32, 7))),
+        ),
+      ),
+    );
+    await t.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 300)),
+    );
+    await t.pump();
+    expect(find.text('T'), findsOneWidget);
   });
 }

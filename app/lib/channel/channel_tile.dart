@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -27,6 +28,28 @@ class ChannelPictureView extends StatelessWidget {
   final ImageProvider? photo;
   final double size;
 
+  /// The first-letter tile on the colour derived from [colorSeed]; also the
+  /// fallback when a photo can't be decoded.
+  Widget _letterTile(BuildContext context) {
+    final sw =
+        context.palette.channelSwatches[channelColorFor(colorSeed).index];
+    return ColoredBox(
+      color: sw.tint,
+      child: name.isEmpty
+          ? null
+          : Center(
+              child: Text(
+                name.characters.first.toUpperCase(),
+                style: TextStyle(
+                  fontSize: size * 22 / 52,
+                  fontWeight: FontWeight.w600,
+                  color: sw.ink,
+                ),
+              ),
+            ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final swatches = context.palette.channelSwatches;
@@ -43,6 +66,7 @@ class ChannelPictureView extends StatelessWidget {
         width: size,
         height: size,
         gaplessPlayback: true,
+        errorBuilder: (context, _, _) => _letterTile(context),
       );
     } else if (p is SymbolPicture) {
       final sw = swatches[p.color.index];
@@ -58,22 +82,7 @@ class ChannelPictureView extends StatelessWidget {
         ),
       );
     } else {
-      final sw = swatches[channelColorFor(colorSeed).index];
-      content = ColoredBox(
-        color: sw.tint,
-        child: name.isEmpty
-            ? null
-            : Center(
-                child: Text(
-                  name.characters.first.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: size * 22 / 52,
-                    fontWeight: FontWeight.w600,
-                    color: sw.ink,
-                  ),
-                ),
-              ),
-      );
+      content = _letterTile(context);
     }
     return Semantics(
       label: '$name channel picture',
@@ -91,6 +100,19 @@ class ChannelPictureView extends StatelessWidget {
     );
   }
 }
+
+/// The inline thumbnail decoded once per base64 string, so every rebuild hands
+/// the image cache the same bytes (a fresh `Uint8List` per build would be a
+/// new cache key and re-decode). Null for an empty or malformed string: the
+/// descriptor comes from the partner, so it is untrusted.
+final _thumbBytesProvider = Provider.family<Uint8List?, String>((ref, b64) {
+  if (b64.isEmpty) return null;
+  try {
+    return base64Decode(b64);
+  } on FormatException {
+    return null;
+  }
+});
 
 /// [ChannelPictureView] for a room, fed by the room's current picture.
 class ChannelTile extends ConsumerWidget {
@@ -114,9 +136,10 @@ class ChannelTile extends ConsumerWidget {
           .watch(channelPhotoFileProvider(room.roomId))
           .asData
           ?.value;
+      final thumb = ref.watch(_thumbBytesProvider(picture.descriptor.thumbB64));
       photo = file != null
           ? FileImage(file)
-          : MemoryImage(base64Decode(picture.descriptor.thumbB64));
+          : (thumb == null ? null : MemoryImage(thumb));
     }
     return ChannelPictureView(
       name: room.displayName(selfUsername),
