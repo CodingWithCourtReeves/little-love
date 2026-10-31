@@ -9,6 +9,7 @@ import '../attachment/attachment_descriptor.dart';
 import '../wire/message.dart';
 import 'composer_draft.dart';
 import 'link_preview.dart';
+import 'message_content.dart';
 import 'reply_ref.dart';
 import 'message_db_key.dart';
 import 'message_search.dart';
@@ -23,7 +24,7 @@ import 'message_search.dart';
 /// SQLCipher-backed production impl, and a `.test` factory that wraps a plain
 /// ffi [Database] so unit tests skip the native crypto layer.
 abstract class MessageDb {
-  static const schemaVersion = 5;
+  static const schemaVersion = 6;
 
   /// SQLCipher-backed impl living at `<app-support>/messages.db`.
   static Future<MessageDb> open() async {
@@ -63,6 +64,8 @@ abstract class MessageDb {
         deleted_by    TEXT,
         edited        INTEGER NOT NULL DEFAULT 0,
         reply_to      TEXT,
+        channel_update TEXT,
+        raw_body      TEXT,
         PRIMARY KEY (id)
       )
     ''');
@@ -121,6 +124,21 @@ abstract class MessageDb {
     if (oldV < 5) {
       // Per-room composer drafts. A new, empty table: nothing to backfill.
       await _createDrafts(db);
+    }
+    if (oldV < 6) {
+      // Channel pictures: the JSON-encoded channel_update content, and the raw
+      // plaintext of a kind this build can't render. Schema-only ALTERs, null
+      // default, so existing rows read as neither.
+      // Guarded: a downgrade only rewinds user_version and leaves the columns
+      // behind, and SQLite has no ADD COLUMN IF NOT EXISTS.
+      final have = (await db.rawQuery(
+        'PRAGMA table_info(messages)',
+      )).map((c) => c['name']).toSet();
+      for (final col in const ['channel_update', 'raw_body']) {
+        if (!have.contains(col)) {
+          await db.execute('ALTER TABLE messages ADD COLUMN $col TEXT');
+        }
+      }
     }
   }
 
@@ -642,6 +660,8 @@ class SqliteMessageDb implements MessageDb {
     'deleted': 0,
     'edited': m.edited ? 1 : 0,
     'reply_to': _encodeReply(m.replyTo),
+    'channel_update': m.channelUpdate?.encode(),
+    'raw_body': m.unsupportedBody,
   };
 
   /// JSON column codec for a [ReplyRef] (message rows and drafts share it).
@@ -676,7 +696,15 @@ class SqliteMessageDb implements MessageDb {
         .map((k, v) => MapEntry(k, v as String)),
     edited: (r['edited'] as int? ?? 0) == 1,
     replyTo: _decodeReply(r['reply_to']),
+    channelUpdate: _decodeChannelUpdate(r['channel_update']),
+    unsupportedBody: r['raw_body'] as String?,
   );
+
+  static ChannelUpdateContent? _decodeChannelUpdate(Object? column) {
+    if (column == null) return null;
+    final c = MessageContent.decode(column as String);
+    return c is ChannelUpdateContent ? c : null;
+  }
 }
 
 /// Opened lazily on first read; overridable in tests with [MessageDb.test].

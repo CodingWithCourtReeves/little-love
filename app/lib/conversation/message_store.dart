@@ -104,6 +104,8 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     callOutcome: base.callOutcome,
     edited: true,
     replyTo: base.replyTo,
+    channelUpdate: base.channelUpdate,
+    unsupportedBody: base.unsupportedBody,
   );
 
   /// Replace the buffer wholesale (e.g. on initial replay). Validly-tombstoned
