@@ -54,25 +54,47 @@ set build command _(none)_, **build output `web/public`**, root = repo root.
 The edge rate limit for `/api/contact` lives in `infra/cloudflare/ratelimit.tf`
 (see DEPLOY.md step 7).
 
-## Dropping in real app GIFs
+## The hero demo
 
-The two phones in the "Every way to be together" section are CSS-rendered mocks
-(placeholders). To use a real screen recording, replace the contents of the
-matching `.phone__screen[data-gif-slot="…"]` with:
+The box beside the hero copy encrypts whatever the visitor types with real
+AES-GCM (WebCrypto, one non-extractable key per channel tab, made on page load,
+so switching channels changes the ciphertext the way each channel's own key does
+in the app) and shows the
+base64 output under "What we see". Nothing leaves the page. The app
+itself uses XChaCha20-Poly1305; the demo uses what browsers ship. Until the
+visitor touches it, it moves through the channel tabs and types a line in each.
 
-```html
-<img src="/assets/app/conversation.gif" alt="A LittleLove conversation" loading="lazy" />
-```
+The Channels section shows a real screen recording of the app
+(`public/assets/app/channels.mp4`, poster `channels-poster.jpg`), made on the
+simulator against the local dev stack with the seeded test couple
+(`scripts/sim-couple.sh`): Court's home screen while channels jump to the top
+as Kaitlyn's messages arrive. It's a debug build with the DEBUG banner hidden
+for the capture, status bar set with `xcrun simctl status_bar ... override`,
+recorded with `xcrun simctl io <udid> recordVideo --codec=h264`, and trimmed
+with `avconvert --start`. `main.js` plays it only while it's on screen, and
+reduced motion keeps the poster. Re-record it when the home screen changes.
 
-Record at the phone's aspect ratio (~9:19), keep files small (optimize the GIF
-or use a looping `<video>` with `muted autoplay playsinline`).
+Channel names are not end-to-end encrypted (the server stores them), so page
+copy says what's *in* a channel is encrypted, never the channel itself; the
+privacy policy says the same. With JS
+off, the box shows a static sample.
+
+## Motion
+
+All motion lives in the "motion" block at the end of `public/styles.css`. Every
+animation shows something true about the product (the demo typing, the map's
+messages flowing, the guarantee's words struck out). Not-yet-seen states are
+hidden only under `html.js` (set by `main.js`), so the page reads with JS off,
+and `prefers-reduced-motion` gets the finished state with nothing moving.
 
 ## Fonts
 
 Self-hosted (no third-party requests), in keeping with the "no third parties"
-voice. The woff2 files live in `public/assets/fonts/` (latin + latin-ext subsets
-of Fraunces / Hanken Grotesk / Space Mono); `@font-face` declarations are in
-`public/fonts.css`. To change weights, re-pull from the Google Fonts CSS and
+voice. One family, Newsreader (variable: weight + optical size, roman and
+italic), latin + latin-ext subsets in `public/assets/fonts/`; `@font-face`
+declarations are in `public/fonts.css`. Monospace is the system's
+(`ui-monospace`), used only for ciphertext and code. To change it, re-pull from
+the Google Fonts CSS and
 re-localize, or add the new woff2 + a `@font-face` block by hand.
 
 ## Launch polish (not blocking)
