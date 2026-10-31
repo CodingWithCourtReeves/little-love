@@ -73,7 +73,7 @@ void main() {
             selfUsername: 'court',
             choice: const ChooseSymbol(ChannelSymbol.heart, ChannelColor.rose),
           );
-      expect(ok, isTrue);
+      expect(ok, ChannelUpdateResult.sent);
       final rows = c.read(messageStoreProvider('chan1'));
       expect(rows, hasLength(1));
       expect(rows.single.body, '');
@@ -88,6 +88,23 @@ void main() {
   );
 
   test(
+    'a photo with no connection returns offline and enqueues nothing',
+    () async {
+      final c = container();
+      final result = await c
+          .read(channelUpdateSenderProvider)
+          .applyChoice(
+            room: room,
+            selfUsername: 'court',
+            choice: ChoosePhoto(Uint8List.fromList([1, 2, 3])),
+          );
+      expect(result, ChannelUpdateResult.offline);
+      expect(c.read(messageStoreProvider('chan1')), isEmpty);
+      expect(await store.pending(), isEmpty);
+    },
+  );
+
+  test(
     'a failure before enqueue removes the optimistic row and returns false',
     () async {
       final c = container(identityFails: true);
@@ -98,7 +115,7 @@ void main() {
             selfUsername: 'court',
             choice: const ChooseNone(),
           );
-      expect(ok, isFalse);
+      expect(ok, ChannelUpdateResult.failed);
       expect(c.read(messageStoreProvider('chan1')), isEmpty);
       expect(await store.pending(), isEmpty);
     },

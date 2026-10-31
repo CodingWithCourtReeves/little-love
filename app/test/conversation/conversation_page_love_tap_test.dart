@@ -174,6 +174,44 @@ void main() {
       // Let the jump's highlight pulse clear its timer.
       await tester.pump(const Duration(seconds: 2));
     });
+
+    testWidgets('keeps hidden (unsupported) rows out of the timeline', (
+      tester,
+    ) async {
+      final raw = await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: MessageDb.schemaVersion,
+          onCreate: MessageDb.onCreate,
+          onUpgrade: MessageDb.onUpgrade,
+        ),
+      );
+      addTearDown(raw.close);
+      final db = MessageDb.test(raw);
+      final hidden = _msg(
+        'old-hidden',
+        'kaitlyn',
+        '',
+        minute: 2,
+      ).copyWith(unsupportedBody: '{"kind":"future"}');
+      final oldTarget = _msg('old-1', 'kaitlyn', 'the search hit', minute: 1);
+      final recent = _msg('new-1', 'kaitlyn', 'recent', minute: 30);
+      for (final m in [hidden, oldTarget, recent]) {
+        await db.upsert(m, roomId: 'roomA');
+      }
+      final container = _container(db: db);
+      addTearDown(container.dispose);
+      container.read(messageStoreProvider('roomA').notifier).setAll([recent]);
+
+      await _pump(tester, container, focusMessageId: 'old-1');
+
+      expect(find.text('the search hit'), findsOneWidget);
+      expect(
+        container.read(messageStoreProvider('roomA')).where((m) => m.isHidden),
+        isEmpty,
+      );
+      await tester.pump(const Duration(seconds: 2));
+    });
   });
 
   group('composer heart (#76)', () {

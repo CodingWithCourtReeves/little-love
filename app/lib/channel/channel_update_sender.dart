@@ -27,6 +27,19 @@ typedef SquareUploader =
       required String filename,
     });
 
+/// Outcome of [ChannelUpdateSender.applyChoice].
+enum ChannelUpdateResult {
+  /// Enqueued.
+  sent,
+
+  /// A photo needs a connection to upload and there was none. Expected, so
+  /// not reported as a fault; the caller can tell the user to retry.
+  offline,
+
+  /// Nothing was enqueued; the fault has already been reported.
+  failed,
+}
+
 /// Sends channel picture / name changes as ordinary E2EE messages through the
 /// persistent outbox, with an optimistic row. No send chime.
 class ChannelUpdateSender {
@@ -35,8 +48,9 @@ class ChannelUpdateSender {
   final Ref _ref;
   final SquareUploader _upload;
 
-  /// Apply a picture [choice]. Returns false if nothing was enqueued.
-  Future<bool> applyChoice({
+  /// Apply a picture [choice]. Anything but [ChannelUpdateResult.sent] means
+  /// nothing was enqueued.
+  Future<ChannelUpdateResult> applyChoice({
     required Room room,
     required String selfUsername,
     required ChannelPictureChoice choice,
@@ -44,13 +58,11 @@ class ChannelUpdateSender {
     final ChannelPicture picture;
     switch (choice) {
       case ChoosePhoto(:final squaredJpeg):
+        // A photo can't be uploaded without a connection and the outbox can't
+        // retry an upload later. That is expected, not a fault.
+        final conn = _ref.read(liveConnectionProvider).asData?.value;
+        if (conn == null) return ChannelUpdateResult.offline;
         try {
-          // A photo can't be uploaded without a connection; that is an upload
-          // failure, not something the outbox can retry later.
-          final conn = _ref.read(liveConnectionProvider).asData?.value;
-          if (conn == null) {
-            throw StateError('no connection for channel picture upload');
-          }
           final descriptor = await _upload(
             conn: conn,
             roomId: room.roomId,
@@ -60,14 +72,19 @@ class ChannelUpdateSender {
           picture = PhotoPicture(descriptor);
         } catch (e, st) {
           reportFault(e, st, context: 'channel_picture_upload');
-          return false;
+          return ChannelUpdateResult.failed;
         }
       case ChooseSymbol(:final symbol, :final color):
         picture = SymbolPicture(symbol, color);
       case ChooseNone():
         picture = const NoPicture();
     }
-    return _send(room, selfUsername, ChannelUpdateContent(picture: picture));
+    final ok = await _send(
+      room,
+      selfUsername,
+      ChannelUpdateContent(picture: picture),
+    );
+    return ok ? ChannelUpdateResult.sent : ChannelUpdateResult.failed;
   }
 
   /// Send a name-only channel line for a rename.

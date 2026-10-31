@@ -58,6 +58,27 @@ import '../profile/profile_screen.dart';
 /// [ConversationPage]; back pops here. When there are no rooms, the body is the
 /// pairing affordance. Keeps the room message router + outbox drain alive while
 /// mounted (was InboxShell's job).
+/// Snackbar copy when a channel photo is picked without a connection.
+const channelPictureOfflineCopy =
+    "You're offline. Try again when you're connected.";
+
+/// Sends a rename to the server, expecting its echo so the "renamed" line is
+/// posted. A no-op when the name is unchanged (the server would still echo it
+/// and we would post a fake line) or when there is no connection (nothing to
+/// echo, so nothing to expect).
+@visibleForTesting
+void requestRename({
+  required PendingChannelActions pending,
+  required LiveConnection? conn,
+  required String roomId,
+  required String currentName,
+  required String newName,
+}) {
+  if (newName == currentName || conn == null) return;
+  pending.expectRename(roomId, newName);
+  conn.send(RenameRoomFrame(roomId: roomId, name: newName).toJson());
+}
+
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key, required this.account});
 
@@ -317,15 +338,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           onRename: room.shape(_me) == RoomShape.partner
               ? null
               : (newName) {
-                  ref
-                      .read(pendingChannelActionsProvider)
-                      .expectRename(room.roomId, newName);
-                  final conn = ref.read(liveConnectionProvider).asData?.value;
-                  conn?.send(
-                    RenameRoomFrame(
-                      roomId: room.roomId,
-                      name: newName,
-                    ).toJson(),
+                  // The route-time [room] can be stale; compare against the
+                  // live one so an unchanged name is a true no-op.
+                  final live = ref
+                      .read(inboxStateProvider)
+                      .rooms
+                      .where((r) => r.roomId == room.roomId)
+                      .firstOrNull;
+                  requestRename(
+                    pending: ref.read(pendingChannelActionsProvider),
+                    conn: ref.read(liveConnectionProvider).asData?.value,
+                    roomId: room.roomId,
+                    currentName: (live ?? room).name,
+                    newName: newName,
                   );
                 },
           onChannelPicture: room.shape(_me) == RoomShape.partner
@@ -343,12 +368,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     Room room,
     ChannelPictureChoice choice,
   ) async {
-    final ok = await ref
+    final result = await ref
         .read(channelUpdateSenderProvider)
         .applyChoice(room: room, selfUsername: _me, choice: choice);
-    if (ok || !mounted) return;
+    if (result == ChannelUpdateResult.sent || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Couldn't save the channel picture.")),
+      SnackBar(
+        content: Text(
+          result == ChannelUpdateResult.offline
+              ? channelPictureOfflineCopy
+              : "Couldn't save the channel picture.",
+        ),
+      ),
     );
   }
 

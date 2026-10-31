@@ -874,7 +874,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         _animatedIds.add(m.clientMsgId ?? m.id);
       }
       if (superseded()) return;
-      store.setAll(history);
+      // Hidden rows (unsupported kinds) stay out of the timeline, as in the
+      // router's `_hydrate`.
+      store.setAll(history.where((m) => !m.isHidden).toList());
       await WidgetsBinding.instance.endOfFrame;
       if (!present()) return; // not in full history (e.g. since unsent)
     }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/channel/channel_tile.dart';
+import 'package:littlelove/channel/pending_channel_actions.dart';
 import 'package:littlelove/conversation/conversation_page.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/identity/account_local.dart';
@@ -85,6 +86,18 @@ ProviderContainer _container({bool synced = true}) {
   addTearDown(c.dispose);
   c.read(inboxSyncedProvider.notifier).state = synced;
   return c;
+}
+
+class _RenameConn implements LiveConnection {
+  final List<Object> sent = [];
+  @override
+  Stream<RoomServerFrame> get incoming => const Stream.empty();
+  @override
+  void send(Object payload) => sent.add(payload);
+  @override
+  Future<void> get closed => Completer<void>().future;
+  @override
+  Future<void> close() async {}
 }
 
 void main() {
@@ -494,5 +507,46 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
     expect(find.byType(ConversationPage), findsNothing);
+  });
+
+  test('saving an unchanged name sends no frame and no line', () {
+    final pending = PendingChannelActions();
+    final conn = _RenameConn();
+    requestRename(
+      pending: pending,
+      conn: conn,
+      roomId: 'r1',
+      currentName: 'Trips',
+      newName: 'Trips',
+    );
+    expect(conn.sent, isEmpty);
+    // No echo is expected, so a stray RoomRenamed posts no line.
+    expect(pending.takeRename('r1', 'Trips'), isFalse);
+  });
+
+  test('a changed name sends the frame and expects its echo', () {
+    final pending = PendingChannelActions();
+    final conn = _RenameConn();
+    requestRename(
+      pending: pending,
+      conn: conn,
+      roomId: 'r1',
+      currentName: 'Trips',
+      newName: 'Travel',
+    );
+    expect(conn.sent, hasLength(1));
+    expect(pending.takeRename('r1', 'Travel'), isTrue);
+  });
+
+  test('a rename with no connection registers nothing', () {
+    final pending = PendingChannelActions();
+    requestRename(
+      pending: pending,
+      conn: null,
+      roomId: 'r1',
+      currentName: 'Trips',
+      newName: 'Travel',
+    );
+    expect(pending.takeRename('r1', 'Travel'), isFalse);
   });
 }

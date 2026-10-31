@@ -227,10 +227,11 @@ void main() {
         ),
       ),
     );
-    await t.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 300)),
-    );
-    await t.pump();
+    // The decode failure arrives on a real async tick; poll for the fallback.
+    for (var i = 0; i < 50 && find.text('T').evaluate().isEmpty; i++) {
+      await t.runAsync(() => Future<void>.delayed(Duration.zero));
+      await t.pump();
+    }
     expect(find.text('T'), findsOneWidget);
   });
 }

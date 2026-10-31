@@ -184,7 +184,7 @@ class _RecordingSender extends ChannelUpdateSender {
   }
 
   @override
-  Future<bool> applyChoice({
+  Future<ChannelUpdateResult> applyChoice({
     required Room room,
     required String selfUsername,
     required ChannelPictureChoice choice,
@@ -192,7 +192,7 @@ class _RecordingSender extends ChannelUpdateSender {
     choices.add(choice);
     selfNames.add(selfUsername);
     roomIds.add(room.roomId);
-    return true;
+    return ChannelUpdateResult.sent;
   }
 }
 
