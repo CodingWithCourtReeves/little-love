@@ -57,10 +57,18 @@ The edge rate limit for `/api/contact` lives in `infra/cloudflare/ratelimit.tf`
 ## The hero demo
 
 The box beside the hero copy encrypts whatever the visitor types with real
-AES-GCM (WebCrypto, a non-extractable key made on page load) and shows the
+AES-GCM (WebCrypto, one non-extractable key per channel tab, made on page load,
+so switching channels changes the ciphertext the way each channel's own key does
+in the app) and shows the
 base64 output under "What we see". Nothing leaves the page. The app
 itself uses XChaCha20-Poly1305; the demo uses what browsers ship. Until the
-visitor touches it, it types the hero's three chat lines on its own. With JS
+visitor touches it, it moves through the channel tabs and types a line in each.
+
+The channel list in the Channels section is an illustration; `main.js` bumps
+the oldest channel to the top every few seconds (FLIP slide), the way the app
+sorts channels by latest activity. Channel names are not end-to-end encrypted
+(the server stores them), so page copy says what's *in* a channel is
+encrypted, never the channel itself; the privacy policy says the same. With JS
 off, the box shows a static sample.
 
 ## Motion

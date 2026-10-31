@@ -55,18 +55,22 @@
   }
 
   /* ── hero demo: encrypt what you type, show what the server would store.
-     Real AES-GCM via WebCrypto with a non-extractable key made on page load;
-     nothing leaves the page. (The app itself uses XChaCha20-Poly1305.) ── */
+     Real AES-GCM via WebCrypto, one non-extractable key per channel tab made
+     on page load, so switching channels changes the ciphertext the way each
+     channel's own key does in the app; nothing leaves the page. (The app
+     itself uses XChaCha20-Poly1305.) ── */
   const demoIn = document.getElementById("demo-input");
   const demoOut = document.querySelector("[data-demo-cipher]");
+  const tabs = [...document.querySelectorAll(".demo__tab")];
   if (demoIn && demoOut && window.crypto && crypto.subtle) {
     const utf8 = new TextEncoder();
-    const keyP = crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt"]);
-    let seq = 0;
+    const keys = tabs.length ? tabs : [null];
+    const keyPs = keys.map(() => crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt"]));
+    let channel = 0, seq = 0;
     const render = async () => {
       const mine = ++seq;
       const iv = crypto.getRandomValues(new Uint8Array(12));
-      const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await keyP, utf8.encode(demoIn.value)));
+      const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await keyPs[channel], utf8.encode(demoIn.value)));
       if (mine !== seq) return; // a newer keystroke already rendered
       const out = new Uint8Array(iv.length + ct.length);
       out.set(iv); out.set(ct, iv.length);
@@ -77,20 +81,26 @@
         demoOut.classList.add("flash");
       }
     };
+    const pick = (i) => {
+      channel = i;
+      tabs.forEach((t, j) => t.setAttribute("aria-pressed", String(j === i)));
+      render();
+    };
     demoIn.addEventListener("input", render);
     render();
 
-    // Until the visitor touches it, the demo types the hero's chat lines
-    // itself, so the ciphertext visibly changes with every keystroke.
+    // Until the visitor touches it, the demo moves through the channels and
+    // types a line in each, so the ciphertext visibly changes per keystroke.
+    let stop = () => {};
     if (!reduceMotion) {
       const lines = [
         "Did you make it home okay?",
-        "Just walked in. Call you in five.",
-        "Good. I missed your voice today.",
+        "Found a cabin for our trip.",
+        "Can you grab paint on the way home?",
       ];
       let auto = true, onScreen = false, timer = 0;
       const wait = (ms) => new Promise((res) => { timer = setTimeout(res, ms); });
-      const stop = () => { auto = false; clearTimeout(timer); };
+      stop = () => { auto = false; clearTimeout(timer); };
       ["focus", "pointerdown", "keydown"].forEach((ev) => demoIn.addEventListener(ev, stop, { once: true }));
       new IntersectionObserver(([e]) => { onScreen = e.isIntersecting; }).observe(demoIn);
       (async () => {
@@ -98,11 +108,49 @@
         for (let i = 1; auto; i = (i + 1) % lines.length) {
           if (!onScreen || document.hidden) { await wait(500); i = (i + lines.length - 1) % lines.length; continue; }
           while (auto && demoIn.value.length) { demoIn.value = demoIn.value.slice(0, -1); render(); await wait(22); }
+          if (!auto) return;
+          pick(i % keys.length);
+          await wait(350);
           for (const ch of lines[i]) { if (!auto) return; demoIn.value += ch; render(); await wait(70); }
           await wait(2600);
         }
       })();
     }
+    tabs.forEach((t, i) => t.addEventListener("click", () => { stop(); pick(i); }));
+  }
+
+  /* ── channel list: bump a channel to the top every few seconds, the way the
+     app sorts channels by latest activity. FLIP so the rows slide. ── */
+  const chanlist = document.querySelector("[data-chanlist]");
+  if (chanlist && !reduceMotion) {
+    const previews = {
+      travel: ["Found a cabin for our trip.", "Flights are booked!", "Window or aisle?"],
+      "the-house": ["Can you grab paint on the way home?", "The plumber comes Tuesday.", "Sage green or cream?"],
+      "date-night": ["That Thai place, Friday?", "Movie at 8?", "I'll pick the wine."],
+      "daily-life": ["Did you make it home okay?", "Call you in five.", "Good morning, you."],
+    };
+    const times = ["now", "1h", "3h", "1d"];
+    let onScreen = false, turn = 0;
+    new IntersectionObserver(([e]) => { onScreen = e.isIntersecting; }).observe(chanlist);
+    setInterval(() => {
+      if (!onScreen || document.hidden) return;
+      const rows = [...chanlist.children];
+      const row = rows[rows.length - 1];
+      const before = new Map(rows.map((r) => [r, r.getBoundingClientRect().top]));
+      chanlist.prepend(row);
+      const name = row.querySelector(".chanlist__name").textContent;
+      const pool = previews[name] || [];
+      if (pool.length) row.querySelector(".chanlist__preview").textContent = pool[++turn % pool.length];
+      [...chanlist.children].forEach((r, i) => {
+        r.querySelector(".chanlist__time").textContent = times[i] || "";
+        r.classList.toggle("is-new", i === 0);
+        const dy = before.get(r) - r.getBoundingClientRect().top;
+        r.classList.remove("is-moving");
+        r.style.transform = `translateY(${dy}px)`;
+      });
+      void chanlist.offsetWidth;
+      [...chanlist.children].forEach((r) => { r.classList.add("is-moving"); r.style.transform = ""; });
+    }, 3800);
   }
 
   /* ── contact forms (hero request + footer note) → Pages Function → Resend */

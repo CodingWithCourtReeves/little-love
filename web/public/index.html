@@ -60,6 +60,7 @@
       <span class="nav__word">LittleLove</span>
     </a>
     <nav class="nav__links">
+      <a href="#channels">Channels</a>
       <a href="#how">How it works</a>
       <a href="#privacy">Privacy</a>
       <a href="#faq">Questions</a>
@@ -84,9 +85,9 @@
       <div class="hero__grid">
         <div class="hero__copy">
           <p class="hero__lede">
-            A private messaging app for couples. Your texts, voice notes,
-            photos, and calls stay between you and your partner, and we
-            can&rsquo;t read any of it.
+            A private messaging app for couples, with channels like Discord.
+            One for travel, one for the house, one for whatever&rsquo;s yours.
+            And we can&rsquo;t read a word you send.
           </p>
 
           <form class="contact hero__ask" id="request" data-contact novalidate>
@@ -107,15 +108,80 @@
 
         <!-- Live demo: what you type vs. what we see. -->
         <figure class="demo" aria-labelledby="demo-cap">
+          <div class="demo__tabs" role="group" aria-label="Channel">
+            <button type="button" class="demo__tab" aria-pressed="true" data-channel="0">#daily-life</button>
+            <button type="button" class="demo__tab" aria-pressed="false" data-channel="1">#travel</button>
+            <button type="button" class="demo__tab" aria-pressed="false" data-channel="2">#the-house</button>
+          </div>
           <label class="demo__label" for="demo-input">Type a message</label>
           <input class="demo__input" id="demo-input" type="text" value="Did you make it home okay?" maxlength="140" autocomplete="off" spellcheck="false" />
           <p class="demo__label demo__label--server"><svg class="demo__lock" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4" fill="currentColor"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>What we see</p>
           <p class="demo__cipher mono" data-demo-cipher>k7Qe9f1AxR2mLp8wc4VzNq6TgH0sB3yJ+e5uWdK1oPq2rXz8vC4mN7aQ==</p>
           <figcaption class="demo__note" id="demo-cap">
-            Your phone scrambles every message before it&rsquo;s sent. Only your
-            partner&rsquo;s phone can turn it back into words. Try typing.
+            Your phone scrambles every message before it&rsquo;s sent, with a
+            different key for each channel. Only your partner&rsquo;s phone can
+            turn it back into words. Try typing, or switch channels.
           </figcaption>
         </figure>
+      </div>
+    </section>
+
+    <!-- ─────────────────────── CHANNELS ─────────────────────── -->
+    <section class="band" id="channels">
+      <div class="band__head reveal">
+        <p class="kicker">Channels</p>
+        <h2 class="h2">Like Discord, but just for the two of you.</h2>
+        <p class="lede">
+          A channel is a chat with its own topic. Give travel, the house, and
+          date ideas their own place, instead of losing everything in one
+          endless thread.
+        </p>
+        <ul class="ruled">
+          <li>Name a channel anything: <span class="chan">#travel</span>, <span class="chan">#the-house</span>, <span class="chan">#date-night</span></li>
+          <li>Your partner is added automatically. Nothing to set up.</li>
+          <li>Your main chat stays pinned on top. Channels sort by what&rsquo;s new.</li>
+          <li>Each channel keeps its own photos and videos, and its own search.</li>
+          <li>Each channel has its own key, and we can&rsquo;t read what&rsquo;s in any of them.</li>
+        </ul>
+      </div>
+
+      <!-- Illustration of the channel list. main.js bumps a channel to the
+           top every few seconds, the way the app sorts by latest activity. -->
+      <div class="band__body chanlist reveal" aria-hidden="true">
+        <div class="chanlist__row chanlist__row--pinned">
+          <span class="chanlist__avatar">K</span>
+          <span class="chanlist__name">Kaitlyn</span>
+          <span class="chanlist__time">pinned</span>
+          <span class="chanlist__preview">Good. I missed your voice today.</span>
+        </div>
+        <p class="chanlist__group">Channels</p>
+        <div class="chanlist__list" data-chanlist>
+          <div class="chanlist__row is-new">
+            <span class="chanlist__hash">#</span>
+            <span class="chanlist__name">travel</span>
+            <span class="chanlist__time">now</span>
+            <span class="chanlist__preview">Found a cabin for our trip.</span>
+          </div>
+          <div class="chanlist__row">
+            <span class="chanlist__hash">#</span>
+            <span class="chanlist__name">the-house</span>
+            <span class="chanlist__time">1h</span>
+            <span class="chanlist__preview">Can you grab paint on the way home?</span>
+          </div>
+          <div class="chanlist__row">
+            <span class="chanlist__hash">#</span>
+            <span class="chanlist__name">date-night</span>
+            <span class="chanlist__time">3h</span>
+            <span class="chanlist__preview">That Thai place, Friday?</span>
+          </div>
+          <div class="chanlist__row">
+            <span class="chanlist__hash">#</span>
+            <span class="chanlist__name">daily-life</span>
+            <span class="chanlist__time">1d</span>
+            <span class="chanlist__preview">Did you make it home okay?</span>
+          </div>
+        </div>
+        <p class="chanlist__new">+ New channel</p>
       </div>
     </section>
 
@@ -179,7 +245,7 @@
           time zones.
         </p>
         <ul class="ruled">
-          <li>Separate threads for travel, daily life, the house</li>
+          <li>Channels for travel, daily life, the house</li>
           <li>Voice notes across time zones</li>
           <li>Calls &amp; video, just the two of you</li>
         </ul>
@@ -285,6 +351,10 @@
         <details>
           <summary>Is it free?</summary>
           <p>Yes. LittleLove is free, with no ads.</p>
+        </details>
+        <details>
+          <summary>What&rsquo;s a channel?</summary>
+          <p>A chat with its own topic, like <span class="chan">#travel</span> or <span class="chan">#the-house</span>. It&rsquo;s always just the two of you, and your partner is added automatically. Channel names aren&rsquo;t encrypted, but everything you send in them is.</p>
         </details>
         <details>
           <summary>Does my partner need it too?</summary>
