@@ -22,6 +22,9 @@ import '../../conversation/link_preview.dart';
 import '../../conversation/message_content.dart';
 import '../../conversation/reply_ref.dart';
 import '../../conversation/message_store.dart';
+import '../../channel/channel_picture.dart';
+import '../../channel/channel_tile.dart';
+import '../../channel/channel_update_sender.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../conversation/room_message_router.dart';
 import '../../conversation/send_fanout.dart';
@@ -269,7 +272,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
         ),
-        for (final r in channels) item(r, leading: const _ChannelTile.hash()),
+        for (final r in channels)
+          item(
+            r,
+            leading: ChannelTile(room: r, selfUsername: _me),
+          ),
         _NewChannelRow(
           showHint: channels.isEmpty,
           onTap: () => showCreateChannelSheet(context, ref),
@@ -317,10 +324,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ).toJson(),
                   );
                 },
+          onChannelPicture: room.shape(_me) == RoomShape.partner
+              ? null
+              : (choice) => _applyChannelPicture(room, choice),
         ),
       ),
     );
     _chatOnStack = false;
+  }
+
+  /// Sends a channel picture change. The sender reports failure as `false`
+  /// (it has already reported the fault); say so rather than fail silently.
+  Future<void> _applyChannelPicture(
+    Room room,
+    ChannelPictureChoice choice,
+  ) async {
+    final ok = await ref
+        .read(channelUpdateSenderProvider)
+        .applyChoice(room: room, selfUsername: _me, choice: choice);
+    if (ok || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Couldn't save the channel picture.")),
+    );
   }
 
   // ---- send/retry/media wiring moved verbatim from inbox_shell.dart ----
@@ -901,20 +926,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-/// The square leading a channel row ("#") or the "New channel" row ("+"), the
-/// same size as the partner's avatar so every row's text lines up.
-class _ChannelTile extends StatelessWidget {
-  const _ChannelTile.hash() : _isNew = false;
-  const _ChannelTile.plus() : _isNew = true;
-
-  /// The "New channel" row's "+" rather than a channel's "#".
-  final bool _isNew;
+/// The "+" square leading the "New channel" row, the same size as a channel's
+/// picture tile so every row's text lines up.
+class _NewChannelTile extends StatelessWidget {
+  const _NewChannelTile();
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     return Container(
-      key: Key(_isNew ? 'new-channel-tile' : 'channel-tile'),
+      key: const Key('new-channel-tile'),
       width: 52,
       height: 52,
       alignment: Alignment.center,
@@ -923,10 +944,10 @@ class _ChannelTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
       ),
       child: Text(
-        _isNew ? '+' : '#',
+        '+',
         style: TextStyle(
-          fontSize: _isNew ? 26 : 24,
-          fontWeight: _isNew ? FontWeight.w400 : FontWeight.w600,
+          fontSize: 26,
+          fontWeight: FontWeight.w400,
           color: p.accentUser,
         ),
       ),
@@ -957,7 +978,7 @@ class _NewChannelRow extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
             child: Row(
               children: [
-                const _ChannelTile.plus(),
+                const _NewChannelTile(),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(

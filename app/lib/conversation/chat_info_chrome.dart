@@ -169,12 +169,17 @@ class InfoRow extends StatelessWidget {
     required this.icon,
     required this.label,
     this.value,
+    this.trailing,
     required this.onTap,
   });
 
   final IconData icon;
   final String label;
   final String? value;
+
+  /// A widget shown before the chevron (a thumbnail), in place of nothing.
+  /// Null leaves just the [value] text, if any.
+  final Widget? trailing;
   final VoidCallback onTap;
 
   @override
@@ -203,6 +208,7 @@ class InfoRow extends StatelessWidget {
                   style: TextStyle(fontSize: 15, color: p.separatorText),
                 ),
               ],
+              if (trailing != null) ...[const SizedBox(width: 8), trailing!],
               const SizedBox(width: 6),
               Icon(Icons.chevron_right, color: p.separatorText, size: 20),
             ],

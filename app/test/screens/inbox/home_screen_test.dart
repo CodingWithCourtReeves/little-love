@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/channel/channel_tile.dart';
 import 'package:littlelove/conversation/conversation_page.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/identity/account_local.dart';
@@ -267,36 +268,37 @@ void main() {
     expect(find.text('PARTNER'), findsNothing);
   });
 
-  testWidgets('channel rows lead with a # tile; the partner keeps the avatar', (
-    tester,
-  ) async {
-    final c = _container();
-    c.read(inboxStateProvider.notifier).setRooms([
-      _partnerRoom('partner'),
-      Room(
-        roomId: 'travel',
-        name: 'Travel',
-        members: _partnerRoom('travel').members,
-        createdAt: DateTime.utc(2026, 6, 11),
-      ),
-    ]);
-    await tester.pumpWidget(_app(c, _acct()));
-    await tester.pump();
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('home-room-travel')),
-        matching: find.byKey(const Key('channel-tile')),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('home-room-partner')),
-        matching: find.byKey(const Key('channel-tile')),
-      ),
-      findsNothing,
-    );
-  });
+  testWidgets(
+    'channel rows show their picture tile and the partner row stays a circle',
+    (tester) async {
+      final c = _container();
+      c.read(inboxStateProvider.notifier).setRooms([
+        _partnerRoom('partner'),
+        Room(
+          roomId: 'travel',
+          name: 'Travel',
+          members: _partnerRoom('travel').members,
+          createdAt: DateTime.utc(2026, 6, 11),
+        ),
+      ]);
+      await tester.pumpWidget(_app(c, _acct()));
+      await tester.pump();
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('home-room-travel')),
+          matching: find.byType(ChannelTile),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('home-room-partner')),
+          matching: find.byType(ChannelTile),
+        ),
+        findsNothing,
+      );
+    },
+  );
 
   testWidgets('the channel list ends in a New channel row, with a hint only '
       'while there are no channels', (tester) async {

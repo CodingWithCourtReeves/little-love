@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/channel/channel_picture.dart';
+import 'package:littlelove/channel/channel_tile.dart';
 import 'package:littlelove/conversation/chat_info_chrome.dart';
 import 'package:littlelove/conversation/chat_info_page.dart';
 import 'package:littlelove/conversation/link_preview.dart';
@@ -17,6 +19,7 @@ import 'package:littlelove/wallpaper/wallpaper_screen.dart';
 import 'package:littlelove/wallpaper/wallpaper_selection.dart';
 import 'package:littlelove/wire/frames.dart';
 import 'package:littlelove/wire/message.dart';
+import '../support/widget_waits.dart';
 import 'package:littlelove/attachment/attachment_descriptor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -259,7 +262,7 @@ void main() {
       ); // The page runs behind its transparent app bar, but the content starts
       // below the toolbar, never under the back pill.
       expect(
-        tester.getRect(find.byType(Avatar)).top,
+        tester.getRect(find.byType(ChannelTile).first).top,
         greaterThanOrEqualTo(kToolbarHeight),
       );
     });
@@ -638,6 +641,124 @@ void main() {
       await tester.pump();
       expect(find.byKey(const Key('chat-info-wallpaper')), findsOneWidget);
       expect(find.byKey(const Key('chat-info-rename')), findsNothing);
+    });
+  });
+
+  group('channel picture', () {
+    Widget appWith(
+      ProviderContainer c,
+      Room room,
+      Future<void> Function(ChannelPictureChoice)? onPick,
+    ) => UncontrolledProviderScope(
+      container: c,
+      child: MaterialApp(
+        theme: buildAppTheme(AppPalette.light),
+        home: ChatInfoPage(
+          room: room,
+          selfUsername: 'court',
+          onChannelPicture: onPick,
+        ),
+      ),
+    );
+
+    Future<void> pickMoonAndDone(WidgetTester tester) async {
+      await pumpUntilFound(
+        tester,
+        find.byKey(const Key('channel-picture-done')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('channel-symbol-moon')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('channel-picture-done')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('tapping the channel picture opens the sheet and Done calls '
+        'onChannelPicture', (tester) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      final picks = <ChannelPictureChoice>[];
+      await tester.pumpWidget(
+        appWith(c, _room(), (choice) async => picks.add(choice)),
+      );
+      await tester.pump();
+      expect(find.byType(ChannelTile), findsWidgets);
+      await tester.tap(find.byKey(const Key('chat-info-channel-picture')));
+      await pickMoonAndDone(tester);
+      expect(picks, hasLength(1));
+      expect((picks.single as ChooseSymbol).symbol, ChannelSymbol.moon);
+    });
+
+    testWidgets('the channel picture row opens the same sheet', (tester) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      final picks = <ChannelPictureChoice>[];
+      await tester.pumpWidget(
+        appWith(c, _room(), (choice) async => picks.add(choice)),
+      );
+      await tester.pump();
+      final row = find.byKey(const Key('chat-info-channel-picture-row'));
+      await tester.ensureVisible(row);
+      await tester.pump();
+      expect(
+        find.descendant(of: row, matching: find.text('Channel picture')),
+        findsOneWidget,
+      );
+      await tester.tap(row);
+      await pickMoonAndDone(tester);
+      expect(picks, hasLength(1));
+    });
+
+    testWidgets('the partner chat has no channel picture controls', (
+      tester,
+    ) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      await tester.pumpWidget(appWith(c, _dm(), (_) async {}));
+      await tester.pump();
+      expect(find.byKey(const Key('chat-info-channel-picture')), findsNothing);
+      expect(
+        find.byKey(const Key('chat-info-channel-picture-row')),
+        findsNothing,
+      );
+      expect(find.byType(Avatar), findsOneWidget);
+    });
+
+    testWidgets('a channel with no onChannelPicture hides the controls', (
+      tester,
+    ) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      await tester.pumpWidget(appWith(c, _room(), null));
+      await tester.pump();
+      expect(find.byKey(const Key('chat-info-channel-picture')), findsNothing);
+      expect(
+        find.byKey(const Key('chat-info-channel-picture-row')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('the encryption note mentions the channel picture', (
+      tester,
+    ) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      await tester.pumpWidget(appWith(c, _room(), (_) async {}));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('chat-info-e2ee')),
+        200,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('chat-info-e2ee')),
+          matching: find.text(
+            'Messages, calls, media and this channel\'s picture are '
+            'end-to-end encrypted. Only you and Kaitlyn can see them.',
+          ),
+        ),
+        findsOneWidget,
+      );
     });
   });
 }

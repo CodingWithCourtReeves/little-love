@@ -114,6 +114,19 @@ final _thumbBytesProvider = Provider.family<Uint8List?, String>((ref, b64) {
   }
 });
 
+/// The photo to draw for [roomId]'s current picture: the downloaded file once
+/// it is on disk, else the inline thumbnail, else null (not a photo picture, or
+/// nothing decodable yet). One path for the tile and for the picker sheet's
+/// "current" preview.
+ImageProvider? channelPhotoFor(WidgetRef ref, String roomId) {
+  final picture = ref.watch(currentChannelPictureProvider(roomId));
+  if (picture is! PhotoPicture) return null;
+  final file = ref.watch(channelPhotoFileProvider(roomId)).asData?.value;
+  if (file != null) return FileImage(file);
+  final thumb = ref.watch(_thumbBytesProvider(picture.descriptor.thumbB64));
+  return thumb == null ? null : MemoryImage(thumb);
+}
+
 /// [ChannelPictureView] for a room, fed by the room's current picture.
 class ChannelTile extends ConsumerWidget {
   const ChannelTile({
@@ -129,23 +142,11 @@ class ChannelTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final picture = ref.watch(currentChannelPictureProvider(room.roomId));
-    ImageProvider? photo;
-    if (picture is PhotoPicture) {
-      final file = ref
-          .watch(channelPhotoFileProvider(room.roomId))
-          .asData
-          ?.value;
-      final thumb = ref.watch(_thumbBytesProvider(picture.descriptor.thumbB64));
-      photo = file != null
-          ? FileImage(file)
-          : (thumb == null ? null : MemoryImage(thumb));
-    }
     return ChannelPictureView(
       name: room.displayName(selfUsername),
       colorSeed: room.roomId,
-      picture: picture,
-      photo: photo,
+      picture: ref.watch(currentChannelPictureProvider(room.roomId)),
+      photo: channelPhotoFor(ref, room.roomId),
       size: size,
     );
   }

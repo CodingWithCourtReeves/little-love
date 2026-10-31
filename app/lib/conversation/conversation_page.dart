@@ -32,6 +32,8 @@ import '../inbox/room.dart';
 import '../inbox/select_room.dart';
 import '../profile/avatar.dart';
 import '../channel/channel_line.dart';
+import '../channel/channel_picture.dart';
+import '../channel/channel_tile.dart';
 import '../channel/channel_line_view.dart';
 import '../profile/profile_store.dart';
 import '../theme/app_palette.dart';
@@ -361,6 +363,7 @@ class ConversationPage extends ConsumerStatefulWidget {
     required this.selfUsername,
     required this.onSend,
     this.onRename,
+    this.onChannelPicture,
     this.onRetry,
     this.onPickMedia,
     this.onSendMedia,
@@ -382,6 +385,10 @@ class ConversationPage extends ConsumerStatefulWidget {
   final String? focusMessageId;
   final SendCallback onSend;
   final RenameCallback? onRename;
+
+  /// Applies a channel picture change picked on the chat-info page. Null hides
+  /// the picture controls there (the partner chat has no channel picture).
+  final Future<void> Function(ChannelPictureChoice choice)? onChannelPicture;
   final RetryCallback? onRetry;
 
   /// Tapped the composer's attach (+) button: pick media to stage on the
@@ -924,6 +931,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         room: widget.room,
         selfUsername: widget.selfUsername,
         onRename: widget.onRename,
+        onChannelPicture: widget.onChannelPicture,
         onOpenAttachment: widget.onOpenAttachment,
       ),
     );
@@ -1726,11 +1734,19 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                       key: const Key('room-header-avatar'),
                       behavior: HitTestBehavior.opaque,
                       onTap: _openChatInfo,
-                      child: Avatar(
-                        seedText: partnerSeed,
-                        imageFile: partnerAvatar,
-                        radius: 17,
-                      ),
+                      child:
+                          widget.room.shape(widget.selfUsername) ==
+                              RoomShape.chat
+                          ? ChannelTile(
+                              room: widget.room,
+                              selfUsername: widget.selfUsername,
+                              size: 34,
+                            )
+                          : Avatar(
+                              seedText: partnerSeed,
+                              imageFile: partnerAvatar,
+                              radius: 17,
+                            ),
                     ),
                   ),
                 ],
