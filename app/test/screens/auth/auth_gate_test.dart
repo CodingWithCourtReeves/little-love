@@ -82,6 +82,7 @@ class _FakeMessageDb implements MessageDb {
     String query, {
     String? roomId,
     int limit = 50,
+    SearchOrder order = SearchOrder.relevance,
   }) async => const [];
   @override
   Future<ComposerDraft?> draftFor(String roomId) async => null;

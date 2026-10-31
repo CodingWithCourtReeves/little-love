@@ -32,6 +32,9 @@ class AppPalette extends ThemeExtension<AppPalette> {
     required this.bubblePartnerEdge,
     required this.replyInsetOnUser,
     required this.replyNameOnUser,
+    required this.searchMatch,
+    required this.searchMatchCurrent,
+    required this.searchMatchCurrentText,
   });
 
   final Brightness brightness;
@@ -72,6 +75,18 @@ class AppPalette extends ThemeExtension<AppPalette> {
   /// [replyInsetOnUser].
   final Color replyNameOnUser;
 
+  /// The accent tint behind a search match, in result snippets and in chat
+  /// bubbles (#94, #96). The text keeps its own color over it and still clears
+  /// 4.5:1 on both bubbles and the results card (`palette_contrast_test.dart`).
+  final Color searchMatch;
+
+  /// The fill behind the current match while stepping through in-chat search
+  /// results, solid so it stands out from the other [searchMatch]es.
+  final Color searchMatchCurrent;
+
+  /// Text on [searchMatchCurrent].
+  final Color searchMatchCurrentText;
+
   /// "The hour the lamps come on" — pale rose / aubergine neutrals. Values are
   /// the original Twilight light palette, unchanged.
   static const AppPalette light = AppPalette(
@@ -95,6 +110,9 @@ class AppPalette extends ThemeExtension<AppPalette> {
     bubblePartnerEdge: Color(0x8CD9C7CD),
     replyInsetOnUser: Color(0x80FFFFFF),
     replyNameOnUser: Color(0xFF7E3753),
+    searchMatch: Color(0x38A04A6A),
+    searchMatchCurrent: Color(0xFFA04A6A),
+    searchMatchCurrentText: Color(0xFFFFFFFF),
   );
 
   /// "Deep dusk" — the Deep Dusk wallpaper world as the app canvas. The rose
@@ -121,6 +139,9 @@ class AppPalette extends ThemeExtension<AppPalette> {
     bubblePartnerEdge: Color(0x8C3D2E42),
     replyInsetOnUser: Color(0x14FFFFFF),
     replyNameOnUser: Color(0xFFE0B6C6),
+    searchMatch: Color(0x59C98EA3),
+    searchMatchCurrent: Color(0xFFC98EA3),
+    searchMatchCurrentText: Color(0xFF2A0F1C),
   );
 
   /// The palette for a given brightness — the seam the wallpaper drives.
@@ -149,6 +170,9 @@ class AppPalette extends ThemeExtension<AppPalette> {
     Color? bubblePartnerEdge,
     Color? replyInsetOnUser,
     Color? replyNameOnUser,
+    Color? searchMatch,
+    Color? searchMatchCurrent,
+    Color? searchMatchCurrentText,
   }) {
     return AppPalette(
       brightness: brightness ?? this.brightness,
@@ -171,6 +195,10 @@ class AppPalette extends ThemeExtension<AppPalette> {
       bubblePartnerEdge: bubblePartnerEdge ?? this.bubblePartnerEdge,
       replyInsetOnUser: replyInsetOnUser ?? this.replyInsetOnUser,
       replyNameOnUser: replyNameOnUser ?? this.replyNameOnUser,
+      searchMatch: searchMatch ?? this.searchMatch,
+      searchMatchCurrent: searchMatchCurrent ?? this.searchMatchCurrent,
+      searchMatchCurrentText:
+          searchMatchCurrentText ?? this.searchMatchCurrentText,
     );
   }
 
@@ -207,6 +235,17 @@ class AppPalette extends ThemeExtension<AppPalette> {
         t,
       )!,
       replyNameOnUser: Color.lerp(replyNameOnUser, other.replyNameOnUser, t)!,
+      searchMatch: Color.lerp(searchMatch, other.searchMatch, t)!,
+      searchMatchCurrent: Color.lerp(
+        searchMatchCurrent,
+        other.searchMatchCurrent,
+        t,
+      )!,
+      searchMatchCurrentText: Color.lerp(
+        searchMatchCurrentText,
+        other.searchMatchCurrentText,
+        t,
+      )!,
     );
   }
 }

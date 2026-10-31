@@ -2,8 +2,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'message_db.dart';
 
-/// In-channel search: ranked hits within [roomId] for [query]. Empty query →
-/// empty (so the results list clears as the field empties).
+/// How [MessageDb.search] orders its hits.
+enum SearchOrder {
+  /// BM25 relevance with a slight nudge toward newer messages.
+  relevance,
+
+  /// Newest first.
+  newest,
+}
+
+/// The most hits one in-chat search returns: the newest this many matches.
+/// Higher than the global cap because the in-chat results are scanned by date
+/// and stepped through one by one, so a common word ("love") between two people
+/// should still reach well back.
+const int channelSearchLimit = 200;
+
+/// In-channel search: hits within [roomId] for [query], newest first (#94).
+/// In one chat between two people, when something was said is what you scan
+/// by, so date order beats relevance here. Empty query → empty (so the results
+/// list clears as the field empties).
 final channelSearchProvider =
     FutureProvider.family<List<SearchHit>, ({String roomId, String query})>((
       ref,
@@ -11,10 +28,17 @@ final channelSearchProvider =
     ) async {
       if (a.query.trim().isEmpty) return const [];
       final db = await ref.watch(messageDbProvider.future);
-      return db.search(a.query, roomId: a.roomId);
+      return db.search(
+        a.query,
+        roomId: a.roomId,
+        limit: channelSearchLimit,
+        order: SearchOrder.newest,
+      );
     });
 
-/// Global search: ranked hits across every room for [query].
+/// Global search: ranked hits across every room for [query]. Stays in
+/// relevance order: it groups hits by room and orders the rooms by their best
+/// match, which date order would turn into "the room with the newest hit".
 final globalSearchProvider = FutureProvider.family<List<SearchHit>, String>((
   ref,
   query,

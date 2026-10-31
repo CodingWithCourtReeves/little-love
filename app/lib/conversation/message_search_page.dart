@@ -4,11 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../inbox/room.dart';
-import '../theme/app_palette.dart';
+import 'chat_info_chrome.dart';
+import 'chat_search_field.dart';
 import 'message_search.dart';
+import 'search_results.dart';
 
-/// In-channel message search. Reached from the chat-info 🔍 action. Pops the
-/// tapped result's message id so the conversation can scroll to it.
+/// In-channel message search results (#94): on the chat's wallpaper like the
+/// chat-info page, newest first and grouped by day. Pops the tapped result's
+/// message id so the conversation can scroll to it.
 class MessageSearchPage extends ConsumerStatefulWidget {
   const MessageSearchPage({
     super.key,
@@ -51,27 +54,15 @@ class _MessageSearchPageState extends ConsumerState<MessageSearchPage> {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
     final results = ref.watch(
       channelSearchProvider((roomId: widget.room.roomId, query: _query)),
     );
-    return Scaffold(
-      backgroundColor: p.bgCanvas,
-      appBar: AppBar(
-        backgroundColor: p.bgCanvas,
-        title: TextField(
-          key: const Key('message-search-field'),
-          controller: _controller,
-          autofocus: true,
-          onChanged: _onChanged,
-          textInputAction: TextInputAction.search,
-          style: TextStyle(color: p.textPrimary, fontSize: 17),
-          decoration: InputDecoration(
-            hintText: 'Search messages',
-            hintStyle: TextStyle(color: p.textMuted),
-            border: InputBorder.none,
-          ),
-        ),
+    return InfoScaffold(
+      bar: ChatSearchField(
+        controller: _controller,
+        autofocus: true,
+        onChanged: _onChanged,
+        onCancel: () => Navigator.of(context).maybePop(),
       ),
       body: SearchResultsList(
         results: results,
@@ -81,110 +72,6 @@ class _MessageSearchPageState extends ConsumerState<MessageSearchPage> {
             : 'No messages found',
         onTap: (hit) => Navigator.of(context).pop(hit.messageId),
       ),
-    );
-  }
-}
-
-/// A list of [SearchHit]s with highlighted snippets, shared by the in-channel
-/// and (room-grouped) global search surfaces. Renders the async states.
-class SearchResultsList extends StatelessWidget {
-  const SearchResultsList({
-    super.key,
-    required this.results,
-    required this.selfUsername,
-    required this.emptyHint,
-    required this.onTap,
-    this.showRoom = false,
-  });
-
-  final AsyncValue<List<SearchHit>> results;
-  final String selfUsername;
-  final String emptyHint;
-  final void Function(SearchHit hit) onTap;
-  final bool showRoom;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    return results.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (_, _) => Center(
-        child: Text('Search failed', style: TextStyle(color: p.textMuted)),
-      ),
-      data: (hits) {
-        if (hits.isEmpty) {
-          return Center(
-            child: Text(emptyHint, style: TextStyle(color: p.textMuted)),
-          );
-        }
-        return ListView.builder(
-          key: const Key('search-results'),
-          itemCount: hits.length,
-          itemBuilder: (context, i) {
-            final hit = hits[i];
-            final who = hit.from == selfUsername ? 'You' : hit.from;
-            return ListTile(
-              key: Key('search-result-${hit.messageId}'),
-              title: Text(
-                who,
-                style: TextStyle(
-                  color: p.textPrimary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                ),
-              ),
-              subtitle: SnippetText(snippetHtml: hit.snippetHtml),
-              onTap: () => onTap(hit),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-/// Renders FTS5 `snippet()` output (matches wrapped in `<b>…</b>`) with the
-/// matched terms bolded + accented. The snippet content is our own message
-/// text, and the only markup snippet() emits is the bold delimiters we passed
-/// it, so a plain split is safe. Shared by the in-channel and global result
-/// lists.
-class SnippetText extends StatelessWidget {
-  const SnippetText({super.key, required this.snippetHtml});
-
-  final String snippetHtml;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final base = TextStyle(color: p.textMuted, fontSize: 13);
-    final bold = TextStyle(
-      color: p.textPrimary,
-      fontSize: 13,
-      fontWeight: FontWeight.w700,
-    );
-    final spans = <TextSpan>[];
-    var rest = snippetHtml;
-    while (true) {
-      final open = rest.indexOf('<b>');
-      if (open < 0) {
-        if (rest.isNotEmpty) spans.add(TextSpan(text: rest, style: base));
-        break;
-      }
-      if (open > 0) {
-        spans.add(TextSpan(text: rest.substring(0, open), style: base));
-      }
-      final close = rest.indexOf('</b>', open + 3);
-      if (close < 0) {
-        spans.add(TextSpan(text: rest.substring(open + 3), style: base));
-        break;
-      }
-      spans.add(TextSpan(text: rest.substring(open + 3, close), style: bold));
-      rest = rest.substring(close + 4);
-    }
-    return Text.rich(
-      TextSpan(children: spans),
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
     );
   }
 }
