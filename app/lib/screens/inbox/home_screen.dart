@@ -16,7 +16,6 @@ import '../../attachment/file_crypto.dart';
 import '../../attachment/staged_attachment.dart';
 import '../../attachment/thumbnail.dart';
 import '../../audio/recorder_controller.dart';
-import '../../calling/call_controller.dart';
 import '../../conversation/conversation_page.dart';
 import '../../conversation/link_preview.dart';
 import '../../conversation/message_content.dart';
@@ -109,9 +108,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final inbox = ref.watch(inboxStateProvider);
     if (inbox.rooms.isNotEmpty) {
       ref.watch(pushBootstrapProvider);
-      // Keep the call controller alive so it's listening for incoming call
-      // invites (and CallKit accepts from a VoIP wake) before any call arrives.
-      ref.watch(callControllerProvider);
     }
     ref.watch(badgeSyncProvider(_me));
 

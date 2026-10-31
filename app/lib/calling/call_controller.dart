@@ -26,6 +26,7 @@ import 'call_privacy.dart';
 import 'call_session.dart';
 import 'call_signaling.dart';
 import 'call_state.dart';
+import 'callkit_accepted.dart';
 import 'glare.dart';
 import 'ringback.dart';
 import 'turn_credentials.dart';
@@ -145,6 +146,9 @@ class CallController with WidgetsBindingObserver {
   String? _pendingOffer; // encrypted offer awaiting CallKit accept (incoming)
   String?
   _pendingAcceptCallId; // accept tapped before the offer arrived (cold wake)
+  // The caller's encrypted ICE candidates that arrived while we were still
+  // ringing (no sig key or session yet). Applied once we answer.
+  final List<String> _earlyIce = [];
   Timer? _ringTimer;
   bool _ending = false; // re-entrancy guard for _end (see below)
   final Ringback _ringback = Ringback(); // caller-side dialing tone
@@ -255,6 +259,9 @@ class CallController with WidgetsBindingObserver {
     _wireSession();
 
     final offer = await _session!.createOffer();
+    // Gathering can take a couple of seconds; a hangup in that window has
+    // already reset this call.
+    if (_callId != callId) return;
     // Asked for video but the camera was denied/unavailable → the session fell
     // back to audio; advertise (and render) the call as audio to match.
     if (video && !_session!.hasVideo) {
@@ -357,6 +364,9 @@ class CallController with WidgetsBindingObserver {
       return;
     }
     if (callId != null && _callId != null && callId != _callId) return;
+    // Answer can arrive twice on a wake (the live event and the CallKit call
+    // list): only the first one answers.
+    if (state.value.phase != CallPhase.ringing) return;
 
     final rp = _roomAndPeer(roomId, self);
     if (rp == null) return _fail();
@@ -376,11 +386,24 @@ class CallController with WidgetsBindingObserver {
     final ice = await fetchIceServers(_conn!, _callId!);
     _session = CallSession(iceServers: ice, video: _video);
     _wireSession();
+    // Candidates the caller trickled while we rang. The session holds them
+    // until the offer below sets the remote description.
+    final early = List<String>.of(_earlyIce);
+    _earlyIce.clear();
+    for (final enc in early) {
+      // One bad candidate must not stop the answer.
+      try {
+        await _applyRemoteIce(enc);
+      } catch (_) {}
+    }
 
     // `offer` is the encrypted wire string — decrypt to the raw SDP before
     // handing it to WebRTC.
     final offerSdp = await decryptSignal(_sigKey!, offer);
+    final answering = _callId;
     final answer = await _session!.acceptOffer(offerSdp);
+    // Declined or hung up while gathering: this call is already reset.
+    if (_callId != answering || _sigKey == null) return;
     final encAnswer = await encryptSignal(_sigKey!, answer);
     _conn?.send(
       CallAnswerClientFrame(
@@ -430,9 +453,13 @@ class CallController with WidgetsBindingObserver {
           state.value = state.value.remoteAnswered();
         }
       case CallIceFrame(:final callId, :final candidate):
-        if (callId != _callId || _sigKey == null) return;
-        final json = await decryptSignal(_sigKey!, candidate);
-        await _session?.addRemoteCandidate(_decodeCandidate(json));
+        if (callId != _callId) return;
+        if (_sigKey == null || _session == null) {
+          // Still ringing: keep it for when we answer instead of dropping it.
+          _earlyIce.add(candidate);
+          return;
+        }
+        await _applyRemoteIce(candidate);
       case CallHangupFrame(:final callId, :final reason):
         if (callId != _callId) return;
         // The peer ended the call. We still run the normal end path; the
@@ -451,24 +478,30 @@ class CallController with WidgetsBindingObserver {
     String offer,
     bool video,
   ) async {
-    // Glare: if we're already dialing our own call, the deterministic tiebreak
-    // decides. If we lose, cancel ours and accept theirs; if we win, ignore.
-    if (state.value.phase == CallPhase.dialing) {
-      final self = _selfUsername;
-      if (self != null && glareIWin(self, from)) return; // keep ours
-      await _end(
-        'cancel',
-      ); // we lost — drop ours, fall through to accept theirs
-    } else if (state.value.phase != CallPhase.idle) {
-      // Busy with another call.
-      _conn?.send(
-        CallHangupClientFrame(
-          roomId: roomId,
-          callId: callId,
-          reason: 'busy',
-        ).toJson(),
-      );
-      return;
+    switch (inviteActionFor(
+      state.value,
+      inviteCallId: callId,
+      self: _selfUsername,
+      from: from,
+    )) {
+      case InviteAction.ring:
+        break;
+      case InviteAction.ignore:
+        // A repeat of this call (the server re-sends a held invite when our
+        // socket reconnects), or a glare we win.
+        return;
+      case InviteAction.yieldAndRing:
+        // Glare we lose: drop our outgoing call and ring theirs.
+        await _end('cancel');
+      case InviteAction.busy:
+        _conn?.send(
+          CallHangupClientFrame(
+            roomId: roomId,
+            callId: callId,
+            reason: 'busy',
+          ).toJson(),
+        );
+        return;
     }
 
     _callId = callId;
@@ -488,11 +521,31 @@ class CallController with WidgetsBindingObserver {
     _startRingTimer();
 
     // Cold-wake race: if the user already tapped Answer on the native screen
-    // before this offer arrived, the accept was deferred — replay it now.
-    if (_pendingAcceptCallId == callId) {
+    // before this offer arrived, the accept was deferred, so replay it now. If
+    // they tapped it before Dart was even listening, the plugin dropped the
+    // event, but its call list still shows the call as answered.
+    if (_pendingAcceptCallId == callId || await _answeredInCallKit(callId)) {
       _pendingAcceptCallId = null;
       await _onCallKitAccept(callId);
     }
+  }
+
+  Future<bool> _answeredInCallKit(String callId) async {
+    try {
+      return callKitAccepted(
+        await FlutterCallkitIncoming.activeCalls(),
+        callId,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _applyRemoteIce(String encrypted) async {
+    final key = _sigKey;
+    if (key == null) return;
+    final json = await decryptSignal(key, encrypted);
+    await _session?.addRemoteCandidate(_decodeCandidate(json));
   }
 
   // ── Session wiring ────────────────────────────────────────────────────────
@@ -684,6 +737,7 @@ class CallController with WidgetsBindingObserver {
     _startedAt = null;
     _pendingOffer = null;
     _pendingAcceptCallId = null;
+    _earlyIce.clear();
     _ringTimer?.cancel();
     unawaited(_ringback.stop());
   }
