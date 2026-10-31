@@ -49,12 +49,16 @@ class RoomMessageRouter {
   // cold-launch race where messages replay just before the room auto-selects).
   final Map<String, Timer> _markReadDebounce = {};
 
+  /// Newest id per room of a partner message the store doesn't hold; folded into
+  /// the MarkRead watermark so the server's unread_count clears for it too.
+  final Map<String, String> _droppedUpTo = {};
+
   void _scheduleMarkRead(String roomId) {
     _markReadDebounce[roomId]?.cancel();
     _markReadDebounce[roomId] = Timer(const Duration(milliseconds: 400), () {
       _markReadDebounce.remove(roomId);
       if (ref.read(activeRoomProvider) == roomId) {
-        sendMarkRead(ref, roomId);
+        sendMarkRead(ref, roomId, alsoUpTo: _droppedUpTo[roomId]);
       }
     });
   }
@@ -399,6 +403,7 @@ class RoomMessageRouter {
         final outbox = await ref.read(outboxStoreProvider.future);
         await outbox.remove(f.clientMsgId!);
       }
+      _markDroppedRead(f);
       return;
     }
     // A channel update only means something in a channel. In the partner chat,
@@ -412,6 +417,7 @@ class RoomMessageRouter {
           final outbox = await ref.read(outboxStoreProvider.future);
           await outbox.remove(f.clientMsgId!);
         }
+        _markDroppedRead(f);
         return;
       }
     }
@@ -542,15 +548,12 @@ class RoomMessageRouter {
       // replays are covered by the open trigger and must not spam a MarkRead
       // per row, nor pop a banner).
       if (!f.replayed) {
-        if (content is ChannelUpdateContent) {
-          // A channel change is an event, not a message: no chime, banner or
-          // read marker (it never counts as unread).
-        } else if (ref.read(activeRoomProvider) == f.roomId) {
+        if (ref.read(activeRoomProvider) == f.roomId) {
           // The chat is on screen: a gentle incoming chime + light haptic so a
           // message landing while you're reading registers without a banner. A
           // call-log entry (emitted when a call ends) is not a message to chime
           // about — same exclusion the banner makes below.
-          if (content is! CallContent) {
+          if (content is! CallContent && content is! ChannelUpdateContent) {
             // A love tap (#76) arrives as a heartbeat instead of the light tap.
             // A quoted reply isn't one: it renders as a bubble, not the heart.
             final loveTap =
@@ -564,8 +567,9 @@ class RoomMessageRouter {
           // leaving the room doesn't leave a phantom unread dot for a message
           // we just watched arrive. The watermark in sendMarkRead already
           // covers this message since it's in the store before this runs.
-          markRoomRead(ref, f.roomId);
-        } else if (content is! CallContent) {
+          markRoomRead(ref, f.roomId, alsoUpTo: _droppedUpTo[f.roomId]);
+        } else if (content is! CallContent &&
+            content is! ChannelUpdateContent) {
           // A live message in a room that isn't on screen: pop an in-app banner
           // so partner activity in another thread isn't invisible while you're
           // reading a different one. A call-log entry (emitted when a call ends)
@@ -582,6 +586,23 @@ class RoomMessageRouter {
         // sends one MarkRead. No banner: a reconnect would otherwise storm them.
         _scheduleMarkRead(f.roomId);
       }
+    }
+  }
+
+  /// A partner message the router stores nothing visible for (unknown kind, or
+  /// a channel update with no row) is still counted by the server's unread_count
+  /// and so must be marked read like a timeline row: now when it lands live in
+  /// the open room, debounced when replayed. Nothing for my own self-copy or
+  /// for a live message in a room that isn't on screen.
+  void _markDroppedRead(MessageFrame f) {
+    if (f.clientMsgId != null) return;
+    // The store never holds this id, so remember it as a read watermark floor.
+    final prev = _droppedUpTo[f.roomId];
+    if (prev == null || f.id.compareTo(prev) > 0) _droppedUpTo[f.roomId] = f.id;
+    if (f.replayed) {
+      _scheduleMarkRead(f.roomId);
+    } else if (ref.read(activeRoomProvider) == f.roomId) {
+      markRoomRead(ref, f.roomId, alsoUpTo: _droppedUpTo[f.roomId]);
     }
   }
 

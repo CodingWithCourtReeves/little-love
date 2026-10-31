@@ -2054,7 +2054,8 @@ void main() {
       expect(row.isTimelineEvent, isTrue);
       expect(feedback.receivedCount, 0);
       expect(container.read(incomingBannerProvider), isNull);
-      expect(_sentOfKind(conn, 'MarkRead'), isEmpty);
+      // Still counted by the server's unread_count, so it is marked read.
+      await pumpUntil(() => _sentOfKind(conn, 'MarkRead').isNotEmpty);
     });
 
     test(
@@ -2255,6 +2256,70 @@ void main() {
         expect(cached['01C']!.isHidden, isTrue);
       },
     );
+
+    test('a live unknown kind in the active room is marked read, one in '
+        'another room is not', () async {
+      for (final active in [true, false]) {
+        final (container, conn, me, peer) = await setup(
+          roomName: 'Date ideas',
+          active: active,
+        );
+        final db = await container.read(messageDbProvider.future);
+        conn.emit(
+          MessageFrame(
+            id: 'm1',
+            roomId: 'room1',
+            from: 'kaitlyn',
+            ts: DateTime.utc(2026, 6, 10, 12),
+            body: await fromPartner(me, peer, '{"v":1,"kind":"hologram"}'),
+            replayed: false,
+          ),
+        );
+        await dbSettledAt(db, 'room1', 'm1');
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(_sentOfKind(conn, 'MarkRead').isNotEmpty, active);
+      }
+    });
+
+    test('a dropped partner-chat channel_update is marked read when live in '
+        'the open room', () async {
+      final (container, conn, me, peer) = await setup(
+        roomName: '',
+        active: true,
+      );
+      conn.emit(
+        MessageFrame(
+          id: 'm1',
+          roomId: 'room1',
+          from: 'kaitlyn',
+          ts: DateTime.utc(2026, 6, 10, 12),
+          body: await fromPartner(me, peer, update.encode()),
+          replayed: false,
+        ),
+      );
+      await pumpUntil(() => _sentOfKind(conn, 'MarkRead').isNotEmpty);
+      expect(container.read(messageStoreProvider('room1')), isEmpty);
+    });
+
+    test('a replayed unknown kind schedules a debounced MarkRead', () async {
+      final (container, conn, me, peer) = await setup(
+        roomName: 'Date ideas',
+        active: true,
+      );
+      final db = await container.read(messageDbProvider.future);
+      conn.emit(
+        MessageFrame(
+          id: 'm1',
+          roomId: 'room1',
+          from: 'kaitlyn',
+          ts: DateTime.utc(2026, 6, 10, 12),
+          body: await fromPartner(me, peer, '{"v":1,"kind":"hologram"}'),
+          replayed: true,
+        ),
+      );
+      await dbSettledAt(db, 'room1', 'm1');
+      await pumpUntil(() => _sentOfKind(conn, 'MarkRead').isNotEmpty);
+    });
 
     test('my own channel_update echo reconciles the optimistic row and clears '
         'the outbox', () async {
