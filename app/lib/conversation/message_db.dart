@@ -288,6 +288,16 @@ class SqliteMessageDb implements MessageDb {
       _toRow(msg, roomId),
       conflictAlgorithm: ConflictAlgorithm.ignore,
     );
+    // A hidden row (a kind an older build couldn't read) that this build now
+    // understands replaces its placeholder; the insert above ignored the clash.
+    if (msg.unsupportedBody == null) {
+      await _db.update(
+        'messages',
+        _toRow(msg, roomId),
+        where: 'id = ? AND raw_body IS NOT NULL',
+        whereArgs: [msg.id],
+      );
+    }
     // An edit for this id may have arrived before the row did; apply it now.
     await _applyPendingEdit(msg.id, msg.from);
     await _advanceHwm(roomId, msg.id);

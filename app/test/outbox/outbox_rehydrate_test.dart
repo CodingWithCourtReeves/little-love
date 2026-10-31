@@ -256,4 +256,40 @@ void main() {
     expect(row, isNotNull);
     expect(row!.lastError, 'decrypt-failed');
   });
+
+  test(
+    'a pending channel_update rehydrates as a sending channel row',
+    () async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final selfPub = base64.encode(me.x25519PublicKey);
+      final store = MemoryOutboxStore();
+      await store.enqueue(
+        clientMsgId: 'cli-ch',
+        roomId: 'room1',
+        bodies: {selfPub: 'ct'},
+        createdAt: DateTime.utc(2026, 6, 13, 9, 0),
+      );
+      final envelope = const ChannelUpdateContent(name: 'Date ideas').encode();
+
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      await rehydrateOutbox(
+        store: store,
+        me: 'court',
+        identity: me,
+        keyCache: container.read(roomKeyCacheProvider),
+        rooms: [mkRoom('room1', me, peer)],
+        getMessageStore: (rid) =>
+            container.read(messageStoreProvider(rid).notifier),
+        decrypt: (room, cipher) async => envelope,
+      );
+
+      final msg = container.read(messageStoreProvider('room1')).single;
+      expect(msg.sendStatus, SendStatus.sending);
+      expect(msg.body, '');
+      expect(msg.channelUpdate?.name, 'Date ideas');
+    },
+  );
 }
