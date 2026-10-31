@@ -54,25 +54,31 @@ set build command _(none)_, **build output `web/public`**, root = repo root.
 The edge rate limit for `/api/contact` lives in `infra/cloudflare/ratelimit.tf`
 (see DEPLOY.md step 7).
 
-## Dropping in real app GIFs
+## The hero demo
 
-The two phones in the "Every way to be together" section are CSS-rendered mocks
-(placeholders). To use a real screen recording, replace the contents of the
-matching `.phone__screen[data-gif-slot="…"]` with:
+The box beside the hero copy encrypts whatever the visitor types with real
+AES-GCM (WebCrypto, a non-extractable key made on page load) and shows the
+base64 output under "What we see". Nothing leaves the page. The app
+itself uses XChaCha20-Poly1305; the demo uses what browsers ship. Until the
+visitor touches it, it types the hero's three chat lines on its own. With JS
+off, the box shows a static sample.
 
-```html
-<img src="/assets/app/conversation.gif" alt="A LittleLove conversation" loading="lazy" />
-```
+## Motion
 
-Record at the phone's aspect ratio (~9:19), keep files small (optimize the GIF
-or use a looping `<video>` with `muted autoplay playsinline`).
+All motion lives in the "motion" block at the end of `public/styles.css`. Every
+animation shows something true about the product (the demo typing, the map's
+messages flowing, the guarantee's words struck out). Not-yet-seen states are
+hidden only under `html.js` (set by `main.js`), so the page reads with JS off,
+and `prefers-reduced-motion` gets the finished state with nothing moving.
 
 ## Fonts
 
 Self-hosted (no third-party requests), in keeping with the "no third parties"
-voice. The woff2 files live in `public/assets/fonts/` (latin + latin-ext subsets
-of Fraunces / Hanken Grotesk / Space Mono); `@font-face` declarations are in
-`public/fonts.css`. To change weights, re-pull from the Google Fonts CSS and
+voice. One family, Newsreader (variable: weight + optical size, roman and
+italic), latin + latin-ext subsets in `public/assets/fonts/`; `@font-face`
+declarations are in `public/fonts.css`. Monospace is the system's
+(`ui-monospace`), used only for ciphertext and code. To change it, re-pull from
+the Google Fonts CSS and
 re-localize, or add the new woff2 + a `@font-face` block by hand.
 
 ## Launch polish (not blocking)

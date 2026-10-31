@@ -1,9 +1,10 @@
 /* LittleLove marketing: progressive enhancement only. The page is fully
-   readable with JS disabled; this adds reveals, theme, and the contact form. */
+   readable with JS disabled; this adds reveals, theme, the demo, and the forms. */
 (() => {
   "use strict";
   const root = document.documentElement;
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  root.classList.add("js"); // CSS hides not-yet-seen states only when this ran
 
   /* ── current year ──────────────────────────────────────────────────── */
   const y = document.querySelector("[data-year]");
@@ -36,7 +37,7 @@
   }
 
   /* ── scroll reveal ─────────────────────────────────────────────────── */
-  const reveals = document.querySelectorAll(".reveal");
+  const reveals = document.querySelectorAll(".reveal, .band");
   reveals.forEach((el) => {
     const d = el.getAttribute("data-reveal-delay");
     if (d) el.style.setProperty("--reveal-delay", d + "ms");
@@ -53,23 +54,59 @@
     reveals.forEach((el) => io.observe(el));
   }
 
-  /* ── hero "wire": cipher text keeps scrambling, like live traffic ──── */
-  const cipher = document.querySelector("[data-cipher]");
-  if (cipher && !reduceMotion) {
-    const glyphs = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz0123456789·░";
-    const make = () => {
-      let out = "";
-      for (let i = 0; i < 34; i++) {
-        out += i % 5 === 4 ? "·" : glyphs[(Math.random() * glyphs.length) | 0];
+  /* ── hero demo: encrypt what you type, show what the server would store.
+     Real AES-GCM via WebCrypto with a non-extractable key made on page load;
+     nothing leaves the page. (The app itself uses XChaCha20-Poly1305.) ── */
+  const demoIn = document.getElementById("demo-input");
+  const demoOut = document.querySelector("[data-demo-cipher]");
+  if (demoIn && demoOut && window.crypto && crypto.subtle) {
+    const utf8 = new TextEncoder();
+    const keyP = crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+    let seq = 0;
+    const render = async () => {
+      const mine = ++seq;
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await keyP, utf8.encode(demoIn.value)));
+      if (mine !== seq) return; // a newer keystroke already rendered
+      const out = new Uint8Array(iv.length + ct.length);
+      out.set(iv); out.set(ct, iv.length);
+      demoOut.textContent = btoa(String.fromCharCode(...out));
+      if (!reduceMotion) {
+        demoOut.classList.remove("flash");
+        void demoOut.offsetWidth; // restart the animation
+        demoOut.classList.add("flash");
       }
-      return out;
     };
-    setInterval(() => { cipher.textContent = make(); }, 900);
+    demoIn.addEventListener("input", render);
+    render();
+
+    // Until the visitor touches it, the demo types the hero's chat lines
+    // itself, so the ciphertext visibly changes with every keystroke.
+    if (!reduceMotion) {
+      const lines = [
+        "Did you make it home okay?",
+        "Just walked in. Call you in five.",
+        "Good. I missed your voice today.",
+      ];
+      let auto = true, onScreen = false, timer = 0;
+      const wait = (ms) => new Promise((res) => { timer = setTimeout(res, ms); });
+      const stop = () => { auto = false; clearTimeout(timer); };
+      ["focus", "pointerdown", "keydown"].forEach((ev) => demoIn.addEventListener(ev, stop, { once: true }));
+      new IntersectionObserver(([e]) => { onScreen = e.isIntersecting; }).observe(demoIn);
+      (async () => {
+        await wait(1800);
+        for (let i = 1; auto; i = (i + 1) % lines.length) {
+          if (!onScreen || document.hidden) { await wait(500); i = (i + lines.length - 1) % lines.length; continue; }
+          while (auto && demoIn.value.length) { demoIn.value = demoIn.value.slice(0, -1); render(); await wait(22); }
+          for (const ch of lines[i]) { if (!auto) return; demoIn.value += ch; render(); await wait(70); }
+          await wait(2600);
+        }
+      })();
+    }
   }
 
-  /* ── contact form → Cloudflare Pages Function → Resend ─────────────── */
-  const form = document.getElementById("contact");
-  if (form) {
+  /* ── contact forms (hero request + footer note) → Pages Function → Resend */
+  document.querySelectorAll("form[data-contact]").forEach((form) => {
     const status = form.querySelector(".contact__status");
     const setStatus = (msg, err) => {
       status.textContent = msg;
@@ -102,5 +139,5 @@
         btn.disabled = false;
       }
     });
-  }
+  });
 })();
