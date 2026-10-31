@@ -224,14 +224,16 @@ void main() {
     expect(plain.style?.backgroundColor, isNull);
   });
 
-  testWidgets('tapping a result pops its message id', (tester) async {
+  testWidgets('tapping a result pops its message id and the query', (
+    tester,
+  ) async {
     final db = await freshDb();
     await add(db, 'm1', 'kaitlyn', DateTime(2025, 3, 4, 18, 45));
     final c = ProviderContainer(
       overrides: [messageDbProvider.overrideWith((_) async => db)],
     );
     addTearDown(c.dispose);
-    String? popped;
+    SearchPick? popped;
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: c,
@@ -258,7 +260,8 @@ void main() {
     await pumpUntilFound(tester, row);
     await tester.tap(row);
     await tester.pumpAndSettle();
-    expect(popped, 'm1');
+    expect(popped?.messageId, 'm1');
+    expect(popped?.query, 'cake');
   });
 
   group('filter chips (#95)', () {

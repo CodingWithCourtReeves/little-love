@@ -13,33 +13,45 @@ import 'search_filter_chips.dart';
 import 'search_results.dart';
 import 'shared_media_page.dart';
 
+/// A result picked from [MessageSearchPage]: the message, and the query it
+/// was found with (edited on the list, perhaps), so the chat's search mode can
+/// pick up there.
+typedef SearchPick = ({String messageId, String query});
+
 /// In-channel message search results (#94): on the chat's wallpaper like the
 /// chat-info page, newest first and grouped by day, with sender chips and
-/// shortcuts to the photo and link galleries (#95). Pops the tapped result's
-/// message id so the conversation can scroll to it.
+/// shortcuts to the photo and link galleries (#95). Reached from the chat's
+/// search mode (#96) with its query filled in. Pops the tapped result as a
+/// [SearchPick]; Cancel pops null.
 class MessageSearchPage extends ConsumerStatefulWidget {
   const MessageSearchPage({
     super.key,
     required this.room,
     required this.selfUsername,
+    this.initialQuery = '',
     this.onOpenAttachment,
   });
 
   final Room room;
   final String selfUsername;
 
+  /// The query the chat was searching for when List was tapped.
+  final String initialQuery;
+
   /// Opens a photo or video from the Photos gallery in the chat's viewer.
   /// Null leaves the gallery's tiles display-only.
   final void Function(AttachmentDescriptor descriptor)? onOpenAttachment;
 
-  static Route<String> route({
+  static Route<SearchPick> route({
     required Room room,
     required String selfUsername,
+    String initialQuery = '',
     void Function(AttachmentDescriptor descriptor)? onOpenAttachment,
-  }) => MaterialPageRoute<String>(
+  }) => MaterialPageRoute<SearchPick>(
     builder: (_) => MessageSearchPage(
       room: room,
       selfUsername: selfUsername,
+      initialQuery: initialQuery,
       onOpenAttachment: onOpenAttachment,
     ),
   );
@@ -49,9 +61,9 @@ class MessageSearchPage extends ConsumerStatefulWidget {
 }
 
 class _MessageSearchPageState extends ConsumerState<MessageSearchPage> {
-  final _controller = TextEditingController();
+  late final _controller = TextEditingController(text: widget.initialQuery);
   Timer? _debounce;
-  String _query = '';
+  late String _query = widget.initialQuery.trim();
   SenderFilter _sender = SenderFilter.all;
 
   @override
@@ -104,7 +116,9 @@ class _MessageSearchPageState extends ConsumerState<MessageSearchPage> {
     return InfoScaffold(
       bar: ChatSearchField(
         controller: _controller,
-        autofocus: true,
+        // Arriving with the chat's query, the results are what you came for;
+        // the keyboard would cover them.
+        autofocus: widget.initialQuery.isEmpty,
         onChanged: _onChanged,
         onCancel: () => Navigator.of(context).maybePop(),
       ),
@@ -128,7 +142,9 @@ class _MessageSearchPageState extends ConsumerState<MessageSearchPage> {
               emptyHint: _query.isEmpty
                   ? 'Type to search this chat'
                   : 'No messages found',
-              onTap: (hit) => Navigator.of(context).pop(hit.messageId),
+              onTap: (hit) => Navigator.of(
+                context,
+              ).pop<SearchPick>((messageId: hit.messageId, query: _query)),
             ),
           ),
         ],

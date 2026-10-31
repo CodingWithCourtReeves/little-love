@@ -21,22 +21,37 @@ const int channelSearchLimit = 200;
 /// and only [from]'s messages when set (#95). In one chat between two people,
 /// when something was said is what you scan by, so date order beats relevance
 /// here. Empty query → empty (so the results list clears as the field
-/// empties).
-final channelSearchProvider =
-    FutureProvider.family<
-      List<SearchHit>,
-      ({String roomId, String query, String? from})
-    >((ref, a) async {
-      if (a.query.trim().isEmpty) return const [];
+/// empties). Auto-disposed, so reopening the list runs the query again and
+/// picks up messages that arrived since.
+final channelSearchProvider = FutureProvider.autoDispose
+    .family<List<SearchHit>, ({String roomId, String query, String? from})>((
+      ref,
+      a,
+    ) async {
       final db = await ref.watch(messageDbProvider.future);
-      return db.search(
-        a.query,
-        roomId: a.roomId,
-        from: a.from,
-        limit: channelSearchLimit,
-        order: SearchOrder.newest,
-      );
+      return searchChannel(db, roomId: a.roomId, query: a.query, from: a.from);
     });
+
+/// One in-chat search: [roomId]'s hits for [query], newest first, at most
+/// [channelSearchLimit], only [from]'s when set. Empty query → empty. The
+/// chat's own search mode (#96) calls this directly rather than through
+/// [channelSearchProvider]'s cache, so a message that arrived since an earlier
+/// identical query still shows up.
+Future<List<SearchHit>> searchChannel(
+  MessageDb db, {
+  required String roomId,
+  required String query,
+  String? from,
+}) async {
+  if (query.trim().isEmpty) return const [];
+  return db.search(
+    query,
+    roomId: roomId,
+    from: from,
+    limit: channelSearchLimit,
+    order: SearchOrder.newest,
+  );
+}
 
 /// Global search: ranked hits across every room for [query]. Stays in
 /// relevance order: it groups hits by room and orders the rooms by their best

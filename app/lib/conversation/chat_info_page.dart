@@ -15,10 +15,15 @@ import '../wallpaper/wallpaper_screen.dart';
 import '../wallpaper/wallpaper_selection.dart';
 import '../wire/message.dart';
 import 'chat_info_chrome.dart';
-import 'message_search_page.dart';
 import 'message_store.dart';
 import 'partner_status_line.dart';
 import 'shared_media_page.dart';
+
+/// What the chat-info page asks of the chat beneath it when it closes.
+enum ChatInfoResult {
+  /// The Search tile: go back to the chat in search mode (#96).
+  searchInChat,
+}
 
 /// Chat-info page, reached by tapping the room name or avatar in a chat. It
 /// sits on the chat's own wallpaper (#91, see [InfoScaffold]) with a header
@@ -45,14 +50,14 @@ class ChatInfoPage extends ConsumerWidget {
   /// own callback, passed through). Null leaves the thumbnails display-only.
   final void Function(AttachmentDescriptor descriptor)? onOpenAttachment;
 
-  /// Pops a message id when the user picks an in-channel search result (so the
-  /// conversation beneath can scroll to it); pops null on a plain back.
-  static Route<String> route({
+  /// Pops [ChatInfoResult.searchInChat] from the Search tile, so the chat
+  /// beneath enters search mode; pops null on a plain back.
+  static Route<ChatInfoResult> route({
     required Room room,
     required String selfUsername,
     void Function(String newName)? onRename,
     void Function(AttachmentDescriptor descriptor)? onOpenAttachment,
-  }) => MaterialPageRoute<String>(
+  }) => MaterialPageRoute<ChatInfoResult>(
     builder: (_) => ChatInfoPage(
       room: room,
       selfUsername: selfUsername,
@@ -368,19 +373,9 @@ class ChatInfoPage extends ConsumerWidget {
             Icons.search,
             'Search',
             'Search',
-            onTap: () async {
-              final messageId = await Navigator.of(context).push(
-                MessageSearchPage.route(
-                  room: room,
-                  selfUsername: selfUsername,
-                  onOpenAttachment: onOpenAttachment,
-                ),
-              );
-              if (messageId == null) return;
-              // Pop the info page with the chosen id; the conversation below
-              // receives it and scrolls to that message.
-              if (context.mounted) Navigator.of(context).pop(messageId);
-            },
+            // Search happens in the chat itself (#96): close this page and
+            // let the conversation below switch to search mode.
+            onTap: () => Navigator.of(context).pop(ChatInfoResult.searchInChat),
           ),
         ],
       ),
