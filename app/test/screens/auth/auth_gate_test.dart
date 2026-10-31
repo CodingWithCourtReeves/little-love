@@ -11,6 +11,7 @@ import 'package:littlelove/conversation/message_search.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/keystore.dart';
 import 'package:littlelove/identity/providers.dart';
+import 'package:littlelove/identity/sign_out.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/read_state_store.dart';
 import 'package:littlelove/outbox/outbox_store.dart';
@@ -181,6 +182,8 @@ void main() {
           ),
           pairingTransportProvider.overrideWithValue(_FakeTransport()),
           inboxSyncedProvider.overrideWith((ref) => true),
+          // Real file I/O never completes in the fake-async zone.
+          attachmentCacheWipeProvider.overrideWithValue(() async {}),
         ],
         child: const MaterialApp(home: AuthGate()),
       ),

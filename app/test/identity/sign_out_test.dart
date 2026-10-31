@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:littlelove/attachment/staged_attachment.dart';
 import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/composer_draft.dart';
@@ -127,6 +128,13 @@ class _FakeMessageDb implements MessageDb {
   Future<void> saveDraft(String roomId, ComposerDraft draft) async {}
 }
 
+class _FakePathProvider extends PathProviderPlatform {
+  _FakePathProvider(this.dir);
+  final String dir;
+  @override
+  Future<String?> getApplicationSupportPath() async => dir;
+}
+
 /// Mount a trivial Consumer purely to capture a real [WidgetRef] for
 /// [signOut], which the production caller (HomeScreen) passes from a widget.
 Future<WidgetRef> _mountRef(WidgetTester t, List<Override> overrides) async {
@@ -153,7 +161,14 @@ void main() {
   // zone (real platform-channel I/O never completes here).
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  List<Override> baseOverrides(OutboxStore outbox, MessageDb messageDb) => [
+  List<Override> baseOverrides(
+    OutboxStore outbox,
+    MessageDb messageDb, {
+    bool realMediaWipe = false,
+  }) => [
+    // Real file I/O never completes in the testWidgets fake-async zone.
+    if (!realMediaWipe)
+      attachmentCacheWipeProvider.overrideWithValue(() async {}),
     keystoreProvider.overrideWithValue(InMemoryKeystore()),
     accountLocalStoreProvider.overrideWithValue(_NoopAccountStore()),
     readStateStoreProvider.overrideWithValue(_NoopReadStateStore()),
@@ -254,5 +269,43 @@ void main() {
     await t.pumpAndSettle();
 
     expect(ref.read(pendingPairCodeProvider), 'amber-fern-locket-tide');
+  });
+
+  testWidgets('sign-out deletes downloaded media, including channel pictures', (
+    t,
+  ) async {
+    final saved = PathProviderPlatform.instance;
+    final tmp = Directory.systemTemp.createTempSync('signout_media');
+    PathProviderPlatform.instance = _FakePathProvider(tmp.path);
+    addTearDown(() {
+      PathProviderPlatform.instance = saved;
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+    final media = File('${tmp.path}/attachments/blob.jpg');
+    await t.runAsync(() async {
+      await media.create(recursive: true);
+    });
+    final ref = await _mountRef(
+      t,
+      baseOverrides(
+        _GatedOutbox(Future<void>.value()),
+        _FakeMessageDb(),
+        realMediaWipe: true,
+      ),
+    );
+
+    // Real file I/O completes in the real zone but its continuations run in
+    // the fake-async zone, so alternate real waits with pumps until it settles.
+    var done = false;
+    final fut = signOut(ref).then((_) => done = true);
+    for (var i = 0; i < 200 && !done; i++) {
+      await t.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await t.pump();
+    }
+    await fut;
+
+    expect(Directory('${tmp.path}/attachments').existsSync(), isFalse);
   });
 }
