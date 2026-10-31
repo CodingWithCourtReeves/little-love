@@ -261,6 +261,72 @@ void main() {
     expect(popped, 'm1');
   });
 
+  group('filter chips (#95)', () {
+    Future<void> search(WidgetTester tester, String q) async {
+      await tester.enterText(find.byKey(const Key('message-search-field')), q);
+    }
+
+    Finder row(String id) => find.byKey(Key('search-result-$id'));
+
+    testWidgets('the sender chips filter the results by who sent them', (
+      tester,
+    ) async {
+      final db = await freshDb();
+      await add(db, 'm-kat', 'kaitlyn', DateTime(2025, 3, 4, 9));
+      await add(db, 'm-me', 'me', DateTime(2025, 3, 4, 10));
+      await pumpPage(tester, db);
+      await search(tester, 'cake');
+      await pumpUntilFound(tester, row('m-kat'));
+      expect(row('m-me'), findsOneWidget);
+
+      // Named for the partner.
+      expect(find.text('From Kat'), findsOneWidget);
+      // Each filter is a fresh query (a spinner shows both rows gone), so wait
+      // for the row that stays, then check the other is filtered out.
+      await tester.tap(find.byKey(const Key('search-chip-partner')));
+      await tester.pump();
+      await pumpUntilFound(tester, row('m-kat'));
+      expect(row('m-me'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('search-chip-me')));
+      await tester.pump();
+      await pumpUntilFound(tester, row('m-me'));
+      expect(row('m-kat'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('search-chip-all')));
+      await pumpUntilFound(tester, row('m-kat'));
+      expect(row('m-me'), findsOneWidget);
+    });
+
+    testWidgets('the Photos and Links chips open the gallery on that tab', (
+      tester,
+    ) async {
+      final db = await freshDb();
+      await pumpPage(tester, db);
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('search-chip-photos')));
+      await tester.pumpAndSettle();
+      expect(find.text('No photos or videos yet'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('chat-info-back')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('search-chip-links')));
+      await tester.pumpAndSettle();
+      expect(find.text('No links yet'), findsOneWidget);
+    });
+
+    testWidgets('every chip is at least 44pt tall to tap', (tester) async {
+      final db = await freshDb();
+      await pumpPage(tester, db);
+      await tester.pump();
+      for (final key in ['all', 'partner', 'me', 'photos', 'links']) {
+        final size = tester.getSize(find.byKey(Key('search-chip-$key')));
+        expect(size.height, greaterThanOrEqualTo(44), reason: key);
+      }
+    });
+  });
+
   test(
     'snippets and their highlight pass 4.5:1 on the results card, and '
     'Cancel on its pill and the scope note on the veil, on every wallpaper',
@@ -298,6 +364,11 @@ void main() {
               _contrast(p.separatorText, veil),
               greaterThanOrEqualTo(4.5),
               reason: 'scope note, $reason',
+            );
+            expect(
+              _contrast(p.textPrimary, card),
+              greaterThanOrEqualTo(4.5),
+              reason: 'chip label, $reason',
             );
           }
         }

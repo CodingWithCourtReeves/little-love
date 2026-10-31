@@ -131,6 +131,39 @@ void main() {
     expect(relevant.first.messageId, '01A');
   });
 
+  test('the sender filter is applied before the result limit', () async {
+    final db = await freshDb();
+    // The partner's one match is the oldest; three newer ones are mine. A
+    // filter applied after a limit of 2 would find none of the partner's.
+    Msg from(String id, String who) => Msg(
+      id: id,
+      from: who,
+      to: 'room1',
+      body: 'pancakes $id',
+      ts: DateTime.utc(2026, 1, 1, 0, id.codeUnitAt(id.length - 1)),
+    );
+    await db.upsert(from('01A', 'kaitlyn'), roomId: 'room1');
+    for (final id in ['01B', '01C', '01D']) {
+      await db.upsert(from(id, 'me'), roomId: 'room1');
+    }
+    final hers = await db.search(
+      'pancakes',
+      roomId: 'room1',
+      from: 'kaitlyn',
+      limit: 2,
+      order: SearchOrder.newest,
+    );
+    expect(hers.map((h) => h.messageId), ['01A']);
+    final mine = await db.search(
+      'pancakes',
+      roomId: 'room1',
+      from: 'me',
+      limit: 2,
+      order: SearchOrder.newest,
+    );
+    expect(mine.map((h) => h.messageId), ['01D', '01C']);
+  });
+
   // The phones already hold a v1 store from the Milestone-1 build, so the
   // search build runs onUpgrade 1->2. Prove that path creates the FTS index and
   // backfills the existing rows, so search isn't empty after the upgrade.

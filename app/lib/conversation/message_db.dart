@@ -226,12 +226,15 @@ abstract class MessageDb {
   Future<String?> highWaterMark(String roomId);
 
   /// Full-text search over message bodies, in [order]. Scoped to [roomId] when
-  /// given (in-channel), otherwise across all rooms (global). At most [limit]
-  /// hits, taken after ordering, so [SearchOrder.newest] keeps the newest
-  /// matches. Empty/whitespace queries return nothing.
+  /// given (in-channel), otherwise across all rooms (global), and to messages
+  /// sent by [from] when given. At most [limit] hits, taken after the filters
+  /// and the ordering, so [SearchOrder.newest] keeps the newest matches and a
+  /// sender filter never comes back short. Empty/whitespace queries return
+  /// nothing.
   Future<List<SearchHit>> search(
     String query, {
     String? roomId,
+    String? from,
     int limit = 50,
     SearchOrder order = SearchOrder.relevance,
   });
@@ -484,6 +487,7 @@ class SqliteMessageDb implements MessageDb {
   Future<List<SearchHit>> search(
     String query, {
     String? roomId,
+    String? from,
     int limit = 50,
     SearchOrder order = SearchOrder.relevance,
   }) async {
@@ -494,6 +498,13 @@ class SqliteMessageDb implements MessageDb {
     if (roomId != null) {
       where.write(' AND m.room_id = ?');
       args.add(roomId);
+    }
+    // In the WHERE, ahead of the LIMIT: filtering the capped list afterwards
+    // would hide older matches from the sender behind newer ones from the
+    // other person.
+    if (from != null) {
+      where.write(' AND m.from_user = ?');
+      args.add(from);
     }
     args.add(limit);
     // bm25() is negative (most-relevant most-negative). Blend a gentle recency

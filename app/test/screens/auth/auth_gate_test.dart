@@ -81,6 +81,7 @@ class _FakeMessageDb implements MessageDb {
   Future<List<SearchHit>> search(
     String query, {
     String? roomId,
+    String? from,
     int limit = 50,
     SearchOrder order = SearchOrder.relevance,
   }) async => const [];

@@ -75,7 +75,11 @@ class SearchResultsList extends ConsumerWidget {
                   SearchResultRow(
                     key: Key('search-result-${hit.messageId}'),
                     hit: hit,
-                    name: _nameFor(hit.from, profiles),
+                    name: senderName(
+                      hit.from,
+                      self: selfUsername,
+                      profiles: profiles,
+                    ),
                     avatarFile: hit.from == selfUsername
                         ? null
                         : profiles.avatarFileFor(hit.from),
@@ -88,16 +92,20 @@ class SearchResultsList extends ConsumerWidget {
       },
     );
   }
+}
 
-  /// "You" for my own messages; the partner's display name, else their
-  /// username capitalized the way the room list does it.
-  String _nameFor(String username, ProfileStore profiles) {
-    if (username == selfUsername) return 'You';
-    final display = profiles.forUsername(username)?.displayName;
-    if (display != null && display.isNotEmpty) return display;
-    if (username.isEmpty) return username;
-    return username[0].toUpperCase() + username.substring(1);
-  }
+/// Who sent a message, as search shows it: "You" for [self]; the partner's
+/// display name, else their username capitalized the way the room list does.
+String senderName(
+  String username, {
+  required String self,
+  required ProfileStore profiles,
+}) {
+  if (username == self) return 'You';
+  final display = profiles.forUsername(username)?.displayName;
+  if (display != null && display.isNotEmpty) return display;
+  if (username.isEmpty) return username;
+  return username[0].toUpperCase() + username.substring(1);
 }
 
 /// [hits] (newest first) split into runs by local calendar day, keeping the

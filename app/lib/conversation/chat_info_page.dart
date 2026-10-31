@@ -370,7 +370,11 @@ class ChatInfoPage extends ConsumerWidget {
             'Search',
             onTap: () async {
               final messageId = await Navigator.of(context).push(
-                MessageSearchPage.route(room: room, selfUsername: selfUsername),
+                MessageSearchPage.route(
+                  room: room,
+                  selfUsername: selfUsername,
+                  onOpenAttachment: onOpenAttachment,
+                ),
               );
               if (messageId == null) return;
               // Pop the info page with the chosen id; the conversation below

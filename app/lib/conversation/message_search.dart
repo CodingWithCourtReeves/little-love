@@ -17,20 +17,22 @@ enum SearchOrder {
 /// should still reach well back.
 const int channelSearchLimit = 200;
 
-/// In-channel search: hits within [roomId] for [query], newest first (#94).
-/// In one chat between two people, when something was said is what you scan
-/// by, so date order beats relevance here. Empty query → empty (so the results
-/// list clears as the field empties).
+/// In-channel search: hits within [roomId] for [query], newest first (#94),
+/// and only [from]'s messages when set (#95). In one chat between two people,
+/// when something was said is what you scan by, so date order beats relevance
+/// here. Empty query → empty (so the results list clears as the field
+/// empties).
 final channelSearchProvider =
-    FutureProvider.family<List<SearchHit>, ({String roomId, String query})>((
-      ref,
-      a,
-    ) async {
+    FutureProvider.family<
+      List<SearchHit>,
+      ({String roomId, String query, String? from})
+    >((ref, a) async {
       if (a.query.trim().isEmpty) return const [];
       final db = await ref.watch(messageDbProvider.future);
       return db.search(
         a.query,
         roomId: a.roomId,
+        from: a.from,
         limit: channelSearchLimit,
         order: SearchOrder.newest,
       );
