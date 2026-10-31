@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:littlelove/attachment/attachment_descriptor.dart';
 import 'package:littlelove/attachment/square_image.dart';
 import 'package:littlelove/channel/channel_picture.dart';
 import 'package:littlelove/channel/channel_picture_sheet.dart';
@@ -213,5 +215,108 @@ void main() {
         reason: k,
       );
     }
+  });
+
+  testWidgets('a symbol picked then the Photo tab still returns the symbol on '
+      'Done', (tester) async {
+    final h = _Harness(tester);
+    await h.open();
+    await h.tap('channel-symbol-star');
+    await h.tap('channel-picture-tab-photo');
+    await h.tap('channel-picture-done');
+    await pumpUntilTrue(tester, () => h.closed);
+    expect((h.result as ChooseSymbol).symbol, ChannelSymbol.star);
+  });
+
+  testWidgets('opening on a picture and tapping Done returns null', (
+    tester,
+  ) async {
+    final symbol = _Harness(tester);
+    await symbol.open(
+      current: const SymbolPicture(ChannelSymbol.leaf, ChannelColor.sage),
+    );
+    await symbol.tap('channel-picture-done');
+    await pumpUntilTrue(tester, () => symbol.closed);
+    expect(symbol.result, isNull);
+
+    final photo = _Harness(tester);
+    await photo.open(
+      current: PhotoPicture(
+        const AttachmentDescriptor(
+          blobKey: 'b',
+          contentKeyB64: 'k',
+          nonceB64: 'n',
+          mime: 'image/jpeg',
+          filename: 'f.jpg',
+          size: 1,
+          width: 1,
+          height: 1,
+          durationMs: null,
+          thumbB64: '',
+        ),
+      ),
+    );
+    await photo.tap('channel-picture-done');
+    await pumpUntilTrue(tester, () => photo.closed);
+    expect(photo.result, isNull);
+  });
+
+  testWidgets('Done with nothing picked returns null', (tester) async {
+    final h = _Harness(tester);
+    await h.open();
+    await h.tap('channel-picture-done');
+    await pumpUntilTrue(tester, () => h.closed);
+    expect(h.result, isNull);
+  });
+
+  testWidgets('Done is disabled while a photo is being prepared', (
+    tester,
+  ) async {
+    final h = _Harness(tester);
+    h.pickerBytes = Uint8List.fromList([1, 2, 3]);
+    final gate = Completer<Uint8List>();
+    await h.open(squarer: (_) => gate.future);
+    await h.tap('channel-picture-tab-photo');
+    await h.tap('channel-picture-library');
+    await pumpUntilFound(tester, find.byKey(const Key('channel-picture-busy')));
+    expect(find.text('Done'), findsNothing);
+    await h.tap('channel-picture-done');
+    expect(h.closed, isFalse);
+
+    gate.complete(Uint8List.fromList([7]));
+    await pumpUntilFound(tester, find.text('Done'));
+    await h.tap('channel-picture-done');
+    await pumpUntilTrue(tester, () => h.closed);
+    expect((h.result as ChoosePhoto).squaredJpeg, [7]);
+  });
+
+  testWidgets('symbol cells, swatches and tabs expose button and selected '
+      'semantics', (tester) async {
+    final handle = tester.ensureSemantics();
+    final h = _Harness(tester);
+    await h.open();
+    expect(
+      tester.getSemantics(find.byKey(const Key('channel-symbol-heart'))),
+      matchesSemantics(
+        label: 'Heart',
+        isButton: true,
+        hasTapAction: true,
+        hasSelectedState: true,
+        isSelected: true,
+        hasEnabledState: false,
+      ),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const Key('channel-symbol-moon'))),
+      matchesSemantics(
+        label: 'Moon',
+        isButton: true,
+        hasTapAction: true,
+        hasSelectedState: true,
+      ),
+    );
+    expect(find.bySemanticsLabel('Sage colour'), findsOneWidget);
+    expect(find.bySemanticsLabel('Symbol'), findsOneWidget);
+    handle.dispose();
   });
 }

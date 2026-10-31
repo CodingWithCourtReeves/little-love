@@ -12,31 +12,45 @@ class SheetTextButton extends StatelessWidget {
     required this.color,
     required this.onTap,
     this.bold = false,
+    this.busy = false,
   });
 
   final String label;
   final Color color;
   final bool bold;
+
+  /// Disabled, with a small spinner in place of the label.
+  final bool busy;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: onTap,
+      onTap: busy ? null : onTap,
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
         child: Center(
           widthFactor: 1,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 17,
-                color: color,
-                fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
-              ),
-            ),
+            child: busy
+                ? SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      key: const Key('channel-picture-busy'),
+                      strokeWidth: 2,
+                      color: color,
+                    ),
+                  )
+                : Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 17,
+                      color: color,
+                      fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
           ),
         ),
       ),
@@ -57,23 +71,30 @@ class PictureTabs extends StatelessWidget {
     Widget seg(String label, bool isSymbol) {
       final selected = symbolTab == isSymbol;
       return Expanded(
-        child: GestureDetector(
-          key: Key('channel-picture-tab-${isSymbol ? 'symbol' : 'photo'}'),
-          behavior: HitTestBehavior.opaque,
+        child: Semantics(
+          button: true,
+          selected: selected,
+          label: label,
+          excludeSemantics: true,
           onTap: () => onTab(isSymbol),
-          child: Container(
-            height: 44,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: selected ? p.bubblePartnerBg : Colors.transparent,
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: p.textPrimary,
+          child: GestureDetector(
+            key: Key('channel-picture-tab-${isSymbol ? 'symbol' : 'photo'}'),
+            behavior: HitTestBehavior.opaque,
+            onTap: () => onTab(isSymbol),
+            child: Container(
+              height: 44,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: selected ? p.bubblePartnerBg : Colors.transparent,
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: p.textPrimary,
+                ),
               ),
             ),
           ),
@@ -167,27 +188,34 @@ class SymbolPanel extends StatelessWidget {
     final p = context.palette;
     Widget cell(ChannelSymbol s) {
       final selected = s == symbol;
-      return GestureDetector(
-        key: Key('channel-symbol-${s.name}'),
-        behavior: HitTestBehavior.opaque,
+      return Semantics(
+        button: true,
+        selected: selected,
+        label: _cap(s.name),
+        excludeSemantics: true,
         onTap: () => onSymbol(s),
-        child: Container(
-          width: 52,
-          height: 52,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: p.bubblePartnerBg,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              width: 2,
-              color: selected ? p.accentUser : Colors.transparent,
+        child: GestureDetector(
+          key: Key('channel-symbol-${s.name}'),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => onSymbol(s),
+          child: Container(
+            width: 52,
+            height: 52,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: p.bubblePartnerBg,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                width: 2,
+                color: selected ? p.accentUser : Colors.transparent,
+              ),
             ),
-          ),
-          child: SvgPicture.asset(
-            'assets/channel_symbols/${s.name}.svg',
-            width: 24,
-            height: 24,
-            colorFilter: ColorFilter.mode(p.separatorText, BlendMode.srcIn),
+            child: SvgPicture.asset(
+              'assets/channel_symbols/${s.name}.svg',
+              width: 24,
+              height: 24,
+              colorFilter: ColorFilter.mode(p.separatorText, BlendMode.srcIn),
+            ),
           ),
         ),
       );
@@ -208,27 +236,34 @@ class SymbolPanel extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             for (final c in ChannelColor.values)
-              GestureDetector(
-                key: Key('channel-color-${c.name}'),
-                behavior: HitTestBehavior.opaque,
+              Semantics(
+                button: true,
+                selected: c == color,
+                label: '${_cap(c.name)} colour',
+                excludeSemantics: true,
                 onTap: () => onColor(c),
-                child: Container(
-                  width: 48,
-                  height: 48,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      width: 2,
-                      color: c == color ? p.accentUser : Colors.transparent,
-                    ),
-                  ),
+                child: GestureDetector(
+                  key: Key('channel-color-${c.name}'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => onColor(c),
                   child: Container(
-                    width: 38,
-                    height: 38,
+                    width: 48,
+                    height: 48,
+                    alignment: Alignment.center,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: p.channelSwatches[c.index].tint,
+                      border: Border.all(
+                        width: 2,
+                        color: c == color ? p.accentUser : Colors.transparent,
+                      ),
+                    ),
+                    child: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: p.channelSwatches[c.index].tint,
+                      ),
                     ),
                   ),
                 ),
@@ -239,3 +274,5 @@ class SymbolPanel extends StatelessWidget {
     );
   }
 }
+
+String _cap(String s) => s[0].toUpperCase() + s.substring(1);

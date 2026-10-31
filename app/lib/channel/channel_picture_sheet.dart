@@ -106,9 +106,14 @@ class _ChannelPictureSheetState extends ConsumerState<ChannelPictureSheet> {
     _ => channelColorFor(widget.colorSeed),
   };
 
-  /// A freshly picked, already squared photo; null until the user picks one.
-  Uint8List? _photo;
+  /// The last thing the user actually picked (a squared photo, or a symbol or
+  /// colour tap). Switching tabs never changes it; null until they pick.
+  ChannelPictureChoice? _pending;
   bool _busy = false;
+
+  void _setBusy(bool v) {
+    if (mounted) setState(() => _busy = v);
+  }
 
   /// The sheet hosts its own messenger so the toast shows above the sheet
   /// rather than behind it.
@@ -126,7 +131,7 @@ class _ChannelPictureSheetState extends ConsumerState<ChannelPictureSheet> {
     try {
       final squared = await widget.squarer(bytes);
       if (!mounted) return;
-      setState(() => _photo = squared);
+      setState(() => _pending = ChoosePhoto(squared));
     } on FormatException {
       if (mounted) _toast();
     } catch (e, st) {
@@ -137,7 +142,7 @@ class _ChannelPictureSheetState extends ConsumerState<ChannelPictureSheet> {
 
   Future<void> _pickFrom(ImageSource source) async {
     if (_busy) return;
-    _busy = true;
+    _setBusy(true);
     try {
       final bytes = await widget.photoSource(source);
       if (!mounted || bytes == null) return;
@@ -146,7 +151,7 @@ class _ChannelPictureSheetState extends ConsumerState<ChannelPictureSheet> {
       reportFault(e, st, context: 'channel_picture_pick');
       if (mounted) _toast();
     } finally {
-      _busy = false;
+      _setBusy(false);
     }
   }
 
@@ -157,7 +162,7 @@ class _ChannelPictureSheetState extends ConsumerState<ChannelPictureSheet> {
       context,
     ).push<AttachmentDescriptor>(SharedMediaPage.pickPhotoRoute(room: room));
     if (!mounted || descriptor == null) return;
-    _busy = true;
+    _setBusy(true);
     try {
       final conn = ref.read(liveConnectionProvider).asData?.value;
       if (conn == null) throw StateError('no connection');
@@ -169,14 +174,16 @@ class _ChannelPictureSheetState extends ConsumerState<ChannelPictureSheet> {
       reportFault(e, st, context: 'channel_picture_pick');
       if (mounted) _toast();
     } finally {
-      _busy = false;
+      _setBusy(false);
     }
   }
 
-  ChannelPictureChoice? get _choice {
-    if (_symbolTab) return ChooseSymbol(_symbol, _color);
-    final photo = _photo;
-    return photo == null ? null : ChoosePhoto(photo);
+  void _pickSymbol(ChannelSymbol symbol, ChannelColor color) {
+    setState(() {
+      _symbol = symbol;
+      _color = color;
+      _pending = ChooseSymbol(symbol, color);
+    });
   }
 
   @override
@@ -185,15 +192,16 @@ class _ChannelPictureSheetState extends ConsumerState<ChannelPictureSheet> {
     final current = widget.current;
     final ChannelPicture? previewPicture;
     final ImageProvider? previewPhoto;
-    if (_symbolTab) {
-      previewPicture = SymbolPicture(_symbol, _color);
-      previewPhoto = null;
-    } else if (_photo != null) {
-      previewPicture = null;
-      previewPhoto = MemoryImage(_photo!);
-    } else {
-      previewPicture = current;
-      previewPhoto = widget.currentPhoto;
+    switch (_pending) {
+      case ChoosePhoto(:final squaredJpeg):
+        previewPicture = null;
+        previewPhoto = MemoryImage(squaredJpeg);
+      case ChooseSymbol(:final symbol, :final color):
+        previewPicture = SymbolPicture(symbol, color);
+        previewPhoto = null;
+      case _:
+        previewPicture = current;
+        previewPhoto = widget.currentPhoto;
     }
     final height = MediaQuery.sizeOf(context).height;
     return ScaffoldMessenger(
@@ -238,7 +246,8 @@ class _ChannelPictureSheetState extends ConsumerState<ChannelPictureSheet> {
                       label: 'Done',
                       color: p.accentUser,
                       bold: true,
-                      onTap: () => Navigator.of(context).pop(_choice),
+                      busy: _busy,
+                      onTap: () => Navigator.of(context).pop(_pending),
                     ),
                   ],
                 ),
@@ -269,8 +278,8 @@ class _ChannelPictureSheetState extends ConsumerState<ChannelPictureSheet> {
                   SymbolPanel(
                     symbol: _symbol,
                     color: _color,
-                    onSymbol: (s) => setState(() => _symbol = s),
-                    onColor: (c) => setState(() => _color = c),
+                    onSymbol: (s) => _pickSymbol(s, _color),
+                    onColor: (c) => _pickSymbol(_symbol, c),
                   )
                 else
                   PhotoRowsCard(
