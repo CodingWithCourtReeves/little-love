@@ -1,12 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../attachment/attachment_descriptor.dart';
+import '../channel/channel_line.dart';
 import '../conversation/draft_preview_state.dart';
 import '../conversation/message_store.dart';
 import '../conversation/room_hydration_state.dart';
 import '../conversation/status_marker.dart';
 import '../conversation/typing_state.dart';
 import '../pairing/encryption.dart';
+import '../profile/profile_store.dart';
 import '../wire/message.dart';
 import 'read_state_provider.dart';
 
@@ -71,6 +73,7 @@ RoomPreview roomPreviewFor({
   required int unread,
   bool partnerTyping = false,
   String? draft,
+  String Function(String username)? nameFor,
 }) {
   Msg? latest;
   for (final m in messages) {
@@ -105,10 +108,27 @@ RoomPreview roomPreviewFor({
           )
         : RoomPreview(unread: unread);
   }
-  return _describe(latest, me: me, unread: unread);
+  return _describe(latest, me: me, unread: unread, nameFor: nameFor);
 }
 
-RoomPreview _describe(Msg m, {required String me, required int unread}) {
+RoomPreview _describe(
+  Msg m, {
+  required String me,
+  required int unread,
+  String Function(String username)? nameFor,
+}) {
+  final channelUpdate = m.channelUpdate;
+  if (channelUpdate != null) {
+    final who = m.from == me
+        ? 'You'
+        : (nameFor?.call(m.from) ?? _capitalizeName(m.from));
+    return RoomPreview(
+      text: channelLineText(channelUpdate, who: who),
+      tone: PreviewTone.placeholder,
+      at: m.ts,
+      unread: unread,
+    );
+  }
   if (m.body == cannotDecryptSentinel) {
     return RoomPreview(
       text: 'Message unavailable',
@@ -159,6 +179,9 @@ RoomPreview _describe(Msg m, {required String me, required int unread}) {
   );
 }
 
+String _capitalizeName(String u) =>
+    u.isEmpty ? u : u[0].toUpperCase() + u.substring(1);
+
 StatusMark? _markFor(SendStatus status) => switch (status) {
   SendStatus.sending => StatusMark.sending,
   SendStatus.sent => StatusMark.sent,
@@ -181,13 +204,18 @@ String _collapse(String s) => s.replaceAll(RegExp(r'\s+'), ' ').trim();
 /// (that room's messages, read marker, typing signal, draft or hydration), not
 /// on every home-screen rebuild. Keyed by the (me, roomId) record.
 final roomPreviewProvider =
-    Provider.family<RoomPreview, ({String me, String roomId})>(
-      (ref, key) => roomPreviewFor(
+    Provider.family<RoomPreview, ({String me, String roomId})>((ref, key) {
+      final profiles = ref.watch(profileStoreProvider);
+      return roomPreviewFor(
         messages: ref.watch(messageStoreProvider(key.roomId)),
         me: key.me,
         hydrated: ref.watch(roomHydratedProvider(key.roomId)),
         unread: ref.watch(roomUnreadCountProvider(key)),
         partnerTyping: ref.watch(typingProvider(key.roomId)),
         draft: ref.watch(draftPreviewProvider(key.roomId)),
-      ),
-    );
+        nameFor: (u) {
+          final n = profiles.forUsername(u)?.displayName;
+          return (n != null && n.isNotEmpty) ? n : _capitalizeName(u);
+        },
+      );
+    });
