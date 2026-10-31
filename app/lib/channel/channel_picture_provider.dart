@@ -34,19 +34,22 @@ final currentChannelPictureProvider = Provider.family<ChannelPicture?, String>((
 });
 
 /// The decrypted photo file for the room's current picture, or null when the
-/// picture is not a photo, there is no live connection, or the fetch failed.
-final channelPhotoFileProvider = FutureProvider.family<File?, String>((
-  ref,
-  roomId,
-) async {
-  final picture = ref.watch(currentChannelPictureProvider(roomId));
-  if (picture is! PhotoPicture) return null;
-  final conn = ref.read(liveConnectionProvider).asData?.value;
-  if (conn == null) return null;
-  try {
-    return await fetchAndDecrypt(conn: conn, descriptor: picture.descriptor);
-  } catch (e, st) {
-    reportFault(e, st, context: 'channel_picture_fetch');
-    return null;
-  }
-});
+/// picture is not a photo, there is no live connection yet, or the fetch
+/// failed (the tile falls back to the thumbnail). Watches the connection so it
+/// re-runs once the socket is up, and is auto-disposed so a remounting tile
+/// retries a failed fetch.
+final channelPhotoFileProvider = FutureProvider.autoDispose
+    .family<File?, String>((ref, roomId) async {
+      final picture = ref.watch(currentChannelPictureProvider(roomId));
+      final conn = ref.watch(liveConnectionProvider).asData?.value;
+      if (picture is! PhotoPicture || conn == null) return null;
+      try {
+        return await fetchAndDecrypt(
+          conn: conn,
+          descriptor: picture.descriptor,
+        );
+      } catch (e, st) {
+        reportFault(e, st, context: 'channel_picture_fetch');
+        return null;
+      }
+    });

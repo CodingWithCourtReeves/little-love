@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/attachment/attachment_descriptor.dart';
 import 'package:littlelove/channel/channel_picture.dart';
 import 'package:littlelove/channel/channel_picture_provider.dart';
 import 'package:littlelove/conversation/message_content.dart';
 import 'package:littlelove/conversation/message_db.dart';
 import 'package:littlelove/conversation/message_store.dart';
+import 'package:littlelove/wire/live_connection.dart';
 import 'package:littlelove/wire/message.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -25,6 +29,11 @@ Msg update(
 
 const heart = SymbolPicture(ChannelSymbol.heart, ChannelColor.rose);
 const moon = SymbolPicture(ChannelSymbol.moon, ChannelColor.sky);
+
+class _FakeConn implements LiveConnection {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 void main() {
   late ProviderContainer container;
@@ -96,4 +105,55 @@ void main() {
       isNull,
     );
   });
+
+  test(
+    'a photo picture resolves once the connection becomes available',
+    () async {
+      final connReady = Completer<LiveConnection>();
+      final c = ProviderContainer(
+        overrides: [
+          liveConnectionProvider.overrideWith((_) => connReady.future),
+        ],
+      );
+      addTearDown(c.dispose);
+      c
+          .read(messageStoreProvider('room1').notifier)
+          .add(
+            update(
+              '01A',
+              const PhotoPicture(
+                AttachmentDescriptor(
+                  blobKey: 'k',
+                  contentKeyB64: '',
+                  nonceB64: '',
+                  mime: 'image/jpeg',
+                  filename: 'p.jpg',
+                  size: 1,
+                  width: 1,
+                  height: 1,
+                  durationMs: null,
+                  thumbB64: '',
+                ),
+              ),
+            ),
+          );
+      final states = <AsyncValue<Object?>>[];
+      c.listen(
+        channelPhotoFileProvider('room1'),
+        (_, next) => states.add(next),
+        fireImmediately: true,
+      );
+      expect(await c.read(channelPhotoFileProvider('room1').future), isNull);
+      final before = states.length;
+
+      connReady.complete(_FakeConn());
+      await c.read(liveConnectionProvider.future);
+      await Future<void>.delayed(Duration.zero);
+      await c.read(channelPhotoFileProvider('room1').future);
+
+      // The provider re-ran (went back to loading) instead of caching the
+      // null it produced while the connection was still loading.
+      expect(states.skip(before).any((s) => s.isLoading), isTrue);
+    },
+  );
 }
