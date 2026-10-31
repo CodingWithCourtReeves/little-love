@@ -2473,10 +2473,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// A channel change as a centred line. A failed own send is tap-to-retry.
   Widget _channelLine(Msg m) {
     final update = m.channelUpdate!;
-    final profiles = ref.read(profileStoreProvider);
     final who = m.from == widget.selfUsername
         ? 'You'
-        : _displayNameOf(m.from, profiles.forUsername(m.from)?.displayName);
+        : displayNameFor(ref.read(profileStoreProvider), m.from);
     final clientMsgId = m.clientMsgId;
     final failed = m.sendStatus == SendStatus.failed && clientMsgId != null;
     return ChannelLineView(
@@ -2487,13 +2486,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
           ? () => widget.onRetry!(clientMsgId)
           : null,
     );
-  }
-
-  static String _displayNameOf(String username, String? displayName) {
-    if (displayName != null && displayName.isNotEmpty) return displayName;
-    return username.isEmpty
-        ? ''
-        : username[0].toUpperCase() + username.substring(1);
   }
 
   /// The header after an hour or more of silence, worded like the day

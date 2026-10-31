@@ -119,9 +119,7 @@ RoomPreview _describe(
 }) {
   final channelUpdate = m.channelUpdate;
   if (channelUpdate != null) {
-    final who = m.from == me
-        ? 'You'
-        : (nameFor?.call(m.from) ?? _capitalizeName(m.from));
+    final who = m.from == me ? 'You' : (nameFor?.call(m.from) ?? m.from);
     return RoomPreview(
       text: channelLineText(channelUpdate, who: who),
       tone: PreviewTone.placeholder,
@@ -179,9 +177,6 @@ RoomPreview _describe(
   );
 }
 
-String _capitalizeName(String u) =>
-    u.isEmpty ? u : u[0].toUpperCase() + u.substring(1);
-
 StatusMark? _markFor(SendStatus status) => switch (status) {
   SendStatus.sending => StatusMark.sending,
   SendStatus.sent => StatusMark.sent,
@@ -213,9 +208,6 @@ final roomPreviewProvider =
         unread: ref.watch(roomUnreadCountProvider(key)),
         partnerTyping: ref.watch(typingProvider(key.roomId)),
         draft: ref.watch(draftPreviewProvider(key.roomId)),
-        nameFor: (u) {
-          final n = profiles.forUsername(u)?.displayName;
-          return (n != null && n.isNotEmpty) ? n : _capitalizeName(u);
-        },
+        nameFor: (u) => displayNameFor(profiles, u),
       );
     });

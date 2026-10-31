@@ -52,12 +52,16 @@ class ChannelLineView extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
       child: failed
-          ? GestureDetector(
-              behavior: HitTestBehavior.opaque,
+          ? Semantics(
+              button: true,
               onTap: onRetry,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 44),
-                child: line,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onRetry,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 44),
+                  child: line,
+                ),
               ),
             )
           : line,

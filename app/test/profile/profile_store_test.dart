@@ -42,4 +42,17 @@ void main() {
     expect(s.avatarFileFor('bob')!.path, '/tmp/bob.jpg');
     expect(n, 1);
   });
+
+  test(
+    'displayNameFor prefers the display name, else capitalises the handle',
+    () {
+      final s = ProfileStore();
+      expect(displayNameFor(s, 'bob'), 'Bob');
+      s.apply(p('Bobby', DateTime.utc(2026, 1, 1)));
+      expect(displayNameFor(s, 'bob'), 'Bobby');
+      s.apply(p('', DateTime.utc(2026, 1, 2)));
+      expect(displayNameFor(s, 'bob'), 'Bob');
+      expect(displayNameFor(s, ''), '');
+    },
+  );
 }
