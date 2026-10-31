@@ -172,20 +172,33 @@ void main() {
     expect(find.text('No links yet'), findsOneWidget);
   });
 
-  testWidgets('the search action opens the in-channel search page', (
-    tester,
-  ) async {
+  testWidgets('the Search tile closes the page and asks the chat to search '
+      '(#96)', (tester) async {
     final c = ProviderContainer();
     addTearDown(c.dispose);
-    await tester.pumpWidget(_app(c));
-    await tester.pump();
-
-    // Call + Video place real calls; Search now opens the search page (no
-    // stubbed actions remain). The empty query touches no DB, so no override
-    // is needed here.
+    ChatInfoResult? result;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: c,
+        child: MaterialApp(
+          theme: buildAppTheme(AppPalette.light),
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async => result = await Navigator.of(
+                context,
+              ).push(ChatInfoPage.route(room: _room(), selfUsername: 'court')),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('chat-info-search')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('message-search-field')), findsOneWidget);
+    expect(find.byType(ChatInfoPage), findsNothing);
+    expect(result, ChatInfoResult.searchInChat);
   });
 
   testWidgets('rename row is hidden without onRename (the partner DM)', (

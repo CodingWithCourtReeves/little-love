@@ -225,13 +225,18 @@ abstract class MessageDb {
   /// Max stored server id for [roomId] (delta-sync anchor), or null if empty.
   Future<String?> highWaterMark(String roomId);
 
-  /// Full-text search over message bodies, ranked by BM25 blended with a mild
-  /// recency boost. Scoped to [roomId] when given (in-channel), otherwise across
-  /// all rooms (global). Empty/whitespace queries return nothing.
+  /// Full-text search over message bodies, in [order]. Scoped to [roomId] when
+  /// given (in-channel), otherwise across all rooms (global), and to messages
+  /// sent by [from] when given. At most [limit] hits, taken after the filters
+  /// and the ordering, so [SearchOrder.newest] keeps the newest matches and a
+  /// sender filter never comes back short. Empty/whitespace queries return
+  /// nothing.
   Future<List<SearchHit>> search(
     String query, {
     String? roomId,
+    String? from,
     int limit = 50,
+    SearchOrder order = SearchOrder.relevance,
   });
 
   /// The saved composer draft for [roomId], or null if there is none.
@@ -482,7 +487,9 @@ class SqliteMessageDb implements MessageDb {
   Future<List<SearchHit>> search(
     String query, {
     String? roomId,
+    String? from,
     int limit = 50,
+    SearchOrder order = SearchOrder.relevance,
   }) async {
     final match = _toPrefixMatch(query);
     if (match.isEmpty) return const [];
@@ -492,11 +499,23 @@ class SqliteMessageDb implements MessageDb {
       where.write(' AND m.room_id = ?');
       args.add(roomId);
     }
+    // In the WHERE, ahead of the LIMIT: filtering the capped list afterwards
+    // would hide older matches from the sender behind newer ones from the
+    // other person.
+    if (from != null) {
+      where.write(' AND m.from_user = ?');
+      args.add(from);
+    }
     args.add(limit);
     // bm25() is negative (most-relevant most-negative). Blend a gentle recency
     // nudge (ts is epoch-ms ≈ 1.7e12, so ts/1e15 ≈ 0.0017) that only breaks
     // near-ties toward newer messages without overpowering relevance. Order
-    // ascending so the most-negative (best) score comes first.
+    // ascending so the most-negative (best) score comes first. The id breaks
+    // a same-millisecond tie the same way every time.
+    final orderBy = switch (order) {
+      SearchOrder.relevance => 'score ASC',
+      SearchOrder.newest => 'm.ts DESC, m.id DESC',
+    };
     final rows = await _db.rawQuery('''
       SELECT m.id, m.room_id, m.from_user, m.ts, m.body,
              snippet(messages_fts, 0, '<b>', '</b>', '…', 12) AS snip,
@@ -504,7 +523,7 @@ class SqliteMessageDb implements MessageDb {
       FROM messages_fts
       JOIN messages m ON m.rowid = messages_fts.rowid
       WHERE $where
-      ORDER BY score ASC
+      ORDER BY $orderBy
       LIMIT ?
     ''', args);
     return rows

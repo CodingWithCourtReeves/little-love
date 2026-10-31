@@ -40,6 +40,22 @@ void main() {
       );
     });
 
+    test('redacts the statement and plaintext arguments sqflite appends to a '
+        'DatabaseException', () {
+      const raw =
+          "DatabaseException(database is locked) sql 'SELECT m.id FROM "
+          "messages_fts WHERE messages_fts MATCH ? LIMIT ?' args "
+          '["strawberr"*, r1, 200]';
+      final out = redact(raw);
+      expect(out, 'DatabaseException(database is locked) sql [redacted]');
+      expect(out, isNot(contains('strawberr')));
+      // Only to the end of its line: a stack trace below stays.
+      expect(
+        redact("$raw\n#0 MessageDb.search (message_db.dart:500)"),
+        endsWith('#0 MessageDb.search (message_db.dart:500)'),
+      );
+    });
+
     test('redacts apns hex token and base64 blob', () {
       final hex = 'a' * 64;
       expect(redact('token $hex sent'), 'token [redacted] sent');

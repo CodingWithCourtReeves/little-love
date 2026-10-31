@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../conversation/message_search.dart';
-import '../conversation/message_search_page.dart';
+import '../conversation/search_results.dart';
 import '../identity/providers.dart';
 import '../profile/profile_store.dart';
 import '../theme/app_palette.dart';

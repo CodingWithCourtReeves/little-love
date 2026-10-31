@@ -3,27 +3,57 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../attachment/attachment_descriptor.dart';
 import '../inbox/room.dart';
-import '../theme/app_palette.dart';
+import '../profile/profile_store.dart';
+import 'chat_info_chrome.dart';
+import 'chat_search_field.dart';
 import 'message_search.dart';
+import 'search_filter_chips.dart';
+import 'search_results.dart';
+import 'shared_media_page.dart';
 
-/// In-channel message search. Reached from the chat-info 🔍 action. Pops the
-/// tapped result's message id so the conversation can scroll to it.
+/// A result picked from [MessageSearchPage]: the message, and the query it
+/// was found with (edited on the list, perhaps), so the chat's search mode can
+/// pick up there.
+typedef SearchPick = ({String messageId, String query});
+
+/// In-channel message search results (#94): on the chat's wallpaper like the
+/// chat-info page, newest first and grouped by day, with sender chips and
+/// shortcuts to the photo and link galleries (#95). Reached from the chat's
+/// search mode (#96) with its query filled in. Pops the tapped result as a
+/// [SearchPick]; Cancel pops null.
 class MessageSearchPage extends ConsumerStatefulWidget {
   const MessageSearchPage({
     super.key,
     required this.room,
     required this.selfUsername,
+    this.initialQuery = '',
+    this.onOpenAttachment,
   });
 
   final Room room;
   final String selfUsername;
 
-  static Route<String> route({
+  /// The query the chat was searching for when List was tapped.
+  final String initialQuery;
+
+  /// Opens a photo or video from the Photos gallery in the chat's viewer.
+  /// Null leaves the gallery's tiles display-only.
+  final void Function(AttachmentDescriptor descriptor)? onOpenAttachment;
+
+  static Route<SearchPick> route({
     required Room room,
     required String selfUsername,
-  }) => MaterialPageRoute<String>(
-    builder: (_) => MessageSearchPage(room: room, selfUsername: selfUsername),
+    String initialQuery = '',
+    void Function(AttachmentDescriptor descriptor)? onOpenAttachment,
+  }) => MaterialPageRoute<SearchPick>(
+    builder: (_) => MessageSearchPage(
+      room: room,
+      selfUsername: selfUsername,
+      initialQuery: initialQuery,
+      onOpenAttachment: onOpenAttachment,
+    ),
   );
 
   @override
@@ -31,9 +61,10 @@ class MessageSearchPage extends ConsumerStatefulWidget {
 }
 
 class _MessageSearchPageState extends ConsumerState<MessageSearchPage> {
-  final _controller = TextEditingController();
+  late final _controller = TextEditingController(text: widget.initialQuery);
   Timer? _debounce;
-  String _query = '';
+  late String _query = widget.initialQuery.trim();
+  SenderFilter _sender = SenderFilter.all;
 
   @override
   void dispose() {
@@ -49,142 +80,75 @@ class _MessageSearchPageState extends ConsumerState<MessageSearchPage> {
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final results = ref.watch(
-      channelSearchProvider((roomId: widget.room.roomId, query: _query)),
-    );
-    return Scaffold(
-      backgroundColor: p.bgCanvas,
-      appBar: AppBar(
-        backgroundColor: p.bgCanvas,
-        title: TextField(
-          key: const Key('message-search-field'),
-          controller: _controller,
-          autofocus: true,
-          onChanged: _onChanged,
-          textInputAction: TextInputAction.search,
-          style: TextStyle(color: p.textPrimary, fontSize: 17),
-          decoration: InputDecoration(
-            hintText: 'Search messages',
-            hintStyle: TextStyle(color: p.textMuted),
-            border: InputBorder.none,
-          ),
-        ),
-      ),
-      body: SearchResultsList(
-        results: results,
-        selfUsername: widget.selfUsername,
-        emptyHint: _query.isEmpty
-            ? 'Type to search this chat'
-            : 'No messages found',
-        onTap: (hit) => Navigator.of(context).pop(hit.messageId),
-      ),
-    );
-  }
-}
-
-/// A list of [SearchHit]s with highlighted snippets, shared by the in-channel
-/// and (room-grouped) global search surfaces. Renders the async states.
-class SearchResultsList extends StatelessWidget {
-  const SearchResultsList({
-    super.key,
-    required this.results,
-    required this.selfUsername,
-    required this.emptyHint,
-    required this.onTap,
-    this.showRoom = false,
-  });
-
-  final AsyncValue<List<SearchHit>> results;
-  final String selfUsername;
-  final String emptyHint;
-  final void Function(SearchHit hit) onTap;
-  final bool showRoom;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    return results.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (_, _) => Center(
-        child: Text('Search failed', style: TextStyle(color: p.textMuted)),
-      ),
-      data: (hits) {
-        if (hits.isEmpty) {
-          return Center(
-            child: Text(emptyHint, style: TextStyle(color: p.textMuted)),
-          );
-        }
-        return ListView.builder(
-          key: const Key('search-results'),
-          itemCount: hits.length,
-          itemBuilder: (context, i) {
-            final hit = hits[i];
-            final who = hit.from == selfUsername ? 'You' : hit.from;
-            return ListTile(
-              key: Key('search-result-${hit.messageId}'),
-              title: Text(
-                who,
-                style: TextStyle(
-                  color: p.textPrimary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                ),
-              ),
-              subtitle: SnippetText(snippetHtml: hit.snippetHtml),
-              onTap: () => onTap(hit),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-/// Renders FTS5 `snippet()` output (matches wrapped in `<b>…</b>`) with the
-/// matched terms bolded + accented. The snippet content is our own message
-/// text, and the only markup snippet() emits is the bold delimiters we passed
-/// it, so a plain split is safe. Shared by the in-channel and global result
-/// lists.
-class SnippetText extends StatelessWidget {
-  const SnippetText({super.key, required this.snippetHtml});
-
-  final String snippetHtml;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final base = TextStyle(color: p.textMuted, fontSize: 13);
-    final bold = TextStyle(
-      color: p.textPrimary,
-      fontSize: 13,
-      fontWeight: FontWeight.w700,
-    );
-    final spans = <TextSpan>[];
-    var rest = snippetHtml;
-    while (true) {
-      final open = rest.indexOf('<b>');
-      if (open < 0) {
-        if (rest.isNotEmpty) spans.add(TextSpan(text: rest, style: base));
-        break;
-      }
-      if (open > 0) {
-        spans.add(TextSpan(text: rest.substring(0, open), style: base));
-      }
-      final close = rest.indexOf('</b>', open + 3);
-      if (close < 0) {
-        spans.add(TextSpan(text: rest.substring(open + 3), style: base));
-        break;
-      }
-      spans.add(TextSpan(text: rest.substring(open + 3, close), style: bold));
-      rest = rest.substring(close + 4);
+  /// The partner's username: the room's one other member, or '' if the
+  /// roster hasn't loaded.
+  String get _partner {
+    for (final m in widget.room.members) {
+      if (m.username != widget.selfUsername) return m.username;
     }
-    return Text.rich(
-      TextSpan(children: spans),
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
+    return '';
+  }
+
+  void _openGallery(int tab) => Navigator.of(context).push(
+    SharedMediaPage.route(
+      room: widget.room,
+      initialTab: tab,
+      onOpenAttachment: widget.onOpenAttachment,
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final partner = _partner;
+    final from = switch (_sender) {
+      SenderFilter.all => null,
+      SenderFilter.partner => partner,
+      SenderFilter.me => widget.selfUsername,
+    };
+    final results = ref.watch(
+      channelSearchProvider((
+        roomId: widget.room.roomId,
+        query: _query,
+        from: from,
+      )),
+    );
+    final profiles = ref.watch(profileStoreProvider);
+    return InfoScaffold(
+      bar: ChatSearchField(
+        controller: _controller,
+        // Arriving with the chat's query, the results are what you came for;
+        // the keyboard would cover them.
+        autofocus: widget.initialQuery.isEmpty,
+        onChanged: _onChanged,
+        onCancel: () => Navigator.of(context).maybePop(),
+      ),
+      body: Column(
+        children: [
+          SearchFilterChips(
+            partnerName: senderName(
+              partner,
+              self: widget.selfUsername,
+              profiles: profiles,
+            ),
+            selected: _sender,
+            onSelect: (f) => setState(() => _sender = f),
+            onPhotos: () => _openGallery(0),
+            onLinks: () => _openGallery(2),
+          ),
+          Expanded(
+            child: SearchResultsList(
+              results: results,
+              selfUsername: widget.selfUsername,
+              emptyHint: _query.isEmpty
+                  ? 'Type to search this chat'
+                  : 'No messages found',
+              onTap: (hit) => Navigator.of(
+                context,
+              ).pop<SearchPick>((messageId: hit.messageId, query: _query)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

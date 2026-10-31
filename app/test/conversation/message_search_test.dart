@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/conversation/composer_draft.dart';
 import 'package:littlelove/conversation/message_db.dart';
+import 'package:littlelove/conversation/message_search.dart';
 import 'package:littlelove/wire/message.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -103,6 +104,64 @@ void main() {
     await db.upsert(m('01A', 'happy birthday darling'), roomId: 'room1');
     final hit = (await db.search('birthday')).single;
     expect(hit.snippetHtml, contains('<b>birthday</b>'));
+  });
+
+  test('newest order returns the newest matches first, and the limit keeps the '
+      'newest rather than the most relevant', () async {
+    final db = await freshDb();
+    // The oldest is the best BM25 match (the word twice in a short body), so
+    // relevance order would keep it under a limit of 2.
+    await db.upsert(m('01A', 'cake cake'), roomId: 'room1');
+    await db.upsert(
+      m('01B', 'a very long message that mentions cake once in passing'),
+      roomId: 'room1',
+    );
+    await db.upsert(
+      m('01C', 'another long message that also mentions cake once'),
+      roomId: 'room1',
+    );
+    final newest = await db.search(
+      'cake',
+      roomId: 'room1',
+      limit: 2,
+      order: SearchOrder.newest,
+    );
+    expect(newest.map((h) => h.messageId), ['01C', '01B']);
+    final relevant = await db.search('cake', roomId: 'room1', limit: 2);
+    expect(relevant.first.messageId, '01A');
+  });
+
+  test('the sender filter is applied before the result limit', () async {
+    final db = await freshDb();
+    // The partner's one match is the oldest; three newer ones are mine. A
+    // filter applied after a limit of 2 would find none of the partner's.
+    Msg from(String id, String who) => Msg(
+      id: id,
+      from: who,
+      to: 'room1',
+      body: 'pancakes $id',
+      ts: DateTime.utc(2026, 1, 1, 0, id.codeUnitAt(id.length - 1)),
+    );
+    await db.upsert(from('01A', 'kaitlyn'), roomId: 'room1');
+    for (final id in ['01B', '01C', '01D']) {
+      await db.upsert(from(id, 'me'), roomId: 'room1');
+    }
+    final hers = await db.search(
+      'pancakes',
+      roomId: 'room1',
+      from: 'kaitlyn',
+      limit: 2,
+      order: SearchOrder.newest,
+    );
+    expect(hers.map((h) => h.messageId), ['01A']);
+    final mine = await db.search(
+      'pancakes',
+      roomId: 'room1',
+      from: 'me',
+      limit: 2,
+      order: SearchOrder.newest,
+    );
+    expect(mine.map((h) => h.messageId), ['01D', '01C']);
   });
 
   // The phones already hold a v1 store from the Milestone-1 build, so the

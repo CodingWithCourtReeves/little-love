@@ -55,12 +55,20 @@ void main() {
       final container = await seeded();
       expect(
         await container.read(
-          channelSearchProvider((roomId: 'room1', query: '')).future,
+          channelSearchProvider((
+            roomId: 'room1',
+            query: '',
+            from: null,
+          )).future,
         ),
         isEmpty,
       );
       final hits = await container.read(
-        channelSearchProvider((roomId: 'room1', query: 'love')).future,
+        channelSearchProvider((
+          roomId: 'room1',
+          query: 'love',
+          from: null,
+        )).future,
       );
       expect(hits.map((h) => h.messageId), ['01A']);
     },

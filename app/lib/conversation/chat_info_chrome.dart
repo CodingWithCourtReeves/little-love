@@ -25,9 +25,14 @@ Color infoCardColor(AppPalette p) =>
 /// A page on the chat's wallpaper: veil, transparent app bar with a back pill
 /// (and an optional [title]), and [body] below the status bar.
 class InfoScaffold extends StatelessWidget {
-  const InfoScaffold({super.key, this.title, required this.body});
+  const InfoScaffold({super.key, this.title, this.bar, required this.body});
 
   final String? title;
+
+  /// Replaces the back pill and [title] with a full-width row of its own (the
+  /// search page's field and Cancel). Null keeps the back pill.
+  final Widget? bar;
+
   final Widget body;
 
   @override
@@ -43,11 +48,14 @@ class InfoScaffold extends StatelessWidget {
         surfaceTintColor: Colors.transparent,
         automaticallyImplyLeading: false,
         centerTitle: true,
+        titleSpacing: bar == null ? null : 12,
         // Status-bar icons follow the palette, which follows the wallpaper.
         systemOverlayStyle: p.brightness == Brightness.dark
             ? SystemUiOverlayStyle.light
             : SystemUiOverlayStyle.dark,
-        title: title == null
+        title: bar != null
+            ? bar!
+            : title == null
             ? null
             : Text(
                 title!,
@@ -58,7 +66,7 @@ class InfoScaffold extends StatelessWidget {
                   color: p.textPrimary,
                 ),
               ),
-        leading: Navigator.of(context).canPop()
+        leading: bar == null && Navigator.of(context).canPop()
             ? IconButton(
                 key: const Key('chat-info-back'),
                 tooltip: 'Back',

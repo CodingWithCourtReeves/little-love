@@ -62,5 +62,32 @@ void main() {
         greaterThanOrEqualTo(aaBody),
       );
     });
+
+    // In-chat search (#96) marks matches inside bubbles: a translucent tint on
+    // the others, a solid mark with its own text color on the current one.
+    test('$name: bubble text on the search tint clears body AA, both '
+        'bubbles', () {
+      expect(
+        _contrast(
+          p.bubbleUserText,
+          Color.alphaBlend(p.searchMatch, p.bubbleUserBg),
+        ),
+        greaterThanOrEqualTo(aaBody),
+      );
+      expect(
+        _contrast(
+          p.textPrimary,
+          Color.alphaBlend(p.searchMatch, p.bubblePartnerBg),
+        ),
+        greaterThanOrEqualTo(aaBody),
+      );
+    });
+
+    test('$name: the current search match clears body AA', () {
+      expect(
+        _contrast(p.searchMatchCurrentText, p.searchMatchCurrent),
+        greaterThanOrEqualTo(aaBody),
+      );
+    });
   }
 }

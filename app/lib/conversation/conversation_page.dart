@@ -20,6 +20,7 @@ import '../attachment/attachment_download.dart';
 import '../attachment/media_actions.dart';
 import '../attachment/staged_attachment.dart';
 import '../attachment/thumbnail.dart';
+import '../diagnostics/crash_reporting.dart';
 import '../audio/message_feedback.dart';
 import '../audio/playback_provider.dart';
 import '../audio/recorder_controller.dart';
@@ -42,6 +43,7 @@ import 'bubble_background.dart';
 import 'bubble_run.dart';
 import 'chat_separator.dart';
 import 'chat_info_page.dart';
+import 'chat_search_field.dart';
 import 'composer_draft.dart';
 import 'draft_autosave.dart';
 import 'draft_preview_state.dart';
@@ -49,6 +51,8 @@ import 'link_preview.dart';
 import 'love_tap.dart';
 import 'love_tap_button.dart';
 import 'message_db.dart';
+import 'message_search.dart';
+import 'message_search_page.dart';
 import 'message_store.dart';
 import 'partner_status_line.dart';
 import 'reaction_badge.dart';
@@ -56,6 +60,8 @@ import 'reaction_burst.dart';
 import 'recording_overlay.dart';
 import 'reply_quote.dart';
 import 'reply_ref.dart';
+import 'search_match_bar.dart';
+import 'search_terms.dart';
 import 'send_issue_caption.dart';
 import 'staged_media_store.dart';
 import 'status_marker.dart';
@@ -216,7 +222,8 @@ class _EmojiComposerController extends TextEditingController {
 }
 
 /// A message bubble's text: linkified (tappable URLs) with emoji runs sized up
-/// inline, the way iMessage shows emoji bigger than the words around them.
+/// inline, the way iMessage shows emoji bigger than the words around them, and
+/// in-chat search matches marked (#96).
 ///
 /// Stateful because each link needs a [TapGestureRecognizer], which must be
 /// disposed; building the spans once and rebuilding only when the body/styles
@@ -227,12 +234,20 @@ class _MessageBody extends StatefulWidget {
     required this.baseStyle,
     required this.linkStyle,
     required this.onOpenUrl,
+    this.highlightQuery = '',
+    this.highlightStyle,
   });
 
   final String body;
   final TextStyle baseStyle;
   final TextStyle linkStyle;
   final void Function(String url) onOpenUrl;
+
+  /// The in-chat search query whose matches ([searchMatchRanges]) are drawn
+  /// with [highlightStyle] merged over the text's own style. Empty outside
+  /// search, or when this message isn't a hit.
+  final String highlightQuery;
+  final TextStyle? highlightStyle;
 
   @override
   State<_MessageBody> createState() => _MessageBodyState();
@@ -253,7 +268,9 @@ class _MessageBodyState extends State<_MessageBody> {
     super.didUpdateWidget(old);
     if (old.body != widget.body ||
         old.baseStyle != widget.baseStyle ||
-        old.linkStyle != widget.linkStyle) {
+        old.linkStyle != widget.linkStyle ||
+        old.highlightQuery != widget.highlightQuery ||
+        old.highlightStyle != widget.highlightStyle) {
       _disposeRecognizers();
       _span = _build();
     }
@@ -277,21 +294,44 @@ class _MessageBodyState extends State<_MessageBody> {
       widget.body,
       options: const LinkifyOptions(humanize: false, looseUrl: true),
     );
+    // Matches are found in each element's own text, as shown: linkify rewrites
+    // a bare "www.…" link to "http://www.…", so offsets into the body would
+    // land on the wrong letters.
+    final highlightStyle = widget.highlightStyle;
+    final query = highlightStyle == null ? '' : widget.highlightQuery;
     final children = <InlineSpan>[];
     for (final el in elements) {
+      final pieces = splitByRanges(
+        el.text,
+        0,
+        searchMatchRanges(el.text, query),
+      );
       if (el is LinkableElement) {
         final recognizer = TapGestureRecognizer()
           ..onTap = () => widget.onOpenUrl(el.url);
         _recognizers.add(recognizer);
-        children.add(
-          TextSpan(
-            text: el.text,
-            style: widget.linkStyle,
-            recognizer: recognizer,
-          ),
-        );
+        for (final piece in pieces) {
+          children.add(
+            TextSpan(
+              text: piece.text,
+              style: piece.marked
+                  ? widget.linkStyle.merge(highlightStyle)
+                  : widget.linkStyle,
+              recognizer: recognizer,
+            ),
+          );
+        }
       } else {
-        children.addAll(_emojiAwareSpans(el.text, widget.baseStyle));
+        for (final piece in pieces) {
+          children.addAll(
+            _emojiAwareSpans(
+              piece.text,
+              piece.marked
+                  ? widget.baseStyle.merge(highlightStyle)
+                  : widget.baseStyle,
+            ),
+          );
+        }
       }
     }
     return TextSpan(children: children);
@@ -395,6 +435,32 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   /// Message id to briefly highlight after a jump-to-message (from search).
   String? _highlightedId;
+
+  /// Bumped by each [_focusMessage], so only the latest jump keeps scrolling
+  /// and clears the highlight.
+  int _focusToken = 0;
+
+  // In-chat search (#96). While [_searching], the title pill is a search
+  // field, the composer is a [SearchMatchBar], and matches are marked in their
+  // bubbles. Entering and leaving MUST NOT touch the composer's controller,
+  // draft or [_replyDraft]: the composer is only swapped out, so Cancel brings
+  // it back exactly as it was.
+  bool _searching = false;
+  final _searchController = TextEditingController();
+  final _searchFocus = FocusNode();
+  Timer? _searchDebounce;
+
+  /// The query [_searchHits] answer (trimmed), so bubble marks match them.
+  String _searchQuery = '';
+
+  /// Hits for [_searchQuery], newest first; [_searchIndex] is the current one.
+  List<SearchHit> _searchHits = const [];
+  Set<String> _searchHitIds = const {};
+  int _searchIndex = 0;
+
+  /// Bumped per query, so a slow search that returns after a newer one (or
+  /// after Cancel) is dropped instead of overwriting it.
+  int _searchSeq = 0;
 
   /// Per-message keys so [Scrollable.ensureVisible] can land precisely on a
   /// jump target once its row is built. Created lazily as bubbles render.
@@ -776,6 +842,10 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// be built yet, so jump toward its proportional offset until its element
   /// exists, then [Scrollable.ensureVisible] aligns it precisely.
   Future<void> _focusMessage(String messageId) async {
+    // A newer jump (stepping through search matches quickly) supersedes this
+    // one: it stops after its next await, and leaves the highlight alone.
+    final token = ++_focusToken;
+    bool superseded() => !mounted || token != _focusToken;
     final store = ref.read(messageStoreProvider(widget.roomId).notifier);
     bool present() => ref
         .read(messageStoreProvider(widget.roomId))
@@ -788,11 +858,12 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       for (final m in history) {
         _animatedIds.add(m.clientMsgId ?? m.id);
       }
+      if (superseded()) return;
       store.setAll(history);
       await WidgetsBinding.instance.endOfFrame;
       if (!present()) return; // not in full history (e.g. since unsent)
     }
-    if (!mounted) return;
+    if (superseded()) return;
     setState(() => _highlightedId = messageId);
 
     // The message set is stable during the focus op, so compute the target's
@@ -806,7 +877,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
     for (var attempt = 0; attempt < 18; attempt++) {
       await WidgetsBinding.instance.endOfFrame;
-      if (!mounted || !_scrollController.hasClients) return;
+      if (superseded() || !_scrollController.hasClients) return;
       final ctx = _bubbleKeys[messageId]?.currentContext;
       if (ctx != null && ctx.mounted) {
         // The row is laid out (often already, thanks to the list's cacheExtent):
@@ -834,7 +905,168 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     }
 
     await Future<void>.delayed(const Duration(milliseconds: 1600));
-    if (mounted) setState(() => _highlightedId = null);
+    if (!superseded()) setState(() => _highlightedId = null);
+  }
+
+  /// The chat-info page, from the title pill or the avatar. Its Search tile
+  /// comes back here in search mode.
+  Future<void> _openChatInfo() async {
+    final result = await Navigator.of(context).push(
+      ChatInfoPage.route(
+        room: widget.room,
+        selfUsername: widget.selfUsername,
+        onRename: widget.onRename,
+        onOpenAttachment: widget.onOpenAttachment,
+      ),
+    );
+    if (!mounted) return;
+    if (result == ChatInfoResult.searchInChat) _startSearch();
+  }
+
+  void _startSearch() {
+    if (_searching) return;
+    _composerFocus.unfocus();
+    setState(() => _searching = true);
+    _searchFocus.requestFocus();
+  }
+
+  /// Cancel: drop the field, the marks and the match bar. The composer comes
+  /// back with its draft and pending reply as they were (see [_searching]).
+  void _exitSearch() {
+    _searchDebounce?.cancel();
+    _searchSeq++;
+    _searchFocus.unfocus();
+    _searchController.clear();
+    setState(() {
+      _searching = false;
+      _searchQuery = '';
+      _searchHits = const [];
+      _searchHitIds = const {};
+      _searchIndex = 0;
+    });
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 150),
+      () => unawaited(_runSearch(value)),
+    );
+  }
+
+  /// Search for [query] and land on a match: [focusId] when it's among the
+  /// hits (picked from the List), else the newest. Matches come from the
+  /// local store only.
+  Future<void> _runSearch(String query, {String? focusId}) async {
+    final seq = ++_searchSeq;
+    final q = query.trim();
+    var hits = const <SearchHit>[];
+    try {
+      final db = await ref.read(messageDbProvider.future);
+      hits = await searchChannel(db, roomId: widget.roomId, query: q);
+    } catch (e, st) {
+      reportFault(e, st, context: 'chat_search');
+    }
+    if (!mounted || !_searching || seq != _searchSeq) return;
+    final picked = focusId == null
+        ? -1
+        : hits.indexWhere((h) => h.messageId == focusId);
+    setState(() {
+      _searchQuery = q;
+      _searchHits = hits;
+      _searchHitIds = {for (final h in hits) h.messageId};
+      _searchIndex = picked < 0 ? 0 : picked;
+    });
+    final target = focusId ?? (hits.isEmpty ? null : hits.first.messageId);
+    if (target != null) await _focusMatch(target);
+  }
+
+  /// [_focusMessage] for a search match. A hit found while its row was still
+  /// optimistic carries the `clientMsgId`; once the echo reconciles the row,
+  /// the store knows it by its server id, so jump to that. It can load history
+  /// from the DB, so a failure is reported here rather than escaping from a
+  /// fire-and-forget tap or debounce.
+  Future<void> _focusMatch(String hitId) =>
+      _focusMessage(_rowIdFor(hitId)).catchError(
+        (Object e, StackTrace st) =>
+            reportFault(e, st, context: 'chat_search_focus'),
+      );
+
+  /// Step to the older (+1) or newer (-1) match. Drops the keyboard so the
+  /// matches stay in view.
+  void _stepSearch(int delta) {
+    final next = _searchIndex + delta;
+    if (next < 0 || next >= _searchHits.length) return;
+    _searchFocus.unfocus();
+    setState(() => _searchIndex = next);
+    unawaited(_focusMatch(_searchHits[next].messageId));
+  }
+
+  /// The results as a list (#94). Picking a row comes back to search mode at
+  /// that match, with whatever query the list ended on.
+  Future<void> _openSearchList() async {
+    _searchFocus.unfocus();
+    final pick = await Navigator.of(context).push(
+      MessageSearchPage.route(
+        room: widget.room,
+        selfUsername: widget.selfUsername,
+        initialQuery: _searchController.text.trim(),
+        onOpenAttachment: widget.onOpenAttachment,
+      ),
+    );
+    if (!mounted || pick == null || !_searching) return;
+    _searchDebounce?.cancel();
+    _searchController.text = pick.query;
+    await _runSearch(pick.query, focusId: pick.messageId);
+  }
+
+  /// The match bar's counter.
+  String _searchLabel() {
+    if (_searchQuery.isEmpty) return '';
+    if (_searchHits.isEmpty) return 'No matches';
+    // At the cap there may be older matches the search didn't return.
+    final more = _searchHits.length >= channelSearchLimit ? '+' : '';
+    return '${_searchIndex + 1} of ${_searchHits.length}$more';
+  }
+
+  /// The store's current id for the row a search hit names: the hit's own id,
+  /// or the server id its optimistic row was reconciled to since.
+  String _rowIdFor(String hitId) {
+    for (final m in ref.read(messageStoreProvider(widget.roomId))) {
+      if (_isHit(m, hitId)) return m.id;
+    }
+    return hitId;
+  }
+
+  /// Whether a search hit with [hitId] is [m]. A hit keeps the id the row had
+  /// when it was found, which is its `clientMsgId` if it was still optimistic.
+  static bool _isHit(Msg m, String hitId) =>
+      m.id == hitId || m.clientMsgId == hitId;
+
+  /// The query to mark in [m]: the search's, when [m] is one of its hits;
+  /// '' outside search mode or for any other message.
+  String _searchQueryFor(Msg m) {
+    if (!_searching) return '';
+    final cid = m.clientMsgId;
+    final hit =
+        _searchHitIds.contains(m.id) ||
+        (cid != null && _searchHitIds.contains(cid));
+    return hit ? _searchQuery : '';
+  }
+
+  /// How [m]'s matches are drawn: a solid mark on the current match, a tint
+  /// on the rest.
+  TextStyle _searchMarkFor(Msg m) {
+    final p = context.palette;
+    final current =
+        _searchHits.isNotEmpty &&
+        _isHit(m, _searchHits[_searchIndex].messageId);
+    return current
+        ? TextStyle(
+            backgroundColor: p.searchMatchCurrent,
+            color: p.searchMatchCurrentText,
+          )
+        : TextStyle(backgroundColor: p.searchMatch);
   }
 
   void _animateToBottom() {
@@ -884,6 +1116,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _scrollController.dispose();
     _controller.dispose();
     _composerFocus.dispose();
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    _searchFocus.dispose();
     _recorder.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _typingStop?.cancel();
@@ -1360,258 +1595,277 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         roomId: widget.room.roomId,
       )),
     );
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      resizeToAvoidBottomInset: false,
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
+    // In search mode, back (the edge swipe) leaves search first, like Cancel.
+    return PopScope(
+      canPop: !_searching,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _searching) _exitSearch();
+      },
+      child: Scaffold(
         backgroundColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        surfaceTintColor: Colors.transparent,
-        // White status-bar icons — they sit over the dark top scrim (painted
-        // in the body so it's taller/stronger than an app-bar-only gradient).
-        systemOverlayStyle: SystemUiOverlayStyle.light,
-        // Back arrow in a pill, matching the ⋯ menu, when this chat was pushed
-        // onto a route (home → chat). Null in tests that mount it directly.
-        leading: Navigator.of(context).canPop()
-            ? IconButton(
-                key: const Key('room-back-button'),
-                tooltip: 'Back',
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Container(
-                      width: 34,
-                      height: 34,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: context.palette.bgSurface.withValues(alpha: 0.7),
+        resizeToAvoidBottomInset: false,
+        extendBodyBehindAppBar: true,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          surfaceTintColor: Colors.transparent,
+          // White status-bar icons — they sit over the dark top scrim (painted
+          // in the body so it's taller/stronger than an app-bar-only gradient).
+          systemOverlayStyle: SystemUiOverlayStyle.light,
+          // Back arrow in a pill, matching the ⋯ menu, when this chat was pushed
+          // onto a route (home → chat). Null in tests that mount it directly,
+          // and in search mode, where the field's Cancel takes its place.
+          automaticallyImplyLeading: false,
+          leading: !_searching && Navigator.of(context).canPop()
+              ? IconButton(
+                  key: const Key('room-back-button'),
+                  tooltip: 'Back',
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 34,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: context.palette.bgSurface.withValues(
+                            alpha: 0.7,
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.arrow_back_ios_new,
+                          color: context.palette.textPrimary,
+                          size: 18,
+                        ),
                       ),
-                      child: Icon(
-                        Icons.arrow_back_ios_new,
-                        color: context.palette.textPrimary,
-                        size: 18,
-                      ),
+                      if (unreadElsewhere > 0)
+                        Positioned(
+                          top: -3,
+                          right: -3,
+                          child: _unreadBadge(unreadElsewhere),
+                        ),
+                    ],
+                  ),
+                )
+              : null,
+          centerTitle: true,
+          titleSpacing: _searching ? 12 : null,
+          // The room name as a centered pill; tapping it opens the chat-info
+          // page (Telegram-style: call/video/search + media/voice/links). In
+          // search mode (#96) it's the search field and Cancel instead.
+          title: _searching
+              ? ChatSearchField(
+                  controller: _searchController,
+                  focusNode: _searchFocus,
+                  autofocus: true,
+                  onChanged: _onSearchChanged,
+                  onCancel: _exitSearch,
+                  fieldKey: const Key('chat-search-field'),
+                  cancelKey: const Key('chat-search-cancel'),
+                )
+              : GestureDetector(
+                  key: const Key('room-title-pill'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _openChatInfo,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 5,
                     ),
-                    if (unreadElsewhere > 0)
-                      Positioned(
-                        top: -3,
-                        right: -3,
-                        child: _unreadBadge(unreadElsewhere),
-                      ),
-                  ],
-                ),
-              )
-            : null,
-        centerTitle: true,
-        // The room name as a centered pill; tapping it opens the chat-info
-        // page (Telegram-style: call/video/search + media/voice/links).
-        title: GestureDetector(
-          key: const Key('room-title-pill'),
-          behavior: HitTestBehavior.opaque,
-          onTap: () async {
-            final focusId = await Navigator.of(context).push(
-              ChatInfoPage.route(
-                room: widget.room,
-                selfUsername: widget.selfUsername,
-                onRename: widget.onRename,
-                onOpenAttachment: widget.onOpenAttachment,
-              ),
-            );
-            if (focusId != null) await _focusMessage(focusId);
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
-            decoration: BoxDecoration(
-              color: context.palette.bgSurface.withValues(alpha: 0.7),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  widget.room.displayName(
-                    widget.selfUsername,
-                    nameFor: nameFor,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    height: 1.1,
-                    color: context.palette.textPrimary,
+                    decoration: BoxDecoration(
+                      color: context.palette.bgSurface.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          widget.room.displayName(
+                            widget.selfUsername,
+                            nameFor: nameFor,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            height: 1.1,
+                            color: context.palette.textPrimary,
+                          ),
+                        ),
+                        PartnerStatusLine(
+                          roomId: widget.roomId,
+                          partner: _partnerUsername(),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                PartnerStatusLine(
-                  roomId: widget.roomId,
-                  partner: _partnerUsername(),
-                ),
-              ],
-            ),
-          ),
-        ),
-        // Just the partner's avatar. Voice/video call buttons used to sit here
-        // too, but they squeezed the title pill until the "last seen …" line
-        // overflowed it; calls start from the chat-info page instead.
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: GestureDetector(
-              key: const Key('room-header-avatar'),
-              behavior: HitTestBehavior.opaque,
-              onTap: () async {
-                final focusId = await Navigator.of(context).push(
-                  ChatInfoPage.route(
-                    room: widget.room,
-                    selfUsername: widget.selfUsername,
-                    onRename: widget.onRename,
-                    onOpenAttachment: widget.onOpenAttachment,
-                  ),
-                );
-                if (focusId != null) await _focusMessage(focusId);
-              },
-              child: Avatar(
-                seedText: partnerSeed,
-                imageFile: partnerAvatar,
-                radius: 17,
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: WallpaperBackground(
-        // Column push-down: the message list lives in an Expanded above the
-        // composer, so when the composer grows a line Flutter shrinks the list
-        // in the *same* layout pass — messages push up instantly instead of
-        // being briefly covered by the bar (the old floating-Stack + measured-
-        // padding approach lagged the growth by a frame). The composer keeps
-        // its bottom:keyboardInset padding to ride above the keyboard, so the
-        // Expanded list sizes around composer + keyboard naturally (auto-resize
-        // stays off — see keyboardInset above).
-        child: Column(
-          children: [
-            Expanded(
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    // Tap the chat to dismiss the keyboard (Telegram-style). A
-                    // real onTap — not a TapRegion — only fires on a tap that
-                    // isn't a drag: the list's vertical-drag recognizer wins the
-                    // gesture arena during a scroll, so scrolling up keeps the
-                    // keyboard up. Opaque so taps land on the wallpaper gutters
-                    // and empty space too, not just on message bubbles.
+          // Just the partner's avatar. Voice/video call buttons used to sit here
+          // too, but they squeezed the title pill until the "last seen …" line
+          // overflowed it; calls start from the chat-info page instead.
+          actions: _searching
+              ? null
+              : [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
                     child: GestureDetector(
+                      key: const Key('room-header-avatar'),
                       behavior: HitTestBehavior.opaque,
-                      onTap: () =>
-                          FocusManager.instance.primaryFocus?.unfocus(),
-                      child: ListView.builder(
-                        controller: _scrollController,
-                        reverse: true,
-                        // Pre-build ~2 screens of off-screen rows each way so a
-                        // tapped reply-quote target a short way up is already
-                        // laid out: _focusMessage aligns it with one smooth
-                        // ensureVisible instead of teleport-jumping through
-                        // unbuilt rows (which froze, then snapped). The
-                        // ScrollCacheExtent replacement isn't exported in this
-                        // SDK yet, so the still-functional cacheExtent is used.
-                        // ignore: deprecated_member_use
-                        cacheExtent: 2000,
-                        padding: EdgeInsets.only(
-                          left: 16,
-                          right: 16,
-                          top:
-                              4 +
-                              MediaQuery.of(context).padding.top +
-                              kToolbarHeight,
-                          // The newest bubble has no margin of its own now
-                          // (run spacing sits above each row), so this is the
-                          // whole gap above the composer.
-                          bottom: 16,
-                        ),
-                        itemCount: items.length,
-                        // Relocate existing keyed rows by identity when an
-                        // insert shifts indices, so the delegate reuses them
-                        // instead of rebuilding the visible list (the
-                        // receive-time flash).
-                        findChildIndexCallback: (key) {
-                          final value = (key as ValueKey<String>).value;
-                          final idx = items.indexWhere(
-                            (it) => _rowKey(it) == value,
-                          );
-                          return idx < 0 ? null : idx;
-                        },
-                        itemBuilder: (_, i) {
-                          final item = items[i];
-                          final child = switch (item) {
-                            _BubbleItem(
-                              :final msg,
-                              :final position,
-                              :final afterSeparator,
-                            ) =>
-                              Padding(
-                                padding: EdgeInsets.only(
-                                  top: runGapAbove(
-                                    position,
-                                    afterSeparator: afterSeparator,
-                                  ),
-                                ),
-                                child: _bubbleRow(
-                                  msg,
-                                  me,
-                                  position,
-                                  status.inBubble[msg.id],
-                                  status.issueRun[msg.id],
-                                ),
-                              ),
-                            _DayItem(:final time) => _daySeparator(time),
-                            _GapItem(:final time) => _gapHeader(time),
-                          };
-                          return KeyedSubtree(
-                            key: ValueKey(_rowKey(item)),
-                            child: child,
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                  // Frosted, darkened scrim behind the status bar + app-bar
-                  // pills so the OS clock/battery and the title stay legible
-                  // over the wallpaper, Telegram-style. Messages scroll under
-                  // it and blur.
-                  _topScrim(context),
-                  Positioned(
-                    right: 16,
-                    bottom: 16,
-                    child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 150),
-                      opacity: _atBottom ? 0 : 1,
-                      child: IgnorePointer(
-                        ignoring: _atBottom,
-                        child: FloatingActionButton.small(
-                          key: const Key('jump-to-bottom'),
-                          backgroundColor: context.palette.bgSurface,
-                          foregroundColor: context.palette.accentUser,
-                          elevation: 4,
-                          onPressed: _animateToBottom,
-                          tooltip: 'Jump to latest',
-                          child: const Icon(Icons.arrow_downward),
-                        ),
+                      onTap: _openChatInfo,
+                      child: Avatar(
+                        seedText: partnerSeed,
+                        imageFile: partnerAvatar,
+                        radius: 17,
                       ),
                     ),
                   ),
                 ],
+        ),
+        body: WallpaperBackground(
+          // Column push-down: the message list lives in an Expanded above the
+          // composer, so when the composer grows a line Flutter shrinks the list
+          // in the *same* layout pass — messages push up instantly instead of
+          // being briefly covered by the bar (the old floating-Stack + measured-
+          // padding approach lagged the growth by a frame). The composer keeps
+          // its bottom:keyboardInset padding to ride above the keyboard, so the
+          // Expanded list sizes around composer + keyboard naturally (auto-resize
+          // stays off — see keyboardInset above).
+          child: Column(
+            children: [
+              Expanded(
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      // Tap the chat to dismiss the keyboard (Telegram-style). A
+                      // real onTap — not a TapRegion — only fires on a tap that
+                      // isn't a drag: the list's vertical-drag recognizer wins the
+                      // gesture arena during a scroll, so scrolling up keeps the
+                      // keyboard up. Opaque so taps land on the wallpaper gutters
+                      // and empty space too, not just on message bubbles.
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () =>
+                            FocusManager.instance.primaryFocus?.unfocus(),
+                        child: ListView.builder(
+                          controller: _scrollController,
+                          reverse: true,
+                          // Pre-build ~2 screens of off-screen rows each way so a
+                          // tapped reply-quote target a short way up is already
+                          // laid out: _focusMessage aligns it with one smooth
+                          // ensureVisible instead of teleport-jumping through
+                          // unbuilt rows (which froze, then snapped). The
+                          // ScrollCacheExtent replacement isn't exported in this
+                          // SDK yet, so the still-functional cacheExtent is used.
+                          // ignore: deprecated_member_use
+                          cacheExtent: 2000,
+                          padding: EdgeInsets.only(
+                            left: 16,
+                            right: 16,
+                            top:
+                                4 +
+                                MediaQuery.of(context).padding.top +
+                                kToolbarHeight,
+                            // The newest bubble has no margin of its own now
+                            // (run spacing sits above each row), so this is the
+                            // whole gap above the composer.
+                            bottom: 16,
+                          ),
+                          itemCount: items.length,
+                          // Relocate existing keyed rows by identity when an
+                          // insert shifts indices, so the delegate reuses them
+                          // instead of rebuilding the visible list (the
+                          // receive-time flash).
+                          findChildIndexCallback: (key) {
+                            final value = (key as ValueKey<String>).value;
+                            final idx = items.indexWhere(
+                              (it) => _rowKey(it) == value,
+                            );
+                            return idx < 0 ? null : idx;
+                          },
+                          itemBuilder: (_, i) {
+                            final item = items[i];
+                            final child = switch (item) {
+                              _BubbleItem(
+                                :final msg,
+                                :final position,
+                                :final afterSeparator,
+                              ) =>
+                                Padding(
+                                  padding: EdgeInsets.only(
+                                    top: runGapAbove(
+                                      position,
+                                      afterSeparator: afterSeparator,
+                                    ),
+                                  ),
+                                  child: _bubbleRow(
+                                    msg,
+                                    me,
+                                    position,
+                                    status.inBubble[msg.id],
+                                    status.issueRun[msg.id],
+                                  ),
+                                ),
+                              _DayItem(:final time) => _daySeparator(time),
+                              _GapItem(:final time) => _gapHeader(time),
+                            };
+                            return KeyedSubtree(
+                              key: ValueKey(_rowKey(item)),
+                              child: child,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    // Frosted, darkened scrim behind the status bar + app-bar
+                    // pills so the OS clock/battery and the title stay legible
+                    // over the wallpaper, Telegram-style. Messages scroll under
+                    // it and blur.
+                    _topScrim(context),
+                    Positioned(
+                      right: 16,
+                      bottom: 16,
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 150),
+                        opacity: _atBottom ? 0 : 1,
+                        child: IgnorePointer(
+                          ignoring: _atBottom,
+                          child: FloatingActionButton.small(
+                            key: const Key('jump-to-bottom'),
+                            backgroundColor: context.palette.bgSurface,
+                            foregroundColor: context.palette.accentUser,
+                            elevation: 4,
+                            onPressed: _animateToBottom,
+                            tooltip: 'Jump to latest',
+                            child: const Icon(Icons.arrow_downward),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Padding(
-              padding: EdgeInsets.only(bottom: keyboardInset),
-              child: _composer(staged),
-            ),
-          ],
+              Padding(
+                padding: EdgeInsets.only(bottom: keyboardInset),
+                child: _searching
+                    ? SearchMatchBar(
+                        label: _searchLabel(),
+                        onList: _openSearchList,
+                        onOlder: _searchIndex + 1 < _searchHits.length
+                            ? () => _stepSearch(1)
+                            : null,
+                        onNewer: _searchIndex > 0
+                            ? () => _stepSearch(-1)
+                            : null,
+                      )
+                    : _composer(staged),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1908,6 +2162,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             msg: m,
             isMe: mine,
             marker: marker,
+            captionHighlights: searchMatchRanges(m.body, _searchQueryFor(m)),
+            captionHighlightStyle: _searchMarkFor(m),
             onOpen: () => widget.onOpenAttachment?.call(att),
             replyBanner: m.replyTo == null
                 ? null
@@ -2121,6 +2377,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final textColor = mine
         ? context.palette.bubbleUserText
         : context.palette.textPrimary;
+    final highlightQuery = _searchQueryFor(m);
     final text = _MessageBody(
       body: m.body,
       baseStyle: TextStyle(color: textColor, fontSize: _bodyFontSize),
@@ -2131,6 +2388,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         decorationColor: textColor.withValues(alpha: 0.6),
       ),
       onOpenUrl: _openUrl,
+      highlightQuery: highlightQuery,
+      highlightStyle: highlightQuery.isEmpty ? null : _searchMarkFor(m),
     );
     // Every bubble carries an hh:mm timestamp bottom-right; my bubbles add the
     // sent/sending marker just to the right of the time. An edited message gets
@@ -3484,11 +3743,18 @@ class _MediaBubble extends StatelessWidget {
     required this.marker,
     required this.onOpen,
     this.replyBanner,
+    this.captionHighlights = const [],
+    this.captionHighlightStyle,
   });
   final Msg msg;
   final bool isMe;
   final _Marker? marker;
   final VoidCallback onOpen;
+
+  /// In-chat search matches in the caption (#96): media match on their caption
+  /// only. Drawn with [captionHighlightStyle] over the caption's style.
+  final List<TextRange> captionHighlights;
+  final TextStyle? captionHighlightStyle;
 
   /// Telegram-style reply quote, rendered above the media tile inside the same
   /// bubble. Null when this media isn't a reply.
@@ -3567,8 +3833,20 @@ class _MediaBubble extends StatelessWidget {
             if (msg.body.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(6, 6, 4, 2),
-                child: Text(
-                  msg.body,
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      for (final piece in splitByRanges(
+                        msg.body,
+                        0,
+                        captionHighlights,
+                      ))
+                        TextSpan(
+                          text: piece.text,
+                          style: piece.marked ? captionHighlightStyle : null,
+                        ),
+                    ],
+                  ),
                   style: TextStyle(
                     color: isMe
                         ? context.palette.bubbleUserText
