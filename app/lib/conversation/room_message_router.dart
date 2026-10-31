@@ -326,6 +326,15 @@ class RoomMessageRouter {
       }
       return;
     }
+    // TODO(channel-pictures): Task 3 replaces this placeholder. For now a
+    // channel update or an unknown kind renders no row; drop the outbox row.
+    if (content is ChannelUpdateContent || content is UnsupportedContent) {
+      if (f.clientMsgId != null) {
+        final outbox = await ref.read(outboxStoreProvider.future);
+        await outbox.remove(f.clientMsgId!);
+      }
+      return;
+    }
     // An unsend isn't a timeline bubble either: tombstone its target and stop.
     // Only the message's author may unsend it — `applyDelete` drops a delete
     // whose `requestedBy` doesn't match the target's author (a spoofed delete,
@@ -418,6 +427,8 @@ class RoomMessageRouter {
       ReactionContent() => throw StateError('reaction handled above'),
       DeleteContent() => throw StateError('delete handled above'),
       EditContent() => throw StateError('edit handled above'),
+      ChannelUpdateContent() => throw StateError('channel update above'),
+      UnsupportedContent() => throw StateError('unsupported handled above'),
     };
     // Live self-copy of our own message: swap the optimistic echo (keyed by
     // clientMsgId) for this authoritative row instead of appending a duplicate.
