@@ -36,6 +36,12 @@ String _cacheExt(AttachmentDescriptor d) {
 /// Test-visible wrapper for [_cacheExt].
 String cacheExtFor(AttachmentDescriptor d) => _cacheExt(d);
 
+/// The on-disk cache of decrypted media (received attachments and channel
+/// pictures). Sign-out deletes it; see `identity/sign_out.dart`.
+Future<Directory> attachmentsCacheDir() async => Directory(
+  p.join((await getApplicationSupportDirectory()).path, 'attachments'),
+);
+
 /// Fetch + decrypt the full file for [descriptor], returning a local plaintext
 /// file. Cached by `blob_key` (plus a real extension) under app-support so
 /// re-opening is instant. The content key/nonce come from the (already-
@@ -46,8 +52,7 @@ Future<File> fetchAndDecrypt({
   http.Client? httpClient,
   Duration timeout = const Duration(seconds: 60),
 }) async {
-  final dir = await getApplicationSupportDirectory();
-  final cacheDir = Directory(p.join(dir.path, 'attachments'));
+  final cacheDir = await attachmentsCacheDir();
   await cacheDir.create(recursive: true);
   final cached = File(
     p.join(cacheDir.path, '${descriptor.blobKey}${_cacheExt(descriptor)}'),

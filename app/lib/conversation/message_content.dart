@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../attachment/attachment_descriptor.dart';
+import '../channel/channel_picture.dart';
 import 'link_preview.dart';
 import 'reply_ref.dart';
 
@@ -9,6 +10,20 @@ import 'reply_ref.dart';
 ReplyRef? _replyOf(Map<String, Object?> j) {
   final r = j['replyTo'];
   return r is Map ? ReplyRef.fromJson(Map<String, Object?>.from(r)) : null;
+}
+
+/// Parse a `channel_update` picture. Anything malformed or unrecognised is an
+/// [UnknownPicture] rather than a throw, so a newer build can't break decode.
+ChannelPicture _pictureOf(Object? pic) {
+  if (pic is! Map) return const UnknownPicture({});
+  final map = Map<String, Object?>.from(pic);
+  try {
+    return ChannelPicture.fromJson(map);
+  } on FormatException {
+    return UnknownPicture(map);
+  } on TypeError {
+    return UnknownPicture(map);
+  }
 }
 
 /// The decrypted plaintext layer of a message (spec §3). Versioned so future
@@ -68,6 +83,12 @@ sealed class MessageContent {
                   )?.toUtc() ??
                   DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
             );
+          case 'channel_update':
+            final pic = j['picture'];
+            return ChannelUpdateContent(
+              picture: pic == null ? null : _pictureOf(pic),
+              name: j['name'] as String?,
+            );
           case 'text':
             final p = j['preview'];
             return TextContent(
@@ -78,6 +99,8 @@ sealed class MessageContent {
               replyTo: _replyOf(j),
             );
         }
+        // A v1 envelope of a kind this build doesn't know (from a newer app).
+        return UnsupportedContent(raw);
       }
     } catch (_) {
       // fall through to plain-text
@@ -252,4 +275,30 @@ class AudioContent extends MessageContent {
     if (replyTo != null) 'replyTo': replyTo!.toJson(),
     ...descriptor.toJson(),
   });
+}
+
+/// A change to the channel's picture or name. Delivered as an ordinary E2EE
+/// message; exactly one of [picture] / [name] is set.
+class ChannelUpdateContent extends MessageContent {
+  const ChannelUpdateContent({this.picture, this.name});
+  final ChannelPicture? picture;
+  final String? name;
+
+  @override
+  String encode() => jsonEncode({
+    'v': 1,
+    'kind': 'channel_update',
+    if (picture != null) 'picture': picture!.toJson(),
+    if (name != null) 'name': name,
+  });
+}
+
+/// A v1 envelope whose kind this build doesn't recognise. Keeps the raw
+/// plaintext so it can be persisted and re-decoded by a newer build.
+class UnsupportedContent extends MessageContent {
+  const UnsupportedContent(this.raw);
+  final String raw;
+
+  @override
+  String encode() => raw;
 }

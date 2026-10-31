@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/attachment/attachment_descriptor.dart';
+import 'package:littlelove/channel/channel_picture.dart';
+import 'package:littlelove/conversation/message_content.dart';
 import 'package:littlelove/conversation/status_marker.dart';
 import 'package:littlelove/inbox/room_preview.dart';
 import 'package:littlelove/pairing/encryption.dart';
@@ -13,6 +15,7 @@ Msg _msg(
   SendStatus status = SendStatus.sent,
   AttachmentDescriptor? attachment,
   String? callOutcome,
+  ChannelUpdateContent? channelUpdate,
 }) => Msg(
   id: id,
   from: from,
@@ -22,6 +25,7 @@ Msg _msg(
   sendStatus: status,
   attachment: attachment,
   callOutcome: callOutcome,
+  channelUpdate: channelUpdate,
 );
 
 AttachmentDescriptor _file(String mime, {int? durationMs}) =>
@@ -51,6 +55,7 @@ RoomPreview _preview(
   unread: unread,
   partnerTyping: typing,
   draft: draft,
+  nameFor: (u) => u == 'kaitlyn' ? 'Kait' : u,
 );
 
 void main() {
@@ -127,6 +132,30 @@ void main() {
       expect(p.tone, PreviewTone.placeholder);
     },
   );
+
+  test('the home preview shows the channel line in the placeholder tone', () {
+    final theirs = _preview([
+      _msg(
+        '1',
+        'kaitlyn',
+        '',
+        channelUpdate: const ChannelUpdateContent(name: 'Us'),
+      ),
+    ]);
+    expect(theirs.text, 'Kait renamed the channel to Us');
+    expect(theirs.tone, PreviewTone.placeholder);
+
+    final mine = _preview([
+      _msg(
+        '2',
+        'court',
+        '',
+        channelUpdate: const ChannelUpdateContent(picture: NoPicture()),
+      ),
+    ]);
+    expect(mine.text, 'You removed the channel picture');
+    expect(mine.tone, PreviewTone.placeholder);
+  });
 
   test('a missed call reads as a warning, without the leading emoji', () {
     final p = _preview([

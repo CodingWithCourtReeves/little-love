@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/attachment/attachment_descriptor.dart';
 import 'package:littlelove/conversation/bubble_background.dart';
 import 'package:littlelove/conversation/conversation_page.dart';
+import 'package:littlelove/conversation/message_content.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
@@ -16,6 +17,7 @@ import 'package:littlelove/wire/live_connection.dart';
 import 'package:littlelove/wire/message.dart';
 
 import '../support/test_read_state.dart';
+import '../support/widget_waits.dart';
 
 Room _room() => Room(
   roomId: 'r1',
@@ -58,6 +60,7 @@ Future<void> _pump(
   WidgetTester tester,
   ProviderContainer container, {
   AppPalette palette = AppPalette.light,
+  RetryCallback? onRetry,
 }) async {
   await tester.pumpWidget(
     UncontrolledProviderScope(
@@ -69,6 +72,7 @@ Future<void> _pump(
           selfUsername: 'me',
           onSend: (_, _) {},
           onReact: (_, _) {},
+          onRetry: onRetry,
         ),
       ),
     ),
@@ -121,6 +125,24 @@ Msg _voiceMsg(String id, String from, {required int m}) => Msg(
   body: '',
   ts: DateTime(2026, 6, 13, 10, m),
   attachment: _voice,
+);
+
+/// A rename line from [from] at 10:[m], optionally an optimistic own send.
+Msg _channelLine(
+  String id,
+  String from, {
+  required int m,
+  String? clientMsgId,
+  SendStatus sendStatus = SendStatus.sent,
+}) => Msg(
+  id: id,
+  from: from,
+  to: 'r1',
+  body: '',
+  ts: DateTime(2026, 6, 13, 10, m),
+  clientMsgId: clientMsgId,
+  sendStatus: sendStatus,
+  channelUpdate: const ChannelUpdateContent(name: 'Us'),
 );
 
 BubbleBackground _painter(WidgetTester tester, String key) =>
@@ -301,4 +323,59 @@ void main() {
       expect(palette.bubblePartnerEdge.a, lessThan(0.6));
     });
   }
+
+  testWidgets('a channel line breaks bubble runs and has no reply or react '
+      'actions', (tester) async {
+    final container = await _container(tester);
+    final store = container.read(messageStoreProvider('r1').notifier);
+    store.add(_msg('a', 'kaitlyn', m: 0));
+    store.add(_channelLine('c', 'kaitlyn', m: 1));
+    store.add(_msg('b', 'kaitlyn', m: 2));
+    await _pump(tester, container);
+
+    expect(find.text('Kaitlyn renamed the channel to Us'), findsOneWidget);
+    // Same sender, but the line splits the run: each bubble is a whole run.
+    expect(_tail(tester, 'a'), isTrue);
+    expect(_tail(tester, 'b'), isTrue);
+
+    await tester.longPress(find.byKey(const Key('channel-line-c')));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const Key('action-reply')), findsNothing);
+
+    // The harness does open the menu for an ordinary bubble.
+    await tester.longPress(find.text('body a'));
+    await pumpUntilFound(tester, find.byKey(const Key('action-reply')));
+  });
+
+  testWidgets('my own channel line says You', (tester) async {
+    final container = await _container(tester);
+    container
+        .read(messageStoreProvider('r1').notifier)
+        .add(_channelLine('c', 'me', m: 0));
+    await _pump(tester, container);
+
+    expect(find.text('You renamed the channel to Us'), findsOneWidget);
+  });
+
+  testWidgets('a failed channel line offers tap to retry', (tester) async {
+    final container = await _container(tester);
+    container
+        .read(messageStoreProvider('r1').notifier)
+        .add(
+          _channelLine(
+            'c',
+            'me',
+            m: 0,
+            clientMsgId: 'cm1',
+            sendStatus: SendStatus.failed,
+          ),
+        );
+    final retried = <String>[];
+    await _pump(tester, container, onRetry: retried.add);
+
+    expect(find.textContaining('Not sent. Tap to retry.'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('channel-line-cm1')));
+    await tester.pump();
+    expect(retried, ['cm1']);
+  });
 }

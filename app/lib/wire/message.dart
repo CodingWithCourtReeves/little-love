@@ -1,5 +1,6 @@
 import '../attachment/attachment_descriptor.dart';
 import '../conversation/link_preview.dart';
+import '../conversation/message_content.dart';
 import '../conversation/reply_ref.dart';
 
 /// `read` means the partner has opened the chat and seen this message (the
@@ -22,6 +23,8 @@ class Msg {
     this.callOutcome,
     this.edited = false,
     this.replyTo,
+    this.channelUpdate,
+    this.unsupportedBody,
   });
 
   final String id;
@@ -71,6 +74,21 @@ class Msg {
   /// local cache. The UI renders a quote header from it (see [ReplyRef]).
   final ReplyRef? replyTo;
 
+  /// Set when this row is a channel picture/name change (`kind:"channel_update"`).
+  /// Rendered as a timeline event; the row [body] is `''` so it is never
+  /// FTS-indexed.
+  final ChannelUpdateContent? channelUpdate;
+
+  /// Raw decrypted plaintext of a message this build can't render (a newer
+  /// `kind`). Kept so a later build can re-decode it; the row is hidden.
+  final String? unsupportedBody;
+
+  /// A centred timeline row (call log, channel change) rather than a bubble.
+  bool get isTimelineEvent => callOutcome != null || channelUpdate != null;
+
+  /// Not rendered at all (see [unsupportedBody]).
+  bool get isHidden => unsupportedBody != null;
+
   factory Msg.fromJson(Map<String, Object?> json) {
     return Msg(
       id: json['id'] as String,
@@ -105,6 +123,8 @@ class Msg {
     String? callOutcome,
     bool? edited,
     ReplyRef? replyTo,
+    ChannelUpdateContent? channelUpdate,
+    String? unsupportedBody,
   }) {
     return Msg(
       id: id ?? this.id,
@@ -121,6 +141,8 @@ class Msg {
       callOutcome: callOutcome ?? this.callOutcome,
       edited: edited ?? this.edited,
       replyTo: replyTo ?? this.replyTo,
+      channelUpdate: channelUpdate ?? this.channelUpdate,
+      unsupportedBody: unsupportedBody ?? this.unsupportedBody,
     );
   }
 }

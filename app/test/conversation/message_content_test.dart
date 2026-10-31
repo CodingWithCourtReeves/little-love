@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/attachment/attachment_descriptor.dart';
+import 'package:littlelove/channel/channel_picture.dart';
 import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_content.dart';
 import 'package:littlelove/conversation/reply_ref.dart';
@@ -217,5 +218,98 @@ void main() {
   test('a v1 envelope without replyTo still decodes (back-compat)', () {
     final back = MessageContent.decode(const TextContent('hi').encode());
     expect((back as TextContent).replyTo, isNull);
+  });
+
+  test('channel_update round-trips a photo, a symbol, none and a name', () {
+    const d = AttachmentDescriptor(
+      blobKey: 'chan/k1',
+      contentKeyB64: 'a',
+      nonceB64: 'b',
+      mime: 'image/jpeg',
+      filename: 'c.jpg',
+      size: 1,
+      width: 512,
+      height: 512,
+      durationMs: null,
+      thumbB64: 't',
+    );
+    final photo =
+        MessageContent.decode(
+              const ChannelUpdateContent(picture: PhotoPicture(d)).encode(),
+            )
+            as ChannelUpdateContent;
+    expect((photo.picture! as PhotoPicture).descriptor.blobKey, 'chan/k1');
+    expect(photo.name, isNull);
+
+    final sym =
+        MessageContent.decode(
+              const ChannelUpdateContent(
+                picture: SymbolPicture(ChannelSymbol.plane, ChannelColor.sky),
+              ).encode(),
+            )
+            as ChannelUpdateContent;
+    final symPic = sym.picture! as SymbolPicture;
+    expect(symPic.symbol, ChannelSymbol.plane);
+    expect(symPic.color, ChannelColor.sky);
+
+    final none =
+        MessageContent.decode(
+              const ChannelUpdateContent(picture: NoPicture()).encode(),
+            )
+            as ChannelUpdateContent;
+    expect(none.picture, isA<NoPicture>());
+
+    final named =
+        MessageContent.decode(
+              const ChannelUpdateContent(name: 'Trips').encode(),
+            )
+            as ChannelUpdateContent;
+    expect(named.name, 'Trips');
+    expect(named.picture, isNull);
+  });
+
+  test(
+    'an unknown symbol or colour decodes to UnknownPicture, not a throw',
+    () {
+      for (final pic in [
+        '{"type":"symbol","symbol":"rocket","color":"sky"}',
+        '{"type":"symbol","symbol":"plane","color":"teal"}',
+        '{"type":"gif"}',
+        '{"type":"symbol","symbol":5}',
+        '"nope"',
+      ]) {
+        final c =
+            MessageContent.decode(
+                  '{"v":1,"kind":"channel_update","picture":$pic}',
+                )
+                as ChannelUpdateContent;
+        expect(c.picture, isA<UnknownPicture>(), reason: pic);
+      }
+    },
+  );
+
+  test('an UnknownPicture re-encodes to its original JSON without throwing', () {
+    final c =
+        MessageContent.decode(
+              '{"v":1,"kind":"channel_update","picture":{"type":"gif","x":1}}',
+            )
+            as ChannelUpdateContent;
+    expect(c.picture!.toJson(), {'type': 'gif', 'x': 1});
+    expect(c.encode, returnsNormally);
+  });
+
+  test('an unknown v1 kind decodes to UnsupportedContent carrying the raw '
+      'plaintext', () {
+    const raw = '{"v":1,"kind":"poll","q":"x"}';
+    final c = MessageContent.decode(raw);
+    expect(c, isA<UnsupportedContent>());
+    expect((c as UnsupportedContent).raw, raw);
+    expect(c.encode(), raw);
+  });
+
+  test('non-JSON and non-v1 plaintext still decode as text', () {
+    expect((MessageContent.decode('hello') as TextContent).text, 'hello');
+    const v2 = '{"v":2,"kind":"text","text":"x"}';
+    expect((MessageContent.decode(v2) as TextContent).text, v2);
   });
 }

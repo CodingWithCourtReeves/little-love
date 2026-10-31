@@ -1,10 +1,7 @@
-import 'dart:convert';
 import 'dart:io';
 
 import '../attachment/attachment_descriptor.dart';
-import '../attachment/attachment_upload.dart';
-import '../attachment/file_crypto.dart';
-import '../attachment/thumbnail.dart';
+import '../attachment/square_image.dart';
 import '../conversation/room_key_cache.dart';
 import '../identity/keypair.dart';
 import '../inbox/room.dart';
@@ -60,29 +57,13 @@ Future<AttachmentDescriptor?> ensureAvatarUploaded({
   final file = File(avatarPath);
   if (!file.existsSync()) return null;
   final bytes = await file.readAsBytes();
-  final enc = await encryptFileBytes(bytes);
-  final blobKey = await uploadCiphertext(
+  final descriptor = await uploadSquareImage(
     conn: conn,
     roomId: room.roomId,
-    ciphertext: enc.ciphertext,
-  );
-  final thumb = await buildImageThumbnail(
-    bytes,
-    maxEdge: 128,
-    maxThumbBytes: 12 * 1024,
-  );
-  final descriptor = AttachmentDescriptor(
-    blobKey: blobKey,
-    contentKeyB64: base64.encode(enc.key),
-    nonceB64: base64.encode(enc.nonce),
-    mime: 'image/jpeg',
+    jpeg: bytes,
     filename: 'avatar.jpg',
-    size: bytes.length,
-    width: thumb.width,
-    height: thumb.height,
-    durationMs: null,
-    thumbB64: base64.encode(thumb.jpeg),
   );
+  final blobKey = descriptor.blobKey;
   await cache.setAvatar(descriptor, blobKey);
   return descriptor;
 }

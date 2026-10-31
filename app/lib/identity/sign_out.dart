@@ -1,5 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../attachment/attachment_download.dart';
+import '../channel/channel_picture_provider.dart';
+import '../channel/pending_channel_actions.dart';
 import '../conversation/draft_preview_state.dart';
 import '../conversation/message_db.dart';
 import '../conversation/room_hydration_state.dart';
@@ -12,6 +15,16 @@ import '../outbox/outbox_store.dart';
 import '../profile/profile_publish_cache.dart';
 import '../profile/profile_store.dart';
 import 'providers.dart';
+
+/// Deletes the on-disk decrypted media cache. A missing folder is fine. A
+/// provider so widget tests (fake-async zone, where real file I/O never
+/// completes) can swap in a no-op.
+final attachmentCacheWipeProvider = Provider<Future<void> Function()>(
+  (ref) =>
+      () => attachmentsCacheDir().then((d) async {
+        if (await d.exists()) await d.delete(recursive: true);
+      }),
+);
 
 /// Sign the current account out of this device: wipe the local identity and all
 /// per-account local data, then reset the session so [AuthGate] returns to the
@@ -40,6 +53,14 @@ Future<void> signOut(WidgetRef ref) async {
   // plaintext history. Await it, best-effort.
   final messageDbFuture = ref.read(messageDbProvider.future);
   await messageDbFuture.then((db) => db.clear()).catchError((_) {});
+
+  // Decrypted received media and channel pictures cached on disk. The cache is
+  // device-global (not account-scoped), so a new account would otherwise find
+  // the previous couple's photos. Await it; best-effort.
+  await ref.read(attachmentCacheWipeProvider)().catchError((_) {
+    // Best-effort: a failed delete must not abort sign-out, and there is
+    // nothing useful to do about it here.
+  });
 
   // 1. Persisted identity + per-account data.
   if (username != null) {
@@ -73,6 +94,11 @@ Future<void> signOut(WidgetRef ref) async {
   // messageDb.clear() above) and whether each room's history has loaded.
   ref.invalidate(draftPreviewProvider);
   ref.invalidate(roomHydratedProvider);
+  // Channel pictures: the queued channel actions, the resolved picture per
+  // channel, and the decrypted photo files (deleted from disk above).
+  ref.invalidate(pendingChannelActionsProvider);
+  ref.invalidate(currentChannelPictureProvider);
+  ref.invalidate(channelPhotoFileProvider);
   // Reset the toggle's state so the next account sees it off (matches the
   // cleared pref above).
   ref.invalidate(crashReportingProvider);

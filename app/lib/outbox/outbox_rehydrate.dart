@@ -86,6 +86,8 @@ Future<void> rehydrateOutbox({
     // A pending reaction is not a timeline bubble; it applies onto its target
     // when it drains. Leave the row to drain and render nothing here.
     if (content is ReactionContent) continue;
+    // An unknown kind has nothing to show; leave the row to drain.
+    if (content is UnsupportedContent) continue;
     // A pending unsend: tombstone its target now (so a replay of the target
     // can't out-race the still-draining delete) and render no bubble. The row
     // is our own outbox, so the deleter is us — only our own messages can be in
@@ -136,6 +138,8 @@ Future<void> rehydrateOutbox({
       ReactionContent() => ('', null, null, null), // handled above
       DeleteContent() => ('', null, null, null), // handled above
       EditContent() => ('', null, null, null), // handled above
+      ChannelUpdateContent() => ('', null, null, null), // no body
+      UnsupportedContent() => ('', null, null, null), // handled above
     };
     getMessageStore(row.roomId).add(
       Msg(
@@ -149,6 +153,7 @@ Future<void> rehydrateOutbox({
         attachment: attachment,
         linkPreview: preview,
         replyTo: replyTo,
+        channelUpdate: content is ChannelUpdateContent ? content : null,
       ),
     );
   }

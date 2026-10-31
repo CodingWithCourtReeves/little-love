@@ -1,5 +1,20 @@
 import 'package:flutter/material.dart';
 
+/// One channel-tile colour: a [tint] background and the [ink] drawn on it
+/// (a letter or a symbol). Indexed by `ChannelColor.index`.
+@immutable
+class ChannelSwatch {
+  const ChannelSwatch(this.tint, this.ink);
+  final Color tint;
+  final Color ink;
+
+  static ChannelSwatch lerp(ChannelSwatch a, ChannelSwatch b, double t) =>
+      ChannelSwatch(
+        Color.lerp(a.tint, b.tint, t)!,
+        Color.lerp(a.ink, b.ink, t)!,
+      );
+}
+
 /// The product palette, delivered at runtime through [ThemeData] so the whole
 /// app (every screen, sheet, dialog, the Material defaults) recolors when the
 /// wallpaper's brightness changes. One warm-dusk identity in two brightnesses:
@@ -35,6 +50,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     required this.searchMatch,
     required this.searchMatchCurrent,
     required this.searchMatchCurrentText,
+    required this.channelSwatches,
   });
 
   final Brightness brightness;
@@ -87,6 +103,11 @@ class AppPalette extends ThemeExtension<AppPalette> {
   /// Text on [searchMatchCurrent].
   final Color searchMatchCurrentText;
 
+  /// Channel tile colours (letter and symbol tiles), one per `ChannelColor`
+  /// in enum order. Each ink clears 4.5:1 on its tint
+  /// (`palette_contrast_test.dart`).
+  final List<ChannelSwatch> channelSwatches;
+
   /// "The hour the lamps come on" — pale rose / aubergine neutrals. Values are
   /// the original Twilight light palette, unchanged.
   static const AppPalette light = AppPalette(
@@ -113,6 +134,14 @@ class AppPalette extends ThemeExtension<AppPalette> {
     searchMatch: Color(0x38A04A6A),
     searchMatchCurrent: Color(0xFFA04A6A),
     searchMatchCurrentText: Color(0xFFFFFFFF),
+    channelSwatches: [
+      ChannelSwatch(Color(0xFFE8C8D2), Color(0xFF7E3753)),
+      ChannelSwatch(Color(0xFFF0D3C7), Color(0xFF8A4630)),
+      ChannelSwatch(Color(0xFFEEE0CB), Color(0xFF7A5A2E)),
+      ChannelSwatch(Color(0xFFD3E3D7), Color(0xFF3F6A4D)),
+      ChannelSwatch(Color(0xFFD2E0EA), Color(0xFF3A5F7A)),
+      ChannelSwatch(Color(0xFFDED5EA), Color(0xFF5B4A7A)),
+    ],
   );
 
   /// "Deep dusk" — the Deep Dusk wallpaper world as the app canvas. The rose
@@ -142,6 +171,14 @@ class AppPalette extends ThemeExtension<AppPalette> {
     searchMatch: Color(0x59C98EA3),
     searchMatchCurrent: Color(0xFFC98EA3),
     searchMatchCurrentText: Color(0xFF2A0F1C),
+    channelSwatches: [
+      ChannelSwatch(Color(0xFF5E2C49), Color(0xFFF2CFDD)),
+      ChannelSwatch(Color(0xFF5A3326), Color(0xFFF5D6CA)),
+      ChannelSwatch(Color(0xFF4E3F28), Color(0xFFF1E2C9)),
+      ChannelSwatch(Color(0xFF2F4A38), Color(0xFFCFE6D5)),
+      ChannelSwatch(Color(0xFF26394A), Color(0xFFD3E3F0)),
+      ChannelSwatch(Color(0xFF3E3354), Color(0xFFE2D8F0)),
+    ],
   );
 
   /// The palette for a given brightness — the seam the wallpaper drives.
@@ -173,6 +210,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     Color? searchMatch,
     Color? searchMatchCurrent,
     Color? searchMatchCurrentText,
+    List<ChannelSwatch>? channelSwatches,
   }) {
     return AppPalette(
       brightness: brightness ?? this.brightness,
@@ -199,6 +237,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
       searchMatchCurrent: searchMatchCurrent ?? this.searchMatchCurrent,
       searchMatchCurrentText:
           searchMatchCurrentText ?? this.searchMatchCurrentText,
+      channelSwatches: channelSwatches ?? this.channelSwatches,
     );
   }
 
@@ -246,6 +285,10 @@ class AppPalette extends ThemeExtension<AppPalette> {
         other.searchMatchCurrentText,
         t,
       )!,
+      channelSwatches: [
+        for (var i = 0; i < channelSwatches.length; i++)
+          ChannelSwatch.lerp(channelSwatches[i], other.channelSwatches[i], t),
+      ],
     );
   }
 }

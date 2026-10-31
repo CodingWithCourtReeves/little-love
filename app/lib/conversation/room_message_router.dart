@@ -6,6 +6,9 @@ import '../attachment/attachment_descriptor.dart';
 import '../attachment/attachment_download.dart';
 import '../audio/message_feedback.dart';
 import '../calling/call_log.dart';
+import '../channel/channel_picture.dart';
+import '../channel/channel_update_sender.dart';
+import '../channel/pending_channel_actions.dart';
 import '../diagnostics/crash_reporting.dart';
 import '../identity/current_identity.dart';
 import '../identity/providers.dart';
@@ -49,12 +52,16 @@ class RoomMessageRouter {
   // cold-launch race where messages replay just before the room auto-selects).
   final Map<String, Timer> _markReadDebounce = {};
 
+  /// Newest id per room of a partner message the store doesn't hold; folded into
+  /// the MarkRead watermark so the server's unread_count clears for it too.
+  final Map<String, String> _droppedUpTo = {};
+
   void _scheduleMarkRead(String roomId) {
     _markReadDebounce[roomId]?.cancel();
     _markReadDebounce[roomId] = Timer(const Duration(milliseconds: 400), () {
       _markReadDebounce.remove(roomId);
       if (ref.read(activeRoomProvider) == roomId) {
-        sendMarkRead(ref, roomId);
+        sendMarkRead(ref, roomId, alsoUpTo: _droppedUpTo[roomId]);
       }
     });
   }
@@ -105,6 +112,10 @@ class RoomMessageRouter {
       case RoomCreatedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
         await _subscribe(roomId);
+        final choice = ref
+            .read(pendingChannelActionsProvider)
+            .takeCreated(name);
+        if (choice != null) unawaited(_applyCreatedPicture(roomId, choice));
 
       case InviteConsumedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
@@ -112,6 +123,9 @@ class RoomMessageRouter {
 
       case RoomRenamedFrame(:final roomId, :final name):
         ref.read(inboxStateProvider.notifier).renameRoom(roomId, name);
+        if (ref.read(pendingChannelActionsProvider).takeRename(roomId, name)) {
+          unawaited(_sendRenameLine(roomId, name));
+        }
 
       case MemberLeftFrame(:final roomId, :final username):
         ref.read(inboxStateProvider.notifier).removeMember(roomId, username);
@@ -192,6 +206,53 @@ class RoomMessageRouter {
     }
   }
 
+  Room? _roomById(String roomId) {
+    for (final r in ref.read(inboxStateProvider).rooms) {
+      if (r.roomId == roomId) return r;
+    }
+    return null;
+  }
+
+  /// Sends the picture picked in the new-channel sheet, now that the server
+  /// has confirmed the room. The sender reports its own failures.
+  Future<void> _applyCreatedPicture(
+    String roomId,
+    ChannelPictureChoice choice,
+  ) async {
+    try {
+      final account = await ref.read(accountProvider.future);
+      final room = _roomById(roomId);
+      if (account == null || room == null) return;
+      await ref
+          .read(channelUpdateSenderProvider)
+          .applyChoice(
+            room: room,
+            selfUsername: account.username,
+            choice: choice,
+          );
+    } catch (e, st) {
+      reportFault(e, st, context: 'channel_created_picture');
+    }
+  }
+
+  /// Sends "renamed the channel to X" once the server confirmed my rename.
+  Future<void> _sendRenameLine(String roomId, String name) async {
+    try {
+      final account = await ref.read(accountProvider.future);
+      final room = _roomById(roomId);
+      if (account == null || room == null) return;
+      await ref
+          .read(channelUpdateSenderProvider)
+          .sendRenameLine(
+            room: room,
+            selfUsername: account.username,
+            name: name,
+          );
+    } catch (e, st) {
+      reportFault(e, st, context: 'channel_rename_line');
+    }
+  }
+
   /// Re-publish my own profile (display name + cached avatar) to my partner on
   /// connect. No-ops before pairing or when nothing has been set.
   Future<void> _republishMyProfile() async {
@@ -257,8 +318,50 @@ class RoomMessageRouter {
     if (ref.read(roomHydratedProvider(roomId))) return;
     final db = await ref.read(messageDbProvider.future);
     final cached = await db.messagesFor(roomId);
+    final store = ref.read(messageStoreProvider(roomId).notifier);
     if (cached.isNotEmpty) {
-      ref.read(messageStoreProvider(roomId).notifier).setAll(cached);
+      store.setAll([
+        for (final m in cached)
+          if (!m.isHidden) m,
+      ]);
+    }
+    // A hidden row may be a kind this build now understands: re-decode it and
+    // apply it as a replay. Rooms not yet known (no inbox entry) are skipped;
+    // the row stays cached for the next hydrate.
+    Room? room;
+    for (final r in ref.read(inboxStateProvider).rooms) {
+      if (r.roomId == roomId) room = r;
+    }
+    var reapplied = false;
+    if (room != null) {
+      for (final m in cached) {
+        if (!m.isHidden) continue;
+        final content = MessageContent.decode(m.unsupportedBody!);
+        if (content is UnsupportedContent) continue;
+        await _applyContent(
+          MessageFrame(
+            id: m.id,
+            roomId: roomId,
+            from: m.from,
+            ts: m.ts,
+            body: '',
+            replayed: true,
+          ),
+          room,
+          content,
+        );
+        reapplied = true;
+      }
+    }
+    if (reapplied) {
+      // Re-applied rows were appended; restore timeline order (stable on ties).
+      final rows = [...ref.read(messageStoreProvider(roomId))];
+      final order = {for (var i = 0; i < rows.length; i++) rows[i].id: i};
+      rows.sort((a, b) {
+        final c = a.ts.compareTo(b.ts);
+        return c != 0 ? c : order[a.id]!.compareTo(order[b.id]!);
+      });
+      store.setAll(rows);
     }
     ref.read(roomHydratedProvider(roomId).notifier).markHydrated();
   }
@@ -302,6 +405,17 @@ class RoomMessageRouter {
     final content = plaintext == cannotDecryptSentinel
         ? const TextContent(cannotDecryptSentinel)
         : MessageContent.decode(plaintext);
+    await _applyContent(f, room, content);
+  }
+
+  /// Everything after decrypt+decode: route [content] into the store and the
+  /// local projection. Also used by [_hydrate] to re-apply a cached row whose
+  /// kind an older build couldn't read.
+  Future<void> _applyContent(
+    MessageFrame f,
+    Room room,
+    MessageContent content,
+  ) async {
     final store = ref.read(messageStoreProvider(f.roomId).notifier);
     final db = await ref.read(messageDbProvider.future);
     // A reaction isn't a timeline bubble: apply it onto its target and stop.
@@ -325,6 +439,44 @@ class RoomMessageRouter {
         await outbox.remove(f.clientMsgId!);
       }
       return;
+    }
+    // A kind this build doesn't understand: keep the raw plaintext hidden in the
+    // cache so a newer build can re-decode it. Never enters the timeline. The
+    // sender's echo still drops its outbox row.
+    if (content is UnsupportedContent) {
+      await db.upsert(
+        Msg(
+          id: f.id,
+          from: f.from,
+          to: f.roomId,
+          body: '',
+          ts: f.ts,
+          replayed: f.replayed,
+          unsupportedBody: content.raw,
+        ),
+        roomId: f.roomId,
+      );
+      if (f.clientMsgId != null) {
+        final outbox = await ref.read(outboxStoreProvider.future);
+        await outbox.remove(f.clientMsgId!);
+      }
+      _markDroppedRead(f);
+      return;
+    }
+    // A channel update only means something in a channel. In the partner chat,
+    // or with nothing to change, it renders no row; still drop the outbox row.
+    if (content is ChannelUpdateContent) {
+      final account = await ref.read(accountProvider.future);
+      final inChannel =
+          account != null && room.shape(account.username) == RoomShape.chat;
+      if (!inChannel || (content.picture == null && content.name == null)) {
+        if (f.clientMsgId != null) {
+          final outbox = await ref.read(outboxStoreProvider.future);
+          await outbox.remove(f.clientMsgId!);
+        }
+        _markDroppedRead(f);
+        return;
+      }
     }
     // An unsend isn't a timeline bubble either: tombstone its target and stop.
     // Only the message's author may unsend it — `applyDelete` drops a delete
@@ -418,6 +570,18 @@ class RoomMessageRouter {
       ReactionContent() => throw StateError('reaction handled above'),
       DeleteContent() => throw StateError('delete handled above'),
       EditContent() => throw StateError('edit handled above'),
+      // A channel picture/name change is a body-less timeline event row.
+      ChannelUpdateContent() => Msg(
+        id: f.id,
+        from: f.from,
+        to: f.roomId,
+        body: '',
+        ts: f.ts,
+        replayed: f.replayed,
+        sendStatus: sendStatus,
+        channelUpdate: content,
+      ),
+      UnsupportedContent() => throw StateError('unsupported handled above'),
     };
     // Live self-copy of our own message: swap the optimistic echo (keyed by
     // clientMsgId) for this authoritative row instead of appending a duplicate.
@@ -446,7 +610,7 @@ class RoomMessageRouter {
           // message landing while you're reading registers without a banner. A
           // call-log entry (emitted when a call ends) is not a message to chime
           // about — same exclusion the banner makes below.
-          if (content is! CallContent) {
+          if (content is! CallContent && content is! ChannelUpdateContent) {
             // A love tap (#76) arrives as a heartbeat instead of the light tap.
             // A quoted reply isn't one: it renders as a bubble, not the heart.
             final loveTap =
@@ -460,8 +624,9 @@ class RoomMessageRouter {
           // leaving the room doesn't leave a phantom unread dot for a message
           // we just watched arrive. The watermark in sendMarkRead already
           // covers this message since it's in the store before this runs.
-          markRoomRead(ref, f.roomId);
-        } else if (content is! CallContent) {
+          markRoomRead(ref, f.roomId, alsoUpTo: _droppedUpTo[f.roomId]);
+        } else if (content is! CallContent &&
+            content is! ChannelUpdateContent) {
           // A live message in a room that isn't on screen: pop an in-app banner
           // so partner activity in another thread isn't invisible while you're
           // reading a different one. A call-log entry (emitted when a call ends)
@@ -478,6 +643,23 @@ class RoomMessageRouter {
         // sends one MarkRead. No banner: a reconnect would otherwise storm them.
         _scheduleMarkRead(f.roomId);
       }
+    }
+  }
+
+  /// A partner message the router stores nothing visible for (unknown kind, or
+  /// a channel update with no row) is still counted by the server's unread_count
+  /// and so must be marked read like a timeline row: now when it lands live in
+  /// the open room, debounced when replayed. Nothing for my own self-copy or
+  /// for a live message in a room that isn't on screen.
+  void _markDroppedRead(MessageFrame f) {
+    if (f.clientMsgId != null) return;
+    // The store never holds this id, so remember it as a read watermark floor.
+    final prev = _droppedUpTo[f.roomId];
+    if (prev == null || f.id.compareTo(prev) > 0) _droppedUpTo[f.roomId] = f.id;
+    if (f.replayed) {
+      _scheduleMarkRead(f.roomId);
+    } else if (ref.read(activeRoomProvider) == f.roomId) {
+      markRoomRead(ref, f.roomId, alsoUpTo: _droppedUpTo[f.roomId]);
     }
   }
 

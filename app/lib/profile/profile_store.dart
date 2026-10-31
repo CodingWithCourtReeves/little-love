@@ -52,3 +52,14 @@ class ProfileStore extends ChangeNotifier {
 final profileStoreProvider = ChangeNotifierProvider<ProfileStore>(
   (_) => ProfileStore(),
 );
+
+/// [username]'s display name, else the username with its first letter
+/// capitalised ("kaitlyn" reads "Kaitlyn"), so an unset profile never shows a
+/// raw handle.
+String displayNameFor(ProfileStore profiles, String username) {
+  final name = profiles.forUsername(username)?.displayName;
+  if (name != null && name.isNotEmpty) return name;
+  return username.isEmpty
+      ? ''
+      : username[0].toUpperCase() + username.substring(1);
+}

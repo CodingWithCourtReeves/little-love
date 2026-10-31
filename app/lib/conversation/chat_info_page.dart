@@ -5,6 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../attachment/attachment_descriptor.dart';
 import '../calling/call_controller.dart';
+import '../channel/channel_picture.dart';
+import '../channel/channel_picture_provider.dart';
+import '../channel/channel_picture_sheet.dart';
+import '../channel/channel_tile.dart';
 import '../inbox/room.dart';
 import '../profile/avatar.dart';
 import '../profile/profile_store.dart';
@@ -36,6 +40,7 @@ class ChatInfoPage extends ConsumerWidget {
     required this.room,
     required this.selfUsername,
     this.onRename,
+    this.onChannelPicture,
     this.onOpenAttachment,
   });
 
@@ -45,6 +50,11 @@ class ChatInfoPage extends ConsumerWidget {
   /// Renames the room; null when the room can't be renamed (e.g. the bare
   /// partner DM). When set, a "Rename chat" row appears here.
   final void Function(String newName)? onRename;
+
+  /// Applies a picture picked in the channel picture sheet. Null hides both
+  /// entry points (the header photo and the "Channel picture" row), as it is
+  /// for the partner chat, which has no channel picture.
+  final Future<void> Function(ChannelPictureChoice choice)? onChannelPicture;
 
   /// Opens a shared photo or video in the chat's viewer (the conversation's
   /// own callback, passed through). Null leaves the thumbnails display-only.
@@ -56,12 +66,14 @@ class ChatInfoPage extends ConsumerWidget {
     required Room room,
     required String selfUsername,
     void Function(String newName)? onRename,
+    Future<void> Function(ChannelPictureChoice choice)? onChannelPicture,
     void Function(AttachmentDescriptor descriptor)? onOpenAttachment,
   }) => MaterialPageRoute<ChatInfoResult>(
     builder: (_) => ChatInfoPage(
       room: room,
       selfUsername: selfUsername,
       onRename: onRename,
+      onChannelPicture: onChannelPicture,
       onOpenAttachment: onOpenAttachment,
     ),
   );
@@ -119,11 +131,11 @@ class ChatInfoPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [
-          _header(context, name, avatarFile, subtitle),
+          _header(context, ref, name, avatarFile, subtitle),
           _actionRow(context, ref),
           _sharedSection(context, shared),
           _thisChatSection(context, ref),
-          _encryptionNote(context, withWhom),
+          _encryptionNote(context, withWhom, isChannel),
         ],
       ),
     );
@@ -207,6 +219,7 @@ class ChatInfoPage extends ConsumerWidget {
 
   Widget _header(
     BuildContext context,
+    WidgetRef ref,
     String name,
     File? avatarFile,
     Widget subtitle,
@@ -216,13 +229,16 @@ class ChatInfoPage extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
       child: Column(
         children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: infoCardColor(p), width: 4),
+          if (room.shape(selfUsername) == RoomShape.chat)
+            _channelPicture(context, ref)
+          else
+            DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: infoCardColor(p), width: 4),
+              ),
+              child: Avatar(seedText: name, imageFile: avatarFile, radius: 48),
             ),
-            child: Avatar(seedText: name, imageFile: avatarFile, radius: 48),
-          ),
           const SizedBox(height: 10),
           Text(
             name,
@@ -244,6 +260,78 @@ class ChatInfoPage extends ConsumerWidget {
     );
   }
 
+  /// The channel's picture in the header: a 96pt tile in the same 4px ring the
+  /// partner's avatar wears, rounded to match. When [onChannelPicture] is set
+  /// the whole thing is a button with a camera badge. There is no dedicated
+  /// token for the badge's cut-out border, so it uses [infoCardColor], the
+  /// ring colour, which sits against the page the same way.
+  Widget _channelPicture(BuildContext context, WidgetRef ref) {
+    final p = context.palette;
+    final tile = DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: infoCardColor(p), width: 4),
+      ),
+      child: ChannelTile(room: room, selfUsername: selfUsername, size: 96),
+    );
+    if (onChannelPicture == null) return tile;
+    return Semantics(
+      button: true,
+      label: 'Change channel picture',
+      excludeSemantics: true,
+      child: GestureDetector(
+        key: const Key('chat-info-channel-picture'),
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _changePicture(context, ref),
+        child: SizedBox(
+          width: 112,
+          height: 112,
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              tile,
+              Positioned(
+                right: -8,
+                bottom: -8,
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: p.accentUser,
+                    border: Border.all(color: infoCardColor(p), width: 3),
+                  ),
+                  child: const Icon(
+                    Icons.photo_camera_outlined,
+                    size: 16,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Opens the picture sheet on this channel's current picture and hands a
+  /// non-null result to [onChannelPicture].
+  Future<void> _changePicture(BuildContext context, WidgetRef ref) async {
+    final current = ref.read(currentChannelPictureProvider(room.roomId));
+    final photo = channelPhotoFor(ref, room.roomId);
+    final choice = await showChannelPictureSheet(
+      context,
+      name: room.displayName(selfUsername),
+      colorSeed: room.roomId,
+      current: current,
+      currentPhoto: photo,
+      room: room,
+    );
+    if (choice != null) await onChannelPicture?.call(choice);
+  }
+
   /// "This chat" (#93): the wallpaper (global, so this opens the same picker
   /// the profile page hosts) and, for a channel, Rename. The partner DM can't
   /// be renamed ([onRename] is null), since a name would turn it into a
@@ -260,6 +348,19 @@ class ChatInfoPage extends ConsumerWidget {
           value: wallpaper.label,
           onTap: () => Navigator.of(context).push(WallpaperScreen.route()),
         ),
+        if (onChannelPicture != null &&
+            room.shape(selfUsername) == RoomShape.chat)
+          InfoRow(
+            key: const Key('chat-info-channel-picture-row'),
+            icon: Icons.image_outlined,
+            label: 'Channel picture',
+            trailing: ChannelTile(
+              room: room,
+              selfUsername: selfUsername,
+              size: 28,
+            ),
+            onTap: () => _changePicture(context, ref),
+          ),
         if (onRename != null)
           InfoRow(
             key: const Key('chat-info-rename'),
@@ -275,7 +376,11 @@ class ChatInfoPage extends ConsumerWidget {
   /// messages go under the room key, media under per-file keys, and calls are
   /// WebRTC (DTLS-SRTP) whose fingerprints are exchanged inside the encrypted
   /// signaling envelope, so even a TURN relay only forwards ciphertext.
-  Widget _encryptionNote(BuildContext context, String? withWhom) {
+  Widget _encryptionNote(
+    BuildContext context,
+    String? withWhom,
+    bool isChannel,
+  ) {
     final p = context.palette;
     final who = withWhom == null ? 'you' : 'you and $withWhom';
     return Padding(
@@ -291,8 +396,11 @@ class ChatInfoPage extends ConsumerWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Messages, calls and media are end-to-end encrypted. '
-              'Only $who can see them.',
+              isChannel
+                  ? 'Messages, calls, media and this channel\'s picture are '
+                        'end-to-end encrypted. Only $who can see them.'
+                  : 'Messages, calls and media are end-to-end encrypted. '
+                        'Only $who can see them.',
               style: TextStyle(
                 fontSize: 12,
                 height: 1.4,
@@ -322,10 +430,15 @@ class ChatInfoPage extends ConsumerWidget {
             onPressed: () => Navigator.of(ctx).pop(null),
             child: const Text('Cancel'),
           ),
-          FilledButton(
-            key: const Key('rename-dialog-save'),
-            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-            child: const Text('Save'),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (_, value, _) => FilledButton(
+              key: const Key('rename-dialog-save'),
+              onPressed: value.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.of(ctx).pop(controller.text.trim()),
+              child: const Text('Save'),
+            ),
           ),
         ],
       ),

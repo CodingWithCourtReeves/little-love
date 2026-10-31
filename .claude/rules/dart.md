@@ -165,9 +165,13 @@ also needs a device install via `scripts/ios-deploy.sh` (see `CLAUDE.md`,
 - **Adding a `MessageContent` kind or a frame type:** update every exhaustive
   `switch` on it (router, outbox rehydrate, `MessageDb`, FTS indexing,
   chat-info tabs, reply-quote preview) and decide explicitly whether it bumps
-  unread, banner and chime. Non-timeline kinds (reaction, delete, edit,
-  call-log) must not. Mirror the change in `server/src/wire.rs` with a
-  round-trip test on both sides.
+  unread, banner and chime. Control kinds (reaction, delete, edit) and
+  timeline events (call logs, channel lines; `Msg.isTimelineEvent`) must not.
+  An unknown v1 kind decodes to `UnsupportedContent` and is kept as a hidden
+  row (`raw_body`, re-decoded on hydrate); a dropped or hidden partner message
+  is still marked read through `alsoUpTo` on `sendMarkRead`/`markRoomRead`.
+  Mirror the change in `server/src/wire.rs` with a round-trip test on both
+  sides.
 
 ## Wire and data classes
 

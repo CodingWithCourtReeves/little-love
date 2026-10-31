@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/channel/channel_picture.dart';
 import 'package:littlelove/conversation/composer_draft.dart';
 import 'package:littlelove/conversation/link_preview.dart';
+import 'package:littlelove/conversation/message_content.dart';
 import 'package:littlelove/conversation/message_db.dart';
 import 'package:littlelove/conversation/reply_ref.dart';
 import 'package:littlelove/wire/message.dart';
@@ -444,5 +446,77 @@ void main() {
       await db.clear();
       expect(await db.draftFor('room1'), isNull);
     });
+  });
+
+  group('channel updates and hidden rows', () {
+    test('a channel_update row round-trips through the cache', () async {
+      final db = await freshDb();
+      await db.upsert(
+        Msg(
+          id: '01C',
+          from: 'court',
+          to: 'room1',
+          body: '',
+          ts: DateTime.utc(2026, 6, 24, 12),
+          channelUpdate: const ChannelUpdateContent(
+            picture: SymbolPicture(ChannelSymbol.heart, ChannelColor.rose),
+          ),
+        ),
+        roomId: 'room1',
+      );
+      final row = (await db.messagesFor('room1')).single;
+      final pic = row.channelUpdate!.picture! as SymbolPicture;
+      expect(pic.symbol, ChannelSymbol.heart);
+      expect(pic.color, ChannelColor.rose);
+      expect(row.isTimelineEvent, isTrue);
+    });
+
+    test(
+      'a hidden row keeps its raw plaintext and is not searchable',
+      () async {
+        final db = await freshDb();
+        const raw = '{"v":1,"kind":"poll"}';
+        await db.upsert(
+          Msg(
+            id: '01H',
+            from: 'court',
+            to: 'room1',
+            body: '',
+            ts: DateTime.utc(2026, 6, 24, 12),
+            unsupportedBody: raw,
+          ),
+          roomId: 'room1',
+        );
+        final row = (await db.messagesFor('room1')).single;
+        expect(row.unsupportedBody, raw);
+        expect(row.isHidden, isTrue);
+        expect(await db.search('poll', roomId: 'room1'), isEmpty);
+      },
+    );
+
+    test(
+      'upgrading a v5 cache adds the new columns and keeps old rows',
+      () async {
+        final raw = await databaseFactory.openDatabase(
+          inMemoryDatabasePath,
+          options: OpenDatabaseOptions(
+            version: MessageDb.schemaVersion,
+            onCreate: MessageDb.onCreate,
+          ),
+        );
+        addTearDown(raw.close);
+        final db = MessageDb.test(raw);
+        await db.upsert(msg('01A', body: 'old'), roomId: 'room1');
+        // Rewind to the v5 shape: no channel_update / raw_body columns.
+        await raw.execute('ALTER TABLE messages DROP COLUMN channel_update');
+        await raw.execute('ALTER TABLE messages DROP COLUMN raw_body');
+        await raw.setVersion(5);
+        await MessageDb.onUpgrade(raw, 5, 6);
+        final row = (await db.messagesFor('room1')).single;
+        expect(row.body, 'old');
+        expect(row.channelUpdate, isNull);
+        expect(row.unsupportedBody, isNull);
+      },
+    );
   });
 }

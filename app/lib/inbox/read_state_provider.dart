@@ -83,7 +83,7 @@ final roomUnreadCountProvider =
       );
       var count = 0;
       for (final m in ref.watch(messageStoreProvider(key.roomId))) {
-        if (m.from == key.me || m.callOutcome != null) continue;
+        if (m.from == key.me || m.isTimelineEvent) continue;
         if (marker == null || m.ts.isAfter(marker)) count++;
       }
       return count;

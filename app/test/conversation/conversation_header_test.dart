@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/channel/channel_tile.dart';
 import 'package:littlelove/conversation/conversation_page.dart';
+import 'package:littlelove/profile/avatar.dart';
 import 'package:littlelove/conversation/presence_state.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
@@ -63,6 +65,64 @@ void main() {
     expect(find.byKey(const Key('video-call-button')), findsNothing);
     expect(find.byKey(const Key('call-button')), findsNothing);
     expect(find.byKey(const Key('room-header-avatar')), findsOneWidget);
+  });
+
+  testWidgets('a channel header shows the channel tile, the partner chat '
+      'shows the avatar', (tester) async {
+    final c = ProviderContainer(
+      overrides: [
+        accountProvider.overrideWith((_) async => _account),
+        hermeticReadStateStore(),
+      ],
+    );
+    addTearDown(c.dispose);
+    await c.read(accountProvider.future);
+
+    Future<void> show(Room room) async {
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: c,
+          child: MaterialApp(
+            theme: buildAppTheme(AppPalette.light),
+            home: ConversationPage(
+              key: ValueKey(room.name),
+              room: room,
+              selfUsername: 'me',
+              onSend: (_, _) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    final header = find.byKey(const Key('room-header-avatar'));
+    await show(
+      Room(
+        roomId: 'r2',
+        name: 'Trip',
+        members: _room().members,
+        createdAt: DateTime.utc(2026, 6, 13),
+      ),
+    );
+    expect(
+      find.descendant(of: header, matching: find.byType(ChannelTile)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: header, matching: find.byType(Avatar)),
+      findsNothing,
+    );
+
+    await show(_room());
+    expect(
+      find.descendant(of: header, matching: find.byType(Avatar)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: header, matching: find.byType(ChannelTile)),
+      findsNothing,
+    );
   });
 
   testWidgets('a long "last seen" line truncates instead of overflowing the '

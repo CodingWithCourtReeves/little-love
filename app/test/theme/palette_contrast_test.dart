@@ -89,5 +89,12 @@ void main() {
         greaterThanOrEqualTo(aaBody),
       );
     });
+
+    test('$name: channel swatch ink clears 4.5:1 on its tint', () {
+      expect(p.channelSwatches, hasLength(6));
+      for (final sw in p.channelSwatches) {
+        expect(_contrast(sw.ink, sw.tint), greaterThanOrEqualTo(aaBody));
+      }
+    });
   }
 }

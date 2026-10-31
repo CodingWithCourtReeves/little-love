@@ -31,6 +31,10 @@ import '../inbox/read_state_provider.dart';
 import '../inbox/room.dart';
 import '../inbox/select_room.dart';
 import '../profile/avatar.dart';
+import '../channel/channel_line.dart';
+import '../channel/channel_picture.dart';
+import '../channel/channel_tile.dart';
+import '../channel/channel_line_view.dart';
 import '../profile/profile_store.dart';
 import '../theme/app_palette.dart';
 import '../theme/love_toast.dart';
@@ -107,6 +111,12 @@ class _DayItem extends _Item {
   const _DayItem(this.time);
   final DateTime time;
   DateTime get day => dateOnly(time);
+}
+
+/// A channel change (rename or picture) drawn as a centred line, not a bubble.
+class _ChannelLineItem extends _Item {
+  const _ChannelLineItem(this.msg);
+  final Msg msg;
 }
 
 class _GapItem extends _Item {
@@ -353,6 +363,7 @@ class ConversationPage extends ConsumerStatefulWidget {
     required this.selfUsername,
     required this.onSend,
     this.onRename,
+    this.onChannelPicture,
     this.onRetry,
     this.onPickMedia,
     this.onSendMedia,
@@ -374,6 +385,10 @@ class ConversationPage extends ConsumerStatefulWidget {
   final String? focusMessageId;
   final SendCallback onSend;
   final RenameCallback? onRename;
+
+  /// Applies a channel picture change picked on the chat-info page. Null hides
+  /// the picture controls there (the partner chat has no channel picture).
+  final Future<void> Function(ChannelPictureChoice choice)? onChannelPicture;
   final RetryCallback? onRetry;
 
   /// Tapped the composer's attach (+) button: pick media to stage on the
@@ -675,7 +690,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   /// Whether the message can be quoted in a reply. Real timeline bubbles
   /// (text/media) are reply-able; call-log rows are not.
-  bool _canReply(Msg m) => m.callOutcome == null;
+  bool _canReply(Msg m) => !m.isTimelineEvent;
 
   /// Whether [m] carries an image/video attachment that can be saved to Photos
   /// or shared (voice memos and text are excluded).
@@ -859,7 +874,9 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         _animatedIds.add(m.clientMsgId ?? m.id);
       }
       if (superseded()) return;
-      store.setAll(history);
+      // Hidden rows (unsupported kinds) stay out of the timeline, as in the
+      // router's `_hydrate`.
+      store.setAll(history.where((m) => !m.isHidden).toList());
       await WidgetsBinding.instance.endOfFrame;
       if (!present()) return; // not in full history (e.g. since unsent)
     }
@@ -916,6 +933,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         room: widget.room,
         selfUsername: widget.selfUsername,
         onRename: widget.onRename,
+        onChannelPicture: widget.onChannelPicture,
         onOpenAttachment: widget.onOpenAttachment,
       ),
     );
@@ -1350,7 +1368,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   /// edit yet; cancel + retype instead, like [_deleteAction]).
   VoidCallback? _editAction(Msg m, bool mine) {
     if (!mine || widget.onEdit == null) return null;
-    if (m.attachment != null || m.callOutcome != null) return null;
+    if (m.attachment != null || m.isTimelineEvent) return null;
     switch (m.sendStatus) {
       case SendStatus.sent:
       case SendStatus.read:
@@ -1490,6 +1508,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     _BubbleItem(:final msg) => 'msg-${msg.clientMsgId ?? msg.id}',
     _DayItem(:final day) => 'day-${day.toIso8601String()}',
     _GapItem(:final time) => 'gap-${time.toIso8601String()}',
+    _ChannelLineItem(:final msg) => 'msg-${msg.clientMsgId ?? msg.id}',
   };
 
   /// The partner's username — the room's one other member — or null for a solo
@@ -1717,11 +1736,19 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                       key: const Key('room-header-avatar'),
                       behavior: HitTestBehavior.opaque,
                       onTap: _openChatInfo,
-                      child: Avatar(
-                        seedText: partnerSeed,
-                        imageFile: partnerAvatar,
-                        radius: 17,
-                      ),
+                      child:
+                          widget.room.shape(widget.selfUsername) ==
+                              RoomShape.chat
+                          ? ChannelTile(
+                              room: widget.room,
+                              selfUsername: widget.selfUsername,
+                              size: 34,
+                            )
+                          : Avatar(
+                              seedText: partnerSeed,
+                              imageFile: partnerAvatar,
+                              radius: 17,
+                            ),
                     ),
                   ),
                 ],
@@ -1812,6 +1839,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                                 ),
                               _DayItem(:final time) => _daySeparator(time),
                               _GapItem(:final time) => _gapHeader(time),
+                              _ChannelLineItem(:final msg) => _channelLine(msg),
                             };
                             return KeyedSubtree(
                               key: ValueKey(_rowKey(item)),
@@ -2085,7 +2113,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
       isLoveTap(m.body) &&
       m.replyTo == null &&
       m.attachment == null &&
-      m.callOutcome == null;
+      !m.isTimelineEvent;
 
   /// Heart (sent), double heart (read) or clock (sending) tucked into a
   /// bubble's bottom-right corner, Telegram style.
@@ -2460,6 +2488,24 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     key: ValueKey('day-${dateOnly(first).toIso8601String()}'),
   );
 
+  /// A channel change as a centred line. A failed own send is tap-to-retry.
+  Widget _channelLine(Msg m) {
+    final update = m.channelUpdate!;
+    final who = m.from == widget.selfUsername
+        ? 'You'
+        : displayNameFor(ref.read(profileStoreProvider), m.from);
+    final clientMsgId = m.clientMsgId;
+    final failed = m.sendStatus == SendStatus.failed && clientMsgId != null;
+    return ChannelLineView(
+      key: Key('channel-line-${clientMsgId ?? m.id}'),
+      text: channelLineText(update, who: who),
+      failed: failed,
+      onRetry: failed && widget.onRetry != null
+          ? () => widget.onRetry!(clientMsgId)
+          : null,
+    );
+  }
+
   /// The header after an hour or more of silence, worded like the day
   /// separator ("Today 8:05 PM") so the two read as one system.
   Widget _gapHeader(DateTime t) => ChatSeparator(
@@ -2490,12 +2536,16 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         i == 0 ||
         headers[i] != null ||
         sorted[i].from != sorted[i - 1].from ||
-        sorted[i].callOutcome != null ||
-        sorted[i - 1].callOutcome != null;
+        sorted[i].isTimelineEvent ||
+        sorted[i - 1].isTimelineEvent;
     final out = <_Item>[];
     for (var i = 0; i < sorted.length; i++) {
       final header = headers[i];
       if (header != null) out.add(header);
+      if (sorted[i].channelUpdate != null) {
+        out.add(_ChannelLineItem(sorted[i]));
+        continue;
+      }
       out.add(
         _BubbleItem(
           sorted[i],

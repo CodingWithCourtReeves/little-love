@@ -64,9 +64,14 @@ class SharedMediaPage extends ConsumerWidget {
     required this.room,
     this.initialTab = 0,
     this.onOpenAttachment,
+    this.imagesOnly = false,
   });
 
   final Room room;
+
+  /// Pick mode: only the Photos tab, with videos left out. Tapping a photo
+  /// calls [onOpenAttachment].
+  final bool imagesOnly;
 
   /// 0 Photos, 1 Voice, 2 Links.
   final int initialTab;
@@ -87,10 +92,29 @@ class SharedMediaPage extends ConsumerWidget {
     ),
   );
 
+  /// A page that picks one photo (no videos) and pops its descriptor.
+  static Route<AttachmentDescriptor> pickPhotoRoute({required Room room}) =>
+      MaterialPageRoute<AttachmentDescriptor>(
+        builder: (context) => SharedMediaPage(
+          room: room,
+          imagesOnly: true,
+          onOpenAttachment: (d) => Navigator.of(context).pop(d),
+        ),
+      );
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.palette;
     final shared = sharedContent(ref.watch(messageStoreProvider(room.roomId)));
+    if (imagesOnly) {
+      return InfoScaffold(
+        title: 'Choose a photo',
+        body: _mediaTab(context, [
+          for (final m in shared.media)
+            if (!m.attachment!.isVideo) m,
+        ], empty: 'No photos yet'),
+      );
+    }
     return DefaultTabController(
       length: 3,
       initialIndex: initialTab,
@@ -146,8 +170,12 @@ class SharedMediaPage extends ConsumerWidget {
     );
   }
 
-  Widget _mediaTab(BuildContext context, List<Msg> media) {
-    if (media.isEmpty) return _emptyTab(context, 'No photos or videos yet');
+  Widget _mediaTab(
+    BuildContext context,
+    List<Msg> media, {
+    String empty = 'No photos or videos yet',
+  }) {
+    if (media.isEmpty) return _emptyTab(context, empty);
     return GridView.builder(
       key: const Key('chat-info-media-grid'),
       padding: const EdgeInsets.all(2),

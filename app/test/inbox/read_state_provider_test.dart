@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:littlelove/conversation/message_content.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
@@ -156,6 +157,28 @@ void main() {
           ),
         );
     expect(c.read(unreadElsewhereCountProvider(key)), 0);
+  });
+
+  test('channel updates do not count as unread', () {
+    final c = makeContainer();
+    addTearDown(c.dispose);
+    final key = (me: 'court', roomId: 'room-a');
+    c.listen(roomUnreadCountProvider(key), (_, _) {});
+    c.listen(totalUnreadProvider('court'), (_, _) {});
+    c
+        .read(messageStoreProvider('room-a').notifier)
+        .add(
+          Msg(
+            id: 'ch',
+            from: 'kaitlyn',
+            to: 'room-a',
+            body: '',
+            ts: DateTime.utc(2026, 6, 14, 12),
+            channelUpdate: const ChannelUpdateContent(name: 'Us'),
+          ),
+        );
+    expect(c.read(roomUnreadCountProvider(key)), 0);
+    expect(c.read(totalUnreadProvider('court')), 0);
   });
 
   test('a call-log row never counts as unread (badge or row count)', () {

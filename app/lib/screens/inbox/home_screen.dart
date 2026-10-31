@@ -22,6 +22,10 @@ import '../../conversation/link_preview.dart';
 import '../../conversation/message_content.dart';
 import '../../conversation/reply_ref.dart';
 import '../../conversation/message_store.dart';
+import '../../channel/channel_picture.dart';
+import '../../channel/channel_tile.dart';
+import '../../channel/channel_update_sender.dart';
+import '../../channel/pending_channel_actions.dart';
 import '../../conversation/room_key_cache.dart';
 import '../../conversation/room_message_router.dart';
 import '../../conversation/send_fanout.dart';
@@ -54,6 +58,27 @@ import '../profile/profile_screen.dart';
 /// [ConversationPage]; back pops here. When there are no rooms, the body is the
 /// pairing affordance. Keeps the room message router + outbox drain alive while
 /// mounted (was InboxShell's job).
+/// Snackbar copy when a channel photo is picked without a connection.
+const channelPictureOfflineCopy =
+    "You're offline. Try again when you're connected.";
+
+/// Sends a rename to the server, expecting its echo so the "renamed" line is
+/// posted. A no-op when the name is unchanged (the server would still echo it
+/// and we would post a fake line) or when there is no connection (nothing to
+/// echo, so nothing to expect).
+@visibleForTesting
+void requestRename({
+  required PendingChannelActions pending,
+  required LiveConnection? conn,
+  required String roomId,
+  required String currentName,
+  required String newName,
+}) {
+  if (newName == currentName || conn == null) return;
+  pending.expectRename(roomId, newName);
+  conn.send(RenameRoomFrame(roomId: roomId, name: newName).toJson());
+}
+
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key, required this.account});
 
@@ -269,7 +294,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
         ),
-        for (final r in channels) item(r, leading: const _ChannelTile.hash()),
+        for (final r in channels)
+          item(
+            r,
+            leading: ChannelTile(room: r, selfUsername: _me),
+          ),
         _NewChannelRow(
           showHint: channels.isEmpty,
           onTap: () => showCreateChannelSheet(context, ref),
@@ -309,18 +338,49 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           onRename: room.shape(_me) == RoomShape.partner
               ? null
               : (newName) {
-                  final conn = ref.read(liveConnectionProvider).asData?.value;
-                  conn?.send(
-                    RenameRoomFrame(
-                      roomId: room.roomId,
-                      name: newName,
-                    ).toJson(),
+                  // The route-time [room] can be stale; compare against the
+                  // live one so an unchanged name is a true no-op.
+                  final live = ref
+                      .read(inboxStateProvider)
+                      .rooms
+                      .where((r) => r.roomId == room.roomId)
+                      .firstOrNull;
+                  requestRename(
+                    pending: ref.read(pendingChannelActionsProvider),
+                    conn: ref.read(liveConnectionProvider).asData?.value,
+                    roomId: room.roomId,
+                    currentName: (live ?? room).name,
+                    newName: newName,
                   );
                 },
+          onChannelPicture: room.shape(_me) == RoomShape.partner
+              ? null
+              : (choice) => _applyChannelPicture(room, choice),
         ),
       ),
     );
     _chatOnStack = false;
+  }
+
+  /// Sends a channel picture change. The sender reports failure as `false`
+  /// (it has already reported the fault); say so rather than fail silently.
+  Future<void> _applyChannelPicture(
+    Room room,
+    ChannelPictureChoice choice,
+  ) async {
+    final result = await ref
+        .read(channelUpdateSenderProvider)
+        .applyChoice(room: room, selfUsername: _me, choice: choice);
+    if (result == ChannelUpdateResult.sent || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result == ChannelUpdateResult.offline
+              ? channelPictureOfflineCopy
+              : "Couldn't save the channel picture.",
+        ),
+      ),
+    );
   }
 
   // ---- send/retry/media wiring moved verbatim from inbox_shell.dart ----
@@ -901,20 +961,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-/// The square leading a channel row ("#") or the "New channel" row ("+"), the
-/// same size as the partner's avatar so every row's text lines up.
-class _ChannelTile extends StatelessWidget {
-  const _ChannelTile.hash() : _isNew = false;
-  const _ChannelTile.plus() : _isNew = true;
-
-  /// The "New channel" row's "+" rather than a channel's "#".
-  final bool _isNew;
+/// The "+" square leading the "New channel" row, the same size as a channel's
+/// picture tile so every row's text lines up.
+class _NewChannelTile extends StatelessWidget {
+  const _NewChannelTile();
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     return Container(
-      key: Key(_isNew ? 'new-channel-tile' : 'channel-tile'),
+      key: const Key('new-channel-tile'),
       width: 52,
       height: 52,
       alignment: Alignment.center,
@@ -923,10 +979,10 @@ class _ChannelTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
       ),
       child: Text(
-        _isNew ? '+' : '#',
+        '+',
         style: TextStyle(
-          fontSize: _isNew ? 26 : 24,
-          fontWeight: _isNew ? FontWeight.w400 : FontWeight.w600,
+          fontSize: 26,
+          fontWeight: FontWeight.w400,
           color: p.accentUser,
         ),
       ),
@@ -957,7 +1013,7 @@ class _NewChannelRow extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
             child: Row(
               children: [
-                const _ChannelTile.plus(),
+                const _NewChannelTile(),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
