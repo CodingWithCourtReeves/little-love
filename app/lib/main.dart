@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'calling/call_bootstrap.dart';
 import 'calling/call_screen.dart';
 import 'conversation/incoming_banner_host.dart';
 import 'diagnostics/crash_reporting.dart';
@@ -30,6 +31,9 @@ Future<void> main() async {
   // Dev-only: adopt a seeded identity from runtime env when the two-simulator
   // harness sets it. No-op in production (env vars unset). See provisionDevIdentity.
   await provisionDevIdentity(container);
+  // Calls must work when a VoIP push wakes the app in the background, with no
+  // screen built; see keepCallStackRunning.
+  keepCallStackRunning(container);
   // Opt-in, content-scrubbed crash reporting. With reporting off (the default)
   // or no DSN compiled in, this just runs the app; with the user opted in it
   // wraps the run so Sentry captures errors from the first frame.
