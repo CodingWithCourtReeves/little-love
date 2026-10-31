@@ -120,8 +120,11 @@ Both partners hold the room key, so either one can craft any encrypted body.
 - Every exhaustive `switch` handles it: inbound router, outbox rehydrate,
   `MessageDb`, FTS indexing, chat-info tabs, reply-quote preview, banner,
   chime and unread counting.
-- Non-timeline kinds (reaction, delete, edit, call-log) don't bump unread,
-  banner or chime.
+- Control kinds (reaction, delete, edit) and timeline events (call logs,
+  channel lines) don't bump unread, banner or chime.
+- A message the app drops or hides (unsupported kind) is still covered by the
+  read watermark (`alsoUpTo`), since the server badge counts every stored
+  message.
 - The change is mirrored in `server/src/wire.rs` **and**
   `app/lib/wire/frames.dart`, with round-trip tests on both sides. Serde
   ignores unknown fields, so a one-sided rename silently no-ops.
