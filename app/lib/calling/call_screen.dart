@@ -121,6 +121,12 @@ class _CallViewState extends State<_CallView>
     final accent = context.palette.accentPartner;
     final name = widget.name;
     final active = widget.state.phase == CallPhase.active;
+    // Large in portrait; shrinks so the name and controls still fit in
+    // landscape (about 375pt tall on the smaller phones).
+    final avatarRadius = ((MediaQuery.sizeOf(context).height - 340) / 2).clamp(
+      40.0,
+      100.0,
+    );
 
     return Material(
       child: Container(
@@ -134,7 +140,7 @@ class _CallViewState extends State<_CallView>
         child: SafeArea(
           child: Column(
             children: [
-              const Spacer(flex: 3),
+              const Spacer(flex: 2),
               // Breathing glow + avatar.
               AnimatedBuilder(
                 animation: _breath,
@@ -157,56 +163,28 @@ class _CallViewState extends State<_CallView>
                 child: Avatar(
                   seedText: name,
                   imageFile: widget.avatarFile,
-                  radius: 66,
+                  radius: avatarRadius,
                 ),
               ),
-              const SizedBox(height: 34),
-              Text(
-                name,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 30,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: -0.6,
-                  color: Color(0xFFF3ECF1),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                _statusLabel(),
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 15,
-                  letterSpacing: 0.3,
-                  color: const Color(0xFFF3ECF1).withValues(alpha: 0.55),
-                ),
-              ),
-              const Spacer(flex: 4),
+              const Spacer(flex: 3),
+              // Name and status sit just above the controls, End in the middle.
+              _CallTitle(name: name, status: _statusLabel()),
+              const SizedBox(height: 32),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   _ControlButton(
-                    icon: _muted ? Icons.mic_off : Icons.mic,
-                    label: 'mute',
-                    active: _muted,
-                    accent: accent,
-                    onTap: () {
-                      setState(() => _muted = !_muted);
-                      widget.controller.toggleMute(_muted);
-                    },
-                  ),
-                  const SizedBox(width: 26),
-                  _ControlButton(
-                    icon: _speaker ? Icons.volume_up : Icons.hearing,
-                    label: _speaker ? 'speaker' : 'audio',
+                    icon: Icons.volume_up,
+                    label: 'speaker',
                     active: _speaker,
+                    toggle: true,
                     accent: accent,
                     onTap: () async {
                       setState(() => _speaker = !_speaker);
                       await Helper.setSpeakerphoneOn(_speaker);
                     },
                   ),
-                  const SizedBox(width: 26),
+                  const SizedBox(width: 22),
                   _ControlButton(
                     icon: Icons.call_end,
                     label: 'end',
@@ -214,9 +192,21 @@ class _CallViewState extends State<_CallView>
                     danger: true,
                     onTap: () => widget.controller.hangup(),
                   ),
+                  const SizedBox(width: 22),
+                  _ControlButton(
+                    icon: _muted ? Icons.mic_off : Icons.mic,
+                    label: 'mute',
+                    active: _muted,
+                    toggle: true,
+                    accent: accent,
+                    onTap: () {
+                      setState(() => _muted = !_muted);
+                      widget.controller.toggleMute(_muted);
+                    },
+                  ),
                 ],
               ),
-              const Spacer(flex: 1),
+              const SizedBox(height: 26),
             ],
           ),
         ),
@@ -248,6 +238,9 @@ class _ControlButton extends StatelessWidget {
     required this.onTap,
     this.active = false,
     this.danger = false,
+    this.onVideo = false,
+    this.toggle = false,
+    this.iconColor = Colors.white,
   });
 
   final IconData icon;
@@ -257,47 +250,132 @@ class _ControlButton extends StatelessWidget {
   final bool active;
   final bool danger;
 
+  /// Drawn over the partner's camera: a darker fill and a shadowed label, so
+  /// both read on any picture. Slightly smaller, to fit five in a row.
+  final bool onVideo;
+
+  /// An on/off control (speaker, mute, camera): VoiceOver reads [active] as
+  /// its state, since the label stays the same either way.
+  final bool toggle;
+  final Color iconColor;
+
   @override
   Widget build(BuildContext context) {
-    final size = danger ? 72.0 : 64.0;
+    final size = danger ? 76.0 : (onVideo ? 56.0 : 64.0);
     final fill = danger
         ? const Color(0xFFC0455B)
         : active
         ? accent
+        : onVideo
+        ? const Color(0xFF15101D).withValues(alpha: 0.45)
         : Colors.white.withValues(alpha: 0.10);
     final border = active || danger
         ? Colors.transparent
         : Colors.white.withValues(alpha: 0.16);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              color: fill,
-              shape: BoxShape.circle,
-              border: Border.all(color: border, width: 1),
+    return Semantics(
+      button: true,
+      label: label,
+      toggled: toggle ? active : null,
+      excludeSemantics: true,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            onTap: onTap,
+            child: Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: fill,
+                shape: BoxShape.circle,
+                border: Border.all(color: border, width: 1),
+              ),
+              child: Icon(
+                icon,
+                color: iconColor,
+                size: danger ? 34 : (onVideo ? 24 : 27),
+              ),
             ),
-            child: Icon(icon, color: Colors.white, size: danger ? 32 : 27),
           ),
-        ),
-        const SizedBox(height: 9),
-        Text(
-          label,
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 12,
-            letterSpacing: 0.4,
-            color: const Color(0xFFF3ECF1).withValues(alpha: 0.55),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 12,
+              letterSpacing: 0.4,
+              color: const Color(
+                0xFFF3ECF1,
+              ).withValues(alpha: onVideo ? 0.9 : 0.6),
+              shadows: onVideo
+                  ? const [Shadow(blurRadius: 6, color: Colors.black54)]
+                  : null,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
+
+/// The partner's name with the call status (Calling…, Connecting…, mm:ss)
+/// under it, set just above the controls.
+class _CallTitle extends StatelessWidget {
+  const _CallTitle({
+    required this.name,
+    required this.status,
+    this.onVideo = false,
+  });
+
+  final String name;
+  final String status;
+  final bool onVideo;
+
+  @override
+  Widget build(BuildContext context) {
+    final shadows = onVideo
+        ? const [Shadow(blurRadius: 8, color: Colors.black54)]
+        : null;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: onVideo ? 22 : 26,
+              fontWeight: FontWeight.w500,
+              letterSpacing: -0.5,
+              color: const Color(0xFFF3ECF1),
+              shadows: shadows,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            status,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 15,
+              letterSpacing: 0.3,
+              color: const Color(
+                0xFFF3ECF1,
+              ).withValues(alpha: onVideo ? 0.9 : 0.6),
+              shadows: shadows,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Height kept clear along the bottom of a video call for the partner's name
+/// and the control row.
+const double _videoControlsReserve = 240;
 
 /// The in-app video-call view: the partner's camera fills the screen with a
 /// draggable self-preview in the corner. Falls back to the breathing avatar
@@ -659,31 +737,6 @@ class _VideoCallViewState extends State<_VideoCallView> {
                   ),
                 ),
 
-              // Status line (Calling… / Connecting… / mm:ss) along the top.
-              Positioned(
-                top: pad.top + 14,
-                left: 0,
-                right: 0,
-                child: AnimatedOpacity(
-                  opacity: _controlsShown ? 1 : 0,
-                  duration: const Duration(milliseconds: 220),
-                  child: Center(
-                    child: Text(
-                      _statusLabel(),
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 15,
-                        letterSpacing: 0.3,
-                        color: const Color(0xFFF3ECF1).withValues(alpha: 0.85),
-                        shadows: const [
-                          Shadow(blurRadius: 8, color: Colors.black54),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
               // Privacy banners: persistent while the partner records (our
               // camera is force-paused), plus a transient screenshot notice.
               Positioned(
@@ -715,9 +768,14 @@ class _VideoCallViewState extends State<_VideoCallView> {
               if (_ready)
                 Positioned(
                   left: pip.dx.clamp(8.0, constraints.maxWidth - pipW - 8),
+                  // Clear of the name and controls; in landscape there's no
+                  // room for both, so the bounds collapse to the top.
                   top: pip.dy.clamp(
                     pad.top + 8,
-                    constraints.maxHeight - pipH - 120,
+                    max(
+                      pad.top + 8,
+                      constraints.maxHeight - pipH - _videoControlsReserve,
+                    ),
                   ),
                   width: pipW,
                   height: pipH,
@@ -726,7 +784,21 @@ class _VideoCallViewState extends State<_VideoCallView> {
                     onPanUpdate: (d) => setState(() => _pipPos = pip + d.delta),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(16),
-                      child: _buildPipContent(),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          _buildPipContent(),
+                          // Flip rides on your own preview.
+                          if (!_selfMain && _showSelfPreview)
+                            Align(
+                              alignment: Alignment.bottomCenter,
+                              child: Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: _flipButton(),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -748,62 +820,87 @@ class _VideoCallViewState extends State<_VideoCallView> {
                         top: false,
                         child: Padding(
                           padding: const EdgeInsets.only(bottom: 18),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              _ControlButton(
-                                icon: _muted ? Icons.mic_off : Icons.mic,
-                                label: 'mute',
-                                active: _muted,
-                                accent: accent,
-                                onTap: () {
-                                  setState(() => _muted = !_muted);
-                                  widget.controller.toggleMute(_muted);
-                                },
+                              _CallTitle(
+                                name: widget.name,
+                                status: _statusLabel(),
+                                onVideo: true,
                               ),
-                              const SizedBox(width: 14),
-                              _ControlButton(
-                                icon: _speaker
-                                    ? Icons.volume_up
-                                    : Icons.hearing,
-                                label: _speaker ? 'speaker' : 'earpiece',
-                                active: _speaker,
-                                accent: accent,
-                                onTap: () {
-                                  setState(() => _speaker = !_speaker);
-                                  _applyAudioRoute();
-                                },
-                              ),
-                              const SizedBox(width: 14),
-                              _ControlButton(
-                                icon: _cameraOn
-                                    ? Icons.videocam
-                                    : Icons.videocam_off,
-                                label: 'camera',
-                                active: !_cameraOn,
-                                accent: accent,
-                                onTap: () {
-                                  setState(() => _cameraOn = !_cameraOn);
-                                  widget.controller.setCameraEnabled(_cameraOn);
-                                },
-                              ),
-                              const SizedBox(width: 14),
-                              _ControlButton(
-                                icon: Icons.cameraswitch,
-                                label: 'flip',
-                                accent: accent,
-                                onTap: () async {
-                                  await widget.controller.switchCamera();
-                                  if (mounted) setState(_resetZoomForFlip);
-                                },
-                              ),
-                              const SizedBox(width: 14),
-                              _ControlButton(
-                                icon: Icons.call_end,
-                                label: 'end',
-                                accent: accent,
-                                danger: true,
-                                onTap: () => widget.controller.hangup(),
+                              const SizedBox(height: 22),
+                              // Five buttons: at large text sizes the labels
+                              // widen the row, so scale it down to fit.
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _ControlButton(
+                                      icon: Icons.volume_up,
+                                      label: 'speaker',
+                                      active: _speaker,
+                                      toggle: true,
+                                      accent: accent,
+                                      onVideo: true,
+                                      onTap: () {
+                                        setState(() => _speaker = !_speaker);
+                                        _applyAudioRoute();
+                                      },
+                                    ),
+                                    const SizedBox(width: 12),
+                                    _ControlButton(
+                                      icon: _muted ? Icons.mic_off : Icons.mic,
+                                      label: 'mute',
+                                      active: _muted,
+                                      toggle: true,
+                                      accent: accent,
+                                      onVideo: true,
+                                      onTap: () {
+                                        setState(() => _muted = !_muted);
+                                        widget.controller.toggleMute(_muted);
+                                      },
+                                    ),
+                                    const SizedBox(width: 12),
+                                    _ControlButton(
+                                      icon: Icons.call_end,
+                                      label: 'end',
+                                      accent: accent,
+                                      danger: true,
+                                      onVideo: true,
+                                      onTap: () => widget.controller.hangup(),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    _ControlButton(
+                                      icon: _cameraOn
+                                          ? Icons.videocam
+                                          : Icons.videocam_off,
+                                      label: 'camera',
+                                      active: !_cameraOn,
+                                      toggle: true,
+                                      accent: accent,
+                                      onVideo: true,
+                                      onTap: () {
+                                        setState(() => _cameraOn = !_cameraOn);
+                                        widget.controller.setCameraEnabled(
+                                          _cameraOn,
+                                        );
+                                      },
+                                    ),
+                                    const SizedBox(width: 12),
+                                    _ControlButton(
+                                      icon: Icons.favorite,
+                                      label: 'heart',
+                                      accent: accent,
+                                      onVideo: true,
+                                      iconColor: const Color(0xFFF3A6B6),
+                                      onTap: () {
+                                        widget.controller.sendReaction();
+                                        _scheduleHide();
+                                      },
+                                    ),
+                                  ],
+                                ),
                               ),
                             ],
                           ),
@@ -819,33 +916,38 @@ class _VideoCallViewState extends State<_VideoCallView> {
                 child: IgnorePointer(child: Stack(children: _hearts)),
               ),
 
-              // Reaction (heart) — top-right, well clear of the controls so it
-              // can't be mistaken for the end button.
-              Positioned(
-                top: pad.top + 8,
-                right: 16,
-                child: AnimatedOpacity(
-                  opacity: _controlsShown ? 1 : 0,
-                  duration: const Duration(milliseconds: 220),
-                  child: IgnorePointer(
-                    ignoring: !_controlsShown,
-                    child: _RoundIconButton(
-                      icon: Icons.favorite,
-                      filled: true,
-                      onTap: () {
-                        widget.controller.sendReaction();
-                        _scheduleHide();
-                      },
+              // Flip while your own camera is the main view: the preview then
+              // shows the partner, so flip can't ride on it.
+              if (_selfMain && _showSelfPreview)
+                Positioned(
+                  top: pad.top + 8,
+                  left: 16,
+                  child: AnimatedOpacity(
+                    opacity: _controlsShown ? 1 : 0,
+                    duration: const Duration(milliseconds: 220),
+                    child: IgnorePointer(
+                      ignoring: !_controlsShown,
+                      child: _flipButton(),
                     ),
                   ),
                 ),
-              ),
             ],
           );
         },
       ),
     );
   }
+
+  /// Flip between the front and back camera.
+  Widget _flipButton() => _RoundIconButton(
+    icon: Icons.cameraswitch,
+    label: 'Flip camera',
+    size: 44,
+    onTap: () async {
+      await widget.controller.switchCamera();
+      if (mounted) setState(_resetZoomForFlip);
+    },
+  );
 
   String _statusLabel() {
     switch (widget.state.phase) {
@@ -906,36 +1008,40 @@ class _PrivacyBanner extends StatelessWidget {
   }
 }
 
-/// A compact circular icon button (the reaction heart) for the video overlay.
+/// A compact circular icon button (flip camera) for the video overlay.
 class _RoundIconButton extends StatelessWidget {
   const _RoundIconButton({
     required this.icon,
+    required this.label,
     required this.onTap,
-    this.filled = false,
+    this.size = 48,
   });
   final IconData icon;
+  final String label;
   final VoidCallback onTap;
-  final bool filled;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
-    final fill = filled
-        ? const Color(0xFFC0455B)
-        : Colors.black.withValues(alpha: 0.4);
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-          color: fill,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.18),
-            width: 1,
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: const Color(0xFF15101D).withValues(alpha: 0.45),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.18),
+              width: 1,
+            ),
           ),
+          child: Icon(icon, color: Colors.white, size: size * 0.45),
         ),
-        child: Icon(icon, color: Colors.white, size: 24),
       ),
     );
   }
@@ -1030,58 +1136,65 @@ class _AvatarBackdrop extends StatelessWidget {
           colors: [Color(0xFF211526), Color(0xFF15101D)],
         ),
       ),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: accent.withValues(alpha: 0.24),
-                    blurRadius: 56,
-                    spreadRadius: 10,
-                  ),
-                ],
-              ),
-              child: Avatar(seedText: name, imageFile: avatarFile, radius: 60),
-            ),
-            const SizedBox(height: 28),
-            Text(
-              name,
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 28,
-                fontWeight: FontWeight.w500,
-                letterSpacing: -0.6,
-                color: Color(0xFFF3ECF1),
-              ),
-            ),
-            if (subtitle != null) ...[
-              const SizedBox(height: 8),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.videocam_off,
-                    size: 15,
-                    color: Color(0x99F3ECF1),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    subtitle!,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 14,
-                      color: Color(0x99F3ECF1),
+      // Centred in the space above the name and controls, and smaller when
+      // that space is short (landscape), so the two never overlap.
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final room = max(0.0, constraints.maxHeight - _videoControlsReserve);
+          final radius = ((room - 50) / 2).clamp(24.0, 60.0);
+          return Align(
+            alignment: Alignment.topCenter,
+            child: SizedBox(
+              height: room,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: accent.withValues(alpha: 0.24),
+                            blurRadius: 56,
+                            spreadRadius: 10,
+                          ),
+                        ],
+                      ),
+                      child: Avatar(
+                        seedText: name,
+                        imageFile: avatarFile,
+                        radius: radius,
+                      ),
                     ),
-                  ),
-                ],
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 20),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.videocam_off,
+                            size: 15,
+                            color: Color(0x99F3ECF1),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            subtitle!,
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 14,
+                              color: Color(0x99F3ECF1),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
               ),
-            ],
-          ],
-        ),
+            ),
+          );
+        },
       ),
     );
   }
