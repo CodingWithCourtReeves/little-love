@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -666,6 +667,42 @@ void main() {
       expect(hiddenId, '2');
       expect(unsentId, isNull);
     });
+
+    for (final key in ['action-delete', 'action-delete-for-me']) {
+      testWidgets('tapping $key buzzes a medium haptic', (tester) async {
+        await pumpWith(tester, [
+          Msg(
+            id: '2',
+            from: 'court',
+            to: 'kaitlyn',
+            body: 'hey love',
+            ts: DateTime.utc(2026, 6, 9, 17, 2),
+          ),
+        ]);
+        final haptics = <String?>[];
+        final messenger = tester.binding.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(SystemChannels.platform, (
+          call,
+        ) async {
+          if (call.method == 'HapticFeedback.vibrate') {
+            haptics.add(call.arguments as String?);
+          }
+          return null;
+        });
+        addTearDown(
+          () =>
+              messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+        );
+
+        await tester.longPress(find.text('hey love'));
+        await tester.pumpAndSettle();
+        haptics.clear(); // the long-press's own buzz
+        await tester.tap(find.byKey(Key(key)));
+        await tester.pumpAndSettle();
+
+        expect(haptics, ['HapticFeedbackType.mediumImpact']);
+      });
+    }
 
     testWidgets('a still-sending message offers only the cancel', (
       tester,

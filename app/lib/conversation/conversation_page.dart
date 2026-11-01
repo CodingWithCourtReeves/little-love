@@ -1464,10 +1464,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 _saveAttachment(m.attachment!);
               }
             : null,
+        // Deletes get a firmer buzz than the light tap on reply/react: they
+        // remove something, and you should feel that it happened.
         onDelete: delete == null
             ? null
             : () {
                 _dismissReactionBar();
+                HapticFeedback.mediumImpact();
                 delete();
               },
         deleteLabel: unsends ? 'Unsend' : 'Delete',
@@ -1475,6 +1478,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             ? null
             : () {
                 _dismissReactionBar();
+                HapticFeedback.mediumImpact();
                 deleteForMe();
               },
         onDismiss: _dismissReactionBar,
