@@ -131,6 +131,10 @@ class RoomMessageRouter {
         ref.read(inboxStateProvider.notifier).removeMember(roomId, username);
         ref.read(roomKeyCacheProvider).invalidate(roomId);
 
+      case RoomDeletedFrame():
+        // Applied once the local Hide + Purge path exists (next change).
+        break;
+
       case MessageFrame():
         await _ingestMessage(f);
 

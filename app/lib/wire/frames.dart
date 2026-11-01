@@ -175,6 +175,11 @@ sealed class RoomServerFrame {
           roomId: json['room_id']! as String,
           username: json['username']! as String,
         );
+      case 'RoomDeleted':
+        return RoomDeletedFrame(
+          roomId: json['room_id'] as String,
+          deletedBy: json['deleted_by'] as String,
+        );
       case 'Message':
         return MessageFrame(
           id: json['id']! as String,
@@ -261,6 +266,7 @@ sealed class RoomServerFrame {
         return RoomErrorFrame(
           code: json['code']! as String,
           message: (json['message'] as String?) ?? '',
+          roomId: json['room_id'] as String?,
         );
       default:
         throw FormatException('unknown room server frame kind: $kind');
@@ -320,6 +326,16 @@ class MemberLeftFrame extends RoomServerFrame {
   final String username;
 }
 
+/// A channel was deleted for both partners. [deletedBy] is the authenticated
+/// deleter's username (mirrors `RoomServerFrame::RoomDeleted` in
+/// `server/src/wire.rs`), so each phone can tell its own delete from its
+/// partner's.
+class RoomDeletedFrame extends RoomServerFrame {
+  const RoomDeletedFrame({required this.roomId, required this.deletedBy});
+  final String roomId;
+  final String deletedBy;
+}
+
 class MessageFrame extends RoomServerFrame {
   const MessageFrame({
     required this.id,
@@ -366,9 +382,18 @@ class ReadFrame extends RoomServerFrame {
 }
 
 class RoomErrorFrame extends RoomServerFrame {
-  const RoomErrorFrame({required this.code, required this.message});
+  const RoomErrorFrame({
+    required this.code,
+    required this.message,
+    this.roomId,
+  });
   final String code;
   final String message;
+
+  /// The room the failed request named, when the server set it (the delete
+  /// handler always does), so a caller waiting on one request can tell its
+  /// own error from another frame's. Null for older handlers.
+  final String? roomId;
 }
 
 /// Relayed presence: [from] is composing (or stopped) in [roomId]. Transient —
@@ -602,6 +627,18 @@ class LeaveRoomFrame {
 
   Map<String, Object?> toJson() => <String, Object?>{
     'kind': 'LeaveRoom',
+    'room_id': roomId,
+  };
+}
+
+/// Delete a channel for both partners. Answered with [RoomDeletedFrame] to
+/// both, or a [RoomErrorFrame] carrying this [roomId].
+class DeleteRoomFrame {
+  const DeleteRoomFrame({required this.roomId});
+  final String roomId;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'kind': 'DeleteRoom',
     'room_id': roomId,
   };
 }

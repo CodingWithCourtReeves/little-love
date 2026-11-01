@@ -85,6 +85,7 @@ class LivePairingTransport implements PairingTransport {
           RoomCreatedFrame() ||
           RoomRenamedFrame() ||
           MemberLeftFrame() ||
+          RoomDeletedFrame() ||
           MessageFrame() ||
           ReadFrame() ||
           TypingFrame() ||

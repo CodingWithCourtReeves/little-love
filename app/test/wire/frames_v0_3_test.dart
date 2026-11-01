@@ -114,6 +114,38 @@ void main() {
     expect(l['room_id'], '01J');
   });
 
+  test('DeleteRoomFrame serializes', () {
+    final d = const DeleteRoomFrame(roomId: '01J').toJson();
+    expect(d['kind'], 'DeleteRoom');
+    expect(d['room_id'], '01J');
+  });
+
+  test('RoomDeleted parses room_id and deleted_by', () {
+    final f = RoomServerFrame.fromJson(
+      jsonDecode('{"kind":"RoomDeleted","room_id":"01J","deleted_by":"court"}')
+          as Map<String, Object?>,
+    );
+    expect(f, isA<RoomDeletedFrame>());
+    f as RoomDeletedFrame;
+    expect(f.roomId, '01J');
+    expect(f.deletedBy, 'court');
+  });
+
+  test('Error parses an optional room_id', () {
+    final withRoom = RoomServerFrame.fromJson(
+      jsonDecode('{"kind":"Error","code":"PartnerChatLocked","room_id":"01J"}')
+          as Map<String, Object?>,
+    );
+    expect((withRoom as RoomErrorFrame).roomId, '01J');
+    expect(withRoom.code, 'PartnerChatLocked');
+
+    final without = RoomServerFrame.fromJson(
+      jsonDecode('{"kind":"Error","code":"RateLimited"}')
+          as Map<String, Object?>,
+    );
+    expect((without as RoomErrorFrame).roomId, isNull);
+  });
+
   test('MessageFrame parses read flag (defaults false)', () {
     final unread = RoomServerFrame.fromJson(
       jsonDecode(
