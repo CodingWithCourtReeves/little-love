@@ -24,7 +24,7 @@ import 'message_search.dart';
 /// SQLCipher-backed production impl, and a `.test` factory that wraps a plain
 /// ffi [Database] so unit tests skip the native crypto layer.
 abstract class MessageDb {
-  static const schemaVersion = 6;
+  static const schemaVersion = 7;
 
   /// SQLCipher-backed impl living at `<app-support>/messages.db`.
   static Future<MessageDb> open() async {
@@ -90,6 +90,7 @@ abstract class MessageDb {
     await _createPendingEdits(db);
     await _createFts(db);
     await _createDrafts(db);
+    await _createDeletedForMe(db);
   }
 
   static Future<void> onUpgrade(Database db, int oldV, int newV) async {
@@ -140,6 +141,24 @@ abstract class MessageDb {
         }
       }
     }
+    if (oldV < 7) {
+      // Delete for me. A new, empty table: nothing to backfill.
+      await _createDeletedForMe(db);
+    }
+  }
+
+  /// Server ids deleted on this device only ([deleteForMe]). A side table
+  /// rather than a `messages` column so a re-upsert or reconcile of the row
+  /// (both rewrite it from the wire) can't clear it, mirroring [tombstones].
+  /// Read paths ([messagesFor], [search]) leave these ids out.
+  ///
+  /// `IF NOT EXISTS` for the same downgrade reason as [_createDrafts].
+  static Future<void> _createDeletedForMe(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS deleted_for_me (
+        target_id TEXT PRIMARY KEY
+      )
+    ''');
   }
 
   /// One unsent composer draft per room (text + JSON-encoded [ReplyRef]). Kept
@@ -220,6 +239,11 @@ abstract class MessageDb {
   /// [requestedBy] doesn't match a present target's author is dropped (spoofed).
   /// Records a tombstone so a later out-of-order [upsert] stays suppressed.
   Future<void> applyDelete(String targetId, {required String requestedBy});
+
+  /// Delete [targetId] from this device only. Mirrors
+  /// [MessageStore.deleteForMe]: any author, no frame, and it stays out of
+  /// [messagesFor] and [search] even if the row is upserted again. Idempotent.
+  Future<void> deleteForMe(String targetId);
 
   /// Set [username] → [emoji] on [targetId], or remove it when [emoji] is empty.
   /// No-op if the target isn't stored.
@@ -307,7 +331,9 @@ class SqliteMessageDb implements MessageDb {
   Future<List<Msg>> messagesFor(String roomId) async {
     final rows = await _db.query(
       'messages',
-      where: 'room_id = ? AND deleted = 0',
+      where:
+          'room_id = ? AND deleted = 0 '
+          'AND id NOT IN (SELECT target_id FROM deleted_for_me)',
       whereArgs: [roomId],
       orderBy: 'id ASC',
     );
@@ -382,6 +408,13 @@ class SqliteMessageDb implements MessageDb {
       where: 'id = ?',
       whereArgs: [targetId],
     );
+  }
+
+  @override
+  Future<void> deleteForMe(String targetId) async {
+    await _db.insert('deleted_for_me', {
+      'target_id': targetId,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   @override
@@ -521,7 +554,10 @@ class SqliteMessageDb implements MessageDb {
   }) async {
     final match = _toPrefixMatch(query);
     if (match.isEmpty) return const [];
-    final where = StringBuffer('messages_fts MATCH ? AND m.deleted = 0');
+    final where = StringBuffer(
+      'messages_fts MATCH ? AND m.deleted = 0 '
+      'AND m.id NOT IN (SELECT target_id FROM deleted_for_me)',
+    );
     final args = <Object?>[match];
     if (roomId != null) {
       where.write(' AND m.room_id = ?');
@@ -640,6 +676,7 @@ class SqliteMessageDb implements MessageDb {
     await _db.delete('tombstones');
     await _db.delete('pending_edits');
     await _db.delete('drafts');
+    await _db.delete('deleted_for_me');
   }
 
   Future<void> _advanceHwm(String roomId, String id) async {

@@ -66,6 +66,8 @@ class _FakeMessageDb implements MessageDb {
   @override
   Future<void> applyDelete(String t, {required String requestedBy}) async {}
   @override
+  Future<void> deleteForMe(String t) async {}
+  @override
   Future<void> applyReaction(String t, String u, String e) async {}
   @override
   Future<void> applyEdit(
