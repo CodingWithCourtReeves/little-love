@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app_lock/app_lock_settings.dart';
 import '../attachment/attachment_download.dart';
 import '../channel/channel_picture_provider.dart';
 import '../channel/pending_channel_actions.dart';
@@ -78,6 +79,9 @@ Future<void> signOut(WidgetRef ref) async {
   // Clear the crash-reporting opt-in so a new account on this device doesn't
   // inherit the previous user's consent (and stop any live transmission now).
   await CrashReporting.onSignOut().catchError((_) {});
+  // The app-lock choices belong to this account; the next one starts from the
+  // defaults (on, after 1 minute).
+  await ref.read(appLockSettingsProvider.notifier).reset().catchError((_) {});
 
   // 2. In-memory session state that doesn't watch accountProvider.
   ref.invalidate(inboxStateProvider);

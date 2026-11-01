@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../app_lock/app_lock_settings.dart';
 import '../../attachment/attachment_descriptor.dart';
 import '../../attachment/square_image.dart';
 import '../../conversation/room_key_cache.dart';
@@ -23,7 +24,7 @@ import '../../wire/live_connection.dart';
 
 /// Personal settings, reached by tapping your own avatar on the home screen:
 /// set an E2EE avatar + display name (synced to your partner), pick a chat
-/// wallpaper, see your immutable handle, and sign out.
+/// wallpaper, choose the Face ID lock, see your immutable handle, and sign out.
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
 
@@ -134,6 +135,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               _sectionLabel('WALLPAPER'),
               const SizedBox(height: 12),
               const WallpaperPicker(),
+              const Divider(height: 32),
+              _sectionLabel('PRIVACY'),
+              const _AppLockSettings(),
               const Divider(height: 32),
               _sectionLabel('YOUR HANDLE'),
               ListTile(
@@ -348,5 +352,49 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+/// The Face ID switch and, while it's on, how long the app may be away before
+/// it asks again.
+class _AppLockSettings extends ConsumerWidget {
+  const _AppLockSettings();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(appLockSettingsProvider);
+    final notifier = ref.read(appLockSettingsProvider.notifier);
+    return Column(
+      children: [
+        SwitchListTile(
+          key: const Key('profile-app-lock'),
+          contentPadding: EdgeInsets.zero,
+          value: settings.enabled,
+          onChanged: notifier.setEnabled,
+          title: const Text('Require Face ID'),
+          subtitle: const Text(
+            'Ask for Face ID or your passcode to open Little Love. Your chats '
+            'are hidden whenever you leave the app.',
+          ),
+        ),
+        if (settings.enabled)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Lock'),
+            trailing: DropdownButton<LockAfter>(
+              key: const Key('profile-app-lock-after'),
+              value: settings.lockAfter,
+              underline: const SizedBox.shrink(),
+              onChanged: (v) {
+                if (v != null) notifier.setLockAfter(v);
+              },
+              items: [
+                for (final v in LockAfter.values)
+                  DropdownMenuItem(value: v, child: Text(v.label)),
+              ],
+            ),
+          ),
+      ],
+    );
   }
 }

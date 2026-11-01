@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/app_lock/app_lock_settings.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:littlelove/attachment/staged_attachment.dart';
 import 'package:littlelove/conversation/link_preview.dart';
@@ -252,6 +253,30 @@ void main() {
     // The next account must not see the last one's draft text on a row.
     expect(ref.read(draftPreviewProvider('r1')), isNull);
     expect(ref.read(roomHydratedProvider('r1')), isFalse);
+  });
+
+  testWidgets('signOut puts the Face ID lock back to its defaults', (t) async {
+    SharedPreferences.setMockInitialValues({
+      'appLock.enabled': false,
+      'appLock.lockAfter': 'oneHour',
+    });
+    final ref = await _mountRef(
+      t,
+      baseOverrides(_GatedOutbox(Future<void>.value()), _FakeMessageDb()),
+    );
+    await ref
+        .read(appLockSettingsProvider.notifier)
+        .setLockAfter(LockAfter.oneHour);
+
+    await signOut(ref);
+    await t.pumpAndSettle();
+
+    final settings = ref.read(appLockSettingsProvider);
+    expect(settings.enabled, isTrue);
+    expect(settings.lockAfter, LockAfter.oneMinute);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool('appLock.enabled'), isNull);
+    expect(prefs.getString('appLock.lockAfter'), isNull);
   });
 
   testWidgets('signOut preserves a captured pair-link code', (t) async {

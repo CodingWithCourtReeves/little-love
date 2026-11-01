@@ -28,11 +28,7 @@ class CallOverlay extends ConsumerWidget {
     return ValueListenableBuilder<CallState>(
       valueListenable: controller.state,
       builder: (context, state, _) {
-        final show =
-            state.phase == CallPhase.dialing ||
-            state.phase == CallPhase.connecting ||
-            state.phase == CallPhase.active;
-        if (!show) return const SizedBox.shrink();
+        if (!state.showsCallScreen) return const SizedBox.shrink();
         // Resolve the partner's display name + avatar from their synced profile,
         // falling back to the username / initials.
         final username = controller.peerName;
