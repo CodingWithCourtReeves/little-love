@@ -361,10 +361,24 @@ pub struct LeaveOutcome {
     pub room_deleted: bool,
 }
 
+/// Delete `room_id` outright: the room row goes, and with it (ON DELETE
+/// CASCADE) its members, invites, attachments and messages. Messages only
+/// cascade since migration 0017; before it, deleting a room that had any
+/// messages failed on `messages_room_id_fkey`. Returns whether a room was
+/// deleted. Callers check membership and the partner-chat lock first.
+pub async fn delete_room(pool: &PgPool, room_id: &str) -> sqlx::Result<bool> {
+    let res = sqlx::query("DELETE FROM rooms WHERE id = $1")
+        .bind(room_id)
+        .execute(pool)
+        .await?;
+    Ok(res.rows_affected() > 0)
+}
+
 /// Remove `account_id` from `room_id`. If the room has no members left
 /// afterward, cascade-delete the room (and via ON DELETE CASCADE, its
-/// invites + messages). The WS handler resolves remaining usernames via
-/// `members_for_room` before issuing the `MemberLeft` broadcast.
+/// members, invites, attachments and, since migration 0017, messages). The
+/// WS handler resolves remaining usernames via `members_for_room` before
+/// issuing the `MemberLeft` broadcast.
 pub async fn leave_room(
     pool: &PgPool,
     room_id: &str,

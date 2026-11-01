@@ -1,8 +1,64 @@
-//! Room mutation helpers: create / rename / leave.
+//! Room mutation helpers: create / rename / leave / delete.
 
 mod common;
 
-use littlelove_api::rooms::{create_room_with_members, leave_room, rename_room, room_detail};
+use littlelove_api::rooms::{
+    create_room_with_members, delete_room, leave_room, rename_room, room_detail,
+};
+
+/// Rows referencing `room_id` in `table`.
+async fn count_for_room(store: &littlelove_api::store::Store, table: &str, room_id: &str) -> i64 {
+    let sql = format!("SELECT COUNT(*) FROM {table} WHERE room_id = $1");
+    let (n,): (i64,) = sqlx::query_as(&sql)
+        .bind(room_id)
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    n
+}
+
+#[tokio::test]
+#[serial_test::serial]
+async fn delete_room_removes_room_with_messages_attachments_and_members() {
+    let store = common::fresh_store().await;
+    let (court, kait) = common::seed_two_humans(&store).await;
+    let room = create_room_with_members(store.pool(), court, Some(kait), "Travel".into())
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO messages (id, room_id, from_account_id, recipient_account_id, body, ts)
+         VALUES ('01MSG', $1, $2, $3, 'ciphertext', now())",
+    )
+    .bind(&room)
+    .bind(court)
+    .bind(kait)
+    .execute(store.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO attachments (blob_key, room_id, uploader_account_id, byte_size)
+         VALUES ('blob-1', $1, $2, 10)",
+    )
+    .bind(&room)
+    .bind(court)
+    .execute(store.pool())
+    .await
+    .unwrap();
+
+    assert!(delete_room(store.pool(), &room).await.unwrap());
+
+    assert!(room_detail(store.pool(), &room).await.unwrap().is_none());
+    for table in ["room_members", "messages", "attachments"] {
+        assert_eq!(count_for_room(&store, table, &room).await, 0, "{table}");
+    }
+}
+
+#[tokio::test]
+#[serial_test::serial]
+async fn delete_room_on_missing_room_returns_false() {
+    let _store = common::fresh_store().await;
+    assert!(!delete_room(_store.pool(), "01NOPE").await.unwrap());
+}
 
 #[tokio::test]
 #[serial_test::serial]
