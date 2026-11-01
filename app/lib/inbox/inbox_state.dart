@@ -48,6 +48,14 @@ class InboxNotifier extends Notifier<InboxState> {
     state = state.copyWith(rooms: List.unmodifiable(next));
   }
 
+  /// Drop [roomId] from the inbox (a deleted channel). No-op if absent.
+  void removeRoom(String roomId) {
+    if (!state.rooms.any((r) => r.roomId == roomId)) return;
+    state = state.copyWith(
+      rooms: List.unmodifiable(state.rooms.where((r) => r.roomId != roomId)),
+    );
+  }
+
   /// Drop `username` from `roomId`. If no members remain in the room, the
   /// room itself is removed (server cascades; client mirrors so the
   /// inbox doesn't render an empty ghost room).

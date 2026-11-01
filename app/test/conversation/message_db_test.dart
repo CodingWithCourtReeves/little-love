@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/attachment/attachment_descriptor.dart';
 import 'package:littlelove/channel/channel_picture.dart';
 import 'package:littlelove/conversation/composer_draft.dart';
 import 'package:littlelove/conversation/link_preview.dart';
@@ -649,6 +650,92 @@ void main() {
       await db.upsert(msg('01A'), roomId: 'room1');
       await db.deleteForMe('01A');
       expect(await db.messagesFor('room1'), isEmpty);
+    });
+  });
+
+  group('purge room (channel deleted)', () {
+    const photo = AttachmentDescriptor(
+      blobKey: 'blob-room1',
+      contentKeyB64: 'k',
+      nonceB64: 'n',
+      mime: 'image/jpeg',
+      filename: 'a.jpg',
+      size: 10,
+      width: 1,
+      height: 1,
+      durationMs: null,
+      thumbB64: '',
+    );
+    Msg inRoom(String id, String room, {String body = 'hello'}) => Msg(
+      id: id,
+      from: 'bob',
+      to: room,
+      body: body,
+      ts: DateTime.utc(2026, 6, 24, 12),
+    );
+
+    test(
+      'purgeRoom removes every trace of the room and nothing else',
+      () async {
+        final db = await freshDb();
+        await db.upsert(
+          inRoom('01A', 'room1', body: 'secret plan'),
+          roomId: 'room1',
+        );
+        await db.upsert(inRoom('01B', 'room1', body: 'other'), roomId: 'room1');
+        await db.upsert(
+          inRoom('01C', 'room2', body: 'secret garden'),
+          roomId: 'room2',
+        );
+        await db.saveDraft('room1', const ComposerDraft(text: 'half typed'));
+        await db.saveDraft('room2', const ComposerDraft(text: 'keep me'));
+        await db.applyDelete('01B', requestedBy: 'bob');
+        await db.deleteForMe('01A');
+        // A pending edit for a room1 message that isn't stored (raced ahead).
+        await db.applyEdit('01Z', requestedBy: 'bob', text: 'later');
+        await db.upsert(inRoom('01Z', 'room1'), roomId: 'room1');
+
+        await db.purgeRoom('room1');
+
+        expect(await db.messagesFor('room1'), isEmpty);
+        expect(await db.highWaterMark('room1'), isNull);
+        expect(await db.draftFor('room1'), isNull);
+        expect((await db.search('secret')).map((h) => h.messageId), ['01C']);
+        // 01A's row went with Delete for Me, so its id can't be tied to room1
+        // any more; it stays as a bare id (no plaintext, and the room is gone).
+        expect(await db.roomIds(), {'room2'});
+        // room2 untouched.
+        expect((await db.messagesFor('room2')).single.id, '01C');
+        expect((await db.draftFor('room2'))!.text, 'keep me');
+        expect(await db.highWaterMark('room2'), '01C');
+      },
+    );
+
+    test('purgeRoom returns the room\'s attachment descriptors', () async {
+      final db = await freshDb();
+      await db.upsert(
+        Msg(
+          id: '01P',
+          from: 'bob',
+          to: 'room1',
+          body: '',
+          ts: DateTime.utc(2026),
+          attachment: photo,
+        ),
+        roomId: 'room1',
+      );
+      await db.upsert(inRoom('01T', 'room1'), roomId: 'room1');
+
+      final gone = await db.purgeRoom('room1');
+
+      expect(gone.map((d) => d.blobKey), ['blob-room1']);
+    });
+
+    test('roomIds lists rooms with any local data', () async {
+      final db = await freshDb();
+      await db.upsert(inRoom('01A', 'room1'), roomId: 'room1');
+      await db.saveDraft('room3', const ComposerDraft(text: 'only a draft'));
+      expect(await db.roomIds(), {'room1', 'room3'});
     });
   });
 }

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:littlelove/app_lock/app_lock_settings.dart';
+import 'package:littlelove/attachment/attachment_descriptor.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:littlelove/attachment/staged_attachment.dart';
 import 'package:littlelove/conversation/link_preview.dart';
@@ -106,6 +107,10 @@ class _FakeMessageDb implements MessageDb {
   Future<void> deleteForMe(String targetId) async {}
   @override
   Future<Set<String>> deletedForMeIds() async => const {};
+  @override
+  Future<Set<String>> roomIds() async => const {};
+  @override
+  Future<List<AttachmentDescriptor>> purgeRoom(String roomId) async => const [];
   @override
   Future<void> applyReaction(String t, String u, String e) async {}
   @override

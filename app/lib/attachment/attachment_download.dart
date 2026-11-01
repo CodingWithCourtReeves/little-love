@@ -42,6 +42,19 @@ Future<Directory> attachmentsCacheDir() async => Directory(
   p.join((await getApplicationSupportDirectory()).path, 'attachments'),
 );
 
+/// Delete [d]'s decrypted cache file, if there is one (a deleted channel's
+/// media). Best-effort: sign-out still wipes the whole directory.
+Future<void> evictCachedAttachment(AttachmentDescriptor d) async {
+  final dir = await attachmentsCacheDir();
+  final file = File(p.join(dir.path, '${d.blobKey}${_cacheExt(d)}'));
+  try {
+    if (await file.exists()) await file.delete();
+  } on FileSystemException catch (_) {
+    // Safe to ignore: nothing links to the file once the room's rows are
+    // gone, and sign-out deletes the directory.
+  }
+}
+
 /// Fetch + decrypt the full file for [descriptor], returning a local plaintext
 /// file. Cached by `blob_key` (plus a real extension) under app-support so
 /// re-opening is instant. The content key/nonce come from the (already-

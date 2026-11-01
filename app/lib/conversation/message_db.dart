@@ -251,6 +251,19 @@ abstract class MessageDb {
   /// for seeding [MessageStore.seedDeletedForMe] on hydrate.
   Future<Set<String>> deletedForMeIds();
 
+  /// Rooms with any local data (messages, a sync anchor, a draft). The
+  /// reconnect sweep compares this with the server's room list to find
+  /// channels deleted while this phone was offline.
+  Future<Set<String>> roomIds();
+
+  /// Wipe every local trace of [roomId] (a deleted channel), in one
+  /// transaction: its messages (the FTS delete trigger drops their search
+  /// entries), sync anchor, draft, and the per-message side tables
+  /// (tombstones, pending edits, Delete for Me ids) for its message ids.
+  /// Returns the room's attachment descriptors so the caller can evict their
+  /// decrypted cache files. Idempotent.
+  Future<List<AttachmentDescriptor>> purgeRoom(String roomId);
+
   /// Set [username] → [emoji] on [targetId], or remove it when [emoji] is empty.
   /// No-op if the target isn't stored.
   Future<void> applyReaction(String targetId, String username, String emoji);
@@ -440,6 +453,59 @@ class SqliteMessageDb implements MessageDb {
   Future<Set<String>> deletedForMeIds() async {
     final rows = await _db.query('deleted_for_me', columns: ['target_id']);
     return {for (final r in rows) r['target_id'] as String};
+  }
+
+  @override
+  Future<Set<String>> roomIds() async {
+    final rows = await _db.rawQuery(
+      'SELECT room_id FROM messages UNION SELECT room_id FROM room_sync '
+      'UNION SELECT room_id FROM drafts',
+    );
+    return {for (final r in rows) r['room_id'] as String};
+  }
+
+  @override
+  Future<List<AttachmentDescriptor>> purgeRoom(String roomId) async {
+    final attached = await _db.query(
+      'messages',
+      columns: ['attachment'],
+      where: 'room_id = ? AND attachment IS NOT NULL',
+      whereArgs: [roomId],
+    );
+    final descriptors = [
+      for (final r in attached)
+        AttachmentDescriptor.fromJson(
+          jsonDecode(r['attachment'] as String) as Map<String, Object?>,
+        ),
+    ];
+    await _db.transaction((txn) async {
+      // An unsent row (deleted = 1) already left the FTS index through the
+      // UPDATE trigger, but the DELETE trigger below issues an FTS 'delete'
+      // for every row, and an external-content 'delete' of an entry that
+      // isn't there corrupts the index ("database disk image is malformed").
+      // Put those entries back first so every 'delete' matches one.
+      await txn.rawInsert(
+        'INSERT INTO messages_fts(rowid, body) '
+        'SELECT rowid, body FROM messages WHERE room_id = ? AND deleted = 1',
+        [roomId],
+      );
+      const inRoom = '(SELECT id FROM messages WHERE room_id = ?)';
+      for (final table in const [
+        'tombstones',
+        'pending_edits',
+        'deleted_for_me',
+      ]) {
+        await txn.delete(
+          table,
+          where: 'target_id IN $inRoom',
+          whereArgs: [roomId],
+        );
+      }
+      await txn.delete('messages', where: 'room_id = ?', whereArgs: [roomId]);
+      await txn.delete('room_sync', where: 'room_id = ?', whereArgs: [roomId]);
+      await txn.delete('drafts', where: 'room_id = ?', whereArgs: [roomId]);
+    });
+    return descriptors;
   }
 
   Future<bool> _isDeletedForMe(String id) async => (await _db.query(

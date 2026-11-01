@@ -34,6 +34,14 @@ class ReadStateNotifier extends Notifier<Map<String, DateTime>> {
     // source of truth for this session.
     ref.read(readStateStoreProvider).save(state);
   }
+
+  /// Drop [roomId]'s marker (a deleted channel), writing through like
+  /// [markRead]. No-op if it has none.
+  void forget(String roomId) {
+    if (!state.containsKey(roomId)) return;
+    state = Map.unmodifiable(Map<String, DateTime>.from(state)..remove(roomId));
+    ref.read(readStateStoreProvider).save(state);
+  }
 }
 
 final readStateProvider =

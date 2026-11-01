@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:littlelove/attachment/attachment_descriptor.dart';
 import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/composer_draft.dart';
 import 'package:littlelove/conversation/message_db.dart';
@@ -69,6 +70,10 @@ class _FakeMessageDb implements MessageDb {
   Future<void> deleteForMe(String t) async {}
   @override
   Future<Set<String>> deletedForMeIds() async => const {};
+  @override
+  Future<Set<String>> roomIds() async => const {};
+  @override
+  Future<List<AttachmentDescriptor>> purgeRoom(String roomId) async => const [];
   @override
   Future<void> applyReaction(String t, String u, String e) async {}
   @override
