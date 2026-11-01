@@ -635,6 +635,18 @@ void main() {
       );
     });
 
+    test('an edit to a deleted-for-me message is dropped, not deferred', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final store = container.read(messageStoreProvider('r1').notifier);
+      store.add(fromKaitlyn('m1'));
+      store.deleteForMe('m1');
+
+      store.applyEdit('m1', requestedBy: 'kaitlyn', text: 'new words');
+
+      expect(container.read(messageStoreProvider('r1')), isEmpty);
+    });
+
     test('deleteForMe is idempotent and a no-op for an unknown id', () {
       final container = ProviderContainer();
       addTearDown(container.dispose);

@@ -668,8 +668,13 @@ void main() {
       expect(unsentId, isNull);
     });
 
-    for (final key in ['action-delete', 'action-delete-for-me']) {
-      testWidgets('tapping $key buzzes a medium haptic', (tester) async {
+    for (final (key, status) in [
+      ('action-delete', SendStatus.sent), // Unsend
+      ('action-delete-for-me', SendStatus.sent),
+      ('action-delete', SendStatus.sending), // cancel the send
+    ]) {
+      testWidgets('tapping $key on a ${status.name} message buzzes a medium '
+          'haptic', (tester) async {
         await pumpWith(tester, [
           Msg(
             id: '2',
@@ -677,6 +682,8 @@ void main() {
             to: 'kaitlyn',
             body: 'hey love',
             ts: DateTime.utc(2026, 6, 9, 17, 2),
+            clientMsgId: '2',
+            sendStatus: status,
           ),
         ]);
         final haptics = <String?>[];
@@ -703,6 +710,37 @@ void main() {
         expect(haptics, ['HapticFeedbackType.mediumImpact']);
       });
     }
+
+    testWidgets('deleting the message I\'m replying to for me clears the '
+        'reply chip', (tester) async {
+      await pumpWith(tester, [
+        Msg(
+          id: '7',
+          from: 'kaitlyn',
+          to: 'court',
+          body: 'from her',
+          ts: DateTime.utc(2026, 6, 9, 17, 2),
+        ),
+      ]);
+      await tester.longPress(find.text('from her'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('action-reply')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('reply-banner')), findsOneWidget);
+
+      // The banner now quotes "from her" too; long-press the bubble's copy.
+      await tester.longPress(
+        find.descendant(
+          of: find.byType(ListView),
+          matching: find.text('from her'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('action-delete-for-me')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('reply-banner')), findsNothing);
+    });
 
     testWidgets('a still-sending message offers only the cancel', (
       tester,

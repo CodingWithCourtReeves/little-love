@@ -57,6 +57,42 @@ void main() {
     expect(marks.single['up_to_message_id'], '01JC');
   });
 
+  test(
+    'the watermark still covers a newest message I deleted for me',
+    () async {
+      final conn = _FakeConn();
+      final container = await _container(conn);
+      final store = container.read(messageStoreProvider('room1').notifier);
+      store.add(_msg('01JA'));
+      store.add(_msg('01JC'));
+      store.deleteForMe('01JC');
+      // Ids deleted in another room (seeded on hydrate) must not raise this
+      // room's watermark past messages not yet seen here.
+      store.seedDeletedForMe(['01JZ']);
+
+      sendMarkRead(container, 'room1');
+
+      final marks = conn.sent
+          .cast<Map<String, Object?>>()
+          .where((m) => m['kind'] == 'MarkRead')
+          .toList();
+      expect(marks.single['up_to_message_id'], '01JC');
+    },
+  );
+
+  test('deleting the only message for me still marks it read', () async {
+    final conn = _FakeConn();
+    final container = await _container(conn);
+    final store = container.read(messageStoreProvider('room1').notifier);
+    store.add(_msg('01JA'));
+    store.deleteForMe('01JA');
+
+    sendMarkRead(container, 'room1');
+
+    final marks = conn.sent.cast<Map<String, Object?>>().toList();
+    expect(marks.single['up_to_message_id'], '01JA');
+  });
+
   test('sendMarkRead is a no-op when the room has no messages', () async {
     final conn = _FakeConn();
     final container = await _container(conn);

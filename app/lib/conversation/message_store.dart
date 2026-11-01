@@ -42,6 +42,18 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   /// row's high-water-mark landed) stays out after a relaunch too.
   final Set<String> _deletedForMe = {};
 
+  /// The highest id deleted for me in *this* room this session, for the read
+  /// watermark ([deletedForMeUpTo]). Seeded ids aren't counted: they span
+  /// every room, and one from another room could mark unseen messages here
+  /// read.
+  String? _deletedForMeUpTo;
+
+  /// Raises `sendMarkRead`'s watermark over a message I deleted for me before
+  /// the server heard it was read (say while offline). Without it the newest
+  /// such message drops out of the watermark and stays unread on the server,
+  /// so the badge and the partner's read heart never catch up.
+  String? get deletedForMeUpTo => _deletedForMeUpTo;
+
   /// Server ids the partner has read (→ double heart). A `ReadFrame` can arrive
   /// before the row it refers to is in the buffer — notably for a link-preview
   /// message, whose send is delayed by the sender's OG fetch, so the partner's
@@ -138,6 +150,8 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   /// their copy. Works on either partner's message. Idempotent on `Msg.id`.
   void deleteForMe(String id) {
     _deletedForMe.add(id);
+    final upTo = _deletedForMeUpTo;
+    if (upTo == null || id.compareTo(upTo) > 0) _deletedForMeUpTo = id;
     final idx = state.indexWhere((m) => m.id == id);
     if (idx < 0) return;
     state = [...state]..removeAt(idx);
@@ -178,6 +192,9 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     // A message its author already unsent can't be edited (and a deferred edit
     // must never resurrect it): drop the edit if a valid tombstone exists.
     if (_validlyTombstoned(targetId, requestedBy)) return;
+    // Deleted for me: nothing to show it on, and it must not wait in [_edited]
+    // (mirrors MessageDb.applyEdit).
+    if (_deletedForMe.contains(targetId)) return;
     final idx = state.indexWhere((m) => m.id == targetId);
     if (idx < 0) {
       _edited[targetId] = _PendingEdit(requestedBy, text, preview);

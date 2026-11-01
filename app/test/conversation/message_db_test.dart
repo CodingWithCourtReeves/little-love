@@ -593,6 +593,33 @@ void main() {
       expect(await db.highWaterMark('room1'), '01Z');
     });
 
+    test('a restored draft drops its reply chip once the quoted message was '
+        'deleted for me', () async {
+      final db = await freshDb();
+      await db.upsert(
+        msg('01Q', body: 'dinner?', from: 'bob'),
+        roomId: 'room1',
+      );
+      await db.saveDraft(
+        'room1',
+        const ComposerDraft(
+          text: 'yes',
+          replyTo: ReplyRef(
+            id: '01Q',
+            author: 'bob',
+            kind: 'text',
+            text: 'dinner?',
+          ),
+        ),
+      );
+
+      await db.deleteForMe('01Q');
+
+      final draft = await db.draftFor('room1');
+      expect(draft!.text, 'yes');
+      expect(draft.replyTo, isNull);
+    });
+
     test('clear wipes deleted-for-me ids', () async {
       final db = await freshDb();
       await db.upsert(msg('01A'), roomId: 'room1');

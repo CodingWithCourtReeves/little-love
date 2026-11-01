@@ -1479,6 +1479,11 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             : () {
                 _dismissReactionBar();
                 HapticFeedback.mediumImpact();
+                // Don't keep quoting what I just deleted.
+                if (_replyDraft?.id == m.id) {
+                  setState(() => _replyDraft = null);
+                  _saveDraftSoon();
+                }
                 deleteForMe();
               },
         onDismiss: _dismissReactionBar,

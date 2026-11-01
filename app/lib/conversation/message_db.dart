@@ -681,6 +681,9 @@ class SqliteMessageDb implements MessageDb {
       );
       if (tomb.isNotEmpty) replyTo = null;
     }
+    // Nor quote one I deleted for me (only confirmed rows can be, so the
+    // server id is the one to match).
+    if (replyTo != null && await _isDeletedForMe(replyTo.id)) replyTo = null;
     final draft = ComposerDraft(text: r['body'] as String, replyTo: replyTo);
     return draft.isEmpty ? null : draft;
   }

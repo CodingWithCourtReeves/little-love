@@ -21,10 +21,14 @@ void markRoomRead(dynamic reader, String roomId, {String? alsoUpTo}) {
 /// message id (ULIDs sort by time); the server only flips the partner's unread
 /// rows at or below it. [alsoUpTo] raises the watermark to a message the store
 /// doesn't hold (a hidden unknown kind, a dropped control message) that the
-/// server still counts as unread.
+/// server still counts as unread, as does a message deleted for me
+/// ([MessageStore.deletedForMeUpTo]).
 void sendMarkRead(dynamic reader, String roomId, {String? alsoUpTo}) {
   final messages = reader.read(messageStoreProvider(roomId)) as List<Msg>;
-  if (messages.isEmpty && alsoUpTo == null) return;
+  final deletedUpTo =
+      (reader.read(messageStoreProvider(roomId).notifier) as MessageStore)
+          .deletedForMeUpTo;
+  if (messages.isEmpty && alsoUpTo == null && deletedUpTo == null) return;
   // Advance the local read marker in the same breath. The unread count and the
   // app-icon badge are computed client-side off this marker; if we only told
   // the server (the path replay/resume reads take), the marker would stay stale
@@ -33,6 +37,7 @@ void sendMarkRead(dynamic reader, String roomId, {String? alsoUpTo}) {
   final upTo = [
     ...messages.map((m) => m.id),
     ?alsoUpTo,
+    ?deletedUpTo,
   ].reduce((a, b) => a.compareTo(b) >= 0 ? a : b);
   final conn =
       (reader.read(liveConnectionProvider) as AsyncValue<LiveConnection>)
