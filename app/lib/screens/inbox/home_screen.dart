@@ -34,10 +34,12 @@ import '../../identity/account_local.dart';
 import '../../identity/current_identity.dart';
 import '../../identity/providers.dart';
 import '../../inbox/active_room_provider.dart';
+import '../../inbox/channel_deletion.dart';
 import '../../inbox/channel_order.dart';
 import '../../inbox/conversation_list_item.dart';
 import '../../inbox/global_search_page.dart';
 import '../../inbox/inbox_state.dart';
+import '../../inbox/room_deletion_events.dart';
 import '../../inbox/room_preview.dart';
 import '../../inbox/room.dart';
 import '../../outbox/outbox_drain.dart';
@@ -47,6 +49,7 @@ import '../../profile/avatar.dart';
 import '../../profile/profile_store.dart';
 import '../../push/push_bootstrap.dart';
 import '../../theme/app_palette.dart';
+import '../../theme/love_toast.dart';
 import '../../wire/frames.dart';
 import '../../wire/live_connection.dart';
 import '../../wire/message.dart';
@@ -96,6 +99,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   /// listener never double-pushes.
   bool _chatOnStack = false;
 
+  /// The room whose conversation is pushed, so a deletion of that channel can
+  /// take the user back to the inbox.
+  String? _openRoomId;
+
   String get _me => widget.account.username;
 
   @override
@@ -136,6 +143,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (target == null) return;
       if (ref.read(activeRoomProvider) == roomId) return; // already open
       _openRoom(target);
+    });
+
+    ref.listen<RoomDeletion?>(roomDeletionsProvider, (_, deletion) {
+      if (deletion != null) _onRoomDeleted(deletion);
     });
 
     // Single-room auto-open: exactly one *partner* room → push straight into
@@ -306,6 +317,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _openRoom(Room room, {String? focusMessageId}) async {
     _chatOnStack = true;
+    _openRoomId = room.roomId;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ConversationPage(
@@ -354,10 +366,48 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           onChannelPicture: room.shape(_me) == RoomShape.partner
               ? null
               : (choice) => _applyChannelPicture(room, choice),
+          // Only channels can be deleted; the server refuses the partner chat
+          // too, so this is the affordance, not the enforcement.
+          onDeleteChannel: room.shape(_me) == RoomShape.partner
+              ? null
+              : () => requestChannelDeletion(
+                  conn: ref.read(liveConnectionProvider).asData?.value,
+                  roomId: room.roomId,
+                ),
         ),
       ),
     );
     _chatOnStack = false;
+    if (_openRoomId == room.roomId) _openRoomId = null;
+  }
+
+  /// A channel was deleted (by either of us). If it's the one open, take
+  /// everything over the inbox down (the chat, its info page, the sheet) and
+  /// say what happened; anywhere else, nothing is shown: the row just goes.
+  void _onRoomDeleted(RoomDeletion deletion) {
+    if (deletion.roomId != _openRoomId) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    final message = deletion.deletedBy == _me
+        ? 'Channel deleted'
+        : '${_displayNameOf(deletion.deletedBy)} deleted ${deletion.roomName}';
+    showLoveToast(
+      context,
+      message,
+      icon: deletion.deletedBy == _me ? Icons.check : Icons.delete_outline,
+    );
+  }
+
+  /// How the app names [username]: their display name, else the username
+  /// capitalized (as the room list and chat info do).
+  String _displayNameOf(String username) {
+    final name = ref
+        .read(profileStoreProvider)
+        .forUsername(username)
+        ?.displayName;
+    if (name != null && name.isNotEmpty) return name;
+    return username.isEmpty
+        ? username
+        : username[0].toUpperCase() + username.substring(1);
   }
 
   /// Sends a channel picture change. The sender reports failure as `false`

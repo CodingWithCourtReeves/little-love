@@ -42,6 +42,13 @@ void main() {
       );
     });
 
+    test('$name: the destructive button label clears body AA', () {
+      expect(
+        _contrast(p.onDestructiveFill, p.destructiveFill),
+        greaterThanOrEqualTo(aaBody),
+      );
+    });
+
     test('$name: accentUser on bgSurface clears accent-UI AA', () {
       expect(
         _contrast(p.accentUser, p.bgSurface),

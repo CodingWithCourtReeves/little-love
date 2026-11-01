@@ -2605,6 +2605,12 @@ void main() {
         ),
       );
       await pumpUntil(() => container.read(inboxSyncedProvider));
+      // Subscribe goes out after the synced flag, followed by the profile
+      // republish; wait for it so no router work outlives the test (teardown
+      // would dispose the container under it).
+      await pumpUntil(
+        () => _sentOfKind(conn, 'Subscribe').length == listed.length,
+      );
       return (container, conn, db);
     }
 

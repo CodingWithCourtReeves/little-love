@@ -40,6 +40,8 @@ class AppPalette extends ThemeExtension<AppPalette> {
     required this.borderSoft,
     required this.ruleStrong,
     required this.warningTone,
+    required this.destructiveFill,
+    required this.onDestructiveFill,
     required this.bubbleUserBg,
     required this.bubbleUserText,
     required this.bubblePartnerBg,
@@ -66,6 +68,14 @@ class AppPalette extends ThemeExtension<AppPalette> {
   final Color borderSoft;
   final Color ruleStrong;
   final Color warningTone;
+
+  /// Fill of a destructive confirm button (Delete channel). [warningTone]
+  /// itself can't carry a label at 4.5:1 in light (white on it is ~4.45:1),
+  /// so light uses a deeper red; dark reuses [warningTone] with a dark label.
+  final Color destructiveFill;
+
+  /// The label on [destructiveFill].
+  final Color onDestructiveFill;
   final Color bubbleUserBg;
   final Color bubbleUserText;
   final Color bubblePartnerBg;
@@ -124,6 +134,8 @@ class AppPalette extends ThemeExtension<AppPalette> {
     borderSoft: Color(0xFFD9C7CD),
     ruleStrong: Color(0xFF4F7A5E),
     warningTone: Color(0xFFB85C5C),
+    destructiveFill: Color(0xFFA84A4A),
+    onDestructiveFill: Color(0xFFFFFFFF),
     bubbleUserBg: Color(0xFFE8C8D2),
     bubbleUserText: Color(0xFF3A1424),
     bubblePartnerBg: Color(0xFFFFFAFB),
@@ -161,6 +173,8 @@ class AppPalette extends ThemeExtension<AppPalette> {
     borderSoft: Color(0xFF3D2E42),
     ruleStrong: Color(0xFF8FB89A),
     warningTone: Color(0xFFE58A8A),
+    destructiveFill: Color(0xFFE58A8A),
+    onDestructiveFill: Color(0xFF2A0F1C),
     bubbleUserBg: Color(0xFF5E2C49),
     bubbleUserText: Color(0xFFF6E5EC),
     bubblePartnerBg: Color(0xFF2E2233),
@@ -200,6 +214,8 @@ class AppPalette extends ThemeExtension<AppPalette> {
     Color? borderSoft,
     Color? ruleStrong,
     Color? warningTone,
+    Color? destructiveFill,
+    Color? onDestructiveFill,
     Color? bubbleUserBg,
     Color? bubbleUserText,
     Color? bubblePartnerBg,
@@ -226,6 +242,8 @@ class AppPalette extends ThemeExtension<AppPalette> {
       borderSoft: borderSoft ?? this.borderSoft,
       ruleStrong: ruleStrong ?? this.ruleStrong,
       warningTone: warningTone ?? this.warningTone,
+      destructiveFill: destructiveFill ?? this.destructiveFill,
+      onDestructiveFill: onDestructiveFill ?? this.onDestructiveFill,
       bubbleUserBg: bubbleUserBg ?? this.bubbleUserBg,
       bubbleUserText: bubbleUserText ?? this.bubbleUserText,
       bubblePartnerBg: bubblePartnerBg ?? this.bubblePartnerBg,
@@ -259,6 +277,12 @@ class AppPalette extends ThemeExtension<AppPalette> {
       borderSoft: Color.lerp(borderSoft, other.borderSoft, t)!,
       ruleStrong: Color.lerp(ruleStrong, other.ruleStrong, t)!,
       warningTone: Color.lerp(warningTone, other.warningTone, t)!,
+      destructiveFill: Color.lerp(destructiveFill, other.destructiveFill, t)!,
+      onDestructiveFill: Color.lerp(
+        onDestructiveFill,
+        other.onDestructiveFill,
+        t,
+      )!,
       bubbleUserBg: Color.lerp(bubbleUserBg, other.bubbleUserBg, t)!,
       bubbleUserText: Color.lerp(bubbleUserText, other.bubbleUserText, t)!,
       bubblePartnerBg: Color.lerp(bubblePartnerBg, other.bubblePartnerBg, t)!,
