@@ -31,7 +31,8 @@ use crate::push_tokens::{delete_token, delete_token_value, tokens_for_account, u
 use crate::rooms::{
     account_id_by_username, create_room_with_members, delete_room, is_member, leave_room,
     list_rooms_for_account, members_for_room, partner_account_id_for, partner_username_for,
-    rename_room, room_detail, set_partner_link, CreateRoomError, Member, MonogamyError, PairError,
+    rename_room, room_count_for_account, room_detail, set_partner_link, CreateRoomError, Member,
+    MonogamyError, PairError,
 };
 use crate::routing::Routing;
 use crate::store::{MessageRow, Store};
@@ -1838,6 +1839,21 @@ async fn handle_delete_room(
         }
         Err(e) => {
             warn!(room_id = %room_id, "room_detail (delete_room): {e}");
+            send_room_error(tx, error_codes::INTERNAL, room_id);
+            return;
+        }
+    }
+    // Never the couple's last room either: an old build let the partner chat
+    // be renamed, so for some couples every room is named, and deleting the
+    // last would leave them with nothing to talk in.
+    match room_count_for_account(store.pool(), me.id).await {
+        Ok(n) if n <= 1 => {
+            send_room_error(tx, error_codes::PARTNER_CHAT_LOCKED, room_id);
+            return;
+        }
+        Ok(_) => {}
+        Err(e) => {
+            warn!(room_id = %room_id, "room_count_for_account (delete_room): {e}");
             send_room_error(tx, error_codes::INTERNAL, room_id);
             return;
         }

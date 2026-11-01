@@ -504,8 +504,12 @@ class RoomMessageRouter {
     Room room,
     MessageContent content,
   ) async {
-    final store = ref.read(messageStoreProvider(f.roomId).notifier);
     final db = await ref.read(messageDbProvider.future);
+    // The room may have been deleted while this frame awaited its decrypt
+    // (it passed the guard in [_onFrame] first). Re-check after the last
+    // await and before touching the store, which the purge just disposed.
+    if (_deletedRooms.contains(f.roomId)) return;
+    final store = ref.read(messageStoreProvider(f.roomId).notifier);
     // A reaction isn't a timeline bubble: apply it onto its target and stop.
     // The sender's own self-copy still rides the outbox, so drop that row on
     // echo just like a normal send (otherwise the drain resends it).

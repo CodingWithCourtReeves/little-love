@@ -361,6 +361,15 @@ pub struct LeaveOutcome {
     pub room_deleted: bool,
 }
 
+/// How many rooms `account_id` is a member of.
+pub async fn room_count_for_account(pool: &PgPool, account_id: i64) -> sqlx::Result<i64> {
+    let (n,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM room_members WHERE account_id = $1")
+        .bind(account_id)
+        .fetch_one(pool)
+        .await?;
+    Ok(n)
+}
+
 /// Delete `room_id` outright: the room row goes, and with it (ON DELETE
 /// CASCADE) its members, invites, attachments and messages. Messages only
 /// cascade since migration 0017; before it, deleting a room that had any

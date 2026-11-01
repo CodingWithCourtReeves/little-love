@@ -2662,6 +2662,43 @@ void main() {
       },
     );
 
+    test(
+      'a message still decrypting when RoomDeleted lands is not written',
+      () async {
+        final (container, conn, db) = await connect(
+          listed: [('dm', ''), ('chan', 'Travel')],
+        );
+        final me = await deriveIdentity(seedA);
+        final peer = await deriveIdentity(seedB);
+        final key = await deriveRoomKey(
+          me: peer,
+          peerX25519Pub: me.x25519PublicKey,
+          roomId: 'chan',
+        );
+        final body = await encryptOutgoing(key, 'secret');
+
+        // The message passes the frame guard, then awaits its decrypt while
+        // the delete is applied.
+        conn.emit(
+          MessageFrame(
+            id: 'm1',
+            roomId: 'chan',
+            from: 'kaitlyn',
+            ts: DateTime.utc(2026, 6, 10, 12),
+            body: body,
+            replayed: false,
+          ),
+        );
+        conn.emit(const RoomDeletedFrame(roomId: 'chan', deletedBy: 'kaitlyn'));
+        await pumpUntil(() => container.read(roomDeletionsProvider) != null);
+        // Proving absence: a bounded wait for the in-flight ingest to finish.
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+
+        expect(await db.messagesFor('chan'), isEmpty);
+        expect(container.read(messageStoreProvider('chan')), isEmpty);
+      },
+    );
+
     test('a Rooms list missing a locally known room purges it', () async {
       final (_, _, db) = await connect(
         listed: [('dm', ''), ('chan', 'Travel')],

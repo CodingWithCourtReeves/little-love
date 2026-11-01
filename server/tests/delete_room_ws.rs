@@ -239,3 +239,37 @@ async fn delete_room_flood_is_rate_limited() {
     assert_eq!(f["room_id"], c.channel);
     assert!(room_exists(&c.store, &c.channel).await);
 }
+
+/// An old build let the partner chat be renamed, so a couple can have only
+/// named rooms. Deleting the last one would leave them with no room at all.
+#[file_serial(db)]
+#[tokio::test]
+async fn deleting_the_last_shared_room_is_refused() {
+    let mut c = couple().await;
+    sqlx::query("UPDATE rooms SET name = 'Ours' WHERE id = $1")
+        .bind(&c.partner_room)
+        .execute(c.store.pool())
+        .await
+        .unwrap();
+
+    // Travel isn't the last room: it goes.
+    send(
+        &mut c.court,
+        serde_json::json!({"kind": "DeleteRoom", "room_id": c.channel}),
+    )
+    .await;
+    let f = next_frame(&mut c.court).await;
+    assert_eq!(f["kind"], "RoomDeleted", "{f}");
+
+    // "Ours" is now the last one: refused, and it stays.
+    send(
+        &mut c.court,
+        serde_json::json!({"kind": "DeleteRoom", "room_id": c.partner_room}),
+    )
+    .await;
+    let f = next_frame(&mut c.court).await;
+    assert_eq!(f["kind"], "Error", "{f}");
+    assert_eq!(f["code"], "PartnerChatLocked");
+    assert_eq!(f["room_id"], c.partner_room);
+    assert!(room_exists(&c.store, &c.partner_room).await);
+}
