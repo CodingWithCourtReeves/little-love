@@ -233,7 +233,8 @@ and changed code; don't report these as findings on lines a change doesn't
 touch.
 
 - **Rate limiting**: every `RoomClientFrame` except `Typing`,
-  `RequestUpload`, `CallTurnRequest` and `CallInvite` has no limiter.
+  `RequestUpload`, `CallTurnRequest`, `CallInvite` and `DeleteRoom` has no
+  limiter.
   `ConsumeInvite` is the most notable (unthrottled invite attempts).
   Tracked in #25.
 - **Test serialization**: these DB test files use `#[serial_test::serial]`
@@ -243,8 +244,9 @@ touch.
   `invite_preview_members.rs`, `attachments_store.rs`, and the
   `migration_00NN_schema.rs` files.
 - **Migration schema tests**: only 0006, 0010, 0011 and 0012 have one.
-- **Error codes**: `"Internal"` and `"BadName"` are string literals in
-  `ws.rs`, not `error_codes` constants.
+- **Error codes**: `error_codes::INTERNAL` exists, but most `ws.rs`
+  handlers still send `"Internal"` as a string literal (only
+  `handle_delete_room` uses the constant).
 - **Logging**: some `ws.rs` lines interpolate room and call ids into the
   message instead of using fields.
 - **Secrets in `Debug`**: the config structs in `config.rs` derive `Debug`.

@@ -111,6 +111,12 @@ pub enum RoomClientFrame {
     LeaveRoom {
         room_id: String,
     },
+    /// Delete a channel for both partners: the room and everything in it.
+    /// Refused for the partner chat (the unnamed room). Answered with
+    /// `RoomDeleted` to every member, or an `Error` carrying this `room_id`.
+    DeleteRoom {
+        room_id: String,
+    },
     /// Sent when the client opens a chat: acknowledges every message in the
     /// room up to and including `up_to_message_id` as read.
     MarkRead {
@@ -236,6 +242,14 @@ pub enum RoomServerFrame {
         username: String,
     },
 
+    /// The room is gone for everyone. `deleted_by` is the authenticated
+    /// deleter's username, so each phone can tell its own delete from its
+    /// partner's.
+    RoomDeleted {
+        room_id: String,
+        deleted_by: String,
+    },
+
     Message {
         id: String,
         room_id: String,
@@ -352,6 +366,11 @@ pub enum RoomServerFrame {
         code: String,
         #[serde(default, skip_serializing_if = "String::is_empty")]
         message: String,
+        /// The room the failed request named, when the handler sets it, so a
+        /// client waiting on one request (DeleteRoom) can tell its error from
+        /// another frame's in flight. Absent for older handlers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        room_id: Option<String>,
     },
 }
 
@@ -401,6 +420,11 @@ pub mod error_codes {
     pub const UNKNOWN_BLOB: &str = "UnknownBlob";
     pub const R2_UNAVAILABLE: &str = "R2Unavailable";
     pub const RATE_LIMITED: &str = "RateLimited";
+    /// The partner chat (the unnamed room) can't be renamed or deleted.
+    pub const PARTNER_CHAT_LOCKED: &str = "PartnerChatLocked";
+    pub const INTERNAL: &str = "Internal";
+    /// A room name that is empty or too long.
+    pub const BAD_NAME: &str = "BadName";
 }
 
 #[cfg(test)]
@@ -721,6 +745,50 @@ mod tests {
     }
 
     #[test]
+    fn parses_delete_room_frame() {
+        let raw = r#"{"kind":"DeleteRoom","room_id":"01J"}"#;
+        match serde_json::from_str::<RoomClientFrame>(raw).unwrap() {
+            RoomClientFrame::DeleteRoom { room_id } => assert_eq!(room_id, "01J"),
+            _ => panic!("expected DeleteRoom"),
+        }
+    }
+
+    #[test]
+    fn serializes_room_deleted_frame() {
+        let f = RoomServerFrame::RoomDeleted {
+            room_id: "01J".into(),
+            deleted_by: "court".into(),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"RoomDeleted""#));
+        assert!(s.contains(r#""room_id":"01J""#));
+        assert!(s.contains(r#""deleted_by":"court""#));
+    }
+
+    #[test]
+    fn error_frame_omits_room_id_when_none() {
+        let f = RoomServerFrame::Error {
+            code: error_codes::RATE_LIMITED.into(),
+            message: String::new(),
+            room_id: None,
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(!s.contains("room_id"), "{s}");
+    }
+
+    #[test]
+    fn error_frame_carries_room_id() {
+        let f = RoomServerFrame::Error {
+            code: error_codes::PARTNER_CHAT_LOCKED.into(),
+            message: String::new(),
+            room_id: Some("01J".into()),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""code":"PartnerChatLocked""#), "{s}");
+        assert!(s.contains(r#""room_id":"01J""#), "{s}");
+    }
+
+    #[test]
     fn serializes_member_left_frame() {
         let f = RoomServerFrame::MemberLeft {
             room_id: "01J".into(),
@@ -757,6 +825,7 @@ mod tests {
         let f = RoomServerFrame::Error {
             code: error_codes::ALREADY_PAIRED.into(),
             message: "".into(),
+            room_id: None,
         };
         let s = serde_json::to_string(&f).unwrap();
         assert!(s.contains(r#""kind":"Error""#));
