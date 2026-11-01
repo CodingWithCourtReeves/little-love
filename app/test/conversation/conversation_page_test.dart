@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -565,6 +566,203 @@ void main() {
     // An unconfirmed send has no shared id to unsend — it's a local cancel.
     expect(cancelledClientId, 'cli-9');
     expect(unsentId, isNull);
+  });
+
+  group('delete for me', () {
+    Future<ProviderContainer> pumpWith(
+      WidgetTester tester,
+      List<Msg> msgs, {
+      void Function(String id)? onDelete,
+      void Function(String id)? onDeleteForMe,
+    }) async {
+      final container = ProviderContainer(
+        overrides: [
+          accountProvider.overrideWith((_) async => _account),
+          httpClientProvider.overrideWithValue(http.Client()),
+          readStateStoreProvider.overrideWithValue(_readStateStore),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(inboxStateProvider.notifier).setRooms([_roomA()]);
+      container.read(messageStoreProvider('roomA').notifier).setAll(msgs);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: buildAppTheme(AppPalette.light),
+            home: ConversationPage(
+              room: _roomA(),
+              selfUsername: 'court',
+              onSend: (_, _) {},
+              onReact: (_, _) {},
+              onDelete: onDelete ?? (_) {},
+              onCancelSend: (_) {},
+              onDeleteForMe: onDeleteForMe ?? (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return container;
+    }
+
+    testWidgets('a partner message offers delete for me, never unsend', (
+      tester,
+    ) async {
+      String? unsentId;
+      String? hiddenId;
+      await pumpWith(
+        tester,
+        [
+          Msg(
+            id: '7',
+            from: 'kaitlyn',
+            to: 'court',
+            body: 'from her',
+            ts: DateTime.utc(2026, 6, 9, 17, 2),
+          ),
+        ],
+        onDelete: (id) => unsentId = id,
+        onDeleteForMe: (id) => hiddenId = id,
+      );
+
+      await tester.longPress(find.text('from her'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('action-delete')), findsNothing);
+      expect(find.text('Delete for Me'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('action-delete-for-me')));
+      await tester.pumpAndSettle();
+      expect(hiddenId, '7');
+      expect(unsentId, isNull);
+    });
+
+    testWidgets('my confirmed message offers both unsend and delete for me', (
+      tester,
+    ) async {
+      String? unsentId;
+      String? hiddenId;
+      await pumpWith(
+        tester,
+        [
+          Msg(
+            id: '2',
+            from: 'court',
+            to: 'kaitlyn',
+            body: 'hey love',
+            ts: DateTime.utc(2026, 6, 9, 17, 2),
+          ),
+        ],
+        onDelete: (id) => unsentId = id,
+        onDeleteForMe: (id) => hiddenId = id,
+      );
+
+      await tester.longPress(find.text('hey love'));
+      await tester.pumpAndSettle();
+      expect(find.text('Unsend'), findsOneWidget);
+      expect(find.text('Delete for Me'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('action-delete-for-me')));
+      await tester.pumpAndSettle();
+      expect(hiddenId, '2');
+      expect(unsentId, isNull);
+    });
+
+    for (final (key, status) in [
+      ('action-delete', SendStatus.sent), // Unsend
+      ('action-delete-for-me', SendStatus.sent),
+      ('action-delete', SendStatus.sending), // cancel the send
+    ]) {
+      testWidgets('tapping $key on a ${status.name} message buzzes a medium '
+          'haptic', (tester) async {
+        await pumpWith(tester, [
+          Msg(
+            id: '2',
+            from: 'court',
+            to: 'kaitlyn',
+            body: 'hey love',
+            ts: DateTime.utc(2026, 6, 9, 17, 2),
+            clientMsgId: '2',
+            sendStatus: status,
+          ),
+        ]);
+        final haptics = <String?>[];
+        final messenger = tester.binding.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(SystemChannels.platform, (
+          call,
+        ) async {
+          if (call.method == 'HapticFeedback.vibrate') {
+            haptics.add(call.arguments as String?);
+          }
+          return null;
+        });
+        addTearDown(
+          () =>
+              messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+        );
+
+        await tester.longPress(find.text('hey love'));
+        await tester.pumpAndSettle();
+        haptics.clear(); // the long-press's own buzz
+        await tester.tap(find.byKey(Key(key)));
+        await tester.pumpAndSettle();
+
+        expect(haptics, ['HapticFeedbackType.mediumImpact']);
+      });
+    }
+
+    testWidgets('deleting the message I\'m replying to for me clears the '
+        'reply chip', (tester) async {
+      await pumpWith(tester, [
+        Msg(
+          id: '7',
+          from: 'kaitlyn',
+          to: 'court',
+          body: 'from her',
+          ts: DateTime.utc(2026, 6, 9, 17, 2),
+        ),
+      ]);
+      await tester.longPress(find.text('from her'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('action-reply')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('reply-banner')), findsOneWidget);
+
+      // The banner now quotes "from her" too; long-press the bubble's copy.
+      await tester.longPress(
+        find.descendant(
+          of: find.byType(ListView),
+          matching: find.text('from her'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('action-delete-for-me')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('reply-banner')), findsNothing);
+    });
+
+    testWidgets('a still-sending message offers only the cancel', (
+      tester,
+    ) async {
+      await pumpWith(tester, [
+        Msg(
+          id: 'cli-9',
+          from: 'court',
+          to: 'kaitlyn',
+          body: 'still going',
+          ts: DateTime.utc(2026, 6, 9, 17, 2),
+          clientMsgId: 'cli-9',
+          sendStatus: SendStatus.sending,
+        ),
+      ]);
+
+      await tester.longPress(find.text('still going'));
+      await tester.pumpAndSettle();
+      // No server id yet, so there's nothing to hide by; Delete cancels it.
+      expect(find.text('Delete'), findsOneWidget);
+      expect(find.byKey(const Key('action-delete-for-me')), findsNothing);
+    });
   });
 
   testWidgets('edit my own message: enter edit mode, prefill, fire onEdit', (

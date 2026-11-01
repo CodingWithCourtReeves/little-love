@@ -568,4 +568,96 @@ void main() {
     expect(out.body, 'hi (fixed)');
     expect(out.replyTo!.id, 'orig');
   });
+
+  group('delete for me', () {
+    Msg fromKaitlyn(String id) => Msg(
+      id: id,
+      from: 'kaitlyn',
+      to: 'court',
+      body: 'hers',
+      ts: DateTime.utc(2026, 6, 9, 17, 0),
+    );
+
+    test('deleteForMe removes any message, including the partner\'s', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final store = container.read(messageStoreProvider('r1').notifier);
+      store.add(_msg('m1', 'mine'));
+      store.add(fromKaitlyn('m2'));
+
+      store.deleteForMe('m2');
+      store.deleteForMe('m1');
+
+      expect(container.read(messageStoreProvider('r1')), isEmpty);
+    });
+
+    test('a deleted-for-me message stays gone when it replays', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final store = container.read(messageStoreProvider('r1').notifier);
+      store.add(fromKaitlyn('m1'));
+      store.deleteForMe('m1');
+
+      store.add(fromKaitlyn('m1'));
+      store.setAll([fromKaitlyn('m1'), _msg('m2', 'kept')]);
+
+      expect(
+        container.read(messageStoreProvider('r1')).map((m) => m.id).toList(),
+        ['m2'],
+      );
+    });
+
+    test('a late self-copy echo cannot bring back a deleted-for-me send', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final store = container.read(messageStoreProvider('r1').notifier);
+      store.add(_msg('ULID-real', 'mine'));
+      store.deleteForMe('ULID-real');
+
+      store.reconcile('cmid-1', _msg('ULID-real', 'mine'));
+
+      expect(container.read(messageStoreProvider('r1')), isEmpty);
+    });
+
+    test('a seeded deleted-for-me id stays out when it replays after a '
+        'relaunch', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final store = container.read(messageStoreProvider('r1').notifier);
+      store.seedDeletedForMe(['m1']);
+
+      store.add(fromKaitlyn('m1'));
+      store.add(fromKaitlyn('m2'));
+
+      expect(
+        container.read(messageStoreProvider('r1')).map((m) => m.id).toList(),
+        ['m2'],
+      );
+    });
+
+    test('an edit to a deleted-for-me message is dropped, not deferred', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final store = container.read(messageStoreProvider('r1').notifier);
+      store.add(fromKaitlyn('m1'));
+      store.deleteForMe('m1');
+
+      store.applyEdit('m1', requestedBy: 'kaitlyn', text: 'new words');
+
+      expect(container.read(messageStoreProvider('r1')), isEmpty);
+    });
+
+    test('deleteForMe is idempotent and a no-op for an unknown id', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final store = container.read(messageStoreProvider('r1').notifier);
+      store.add(_msg('m1', 'one'));
+
+      store.deleteForMe('nope');
+      store.deleteForMe('m1');
+      store.deleteForMe('m1');
+
+      expect(container.read(messageStoreProvider('r1')), isEmpty);
+    });
+  });
 }

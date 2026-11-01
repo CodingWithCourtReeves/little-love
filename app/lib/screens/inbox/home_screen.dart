@@ -19,6 +19,7 @@ import '../../audio/recorder_controller.dart';
 import '../../conversation/conversation_page.dart';
 import '../../conversation/link_preview.dart';
 import '../../conversation/message_content.dart';
+import '../../conversation/message_db.dart';
 import '../../conversation/reply_ref.dart';
 import '../../conversation/message_store.dart';
 import '../../channel/channel_picture.dart';
@@ -323,6 +324,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           onEdit: (targetId, newText) =>
               _sendEdit(ref, room, targetId, newText),
           onCancelSend: (clientMsgId) => _cancelSend(ref, room, clientMsgId),
+          onDeleteForMe: (targetId) => _deleteForMe(ref, room, targetId),
           onTyping: (typing) => _sendTyping(ref, room, typing),
           onOpenAttachment: (descriptor) =>
               _openAttachment(ref, room, context, descriptor),
@@ -936,6 +938,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       await store.remove(clientMsgId);
     } catch (e) {
       debugPrint('cancel send: outbox remove failed: $e');
+    }
+  }
+
+  /// Delete a message from this phone only. Nothing is sent, so the partner
+  /// keeps their copy (and no author check applies: this can't touch their
+  /// phone). Drop it from the store now, then record it in [MessageDb] so it
+  /// stays gone across launches, since hydrate leaves recorded ids out.
+  Future<void> _deleteForMe(WidgetRef ref, Room room, String targetId) async {
+    ref.read(messageStoreProvider(room.roomId).notifier).deleteForMe(targetId);
+    try {
+      final db = await ref.read(messageDbProvider.future);
+      await db.deleteForMe(targetId);
+    } catch (e, st) {
+      // The bubble is gone for this session but would return on next launch.
+      reportFault(e, st, context: 'delete_for_me');
     }
   }
 

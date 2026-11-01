@@ -34,6 +34,26 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   /// bubble (see [reconcile]).
   final Set<String> _cancelled = {};
 
+  /// Server ids I deleted for myself only (see [deleteForMe]). Unlike
+  /// [_deleted] there's no author check: no frame is sent, so nobody else can
+  /// name an id here, and hiding the partner's message is the normal case.
+  /// [MessageDb] persists the ids and the router re-seeds this set on hydrate
+  /// ([seedDeletedForMe]), so a replay of one (say the app died before its
+  /// row's high-water-mark landed) stays out after a relaunch too.
+  final Set<String> _deletedForMe = {};
+
+  /// The highest id deleted for me in *this* room this session, for the read
+  /// watermark ([deletedForMeUpTo]). Seeded ids aren't counted: they span
+  /// every room, and one from another room could mark unseen messages here
+  /// read.
+  String? _deletedForMeUpTo;
+
+  /// Raises `sendMarkRead`'s watermark over a message I deleted for me before
+  /// the server heard it was read (say while offline). Without it the newest
+  /// such message drops out of the watermark and stays unread on the server,
+  /// so the badge and the partner's read heart never catch up.
+  String? get deletedForMeUpTo => _deletedForMeUpTo;
+
   /// Server ids the partner has read (→ double heart). A `ReadFrame` can arrive
   /// before the row it refers to is in the buffer — notably for a link-preview
   /// message, whose send is delayed by the sender's OG fetch, so the partner's
@@ -62,9 +82,11 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
 
   /// Append a message. Idempotent on `Msg.id` — re-applying replays from the
   /// server won't double-up the buffer. A validly-tombstoned id is dropped on
-  /// the spot (a spoofed delete that raced ahead does not suppress it).
+  /// the spot (a spoofed delete that raced ahead does not suppress it), as is
+  /// one I deleted for myself.
   void add(Msg msg) {
     if (_validlyTombstoned(msg.id, msg.from)) return;
+    if (_deletedForMe.contains(msg.id)) return;
     if (state.any((m) => m.id == msg.id)) return;
     // A read receipt and/or an edit for this id may have arrived before the row
     // did; apply them now rather than leaving the bubble stale.
@@ -109,15 +131,35 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   );
 
   /// Replace the buffer wholesale (e.g. on initial replay). Validly-tombstoned
-  /// ids are filtered out so a wholesale reset can't resurrect a deleted
-  /// message.
+  /// and deleted-for-me ids are filtered out so a wholesale reset can't
+  /// resurrect a deleted message.
   void setAll(List<Msg> messages) {
     state = List.unmodifiable(
-      _deleted.isEmpty
+      _deleted.isEmpty && _deletedForMe.isEmpty
           ? messages
-          : messages.where((m) => !_validlyTombstoned(m.id, m.from)),
+          : messages.where(
+              (m) =>
+                  !_validlyTombstoned(m.id, m.from) &&
+                  !_deletedForMe.contains(m.id),
+            ),
     );
   }
+
+  /// Delete [id] from this device only: drop it from the buffer and remember it
+  /// so a replay can't bring it back. Nothing is sent, so the partner keeps
+  /// their copy. Works on either partner's message. Idempotent on `Msg.id`.
+  void deleteForMe(String id) {
+    _deletedForMe.add(id);
+    final upTo = _deletedForMeUpTo;
+    if (upTo == null || id.compareTo(upTo) > 0) _deletedForMeUpTo = id;
+    final idx = state.indexWhere((m) => m.id == id);
+    if (idx < 0) return;
+    state = [...state]..removeAt(idx);
+  }
+
+  /// Remember [ids] as deleted for me without touching the buffer: the
+  /// persisted ids from [MessageDb], loaded on hydrate before any replay.
+  void seedDeletedForMe(Iterable<String> ids) => _deletedForMe.addAll(ids);
 
   /// Apply an unsend onto [targetId], requested by [requestedBy]. Only the
   /// author of a message may unsend it: if the target is present and was
@@ -150,6 +192,9 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     // A message its author already unsent can't be edited (and a deferred edit
     // must never resurrect it): drop the edit if a valid tombstone exists.
     if (_validlyTombstoned(targetId, requestedBy)) return;
+    // Deleted for me: nothing to show it on, and it must not wait in [_edited]
+    // (mirrors MessageDb.applyEdit).
+    if (_deletedForMe.contains(targetId)) return;
     final idx = state.indexWhere((m) => m.id == targetId);
     if (idx < 0) {
       _edited[targetId] = _PendingEdit(requestedBy, text, preview);
@@ -168,9 +213,10 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
   /// echo with `clientMsgId` exists (e.g. it was never rendered), fall back to
   /// a plain idempotent append.
   void reconcile(String clientMsgId, Msg server) {
-    if (_validlyTombstoned(server.id, server.from)) {
-      // The authoritative id was already unsent; drop the optimistic echo
-      // instead of swapping in a row we'd only have to remove.
+    if (_validlyTombstoned(server.id, server.from) ||
+        _deletedForMe.contains(server.id)) {
+      // The authoritative id was already unsent or deleted for me; drop the
+      // optimistic echo instead of swapping in a row we'd only have to remove.
       final idx = state.indexWhere((m) => m.id == clientMsgId);
       if (idx >= 0) state = [...state]..removeAt(idx);
       return;

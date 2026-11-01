@@ -519,4 +519,136 @@ void main() {
       },
     );
   });
+
+  group('delete for me', () {
+    test('deleteForMe hides any message from messagesFor, including the '
+        'partner\'s', () async {
+      final db = await freshDb();
+      await db.upsert(msg('01A', from: 'alice'), roomId: 'room1');
+      await db.upsert(msg('01B', from: 'bob'), roomId: 'room1');
+      await db.upsert(msg('01C', from: 'bob'), roomId: 'room1');
+
+      await db.deleteForMe('01B');
+      await db.deleteForMe('01A');
+
+      expect((await db.messagesFor('room1')).map((m) => m.id), ['01C']);
+    });
+
+    test('a deleted-for-me message stays hidden when it replays', () async {
+      final db = await freshDb();
+      await db.upsert(msg('01A', from: 'bob'), roomId: 'room1');
+      await db.deleteForMe('01A');
+
+      await db.upsert(msg('01A', from: 'bob'), roomId: 'room1');
+
+      expect(await db.messagesFor('room1'), isEmpty);
+    });
+
+    test('deleteForMe removes the plaintext from the local cache, keeping '
+        'only the id', () async {
+      final raw = await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: MessageDb.schemaVersion,
+          onCreate: MessageDb.onCreate,
+        ),
+      );
+      addTearDown(raw.close);
+      final db = MessageDb.test(raw);
+      await db.upsert(
+        msg('01A', body: 'private', from: 'bob'),
+        roomId: 'room1',
+      );
+
+      await db.deleteForMe('01A');
+
+      expect(await raw.query('messages'), isEmpty);
+      expect(await db.deletedForMeIds(), {'01A'});
+    });
+
+    test('an edit to a deleted-for-me message stores nothing', () async {
+      final raw = await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: MessageDb.schemaVersion,
+          onCreate: MessageDb.onCreate,
+        ),
+      );
+      addTearDown(raw.close);
+      final db = MessageDb.test(raw);
+      await db.upsert(msg('01A', from: 'bob'), roomId: 'room1');
+      await db.deleteForMe('01A');
+
+      await db.applyEdit('01A', requestedBy: 'bob', text: 'new words');
+
+      expect(await raw.query('pending_edits'), isEmpty);
+      expect(await raw.query('messages'), isEmpty);
+    });
+
+    test('a replay of a deleted-for-me id still advances the high-water-'
+        'mark', () async {
+      final db = await freshDb();
+      await db.deleteForMe('01Z');
+      await db.upsert(msg('01Z', from: 'bob'), roomId: 'room1');
+      expect(await db.highWaterMark('room1'), '01Z');
+    });
+
+    test('a restored draft drops its reply chip once the quoted message was '
+        'deleted for me', () async {
+      final db = await freshDb();
+      await db.upsert(
+        msg('01Q', body: 'dinner?', from: 'bob'),
+        roomId: 'room1',
+      );
+      await db.saveDraft(
+        'room1',
+        const ComposerDraft(
+          text: 'yes',
+          replyTo: ReplyRef(
+            id: '01Q',
+            author: 'bob',
+            kind: 'text',
+            text: 'dinner?',
+          ),
+        ),
+      );
+
+      await db.deleteForMe('01Q');
+
+      final draft = await db.draftFor('room1');
+      expect(draft!.text, 'yes');
+      expect(draft.replyTo, isNull);
+    });
+
+    test('clear wipes deleted-for-me ids', () async {
+      final db = await freshDb();
+      await db.upsert(msg('01A'), roomId: 'room1');
+      await db.deleteForMe('01A');
+
+      await db.clear();
+      await db.upsert(msg('01A'), roomId: 'room1');
+
+      expect((await db.messagesFor('room1')).length, 1);
+    });
+
+    test('a v6 store upgrades and can delete for me', () async {
+      final raw = await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: MessageDb.schemaVersion,
+          onCreate: MessageDb.onCreate,
+        ),
+      );
+      addTearDown(raw.close);
+      // Rewind to the v6 shape: no deleted_for_me table.
+      await raw.execute('DROP TABLE deleted_for_me');
+      await raw.setVersion(6);
+      await MessageDb.onUpgrade(raw, 6, MessageDb.schemaVersion);
+
+      final db = MessageDb.test(raw);
+      await db.upsert(msg('01A'), roomId: 'room1');
+      await db.deleteForMe('01A');
+      expect(await db.messagesFor('room1'), isEmpty);
+    });
+  });
 }

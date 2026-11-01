@@ -371,6 +371,7 @@ class ConversationPage extends ConsumerStatefulWidget {
     this.onDelete,
     this.onEdit,
     this.onCancelSend,
+    this.onDeleteForMe,
     this.onTyping,
     this.onOpenAttachment,
     this.onSendVoice,
@@ -422,6 +423,11 @@ class ConversationPage extends ConsumerStatefulWidget {
   /// clientMsgId: drops the optimistic bubble and its outbox row. Null hides
   /// the Delete action on unconfirmed messages.
   final void Function(String clientMsgId)? onCancelSend;
+
+  /// Delete a confirmed message from this device only, by message id; the
+  /// partner keeps theirs. Offered on either partner's messages. Null hides the
+  /// Delete for Me action.
+  final void Function(String targetId)? onDeleteForMe;
 
   /// Relay my typing presence (true while composing, false when stopped). Null
   /// disables sending typing frames.
@@ -1356,6 +1362,22 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     }
   }
 
+  /// The Delete for Me action for [m], or null. Any author's message, but only
+  /// once confirmed: the hidden id is the server id, and an in-flight send of
+  /// mine already has its own Delete that cancels it.
+  VoidCallback? _deleteForMeAction(Msg m) {
+    final onDeleteForMe = widget.onDeleteForMe;
+    if (onDeleteForMe == null) return null;
+    switch (m.sendStatus) {
+      case SendStatus.sent:
+      case SendStatus.read:
+        return () => onDeleteForMe(m.id);
+      case SendStatus.sending:
+      case SendStatus.failed:
+        return null;
+    }
+  }
+
   void _copy(Msg m) {
     Clipboard.setData(ClipboardData(text: m.body));
     if (!mounted) return;
@@ -1388,14 +1410,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     final isMedia = _isSaveableMedia(m);
     final edit = _editAction(m, mine);
     final delete = _deleteAction(m, mine);
+    final deleteForMe = _deleteForMeAction(m);
     if (widget.onReact == null &&
         !canReply &&
         !canCopy &&
         !isMedia &&
         edit == null &&
-        delete == null) {
+        delete == null &&
+        deleteForMe == null) {
       return;
     }
+    // On a confirmed message of mine, Delete reaches the partner's phone too;
+    // say so now that Delete for Me sits next to it.
+    final unsends =
+        m.sendStatus == SendStatus.sent || m.sendStatus == SendStatus.read;
     HapticFeedback.mediumImpact();
     final overlay = Overlay.of(context);
     final entry = OverlayEntry(
@@ -1436,11 +1464,27 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 _saveAttachment(m.attachment!);
               }
             : null,
+        // Deletes get a firmer buzz than the light tap on reply/react: they
+        // remove something, and you should feel that it happened.
         onDelete: delete == null
             ? null
             : () {
                 _dismissReactionBar();
+                HapticFeedback.mediumImpact();
                 delete();
+              },
+        deleteLabel: unsends ? 'Unsend' : 'Delete',
+        onDeleteForMe: deleteForMe == null
+            ? null
+            : () {
+                _dismissReactionBar();
+                HapticFeedback.mediumImpact();
+                // Don't keep quoting what I just deleted.
+                if (_replyDraft?.id == m.id) {
+                  setState(() => _replyDraft = null);
+                  _saveDraftSoon();
+                }
+                deleteForMe();
               },
         onDismiss: _dismissReactionBar,
       ),
@@ -2069,7 +2113,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         _canReply(m) ||
         _canCopy(m) ||
         _editAction(m, mine) != null ||
-        _deleteAction(m, mine) != null;
+        _deleteAction(m, mine) != null ||
+        _deleteForMeAction(m) != null;
     if (!canLongPress) return bubble;
     return GestureDetector(
       behavior: HitTestBehavior.deferToChild,
@@ -3398,6 +3443,8 @@ class _ReactionBarOverlay extends StatefulWidget {
     required this.onCopy,
     required this.onEdit,
     required this.onDelete,
+    required this.deleteLabel,
+    required this.onDeleteForMe,
     required this.onSaveMedia,
     required this.onDismiss,
   });
@@ -3414,6 +3461,11 @@ class _ReactionBarOverlay extends StatefulWidget {
   final VoidCallback? onCopy;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
+
+  /// "Unsend" when [onDelete] removes a confirmed message for both of us,
+  /// "Delete" when it cancels a send that never left this phone.
+  final String deleteLabel;
+  final VoidCallback? onDeleteForMe;
   final VoidCallback? onSaveMedia;
   final VoidCallback onDismiss;
 
@@ -3571,9 +3623,17 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
               _actionItem(
                 key: 'action-delete',
                 icon: Icons.delete_outline,
-                label: 'Delete',
+                label: widget.deleteLabel,
                 color: context.palette.warningTone,
                 onTap: widget.onDelete!,
+              ),
+            if (widget.onDeleteForMe != null)
+              _actionItem(
+                key: 'action-delete-for-me',
+                icon: Icons.delete_sweep_outlined,
+                label: 'Delete for Me',
+                color: context.palette.warningTone,
+                onTap: widget.onDeleteForMe!,
               ),
           ],
         ),
@@ -3609,7 +3669,8 @@ class _ReactionBarOverlayState extends State<_ReactionBarOverlay>
       (widget.onCopy != null ? 1 : 0) +
       (widget.onEdit != null ? 1 : 0) +
       (widget.onSaveMedia != null ? 1 : 0) +
-      (widget.onDelete != null ? 1 : 0);
+      (widget.onDelete != null ? 1 : 0) +
+      (widget.onDeleteForMe != null ? 1 : 0);
 
   /// Non-interactive first row of the actions panel: when the message was sent.
   Widget _timestampHeader() {

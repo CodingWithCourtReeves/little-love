@@ -24,7 +24,7 @@ import 'message_search.dart';
 /// SQLCipher-backed production impl, and a `.test` factory that wraps a plain
 /// ffi [Database] so unit tests skip the native crypto layer.
 abstract class MessageDb {
-  static const schemaVersion = 6;
+  static const schemaVersion = 7;
 
   /// SQLCipher-backed impl living at `<app-support>/messages.db`.
   static Future<MessageDb> open() async {
@@ -90,6 +90,7 @@ abstract class MessageDb {
     await _createPendingEdits(db);
     await _createFts(db);
     await _createDrafts(db);
+    await _createDeletedForMe(db);
   }
 
   static Future<void> onUpgrade(Database db, int oldV, int newV) async {
@@ -140,6 +141,24 @@ abstract class MessageDb {
         }
       }
     }
+    if (oldV < 7) {
+      // Delete for me. A new, empty table: nothing to backfill.
+      await _createDeletedForMe(db);
+    }
+  }
+
+  /// Server ids deleted on this device only ([deleteForMe]). A side table
+  /// because the `messages` row itself is removed, mirroring [tombstones].
+  /// [upsert] and [applyEdit] refuse these ids; read paths ([messagesFor],
+  /// [search]) also leave them out as a backstop.
+  ///
+  /// `IF NOT EXISTS` for the same downgrade reason as [_createDrafts].
+  static Future<void> _createDeletedForMe(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS deleted_for_me (
+        target_id TEXT PRIMARY KEY
+      )
+    ''');
   }
 
   /// One unsent composer draft per room (text + JSON-encoded [ReplyRef]). Kept
@@ -221,6 +240,17 @@ abstract class MessageDb {
   /// Records a tombstone so a later out-of-order [upsert] stays suppressed.
   Future<void> applyDelete(String targetId, {required String requestedBy});
 
+  /// Delete [targetId] from this device only. Mirrors
+  /// [MessageStore.deleteForMe]: any author, no frame. The row (and with it
+  /// the plaintext and its search entry) is removed, not just hidden; only the
+  /// id is kept, so a replayed [upsert] or a later [applyEdit] can't write it
+  /// back. Idempotent.
+  Future<void> deleteForMe(String targetId);
+
+  /// Every id passed to [deleteForMe], across rooms (ids are globally unique),
+  /// for seeding [MessageStore.seedDeletedForMe] on hydrate.
+  Future<Set<String>> deletedForMeIds();
+
   /// Set [username] → [emoji] on [targetId], or remove it when [emoji] is empty.
   /// No-op if the target isn't stored.
   Future<void> applyReaction(String targetId, String username, String emoji);
@@ -283,6 +313,12 @@ class SqliteMessageDb implements MessageDb {
       limit: 1,
     );
     if (tomb.isNotEmpty && tomb.first['requested_by'] == msg.from) return;
+    // Nor does one I deleted for me (its plaintext must not land again). The
+    // high-water-mark still advances so delta sync resumes past it.
+    if (await _isDeletedForMe(msg.id)) {
+      await _advanceHwm(roomId, msg.id);
+      return;
+    }
     await _db.insert(
       'messages',
       _toRow(msg, roomId),
@@ -307,7 +343,9 @@ class SqliteMessageDb implements MessageDb {
   Future<List<Msg>> messagesFor(String roomId) async {
     final rows = await _db.query(
       'messages',
-      where: 'room_id = ? AND deleted = 0',
+      where:
+          'room_id = ? AND deleted = 0 '
+          'AND id NOT IN (SELECT target_id FROM deleted_for_me)',
       whereArgs: [roomId],
       orderBy: 'id ASC',
     );
@@ -385,6 +423,33 @@ class SqliteMessageDb implements MessageDb {
   }
 
   @override
+  Future<void> deleteForMe(String targetId) async {
+    await _db.insert('deleted_for_me', {
+      'target_id': targetId,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    // The DELETE trigger drops it from the FTS index too.
+    await _db.delete('messages', where: 'id = ?', whereArgs: [targetId]);
+    await _db.delete(
+      'pending_edits',
+      where: 'target_id = ?',
+      whereArgs: [targetId],
+    );
+  }
+
+  @override
+  Future<Set<String>> deletedForMeIds() async {
+    final rows = await _db.query('deleted_for_me', columns: ['target_id']);
+    return {for (final r in rows) r['target_id'] as String};
+  }
+
+  Future<bool> _isDeletedForMe(String id) async => (await _db.query(
+    'deleted_for_me',
+    where: 'target_id = ?',
+    whereArgs: [id],
+    limit: 1,
+  )).isNotEmpty;
+
+  @override
   Future<void> applyReaction(
     String targetId,
     String username,
@@ -420,6 +485,9 @@ class SqliteMessageDb implements MessageDb {
     required String text,
     LinkPreview? preview,
   }) async {
+    // Deleted for me: the row is gone on purpose, so don't stash the new text
+    // as a pending edit either.
+    if (await _isDeletedForMe(targetId)) return;
     final row = await _db.query(
       'messages',
       where: 'id = ?',
@@ -521,7 +589,10 @@ class SqliteMessageDb implements MessageDb {
   }) async {
     final match = _toPrefixMatch(query);
     if (match.isEmpty) return const [];
-    final where = StringBuffer('messages_fts MATCH ? AND m.deleted = 0');
+    final where = StringBuffer(
+      'messages_fts MATCH ? AND m.deleted = 0 '
+      'AND m.id NOT IN (SELECT target_id FROM deleted_for_me)',
+    );
     final args = <Object?>[match];
     if (roomId != null) {
       where.write(' AND m.room_id = ?');
@@ -610,6 +681,9 @@ class SqliteMessageDb implements MessageDb {
       );
       if (tomb.isNotEmpty) replyTo = null;
     }
+    // Nor quote one I deleted for me (only confirmed rows can be, so the
+    // server id is the one to match).
+    if (replyTo != null && await _isDeletedForMe(replyTo.id)) replyTo = null;
     final draft = ComposerDraft(text: r['body'] as String, replyTo: replyTo);
     return draft.isEmpty ? null : draft;
   }
@@ -640,6 +714,7 @@ class SqliteMessageDb implements MessageDb {
     await _db.delete('tombstones');
     await _db.delete('pending_edits');
     await _db.delete('drafts');
+    await _db.delete('deleted_for_me');
   }
 
   Future<void> _advanceHwm(String roomId, String id) async {

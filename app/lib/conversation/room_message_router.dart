@@ -319,6 +319,8 @@ class RoomMessageRouter {
     final db = await ref.read(messageDbProvider.future);
     final cached = await db.messagesFor(roomId);
     final store = ref.read(messageStoreProvider(roomId).notifier);
+    // Before Subscribe, so a replayed id I deleted for me can't re-enter.
+    store.seedDeletedForMe(await db.deletedForMeIds());
     if (cached.isNotEmpty) {
       store.setAll([
         for (final m in cached)

@@ -71,6 +71,14 @@ void main() {
     expect(await db.search('secret'), isEmpty);
   });
 
+  test('deleted-for-me messages drop out of search', () async {
+    final db = await freshDb();
+    await db.upsert(m('01A', 'secret plan'), roomId: 'room1');
+    await db.upsert(m('01B', 'secret garden'), roomId: 'room1');
+    await db.deleteForMe('01A');
+    expect((await db.search('secret')).map((h) => h.messageId), ['01B']);
+  });
+
   test('reconciled body is searchable under the server id', () async {
     final db = await freshDb();
     await db.upsert(
