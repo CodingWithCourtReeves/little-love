@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'app_lock/app_lock_gate.dart';
+import 'app_lock/app_lock_settings.dart';
 import 'calling/call_bootstrap.dart';
 import 'calling/call_screen.dart';
 import 'conversation/incoming_banner_host.dart';
@@ -24,7 +26,12 @@ Future<void> main() async {
       'lucide',
     ], await rootBundle.loadString('assets/channel_symbols/LICENSE'));
   });
-  final container = ProviderContainer();
+  // Read before the first frame so a cold start shows the lock (or not)
+  // without a flash of the other.
+  final lockSettings = await AppLockSettings.load();
+  final container = ProviderContainer(
+    overrides: [initialAppLockSettingsProvider.overrideWithValue(lockSettings)],
+  );
   if (_fixtures == 'demo') {
     seedDemoFixtures(container);
   }
@@ -59,7 +66,8 @@ class LittleLoveApp extends ConsumerWidget {
       title: 'LittleLove',
       theme: buildAppTheme(palette),
       // Float the in-app call UI and the cross-room "new message" banner above
-      // every route. CallOverlay shows the same call screen on both caller and
+      // every route, with the app lock between them: it hides the chats and
+      // banners but never a call. CallOverlay shows the same call screen on both caller and
       // callee (CallKit owns the ring + system UI) and is transparent /
       // pointer-passthrough until a call is live; IncomingBannerHost slides a
       // banner down when a partner messages a room you're not viewing.
@@ -70,6 +78,7 @@ class LittleLoveApp extends ConsumerWidget {
         fit: StackFit.expand,
         children: [
           IncomingBannerHost(child: child ?? const SizedBox.shrink()),
+          const AppLockGate(),
           const CallOverlay(),
         ],
       ),

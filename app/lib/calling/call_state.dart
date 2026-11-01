@@ -37,6 +37,13 @@ class CallState {
   bool get isActive => phase == CallPhase.active;
   bool get isEnded => phase == CallPhase.ended;
 
+  /// Whether the in-app call screen ([CallOverlay]) is up. Ringing is CallKit's
+  /// own system UI, so it doesn't count.
+  bool get showsCallScreen =>
+      phase == CallPhase.dialing ||
+      phase == CallPhase.connecting ||
+      phase == CallPhase.active;
+
   // ── Outgoing ────────────────────────────────────────────────────────────
   CallState placeCall(String callId, {bool video = false}) {
     _require(CallPhase.idle, 'placeCall');
