@@ -619,6 +619,22 @@ void main() {
       expect(container.read(messageStoreProvider('r1')), isEmpty);
     });
 
+    test('a seeded deleted-for-me id stays out when it replays after a '
+        'relaunch', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final store = container.read(messageStoreProvider('r1').notifier);
+      store.seedDeletedForMe(['m1']);
+
+      store.add(fromKaitlyn('m1'));
+      store.add(fromKaitlyn('m2'));
+
+      expect(
+        container.read(messageStoreProvider('r1')).map((m) => m.id).toList(),
+        ['m2'],
+      );
+    });
+
     test('deleteForMe is idempotent and a no-op for an unknown id', () {
       final container = ProviderContainer();
       addTearDown(container.dispose);

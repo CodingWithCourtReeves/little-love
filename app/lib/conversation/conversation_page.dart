@@ -2104,7 +2104,8 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         _canReply(m) ||
         _canCopy(m) ||
         _editAction(m, mine) != null ||
-        _deleteAction(m, mine) != null;
+        _deleteAction(m, mine) != null ||
+        _deleteForMeAction(m) != null;
     if (!canLongPress) return bubble;
     return GestureDetector(
       behavior: HitTestBehavior.deferToChild,

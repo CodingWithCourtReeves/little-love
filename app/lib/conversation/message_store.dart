@@ -36,10 +36,10 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
 
   /// Server ids I deleted for myself only (see [deleteForMe]). Unlike
   /// [_deleted] there's no author check: no frame is sent, so nobody else can
-  /// name an id here, and hiding the partner's message is the normal case. Per
-  /// session; [MessageDb] persists the ids and leaves them out of hydrate, and
-  /// delta replay resumes past them, so this set only has to cover a replay
-  /// within the session.
+  /// name an id here, and hiding the partner's message is the normal case.
+  /// [MessageDb] persists the ids and the router re-seeds this set on hydrate
+  /// ([seedDeletedForMe]), so a replay of one (say the app died before its
+  /// row's high-water-mark landed) stays out after a relaunch too.
   final Set<String> _deletedForMe = {};
 
   /// Server ids the partner has read (→ double heart). A `ReadFrame` can arrive
@@ -142,6 +142,10 @@ class MessageStore extends FamilyNotifier<List<Msg>, String> {
     if (idx < 0) return;
     state = [...state]..removeAt(idx);
   }
+
+  /// Remember [ids] as deleted for me without touching the buffer: the
+  /// persisted ids from [MessageDb], loaded on hydrate before any replay.
+  void seedDeletedForMe(Iterable<String> ids) => _deletedForMe.addAll(ids);
 
   /// Apply an unsend onto [targetId], requested by [requestedBy]. Only the
   /// author of a message may unsend it: if the target is present and was

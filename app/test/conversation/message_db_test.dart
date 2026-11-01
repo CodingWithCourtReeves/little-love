@@ -544,6 +544,55 @@ void main() {
       expect(await db.messagesFor('room1'), isEmpty);
     });
 
+    test('deleteForMe removes the plaintext from the local cache, keeping '
+        'only the id', () async {
+      final raw = await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: MessageDb.schemaVersion,
+          onCreate: MessageDb.onCreate,
+        ),
+      );
+      addTearDown(raw.close);
+      final db = MessageDb.test(raw);
+      await db.upsert(
+        msg('01A', body: 'private', from: 'bob'),
+        roomId: 'room1',
+      );
+
+      await db.deleteForMe('01A');
+
+      expect(await raw.query('messages'), isEmpty);
+      expect(await db.deletedForMeIds(), {'01A'});
+    });
+
+    test('an edit to a deleted-for-me message stores nothing', () async {
+      final raw = await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: MessageDb.schemaVersion,
+          onCreate: MessageDb.onCreate,
+        ),
+      );
+      addTearDown(raw.close);
+      final db = MessageDb.test(raw);
+      await db.upsert(msg('01A', from: 'bob'), roomId: 'room1');
+      await db.deleteForMe('01A');
+
+      await db.applyEdit('01A', requestedBy: 'bob', text: 'new words');
+
+      expect(await raw.query('pending_edits'), isEmpty);
+      expect(await raw.query('messages'), isEmpty);
+    });
+
+    test('a replay of a deleted-for-me id still advances the high-water-'
+        'mark', () async {
+      final db = await freshDb();
+      await db.deleteForMe('01Z');
+      await db.upsert(msg('01Z', from: 'bob'), roomId: 'room1');
+      expect(await db.highWaterMark('room1'), '01Z');
+    });
+
     test('clear wipes deleted-for-me ids', () async {
       final db = await freshDb();
       await db.upsert(msg('01A'), roomId: 'room1');

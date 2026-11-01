@@ -1775,6 +1775,55 @@ void main() {
     expect((subs.single as Map<String, Object?>)['since_message_id'], '01B');
   });
 
+  test('hydrate leaves out a message deleted for me and keeps it out when it '
+      'replays', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final messageDb = await _ffiMessageDb();
+    Msg row(String id) => Msg(
+      id: id,
+      from: 'kaitlyn',
+      to: 'room1',
+      body: 'cached $id',
+      ts: DateTime.utc(2026, 6, 10, 12),
+    );
+    for (final id in ['01A', '01B']) {
+      await messageDb.upsert(row(id), roomId: 'room1');
+    }
+    // Deleted for me in an earlier launch.
+    await messageDb.deleteForMe('01A');
+    final container = await _container(
+      conn: conn,
+      me: me,
+      messageDb: messageDb,
+    );
+    container.read(roomMessageRouterProvider);
+
+    conn.emit(
+      RoomsFrame(
+        rooms: [
+          RoomDetail(
+            roomId: 'room1',
+            name: '',
+            members: [_member('court', me), _member('kaitlyn', peer)],
+            createdAt: DateTime.utc(2026, 6, 10),
+          ),
+        ],
+      ),
+    );
+    await pumpUntil(() => _sentOfKind(conn, 'Subscribe').isNotEmpty);
+
+    expect(container.read(messageStoreProvider('room1')).map((m) => m.id), [
+      '01B',
+    ]);
+    // A replay of it after relaunch (the router adds to the store first).
+    container.read(messageStoreProvider('room1').notifier).add(row('01A'));
+    expect(container.read(messageStoreProvider('room1')).map((m) => m.id), [
+      '01B',
+    ]);
+  });
+
   test('the room list publishes at once, but the inbox reads as synced only '
       'after every room\'s local history has loaded', () async {
     final me = await deriveIdentity(seedA);
