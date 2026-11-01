@@ -67,18 +67,20 @@ class LittleLoveApp extends ConsumerWidget {
       theme: buildAppTheme(palette),
       // Float the in-app call UI and the cross-room "new message" banner above
       // every route, with the app lock between them: it hides the chats and
-      // banners but never a call. CallOverlay shows the same call screen on both caller and
-      // callee (CallKit owns the ring + system UI) and is transparent /
-      // pointer-passthrough until a call is live; IncomingBannerHost slides a
-      // banner down when a partner messages a room you're not viewing.
+      // banners but never a call. CallOverlay shows the same call screen on
+      // both caller and callee (CallKit owns the ring + system UI) and is
+      // transparent / pointer-passthrough until a call is live;
+      // IncomingBannerHost slides a banner down when a partner messages a room
+      // you're not viewing.
       // StackFit.expand gives the wrapped content tight fill constraints —
       // without it the Scaffold gets unbounded height and its body collapses
       // (black screen under the app bar).
       builder: (context, child) => Stack(
         fit: StackFit.expand,
         children: [
-          IncomingBannerHost(child: child ?? const SizedBox.shrink()),
-          const AppLockGate(),
+          AppLockGate(
+            child: IncomingBannerHost(child: child ?? const SizedBox.shrink()),
+          ),
           const CallOverlay(),
         ],
       ),

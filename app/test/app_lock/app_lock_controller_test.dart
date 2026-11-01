@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,13 +25,16 @@ class _FakeAuth implements DeviceAuth {
   bool answer = true;
   int prompts = 0;
 
+  /// When set, the sheet stays up until the test completes this.
+  Completer<bool>? sheet;
+
   @override
   Future<bool> isAvailable() async => available;
 
   @override
   Future<bool> authenticate() async {
     prompts++;
-    return answer;
+    return sheet?.future ?? Future.value(answer);
   }
 }
 
@@ -52,6 +57,8 @@ Future<_Harness> _mount(
   AppLockSettings settings = const AppLockSettings(),
   _FakeAuth? auth,
   bool signedOut = false,
+  AppLifecycleState launchState = AppLifecycleState.resumed,
+  Widget home = const Text('a private chat'),
 }) async {
   auth ??= _FakeAuth();
   late _Harness h;
@@ -67,7 +74,7 @@ Future<_Harness> _mount(
   addTearDown(container.dispose);
   h = _Harness(container, auth);
   if (signedOut) h.account = null;
-  t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  t.binding.handleAppLifecycleStateChanged(launchState);
   await t.pumpWidget(
     UncontrolledProviderScope(
       container: container,
@@ -75,9 +82,9 @@ Future<_Harness> _mount(
         theme: buildAppTheme(AppPalette.light),
         builder: (context, child) => Stack(
           fit: StackFit.expand,
-          children: [child!, const AppLockGate()],
+          children: [AppLockGate(child: child!)],
         ),
-        home: const Scaffold(body: Text('a private chat')),
+        home: Scaffold(body: home),
       ),
     ),
   );
@@ -270,6 +277,83 @@ void main() {
     final h = await _mount(t, auth: auth);
     expect(h.status, AppLockStatus.unlocked);
     expect(auth.prompts, 0);
+  });
+
+  testWidgets('a cold start that becomes active only after the first frame '
+      'still asks for Face ID, once', (t) async {
+    final auth = _FakeAuth()..answer = false;
+    final h = await _mount(
+      t,
+      auth: auth,
+      launchState: AppLifecycleState.inactive,
+    );
+    expect(auth.prompts, 0, reason: 'not on screen yet');
+    expect(h.status, AppLockStatus.locked);
+
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await t.pump();
+    expect(auth.prompts, 1);
+
+    // Its own sheet closing (inactive, resumed) must not ask again.
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await t.pump();
+    expect(auth.prompts, 1);
+    expect(h.status, AppLockStatus.locked);
+  });
+
+  testWidgets('unlocking just as the user leaves keeps the chats covered in '
+      'the background', (t) async {
+    final h = await _mount(t);
+    h.auth.sheet = Completer<bool>();
+    await _leaveAndReturn(t, h, const Duration(minutes: 2));
+    expect(h.status, AppLockStatus.locked);
+
+    // Face ID succeeds after the user has already swiped home.
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    h.auth.sheet!.complete(true);
+    await t.pump();
+    expect(h.status, AppLockStatus.covered);
+    expect(find.byKey(const Key('app-lock-screen')), findsOneWidget);
+
+    // Back within the grace: the cover lifts with no second prompt.
+    h.now = h.now.add(const Duration(seconds: 5));
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await t.pump();
+    expect(h.status, AppLockStatus.unlocked);
+  });
+
+  testWidgets('nothing behind the lock can take focus or raise the keyboard', (
+    t,
+  ) async {
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    final auth = _FakeAuth()..answer = false;
+    final h = await _mount(
+      t,
+      auth: auth,
+      home: TextField(focusNode: focus, autofocus: true),
+    );
+    await t.pump();
+    expect(h.status, AppLockStatus.locked);
+    expect(focus.hasFocus, isFalse);
+
+    auth.answer = true;
+    await t.tap(find.byKey(const Key('app-lock-unlock')));
+    await t.pump();
+    focus.requestFocus();
+    await t.pump();
+    expect(focus.hasFocus, isTrue);
+
+    // Locking again drops the keyboard.
+    auth.answer = false;
+    await _leaveAndReturn(t, h, const Duration(minutes: 2));
+    expect(h.status, AppLockStatus.locked);
+    expect(focus.hasFocus, isFalse);
   });
 
   testWidgets('the lock screen swallows taps meant for the chats', (t) async {

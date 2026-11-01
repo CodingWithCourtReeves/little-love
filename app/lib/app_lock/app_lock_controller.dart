@@ -52,6 +52,12 @@ class AppLockController extends Notifier<AppLockStatus>
   /// appear is a sign-up or sign-in in this session rather than a launch.
   bool _sawSignedOut = false;
 
+  /// A prompt was wanted while the app wasn't yet active (on a cold start iOS
+  /// often reports `resumed` only after the first frame), so ask on the next
+  /// `resumed`. Cleared as soon as a prompt starts, so the Face ID sheet's own
+  /// inactive/resumed can never re-trigger it.
+  bool _promptPending = false;
+
   @override
   AppLockStatus build() {
     final binding = WidgetsBinding.instance;
@@ -117,9 +123,10 @@ class AppLockController extends Notifier<AppLockStatus>
     }
     if (state == AppLockStatus.locked) {
       // Already locked (cold start, or Face ID was cancelled). Ask again only
-      // after a real trip to the background, never after our own Face ID
-      // sheet closes, or cancelling it would loop.
-      if (leftAt != null) _prompt();
+      // after a real trip to the background or for a prompt that was waiting
+      // on the app becoming active, never after our own Face ID sheet closes,
+      // or cancelling it would loop.
+      if (leftAt != null || _promptPending) _prompt();
       return;
     }
     final away = leftAt == null
@@ -137,12 +144,14 @@ class AppLockController extends Notifier<AppLockStatus>
   void _prompt() {
     if (state != AppLockStatus.locked) return;
     if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      _promptPending = true;
       return;
     }
     // Signed out: there are no chats to protect and the lock isn't shown.
     if (ref.read(accountProvider).valueOrNull == null) return;
     // The call screen sits above the lock; the user taps Unlock after the call.
     if (ref.read(callOnScreenProvider)()) return;
+    _promptPending = false;
     unawaited(unlock());
   }
 
@@ -160,7 +169,16 @@ class AppLockController extends Notifier<AppLockStatus>
         state = AppLockStatus.unlocked;
         return;
       }
-      if (await auth.authenticate()) state = AppLockStatus.unlocked;
+      if (await auth.authenticate()) {
+        // If the user left the app while the sheet was finishing, the app is
+        // already in the background and can't draw: keep the cover so the
+        // app-switcher snapshot doesn't show the chats. The next `resumed`
+        // lifts it (or locks again if the grace ran out).
+        state =
+            WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed
+            ? AppLockStatus.unlocked
+            : AppLockStatus.covered;
+      }
     } catch (e, st) {
       debugPrint('lock: authenticate failed');
       reportFault(e, st, context: 'app_lock_authenticate');
