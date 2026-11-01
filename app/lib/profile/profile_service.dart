@@ -21,10 +21,12 @@ String? _peerX25519(Room room, String selfUsername) {
 /// The canonical room used to seal/relay profiles. The envelope key is salted by
 /// room id, so the publisher and receiver MUST pick the same room. This app is
 /// couples-only — every room is the same two people — so ANY room shared with
-/// the partner works; we pick the lowest `roomId` (server-assigned, identical on
-/// both devices) so both sides deterministically agree. Crucially this does NOT
-/// require an unnamed DM: a couple whose only rooms are named channels still
-/// syncs profiles. Returns null only when no room is shared with a partner yet.
+/// the partner works. We pick the partner chat (the unnamed room) when there is
+/// one, else the lowest `roomId` (server-assigned, identical on both devices),
+/// so both sides deterministically agree. This does NOT require an unnamed DM:
+/// a couple whose only rooms are named channels (an old build let the DM be
+/// renamed) still syncs profiles. Returns null only when no room is shared with
+/// a partner yet.
 Room? coupleRoomFor(Iterable<Room> rooms, String selfUsername) {
   final shared =
       rooms
@@ -34,6 +36,13 @@ Room? coupleRoomFor(Iterable<Room> rooms, String selfUsername) {
           )
           .toList()
         ..sort((a, b) => a.roomId.compareTo(b.roomId));
+  // Prefer the partner chat (the unnamed room): it can't be deleted, while a
+  // channel can, and deleting the profile's room would leave the envelope
+  // undecryptable and the avatar's attachment row gone. Both partners run
+  // this same rule, so they still agree.
+  for (final r in shared) {
+    if (r.name.isEmpty) return r;
+  }
   return shared.isEmpty ? null : shared.first;
 }
 

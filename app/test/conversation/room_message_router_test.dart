@@ -26,6 +26,7 @@ import 'package:littlelove/identity/keypair.dart';
 import 'package:littlelove/inbox/active_room_provider.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
+import 'package:littlelove/inbox/room_deletion_events.dart';
 import 'package:littlelove/outbox/outbox_store.dart';
 import 'package:littlelove/profile/profile_envelope.dart';
 import 'package:littlelove/profile/profile_service.dart';
@@ -2547,6 +2548,133 @@ void main() {
       expect(rows.single.id, 'srv-1');
       expect(rows.single.sendStatus, SendStatus.sent);
       expect(rows.single.channelUpdate?.name, 'Date ideas');
+    });
+  });
+
+  group('channel deletion', () {
+    Msg cached(String id, String room) => Msg(
+      id: id,
+      from: 'kaitlyn',
+      to: room,
+      body: 'cached $id',
+      ts: DateTime.utc(2026, 6, 10, 12),
+    );
+
+    /// court's router with a cached message in [cachedRooms], then a Rooms
+    /// list of [listed] (`(id, name)`), waited on until the inbox reads as
+    /// synced (the sweep runs before that flag flips).
+    Future<(ProviderContainer, _FakeConn, MessageDb)> connect({
+      required List<(String, String)> listed,
+      List<String> cachedRooms = const [],
+    }) async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final conn = _FakeConn();
+      final db = await _ffiMessageDb();
+      for (final room in cachedRooms) {
+        await db.upsert(cached('01$room', room), roomId: room);
+      }
+      final container = await _container(
+        conn: conn,
+        me: me,
+        messageDb: db,
+        outbox: MemoryOutboxStore(),
+        overrides: [
+          accountProvider.overrideWith(
+            (_) async => LocalAccount(
+              username: 'court',
+              ed25519PubBase64: base64.encode(me.ed25519PublicKey),
+              x25519PubBase64: base64.encode(me.x25519PublicKey),
+              createdAt: DateTime.utc(2026, 6, 10),
+            ),
+          ),
+        ],
+      );
+      container.read(roomMessageRouterProvider);
+      conn.emit(
+        RoomsFrame(
+          rooms: [
+            for (final (id, name) in listed)
+              RoomDetail(
+                roomId: id,
+                name: name,
+                members: [_member('court', me), _member('kaitlyn', peer)],
+                createdAt: DateTime.utc(2026, 6, 10),
+              ),
+          ],
+        ),
+      );
+      await pumpUntil(() => container.read(inboxSyncedProvider));
+      return (container, conn, db);
+    }
+
+    test(
+      'RoomDeleted hides and purges the room and emits a RoomDeletion',
+      () async {
+        final (container, conn, db) = await connect(
+          listed: [('dm', ''), ('chan', 'Travel')],
+          cachedRooms: ['chan'],
+        );
+
+        conn.emit(const RoomDeletedFrame(roomId: 'chan', deletedBy: 'kaitlyn'));
+        await pumpUntil(() => container.read(roomDeletionsProvider) != null);
+
+        final event = container.read(roomDeletionsProvider)!;
+        expect(event.roomId, 'chan');
+        expect(event.roomName, 'Travel');
+        expect(event.deletedBy, 'kaitlyn');
+        expect(container.read(inboxStateProvider).rooms.map((r) => r.roomId), [
+          'dm',
+        ]);
+        expect(await db.messagesFor('chan'), isEmpty);
+      },
+    );
+
+    test(
+      'a frame for a deleted room arriving after RoomDeleted is dropped',
+      () async {
+        final (container, conn, _) = await connect(
+          listed: [('dm', ''), ('chan', 'Travel')],
+        );
+        conn.emit(const RoomDeletedFrame(roomId: 'chan', deletedBy: 'kaitlyn'));
+        await pumpUntil(() => container.read(roomDeletionsProvider) != null);
+
+        conn.emit(
+          const TypingFrame(roomId: 'chan', from: 'kaitlyn', typing: true),
+        );
+        conn.emit(const RoomRenamedFrame(roomId: 'chan', name: 'Back'));
+        // A frame for a live room proves the earlier ones were processed.
+        conn.emit(
+          const TypingFrame(roomId: 'dm', from: 'kaitlyn', typing: true),
+        );
+        await pumpUntil(() => container.read(typingProvider('dm')));
+
+        expect(container.read(typingProvider('chan')), isFalse);
+        expect(container.read(inboxStateProvider).rooms.map((r) => r.roomId), [
+          'dm',
+        ]);
+      },
+    );
+
+    test('a Rooms list missing a locally known room purges it', () async {
+      final (_, _, db) = await connect(
+        listed: [('dm', ''), ('chan', 'Travel')],
+        cachedRooms: ['gone'],
+      );
+      expect(await db.roomIds(), isNot(contains('gone')));
+    });
+
+    test('an empty Rooms list purges nothing', () async {
+      final (_, _, db) = await connect(listed: [], cachedRooms: ['chan']);
+      expect(await db.roomIds(), contains('chan'));
+    });
+
+    test('a Rooms list without the partner chat purges nothing', () async {
+      final (_, _, db) = await connect(
+        listed: [('chan', 'Travel')],
+        cachedRooms: ['other'],
+      );
+      expect(await db.roomIds(), contains('other'));
     });
   });
 }

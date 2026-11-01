@@ -290,6 +290,9 @@ class CallController with WidgetsBindingObserver {
     _startRingTimer();
   }
 
+  /// The room of the call in progress (ringing or connected), or null.
+  String? get roomId => _roomId;
+
   /// Hang up / cancel the current call locally.
   Future<void> hangup({String reason = 'hangup'}) async {
     final callId = _callId;

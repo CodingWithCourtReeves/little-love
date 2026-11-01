@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../attachment/attachment_descriptor.dart';
 import '../attachment/attachment_download.dart';
 import '../audio/message_feedback.dart';
+import '../calling/call_controller.dart';
 import '../calling/call_log.dart';
 import '../channel/channel_picture.dart';
 import '../channel/channel_update_sender.dart';
@@ -16,6 +17,8 @@ import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
 import '../inbox/select_room.dart';
 import '../inbox/room.dart';
+import '../inbox/room_deletion_events.dart';
+import '../inbox/room_removal.dart';
 import '../outbox/outbox_store.dart';
 import '../pairing/encryption.dart';
 import '../profile/profile_publish_cache.dart';
@@ -56,6 +59,23 @@ class RoomMessageRouter {
   /// the MarkRead watermark so the server's unread_count clears for it too.
   final Map<String, String> _droppedUpTo = {};
 
+  /// Rooms deleted this session. A frame for one that arrives after its
+  /// `RoomDeleted` (a typing ping or receipt already in flight) is dropped,
+  /// so it can't re-create the room's state.
+  final Set<String> _deletedRooms = {};
+
+  /// The room a room-scoped frame names, for the [_deletedRooms] check.
+  /// Frames that never name a deleted room (room lists, profiles, calls,
+  /// grants) map to null.
+  static String? _roomOf(RoomServerFrame f) => switch (f) {
+    RoomRenamedFrame(:final roomId) ||
+    MemberLeftFrame(:final roomId) ||
+    MessageFrame(:final roomId) ||
+    ReadFrame(:final roomId) ||
+    TypingFrame(:final roomId) => roomId,
+    _ => null,
+  };
+
   void _scheduleMarkRead(String roomId) {
     _markReadDebounce[roomId]?.cancel();
     _markReadDebounce[roomId] = Timer(const Duration(milliseconds: 400), () {
@@ -67,6 +87,8 @@ class RoomMessageRouter {
   }
 
   Future<void> _onFrame(RoomServerFrame f) async {
+    final scoped = _roomOf(f);
+    if (scoped != null && _deletedRooms.contains(scoped)) return;
     switch (f) {
       case RoomsFrame(:final rooms):
         final mapped = rooms
@@ -84,6 +106,9 @@ class RoomMessageRouter {
         // Profile, Presence) look their room up in the inbox. Publishing after
         // a db read drops them.
         ref.read(inboxStateProvider.notifier).setRooms(mapped);
+        // A channel deleted while this phone was offline is simply missing
+        // from the list: wipe what's left of it here, before hydration.
+        await _sweepDeletedRooms(mapped);
         // Load every room's local history before the inbox reads as synced,
         // so the home list's first frame already has each row's preview and
         // the channels in activity order: no "No messages yet" flash and no
@@ -131,9 +156,30 @@ class RoomMessageRouter {
         ref.read(inboxStateProvider.notifier).removeMember(roomId, username);
         ref.read(roomKeyCacheProvider).invalidate(roomId);
 
-      case RoomDeletedFrame():
-        // Applied once the local Hide + Purge path exists (next change).
-        break;
+      case RoomDeletedFrame(:final roomId, :final deletedBy):
+        if (!_deletedRooms.add(roomId)) break;
+        var name = '';
+        for (final r in ref.read(inboxStateProvider).rooms) {
+          if (r.roomId == roomId) name = r.name;
+        }
+        _endCallIn(roomId);
+        hideRoom(ref, roomId);
+        _subscribed.remove(roomId);
+        _markReadDebounce.remove(roomId)?.cancel();
+        _droppedUpTo.remove(roomId);
+        await purgeRoomLocally(ref, roomId);
+        ref
+            .read(roomDeletionsProvider.notifier)
+            .emit(
+              RoomDeletion(
+                roomId: roomId,
+                roomName: name,
+                deletedBy: deletedBy,
+              ),
+            );
+        // The purge forgot the published avatar (it may have lived in this
+        // room); re-assert the profile so it lands in a room that exists.
+        unawaited(_republishMyProfile());
 
       case MessageFrame():
         await _ingestMessage(f);
@@ -255,6 +301,42 @@ class RoomMessageRouter {
     } catch (e, st) {
       reportFault(e, st, context: 'channel_rename_line');
     }
+  }
+
+  /// Wipe local rooms the server no longer lists (deleted while offline). Only
+  /// when the list is trustworthy: never on an empty list, and never on one
+  /// without the partner chat (the unnamed room). A paired account always has
+  /// it, so a list missing it is wrong rather than a deletion, and the sweep
+  /// would otherwise wipe drafts, unsent sends and Delete for Me ids that
+  /// can't be rebuilt from the server.
+  Future<void> _sweepDeletedRooms(List<Room> listed) async {
+    if (!listed.any((r) => r.name.isEmpty)) return;
+    final known = {for (final r in listed) r.roomId};
+    try {
+      final db = await ref.read(messageDbProvider.future);
+      for (final id in await db.roomIds()) {
+        if (!known.contains(id)) await purgeRoomLocally(ref, id);
+      }
+    } catch (e, st) {
+      reportFault(e, st, context: 'room_sweep');
+    }
+  }
+
+  /// End a call ringing or connected in a room that was just deleted. Only
+  /// when the call controller already exists: if nothing created it, there's
+  /// no call.
+  void _endCallIn(String roomId) {
+    if (!ref.exists(callControllerProvider)) return;
+    final calls = ref.read(callControllerProvider);
+    if (calls.roomId != roomId) return;
+    unawaited(
+      calls
+          .hangup(reason: 'room_deleted')
+          .catchError(
+            (Object e, StackTrace st) =>
+                reportFault(e, st, context: 'room_delete_call'),
+          ),
+    );
   }
 
   /// Re-publish my own profile (display name + cached avatar) to my partner on

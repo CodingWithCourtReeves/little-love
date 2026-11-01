@@ -132,6 +132,17 @@ void main() {
       );
     });
 
+    test('prefers the unnamed partner chat over an older channel', () {
+      // The partner chat can't be deleted; a channel can, and deleting the
+      // profile's room would orphan the envelope and the avatar.
+      final rooms = [
+        room('01A-trip', 'Travel', ['court', 'kaitlyn']),
+        room('01B-dm', '', ['court', 'kaitlyn']),
+      ];
+      expect(coupleRoomFor(rooms, 'court')!.roomId, '01B-dm');
+      expect(coupleRoomFor(rooms, 'kaitlyn')!.roomId, '01B-dm');
+    });
+
     test('null when no room is shared with a partner', () {
       final rooms = [
         room('01A-solo', '', ['court']),
