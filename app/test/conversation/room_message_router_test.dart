@@ -182,6 +182,19 @@ class _GatedHighWaterMarkDb extends SqliteMessageDb {
   }
 }
 
+/// A real db whose [markRead] always fails.
+class _FailingMarkReadDb extends SqliteMessageDb {
+  _FailingMarkReadDb(super.db);
+
+  int attempts = 0;
+
+  @override
+  Future<void> markRead(List<String> ids) async {
+    attempts++;
+    throw StateError('markRead failed');
+  }
+}
+
 /// Records what the router asks the channel sender to send.
 class _RecordingSender extends ChannelUpdateSender {
   _RecordingSender(super.ref);
@@ -2719,6 +2732,57 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
       expect(_sentOfKind(second, 'Subscribe'), isEmpty);
+    },
+  );
+
+  test(
+    'a failed save of read receipts is contained, and the rows still flip',
+    () async {
+      final conn = _FakeConn();
+      final raw = await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: MessageDb.schemaVersion,
+          onCreate: MessageDb.onCreate,
+          onUpgrade: MessageDb.onUpgrade,
+          singleInstance: false,
+        ),
+      );
+      addTearDown(raw.close);
+      final failing = _FailingMarkReadDb(raw);
+      final container = await _container(
+        conn: conn,
+        me: await deriveIdentity(seedA),
+        messageDb: failing,
+      );
+      container.read(roomMessageRouterProvider);
+      container
+          .read(messageStoreProvider('room1').notifier)
+          .add(
+            Msg(
+              id: '01A',
+              from: 'court',
+              to: 'room1',
+              body: 'hi',
+              ts: DateTime.utc(2026, 11, 4),
+            ),
+          );
+
+      // Uncaught, this fails the test through the zone.
+      conn.emit(
+        const ReadFrame(
+          roomId: 'room1',
+          messageIds: ['01A'],
+          reader: 'kaitlyn',
+        ),
+      );
+      await pumpUntil(() => failing.attempts > 0);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        container.read(messageStoreProvider('room1')).single.sendStatus,
+        SendStatus.read,
+      );
     },
   );
 

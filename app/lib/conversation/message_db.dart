@@ -24,7 +24,7 @@ import 'message_search.dart';
 /// SQLCipher-backed production impl, and a `.test` factory that wraps a plain
 /// ffi [Database] so unit tests skip the native crypto layer.
 abstract class MessageDb {
-  static const schemaVersion = 7;
+  static const schemaVersion = 8;
 
   /// SQLCipher-backed impl living at `<app-support>/messages.db`.
   static Future<MessageDb> open() async {
@@ -145,6 +145,24 @@ abstract class MessageDb {
       // Delete for me. A new, empty table: nothing to backfill.
       await _createDeletedForMe(db);
     }
+    if (oldV < 8) {
+      // Stop updates to unsent rows failing; see [_createFtsRemovalTriggers].
+      // IF EXISTS for the same downgrade reason as above. The read receipts the
+      // failures lost arrive again on the next reconnect.
+      await db.execute('DROP TRIGGER IF EXISTS messages_ad');
+      await db.execute('DROP TRIGGER IF EXISTS messages_au');
+      await _createFtsRemovalTriggers(db);
+      // The old trigger's redundant removals sometimes succeeded instead, which
+      // left stray entries in the index. Refill it from live rows only: FTS5's
+      // own 'rebuild' would put unsent bodies back. Only the index changes.
+      await db.execute(
+        "INSERT INTO messages_fts(messages_fts) VALUES('delete-all')",
+      );
+      await db.execute(
+        'INSERT INTO messages_fts(rowid, body) '
+        'SELECT rowid, body FROM messages WHERE deleted = 0',
+      );
+    }
   }
 
   /// Server ids deleted on this device only ([deleteForMe]). A side table
@@ -210,16 +228,26 @@ abstract class MessageDb {
         INSERT INTO messages_fts(rowid, body) VALUES (new.rowid, new.body);
       END
     ''');
+    await _createFtsRemovalTriggers(db);
+  }
+
+  /// Keep the index in step on delete and update. An unsent row (`deleted = 1`)
+  /// is already out of the index, and asking FTS5 to remove a row it doesn't
+  /// hold fails the whole statement with "database disk image is malformed". So
+  /// only a live row is removed. Unguarded, any later update to an unsent row
+  /// failed, and reconnects hit that every time: they re-send read receipts for
+  /// my own sent messages, unsent ones included, which lost the whole batch.
+  static Future<void> _createFtsRemovalTriggers(Database db) async {
     await db.execute('''
       CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
         INSERT INTO messages_fts(messages_fts, rowid, body)
-          VALUES('delete', old.rowid, old.body);
+          SELECT 'delete', old.rowid, old.body WHERE old.deleted = 0;
       END
     ''');
     await db.execute('''
       CREATE TRIGGER messages_au AFTER UPDATE ON messages BEGIN
         INSERT INTO messages_fts(messages_fts, rowid, body)
-          VALUES('delete', old.rowid, old.body);
+          SELECT 'delete', old.rowid, old.body WHERE old.deleted = 0;
         INSERT INTO messages_fts(rowid, body)
           SELECT new.rowid, new.body WHERE new.deleted = 0;
       END

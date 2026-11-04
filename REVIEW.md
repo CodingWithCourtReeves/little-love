@@ -138,6 +138,11 @@ Both partners hold the room key, so either one can craft any encrypted body.
 - Anything delivered "live only" has a replay/backfill path for a peer that
   was offline.
 - Debounced timers re-check their preconditions when they fire.
+- A trigger or query on `messages_fts` only removes a row the index holds
+  (`deleted = 0`). Removing one it doesn't hold fails the statement with
+  "database disk image is malformed", or leaves stray entries, and that reads
+  like disk corruption. Refill it with `delete-all` plus live rows, never
+  FTS5's `rebuild`, which puts unsent bodies back.
 - Anything that must hear frames holds one subscription and moves it to each
   new socket, as `CallController` and `RoomMessageRouter` do. A provider that
   `ref.watch`es the connection is disposed and only rebuilt on the next frame,

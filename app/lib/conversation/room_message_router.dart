@@ -320,9 +320,15 @@ class RoomMessageRouter {
     );
   }
 
+  /// Fire-and-forget, so it reports its own failure. The in-memory rows have
+  /// already flipped, and read state is re-sent on the next connect.
   Future<void> _persistRead(List<String> ids) async {
-    final db = await ref.read(messageDbProvider.future);
-    await db.markRead(ids);
+    try {
+      final db = await ref.read(messageDbProvider.future);
+      await db.markRead(ids);
+    } catch (e, st) {
+      reportFault(e, st, context: 'persist_read');
+    }
   }
 
   void _upsertRoom(String roomId, String name, List<Member> members) {
