@@ -39,13 +39,27 @@ import 'typing_state.dart';
 /// into the inbox + per-room message stores. Auto-subscribes to each room as
 /// it appears so the server starts replay + live delivery.
 class RoomMessageRouter {
-  RoomMessageRouter({required this.ref, required this.conn}) {
-    _sub = conn.incoming.listen(_onFrame);
+  RoomMessageRouter({required this.ref});
+
+  /// Move to [next], the live socket (null when there isn't one). Runs in the
+  /// same turn the connection provider notifies, like [CallController], so this
+  /// router is already listening when the socket hands over its buffered frames.
+  /// Idempotent for the same socket: a reconnect's loading state still carries
+  /// the old one. Resets what was per-socket: the server sends the room list
+  /// again on a new socket, and rooms must be re-subscribed from it.
+  void attach(LiveConnection? next) {
+    if (identical(next, _conn)) return;
+    unawaited(_sub?.cancel());
+    _cancelMarkReadTimers();
+    _subscribed.clear();
+    _droppedUpTo.clear();
+    _conn = next;
+    _sub = next?.incoming.listen(_onFrame);
   }
 
   final Ref ref;
-  final LiveConnection conn;
-  late final StreamSubscription<RoomServerFrame> _sub;
+  LiveConnection? _conn;
+  StreamSubscription<RoomServerFrame>? _sub;
   final Set<String> _subscribed = {};
   // Per-room debounce for the "viewing this room → tell the server I've read up
   // to the latest message" frame. Coalesces a replay burst into a single
@@ -70,6 +84,10 @@ class RoomMessageRouter {
   Future<void> _onFrame(RoomServerFrame f) async {
     switch (f) {
       case RoomsFrame(:final rooms):
+        // This router outlives sockets, so the awaits below can resume after
+        // [attach] has moved on. A stale list stops there: the new socket sends
+        // its own, possibly for a different account after a sign-out.
+        final socket = _conn;
         final mapped = rooms
             .map(
               (r) => Room(
@@ -97,11 +115,13 @@ class RoomMessageRouter {
             reportFault(e, st, context: 'room_hydrate');
           }
         }
+        if (!identical(socket, _conn)) return;
         // The authoritative room list has landed and loaded — the inbox is now
         // synced, so an empty list reads as "unpaired" rather than "still
         // loading".
         ref.read(inboxSyncedProvider.notifier).state = true;
         for (final r in mapped) {
+          if (!identical(socket, _conn)) return;
           await _subscribe(r.roomId);
         }
         // Re-assert my own profile to the partner now that the room list (and
@@ -203,7 +223,8 @@ class RoomMessageRouter {
     // room list / chat header can render it. Cached by blob key, so an unchanged
     // avatar resolves instantly on a reconnect.
     final descriptor = store.forUsername(f.user)?.avatar;
-    if (descriptor != null) {
+    final conn = _conn;
+    if (descriptor != null && conn != null) {
       try {
         final file = await fetchAndDecrypt(conn: conn, descriptor: descriptor);
         store.setAvatarFile(f.user, file);
@@ -376,6 +397,7 @@ class RoomMessageRouter {
   }
 
   Future<void> _subscribe(String roomId) async {
+    final socket = _conn;
     if (!_subscribed.add(roomId)) return;
     // Hydration MUST complete before the Subscribe is sent, so server replay
     // frames land on top of the hydrated buffer rather than racing it — the
@@ -385,7 +407,8 @@ class RoomMessageRouter {
     // Resume from the local high-water-mark: the server replays only the delta
     // (null on first run → a full seed).
     final hwm = await db.highWaterMark(roomId);
-    conn.send(SubscribeFrame(roomId: roomId, sinceMessageId: hwm).toJson());
+    if (!identical(socket, _conn)) return;
+    socket?.send(SubscribeFrame(roomId: roomId, sinceMessageId: hwm).toJson());
   }
 
   Future<void> _ingestMessage(MessageFrame f) async {
@@ -709,18 +732,34 @@ class RoomMessageRouter {
         );
   }
 
-  Future<void> dispose() async {
+  void _cancelMarkReadTimers() {
     for (final t in _markReadDebounce.values) {
       t.cancel();
     }
     _markReadDebounce.clear();
-    await _sub.cancel();
+  }
+
+  Future<void> dispose() async {
+    _cancelMarkReadTimers();
+    await _sub?.cancel();
   }
 }
 
 final roomMessageRouterProvider = Provider<RoomMessageRouter>((ref) {
-  final conn = ref.watch(liveConnectionProvider).requireValue;
-  final router = RoomMessageRouter(ref: ref, conn: conn);
+  // Listen rather than watch, and keep one router across sockets. This provider
+  // is first read from inside the connection provider's own listener
+  // ([keepCallStackRunning]), and watching from there disposed the new router
+  // at once, with the rebuild waiting for the next frame. Frames sent in that
+  // gap were lost, the room list among them (the server sends it once per
+  // connection), which left the home screen blank until a reconnect. With no
+  // frames drawn, as behind the Face ID prompt, the gap lasted until it closed.
+  final router = RoomMessageRouter(ref: ref);
+  ref.listen<AsyncValue<LiveConnection>>(
+    liveConnectionProvider,
+    // An error (signed out) can still carry the old, dead connection.
+    (_, next) => router.attach(next.hasError ? null : next.valueOrNull),
+    fireImmediately: true,
+  );
   ref.onDispose(router.dispose);
   return router;
 });
