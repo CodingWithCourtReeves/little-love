@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,6 +26,8 @@ import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/identity/keypair.dart';
 import 'package:littlelove/inbox/active_room_provider.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
+import 'package:littlelove/inbox/read_state_provider.dart';
+import 'package:littlelove/inbox/read_state_store.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/outbox/outbox_store.dart';
 import 'package:littlelove/profile/profile_envelope.dart';
@@ -2547,6 +2550,51 @@ void main() {
       expect(rows.single.id, 'srv-1');
       expect(rows.single.sendStatus, SendStatus.sent);
       expect(rows.single.channelUpdate?.name, 'Date ideas');
+    });
+  });
+
+  group('a ReadMarker from the server', () {
+    final read = DateTime.utc(2026, 11, 1, 12);
+
+    Future<(ProviderContainer, _FakeConn)> setUpRouter() async {
+      final tmp = Directory.systemTemp.createTempSync('router_read_marker');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final conn = _FakeConn();
+      final container = await _container(
+        conn: conn,
+        me: await deriveIdentity(seedA),
+        overrides: [
+          readStateStoreProvider.overrideWithValue(
+            ReadStateStore(homeDirectory: tmp),
+          ),
+        ],
+      );
+      container.read(roomMessageRouterProvider);
+      return (container, conn);
+    }
+
+    test('restores a lost local marker without sending a MarkRead', () async {
+      final (container, conn) = await setUpRouter();
+      conn.emit(ReadMarkerFrame(roomId: 'room1', readUpTo: read));
+      await pumpUntil(() => container.read(readStateProvider)['room1'] != null);
+
+      expect(container.read(readStateProvider)['room1'], read);
+      // Telling the server what it just told us would flip nothing, and a real
+      // MarkRead here could claim messages the user hasn't seen.
+      expect(_sentOfKind(conn, 'MarkRead'), isEmpty);
+    });
+
+    test('cannot move a newer local marker backwards', () async {
+      final (container, conn) = await setUpRouter();
+      final newer = read.add(const Duration(days: 3));
+      container.read(readStateProvider.notifier).markRead('room1', at: newer);
+
+      conn.emit(ReadMarkerFrame(roomId: 'room1', readUpTo: read));
+      // A second frame for another room proves the first was already handled.
+      conn.emit(ReadMarkerFrame(roomId: 'room2', readUpTo: read));
+      await pumpUntil(() => container.read(readStateProvider)['room2'] != null);
+
+      expect(container.read(readStateProvider)['room1'], newer);
     });
   });
 }

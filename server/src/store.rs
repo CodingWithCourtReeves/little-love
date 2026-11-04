@@ -201,6 +201,30 @@ impl Store {
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
+    /// When the newest message `reader_account_id` has read in `room_id` was
+    /// sent, or `None` if they've read nothing there. Sent back on subscribe as
+    /// the client's unread marker: the app counts unread locally and its marker
+    /// file can be lost, while `read_at` here is durable. Everything older is
+    /// already read, because `mark_read` flips every row up to its watermark.
+    pub async fn newest_read_incoming_ts(
+        &self,
+        room_id: &str,
+        reader_account_id: i64,
+    ) -> anyhow::Result<Option<DateTime<Utc>>> {
+        let (ts,): (Option<DateTime<Utc>>,) = sqlx::query_as(
+            "SELECT MAX(ts) FROM messages
+             WHERE room_id = $1
+               AND recipient_account_id = $2
+               AND from_account_id <> $2
+               AND read_at IS NOT NULL",
+        )
+        .bind(room_id)
+        .bind(reader_account_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(ts)
+    }
+
     /// Total unread incoming messages for an account, across all its rooms —
     /// drives the app-icon badge. Excludes the account's own self-copies.
     pub async fn unread_count(&self, account_id: i64) -> anyhow::Result<i64> {

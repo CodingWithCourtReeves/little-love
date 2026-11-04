@@ -131,3 +131,41 @@ async fn replay_reports_read_state_on_senders_self_copy() {
     assert_eq!(after.len(), 1);
     assert!(after[0].read, "should be read after partner mark_read");
 }
+
+#[tokio::test]
+#[serial_test::serial]
+async fn newest_read_incoming_ts_ignores_unread_and_my_own_messages() {
+    let store = common::fresh_store().await;
+    let (court, kait, room) = common::seed_couple_room(&store).await;
+
+    // Nothing read yet: no marker to restore.
+    assert_eq!(
+        store.newest_read_incoming_ts(&room, kait).await.unwrap(),
+        None
+    );
+
+    let id1 = "01J000000000000000000000AA".to_string();
+    let id2 = "01J000000000000000000000BB".to_string();
+    send_one(&store, &id1, &room, court, kait).await;
+    send_one(&store, &id2, &room, court, kait).await;
+    store.mark_read(&room, kait, &id1).await.unwrap();
+
+    // Kaitlyn's marker is the timestamp of the newest message she has read.
+    let (want,): (chrono::DateTime<chrono::Utc>,) =
+        sqlx::query_as("SELECT ts FROM messages WHERE id = $1 AND recipient_account_id = $2")
+            .bind(&id1)
+            .bind(kait)
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        store.newest_read_incoming_ts(&room, kait).await.unwrap(),
+        Some(want)
+    );
+
+    // Court only sent messages, so Kaitlyn reading them gives him no marker.
+    assert_eq!(
+        store.newest_read_incoming_ts(&room, court).await.unwrap(),
+        None
+    );
+}

@@ -183,6 +183,21 @@ void main() {
     expect(r.reader, 'kaitlyn');
   });
 
+  test('ReadMarkerFrame parses room and timestamp as UTC', () {
+    final f = RoomServerFrame.fromJson(
+      jsonDecode(
+            '{"kind":"ReadMarker","room_id":"01J",'
+            '"read_up_to":"2026-11-04T17:00:00.123456Z"}',
+          )
+          as Map<String, Object?>,
+    );
+    expect(f, isA<ReadMarkerFrame>());
+    final r = f as ReadMarkerFrame;
+    expect(r.roomId, '01J');
+    expect(r.readUpTo, DateTime.utc(2026, 11, 4, 17, 0, 0, 123, 456));
+    expect(r.readUpTo.isUtc, isTrue);
+  });
+
   test('MarkReadFrame serializes', () {
     final j = const MarkReadFrame(
       roomId: '01J',

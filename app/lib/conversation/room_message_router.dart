@@ -14,6 +14,7 @@ import '../identity/current_identity.dart';
 import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
 import '../inbox/inbox_state.dart';
+import '../inbox/read_state_provider.dart';
 import '../inbox/select_room.dart';
 import '../inbox/room.dart';
 import '../outbox/outbox_store.dart';
@@ -137,6 +138,12 @@ class RoomMessageRouter {
       case ReadFrame(:final roomId, :final messageIds):
         ref.read(messageStoreProvider(roomId).notifier).markRead(messageIds);
         unawaited(_persistRead(messageIds));
+
+      case ReadMarkerFrame(:final roomId, :final readUpTo):
+        // The server's record of what I've read repairs a lost local marker.
+        // [ReadStateNotifier.markRead] only ever moves a marker forward. No
+        // MarkRead back: this says nothing about what's on screen now.
+        ref.read(readStateProvider.notifier).markRead(roomId, at: readUpTo);
 
       case TypingFrame(:final roomId, :final typing):
         // 1:1 rooms: the only other member is the partner, so a relayed Typing

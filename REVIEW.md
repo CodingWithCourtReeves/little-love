@@ -138,6 +138,11 @@ Both partners hold the room key, so either one can craft any encrypted body.
 - Anything delivered "live only" has a replay/backfill path for a peer that
   was offline.
 - Debounced timers re-check their preconditions when they fire.
+- A local file that other state depends on is written to a temp file and
+  renamed, never rewritten in place, and nothing saves over it before it has
+  loaded. An in-place rewrite of `read_state.json` wiped every room's unread
+  marker. Local read markers only move forward, and the server restores them
+  on subscribe (`ReadMarker`).
 
 ### 5. Honest UI
 
