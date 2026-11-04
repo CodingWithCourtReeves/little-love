@@ -26,7 +26,10 @@ jobs:
     # work on Linux runners, so we start Postgres ourselves via the Mac's Docker.
     runs-on: [self-hosted, macOS]
     env:
-      DATABASE_URL: postgres://littlelove:dev@localhost:5432/littlelove
+      # Not 5432: that's the default for any other Postgres on this Mac, which
+      # made this job fail before running a single test. dev-env.sh offsets its
+      # ports from 5432 by 0-99, so this stays clear of those too.
+      DATABASE_URL: postgres://littlelove:dev@localhost:55432/littlelove
     steps:
       - uses: actions/checkout@v4
       - name: Start Postgres
@@ -34,7 +37,7 @@ jobs:
           docker rm -f ci-postgres 2>/dev/null || true
           docker run -d --name ci-postgres \
             -e POSTGRES_USER=littlelove -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=littlelove \
-            -p 5432:5432 postgres:16-alpine
+            -p 55432:5432 postgres:16-alpine
           for i in $(seq 1 30); do
             if docker exec ci-postgres pg_isready -U littlelove >/dev/null 2>&1; then
               echo "postgres ready"; break
