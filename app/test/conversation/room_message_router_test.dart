@@ -55,6 +55,22 @@ class _FakeConn implements LiveConnection {
   void emit(RoomServerFrame f) => _ctl.add(f);
 }
 
+/// An outbox whose first [remove] waits for [release]: holds a self-copy's
+/// apply partway through, after its first await.
+class _GatedOutboxStore extends MemoryOutboxStore {
+  final _gate = Completer<void>();
+  bool held = false;
+
+  void release() => _gate.complete();
+
+  @override
+  Future<bool> remove(String clientMsgId) async {
+    held = true;
+    await _gate.future;
+    return super.remove(clientMsgId);
+  }
+}
+
 /// Records calls instead of touching the native sound channel / haptics.
 class _RecordingFeedback extends MessageFeedback {
   int sentCount = 0;
@@ -2566,6 +2582,7 @@ void main() {
     Future<(ProviderContainer, _FakeConn, MessageDb)> connect({
       required List<(String, String)> listed,
       List<String> cachedRooms = const [],
+      OutboxStore? outbox,
     }) async {
       final me = await deriveIdentity(seedA);
       final peer = await deriveIdentity(seedB);
@@ -2578,7 +2595,7 @@ void main() {
         conn: conn,
         me: me,
         messageDb: db,
-        outbox: MemoryOutboxStore(),
+        outbox: outbox ?? MemoryOutboxStore(),
         overrides: [
           accountProvider.overrideWith(
             (_) async => LocalAccount(
@@ -2699,6 +2716,66 @@ void main() {
       },
     );
 
+    test('my echo already being applied when RoomDeleted lands is not '
+        'written after the purge', () async {
+      final outbox = _GatedOutboxStore();
+      final (container, conn, db) = await connect(
+        listed: [('dm', ''), ('chan', 'Travel')],
+        outbox: outbox,
+      );
+      final me = await deriveIdentity(seedA);
+      final key = await deriveRoomKey(
+        me: me,
+        peerX25519Pub: me.x25519PublicKey,
+        roomId: 'chan',
+      );
+      final body = await encryptOutgoing(key, 'see you there');
+
+      // My self-copy gets as far as dropping its outbox row, and is held
+      // there while the delete is applied.
+      conn.emit(
+        MessageFrame(
+          id: 'srv-1',
+          roomId: 'chan',
+          from: 'court',
+          ts: DateTime.utc(2026, 6, 10, 12),
+          body: body,
+          replayed: false,
+          clientMsgId: 'cli-1',
+        ),
+      );
+      await pumpUntil(() => outbox.held);
+      conn.emit(const RoomDeletedFrame(roomId: 'chan', deletedBy: 'court'));
+      await pumpUntil(() => container.read(roomDeletionsProvider) != null);
+      outbox.release();
+      // Proving absence: a bounded wait for the held apply and the purge.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(await db.messagesFor('chan'), isEmpty);
+      expect(await db.roomIds(), isNot(contains('chan')));
+    });
+
+    test('applyDeletion removes a room the server already deleted, the same '
+        'way RoomDeleted does', () async {
+      final (container, _, db) = await connect(
+        listed: [('dm', ''), ('chan', 'Travel')],
+        cachedRooms: ['chan'],
+      );
+
+      await container
+          .read(roomMessageRouterProvider)
+          .applyDeletion('chan', deletedBy: 'court');
+
+      final event = container.read(roomDeletionsProvider)!;
+      expect(event.roomId, 'chan');
+      expect(event.roomName, 'Travel');
+      expect(event.deletedBy, 'court');
+      expect(container.read(inboxStateProvider).rooms.map((r) => r.roomId), [
+        'dm',
+      ]);
+      expect(await db.roomIds(), isNot(contains('chan')));
+    });
+
     test('a Rooms list missing a locally known room purges it', () async {
       final (_, _, db) = await connect(
         listed: [('dm', ''), ('chan', 'Travel')],
@@ -2712,12 +2789,30 @@ void main() {
       expect(await db.roomIds(), contains('chan'));
     });
 
-    test('a Rooms list without the partner chat purges nothing', () async {
+    test('a Rooms list whose partner chat was renamed (an old build allowed '
+        'it) still purges a missing room', () async {
       final (_, _, db) = await connect(
-        listed: [('chan', 'Travel')],
-        cachedRooms: ['other'],
+        listed: [('dm', 'Us'), ('chan', 'Travel')],
+        cachedRooms: ['gone'],
       );
-      expect(await db.roomIds(), contains('other'));
+      expect(await db.roomIds(), isNot(contains('gone')));
+    });
+
+    test('a Rooms list drops queued sends for a room it no longer lists, even '
+        'one with no cached history', () async {
+      final outbox = MemoryOutboxStore();
+      await outbox.enqueue(
+        clientMsgId: 'c-gone',
+        roomId: 'gone',
+        bodies: const {'court': 'x', 'kaitlyn': 'y'},
+      );
+      await outbox.enqueue(
+        clientMsgId: 'c-chan',
+        roomId: 'chan',
+        bodies: const {'court': 'x', 'kaitlyn': 'y'},
+      );
+      await connect(listed: [('dm', ''), ('chan', 'Travel')], outbox: outbox);
+      expect((await outbox.pending()).map((r) => r.clientMsgId), ['c-chan']);
     });
   });
 }

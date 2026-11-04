@@ -80,12 +80,21 @@ class _DeleteChannelSheetState extends State<_DeleteChannelSheet> {
     final outcome = await widget.onDelete();
     if (!mounted) return;
     switch (outcome) {
-      case DeleteChannelOutcome.deleted:
-        Navigator.of(context).pop();
+      case DeleteChannelOutcome.deleted || DeleteChannelOutcome.alreadyGone:
+        // The deletion usually closes the chat (and this sheet with it)
+        // first; popping then would take down the route under it.
+        if (ModalRoute.of(context)?.isCurrent ?? false) {
+          Navigator.of(context).pop();
+        }
       case DeleteChannelOutcome.offline:
         setState(() {
           _busy = false;
           _error = 'You\'re offline. Connect to delete this channel.';
+        });
+      case DeleteChannelOutcome.lastRoom:
+        setState(() {
+          _busy = false;
+          _error = 'This is your only chat, so it can\'t be deleted.';
         });
       case DeleteChannelOutcome.failed:
         setState(() {

@@ -343,10 +343,6 @@ class ChatInfoPage extends ConsumerWidget {
     if (choice != null) await onChannelPicture?.call(choice);
   }
 
-  /// "This chat" (#93): the wallpaper (global, so this opens the same picker
-  /// the profile page hosts) and, for a channel, Rename. The partner DM can't
-  /// be renamed ([onRename] is null), since a name would turn it into a
-  /// channel.
   /// "Delete channel" on a card of its own, apart from Rename so it's never
   /// one slip away from it. Opens the type-to-confirm sheet.
   Widget _deleteSection(BuildContext context) {
@@ -368,6 +364,10 @@ class ChatInfoPage extends ConsumerWidget {
     );
   }
 
+  /// "This chat" (#93): the wallpaper (global, so this opens the same picker
+  /// the profile page hosts) and, for a channel, Rename. The partner DM can't
+  /// be renamed ([onRename] is null), since a name would turn it into a
+  /// channel.
   Widget _thisChatSection(BuildContext context, WidgetRef ref) {
     final wallpaper = ref.watch(wallpaperControllerProvider).gradient;
     return InfoSection(

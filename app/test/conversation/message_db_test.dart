@@ -731,6 +731,27 @@ void main() {
       expect(gone.map((d) => d.blobKey), ['blob-room1']);
     });
 
+    test('purgeRoom also returns a channel photo set in the room', () async {
+      final db = await freshDb();
+      await db.upsert(
+        Msg(
+          id: '01C',
+          from: 'bob',
+          to: 'room1',
+          body: '',
+          ts: DateTime.utc(2026),
+          channelUpdate: const ChannelUpdateContent(
+            picture: PhotoPicture(photo),
+          ),
+        ),
+        roomId: 'room1',
+      );
+
+      final gone = await db.purgeRoom('room1');
+
+      expect(gone.map((d) => d.blobKey), ['blob-room1']);
+    });
+
     test('roomIds lists rooms with any local data', () async {
       final db = await freshDb();
       await db.upsert(inRoom('01A', 'room1'), roomId: 'room1');

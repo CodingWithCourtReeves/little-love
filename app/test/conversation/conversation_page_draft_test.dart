@@ -14,6 +14,7 @@ import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/conversation/reply_ref.dart';
 import 'package:littlelove/identity/account_local.dart';
 import 'package:littlelove/identity/providers.dart';
+import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/theme/app_palette.dart';
 import 'package:littlelove/wire/frames.dart';
@@ -34,6 +35,13 @@ Room _room() => Room(
       x25519PubBase64: 'DDD',
     ),
   ],
+  createdAt: DateTime.utc(2026, 6, 13),
+);
+
+Room _other() => Room(
+  roomId: 'r2',
+  name: '',
+  members: _room().members,
   createdAt: DateTime.utc(2026, 6, 13),
 );
 
@@ -152,6 +160,23 @@ void main() {
     await leaveRoom(tester, c);
     await openRoom(tester, c);
     expect(composerText(tester), 'half a thought');
+  });
+
+  testWidgets('a half-typed draft is not saved once the room has left the '
+      'inbox (its channel was deleted)', (tester) async {
+    final db = await freshDb();
+    final c = containerFor(db);
+    c.read(inboxStateProvider.notifier).setRooms([_room(), _other()]);
+    await openRoom(tester, c);
+
+    // Typing, still inside the debounce, when the channel goes away.
+    await tester.enterText(find.byKey(const Key('composer')), 'half a thou');
+    await tester.pump(DraftAutosave.defaultDelay ~/ 4);
+    c.read(inboxStateProvider.notifier).removeRoom('r1');
+    await tester.pump(DraftAutosave.defaultDelay * 2);
+    await leaveRoom(tester, c);
+
+    expect(await db.draftFor('r1'), isNull);
   });
 
   testWidgets('a saved draft reaches the home-list preview, and sending '

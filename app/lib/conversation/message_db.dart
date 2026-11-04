@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 
 import '../attachment/attachment_descriptor.dart';
+import '../channel/channel_picture.dart';
 import '../wire/message.dart';
 import 'composer_draft.dart';
 import 'link_preview.dart';
@@ -468,15 +469,22 @@ class SqliteMessageDb implements MessageDb {
   Future<List<AttachmentDescriptor>> purgeRoom(String roomId) async {
     final attached = await _db.query(
       'messages',
-      columns: ['attachment'],
-      where: 'room_id = ? AND attachment IS NOT NULL',
+      columns: ['attachment', 'channel_update'],
+      where:
+          'room_id = ? AND '
+          '(attachment IS NOT NULL OR channel_update IS NOT NULL)',
       whereArgs: [roomId],
     );
+    // Media sent in the room, and channel photos set on it: both may have a
+    // decrypted copy cached on disk.
     final descriptors = [
-      for (final r in attached)
-        AttachmentDescriptor.fromJson(
-          jsonDecode(r['attachment'] as String) as Map<String, Object?>,
-        ),
+      for (final r in attached) ...[
+        if (r['attachment'] case final String a)
+          AttachmentDescriptor.fromJson(jsonDecode(a) as Map<String, Object?>),
+        if (_decodeChannelUpdate(r['channel_update'])?.picture
+            case PhotoPicture(:final descriptor))
+          descriptor,
+      ],
     ];
     await _db.transaction((txn) async {
       // An unsent row (deleted = 1) already left the FTS index through the

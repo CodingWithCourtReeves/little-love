@@ -65,19 +65,28 @@ void main() {
       expect(conn.sent.single, {'kind': 'DeleteRoom', 'room_id': 'chan'});
     });
 
-    test(
-      'UnknownRoom for the room counts as deleted (both deleted at once)',
-      () async {
-        final conn = _FakeConn()
-          ..reply = const [
-            RoomErrorFrame(code: 'UnknownRoom', message: '', roomId: 'chan'),
-          ];
-        expect(
-          await requestChannelDeletion(conn: conn, roomId: 'chan'),
-          DeleteChannelOutcome.deleted,
-        );
-      },
-    );
+    test('UnknownRoom for the room is alreadyGone (deleted elsewhere, and '
+        'no RoomDeleted will come)', () async {
+      final conn = _FakeConn()
+        ..reply = const [
+          RoomErrorFrame(code: 'UnknownRoom', message: '', roomId: 'chan'),
+        ];
+      expect(
+        await requestChannelDeletion(conn: conn, roomId: 'chan'),
+        DeleteChannelOutcome.alreadyGone,
+      );
+    });
+
+    test('LastRoom for the room is lastRoom (it can never go)', () async {
+      final conn = _FakeConn()
+        ..reply = const [
+          RoomErrorFrame(code: 'LastRoom', message: '', roomId: 'chan'),
+        ];
+      expect(
+        await requestChannelDeletion(conn: conn, roomId: 'chan'),
+        DeleteChannelOutcome.lastRoom,
+      );
+    });
 
     test('another error for the room is failed', () async {
       final conn = _FakeConn()

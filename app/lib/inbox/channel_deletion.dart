@@ -9,8 +9,16 @@ import '../wire/live_connection.dart';
 
 /// How a delete request ended, from the deleter's side.
 enum DeleteChannelOutcome {
-  /// The server deleted it (or it was already gone).
+  /// The server deleted it.
   deleted,
+
+  /// The server has no such room for me: it was deleted elsewhere (both of
+  /// us at once, or while this phone missed it). No `RoomDeleted` will come,
+  /// so the caller removes it here itself.
+  alreadyGone,
+
+  /// It's the couple's last room, which can never be deleted.
+  lastRoom,
 
   /// No live connection: nothing was sent.
   offline,
@@ -34,9 +42,9 @@ bool channelNameMatches(String typed, String name) {
 ///
 /// Listens before sending so a fast reply can't be missed. Only frames that
 /// name [roomId] count: `RoomDeleted`, or an `Error` carrying that `room_id`.
-/// `UnknownRoom` for it means the room is already gone (both partners deleted
-/// at once), so it counts as deleted. Errors about other requests in flight
-/// are ignored.
+/// `UnknownRoom` for it means the room is already gone
+/// ([DeleteChannelOutcome.alreadyGone]). Errors about other requests in
+/// flight are ignored.
 Future<DeleteChannelOutcome> requestChannelDeletion({
   required LiveConnection? conn,
   required String roomId,
@@ -49,9 +57,11 @@ Future<DeleteChannelOutcome> requestChannelDeletion({
       RoomDeletedFrame(roomId: final id) when id == roomId =>
         DeleteChannelOutcome.deleted,
       RoomErrorFrame(roomId: final id, :final code) when id == roomId =>
-        code == 'UnknownRoom'
-            ? DeleteChannelOutcome.deleted
-            : DeleteChannelOutcome.failed,
+        switch (code) {
+          'UnknownRoom' => DeleteChannelOutcome.alreadyGone,
+          'LastRoom' => DeleteChannelOutcome.lastRoom,
+          _ => DeleteChannelOutcome.failed,
+        },
       _ => null,
     };
     if (outcome != null && !answer.isCompleted) answer.complete(outcome);

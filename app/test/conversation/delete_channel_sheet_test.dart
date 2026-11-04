@@ -163,6 +163,25 @@ void main() {
     expect(find.text('Delete Travel?'), findsOneWidget);
   });
 
+  testWidgets('the last chat keeps the sheet open and says it can\'t go', (
+    tester,
+  ) async {
+    await _open(tester, outcome: DeleteChannelOutcome.lastRoom);
+    await tester.enterText(
+      find.byKey(const Key('delete-channel-field')),
+      'Travel',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('delete-channel-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('This is your only chat, so it can\'t be deleted.'),
+      findsOneWidget,
+    );
+    expect(find.text('Delete Travel?'), findsOneWidget);
+  });
+
   testWidgets('cancel closes without deleting', (tester) async {
     final calls = await _open(tester);
     await tester.tap(find.byKey(const Key('delete-channel-cancel')));

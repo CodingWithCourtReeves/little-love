@@ -82,6 +82,9 @@ void requestRename({
   conn.send(RenameRoomFrame(roomId: roomId, name: newName).toJson());
 }
 
+/// A conversation route pushed over the inbox, and the room it shows.
+typedef _OpenChat = ({String roomId, Route<void> route});
+
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key, required this.account});
 
@@ -92,16 +95,15 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  /// Guards single-room auto-open so it fires at most once per mount.
+  /// Guards single-room auto-open so it fires at most once per mount, and
+  /// never once the inbox has shown more than one room: a channel deleted
+  /// down to just the partner chat must not push it.
   bool _autoOpened = false;
 
-  /// True while a ConversationPage route is on top of Home, so the auto-open
-  /// listener never double-pushes.
-  bool _chatOnStack = false;
-
-  /// The room whose conversation is pushed, so a deletion of that channel can
-  /// take the user back to the inbox.
-  String? _openRoomId;
+  /// Conversation routes pushed over the inbox, bottom to top. Non-empty
+  /// keeps auto-open from double-pushing, and a channel that goes away takes
+  /// its own route down even when another chat sits on top of it.
+  final List<_OpenChat> _openChats = [];
 
   String get _me => widget.account.username;
 
@@ -149,12 +151,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (deletion != null) _onRoomDeleted(deletion);
     });
 
+    // Any open chat whose room has left the inbox without a live deletion
+    // (missing from a reconnect's room list: deleted while this phone was
+    // away) closes too, rather than staying open and empty. A live deletion
+    // is announced before the room is hidden, so it's already closed here.
+    // An empty list is never taken as every room going away.
+    ref.listen<InboxState>(inboxStateProvider, (prev, next) {
+      if (next.rooms.isEmpty) return;
+      final listed = {for (final r in next.rooms) r.roomId};
+      for (final chat in [..._openChats]) {
+        if (listed.contains(chat.roomId)) continue;
+        final name = prev?.rooms
+            .where((r) => r.roomId == chat.roomId)
+            .firstOrNull
+            ?.name;
+        _closeChat(
+          chat,
+          toast: (name == null || name.isEmpty)
+              ? 'This chat was deleted'
+              : '$name was deleted',
+          icon: Icons.delete_outline,
+        );
+      }
+    });
+
     // Single-room auto-open: exactly one *partner* room → push straight into
     // it, so the couples-app "into the chat" feel survives without abandoning
     // the list. A lone solo room (a freshly created invite, no partner yet)
     // must NOT auto-open, or creating an invite dumps you into an empty chat.
+    if (inbox.rooms.length > 1) _autoOpened = true;
     if (!_autoOpened &&
-        !_chatOnStack &&
+        _openChats.isEmpty &&
         inbox.rooms.length == 1 &&
         inbox.rooms.single.shape(_me) == RoomShape.partner) {
       _autoOpened = true;
@@ -316,85 +343,110 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _openRoom(Room room, {String? focusMessageId}) async {
-    _chatOnStack = true;
-    _openRoomId = room.roomId;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ConversationPage(
-          key: ValueKey(room.roomId),
-          room: room,
-          selfUsername: _me,
-          focusMessageId: focusMessageId,
-          onSend: (text, replyTo) => _sendEncrypted(ref, room, text, replyTo),
-          onRetry: (clientMsgId) => _retry(ref, clientMsgId),
-          onPickMedia: () => _pickMedia(context),
-          onSendMedia: (items, caption, replyTo) =>
-              _sendStaged(ref, room, context, items, caption, replyTo),
-          onReact: (targetId, emoji) =>
-              _sendReaction(ref, room, targetId, emoji),
-          onDelete: (targetId) => _sendDelete(ref, room, targetId),
-          onEdit: (targetId, newText) =>
-              _sendEdit(ref, room, targetId, newText),
-          onCancelSend: (clientMsgId) => _cancelSend(ref, room, clientMsgId),
-          onDeleteForMe: (targetId) => _deleteForMe(ref, room, targetId),
-          onTyping: (typing) => _sendTyping(ref, room, typing),
-          onOpenAttachment: (descriptor) =>
-              _openAttachment(ref, room, context, descriptor),
-          onSendVoice: (rec, replyTo) =>
-              _sendVoice(ref, room, context, rec, replyTo),
-          // The partner DM is unnamed by definition; renaming it would give it a
-          // name and flip it into a chat room (RoomShape derives from the name),
-          // destroying the DM. Only named channels are renameable.
-          onRename: room.shape(_me) == RoomShape.partner
-              ? null
-              : (newName) {
-                  // The route-time [room] can be stale; compare against the
-                  // live one so an unchanged name is a true no-op.
-                  final live = ref
-                      .read(inboxStateProvider)
-                      .rooms
-                      .where((r) => r.roomId == room.roomId)
-                      .firstOrNull;
-                  requestRename(
-                    pending: ref.read(pendingChannelActionsProvider),
-                    conn: ref.read(liveConnectionProvider).asData?.value,
-                    roomId: room.roomId,
-                    currentName: (live ?? room).name,
-                    newName: newName,
-                  );
-                },
-          onChannelPicture: room.shape(_me) == RoomShape.partner
-              ? null
-              : (choice) => _applyChannelPicture(room, choice),
-          // Only channels can be deleted; the server refuses the partner chat
-          // too, so this is the affordance, not the enforcement.
-          onDeleteChannel: room.shape(_me) == RoomShape.partner
-              ? null
-              : () => requestChannelDeletion(
+    final route = MaterialPageRoute<void>(
+      builder: (_) => ConversationPage(
+        key: ValueKey(room.roomId),
+        room: room,
+        selfUsername: _me,
+        focusMessageId: focusMessageId,
+        onSend: (text, replyTo) => _sendEncrypted(ref, room, text, replyTo),
+        onRetry: (clientMsgId) => _retry(ref, clientMsgId),
+        onPickMedia: () => _pickMedia(context),
+        onSendMedia: (items, caption, replyTo) =>
+            _sendStaged(ref, room, context, items, caption, replyTo),
+        onReact: (targetId, emoji) => _sendReaction(ref, room, targetId, emoji),
+        onDelete: (targetId) => _sendDelete(ref, room, targetId),
+        onEdit: (targetId, newText) => _sendEdit(ref, room, targetId, newText),
+        onCancelSend: (clientMsgId) => _cancelSend(ref, room, clientMsgId),
+        onDeleteForMe: (targetId) => _deleteForMe(ref, room, targetId),
+        onTyping: (typing) => _sendTyping(ref, room, typing),
+        onOpenAttachment: (descriptor) =>
+            _openAttachment(ref, room, context, descriptor),
+        onSendVoice: (rec, replyTo) =>
+            _sendVoice(ref, room, context, rec, replyTo),
+        // The partner DM is unnamed by definition; renaming it would give it a
+        // name and flip it into a chat room (RoomShape derives from the name),
+        // destroying the DM. Only named channels are renameable.
+        onRename: room.shape(_me) == RoomShape.partner
+            ? null
+            : (newName) {
+                // The route-time [room] can be stale; compare against the
+                // live one so an unchanged name is a true no-op.
+                final live = ref
+                    .read(inboxStateProvider)
+                    .rooms
+                    .where((r) => r.roomId == room.roomId)
+                    .firstOrNull;
+                requestRename(
+                  pending: ref.read(pendingChannelActionsProvider),
                   conn: ref.read(liveConnectionProvider).asData?.value,
                   roomId: room.roomId,
-                ),
-        ),
+                  currentName: (live ?? room).name,
+                  newName: newName,
+                );
+              },
+        onChannelPicture: room.shape(_me) == RoomShape.partner
+            ? null
+            : (choice) => _applyChannelPicture(room, choice),
+        // Only channels can be deleted; the server refuses the partner chat
+        // too, so this is the affordance, not the enforcement.
+        onDeleteChannel: room.shape(_me) == RoomShape.partner
+            ? null
+            : () async {
+                final outcome = await requestChannelDeletion(
+                  conn: ref.read(liveConnectionProvider).asData?.value,
+                  roomId: room.roomId,
+                );
+                // Deleted elsewhere and missed here: no RoomDeleted will
+                // come, so remove it the way one would have.
+                if (outcome == DeleteChannelOutcome.alreadyGone) {
+                  await ref
+                      .read(roomMessageRouterProvider)
+                      .applyDeletion(room.roomId, deletedBy: _me);
+                }
+                return outcome;
+              },
       ),
     );
-    _chatOnStack = false;
-    if (_openRoomId == room.roomId) _openRoomId = null;
+    final chat = (roomId: room.roomId, route: route);
+    _openChats.add(chat);
+    await Navigator.of(context).push(route);
+    _openChats.remove(chat);
   }
 
-  /// A channel was deleted (by either of us). If it's the one open, take
-  /// everything over the inbox down (the chat, its info page, the sheet) and
-  /// say what happened; anywhere else, nothing is shown: the row just goes.
+  /// A channel was deleted (by either of us). If its chat is open, close it
+  /// (see [_closeChat]); anywhere else, nothing is shown: the row just goes.
   void _onRoomDeleted(RoomDeletion deletion) {
-    if (deletion.roomId != _openRoomId) return;
-    Navigator.of(context).popUntil((route) => route.isFirst);
-    final message = deletion.deletedBy == _me
-        ? 'Channel deleted'
-        : '${_displayNameOf(deletion.deletedBy)} deleted ${deletion.roomName}';
-    showLoveToast(
-      context,
-      message,
+    final open = _openChats.where((c) => c.roomId == deletion.roomId);
+    if (open.isEmpty) return;
+    _closeChat(
+      open.last,
+      toast: deletion.deletedBy == _me
+          ? 'Channel deleted'
+          : '${_displayNameOf(deletion.deletedBy)} deleted ${deletion.roomName}',
       icon: deletion.deletedBy == _me ? Icons.check : Icons.delete_outline,
     );
+  }
+
+  /// Close [chat], whose room is gone. On top, it goes down with everything
+  /// it opened (info page, delete sheet) and [toast] says what happened.
+  /// Under another chat, it's taken out of the back stack silently, so back
+  /// lands on what's below it instead of an empty chat.
+  void _closeChat(
+    _OpenChat chat, {
+    required String toast,
+    required IconData icon,
+  }) {
+    final onTop = chat == _openChats.lastOrNull;
+    if (!_openChats.remove(chat) || !chat.route.isActive) return;
+    final nav = Navigator.of(context);
+    if (!onTop) {
+      nav.removeRoute(chat.route);
+      return;
+    }
+    nav.popUntil((route) => route == chat.route);
+    nav.pop();
+    showLoveToast(context, toast, icon: icon);
   }
 
   /// How the app names [username]: their display name, else the username
@@ -403,7 +455,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final name = ref
         .read(profileStoreProvider)
         .forUsername(username)
-        ?.displayName;
+        ?.displayName
+        ?.trim();
     if (name != null && name.isNotEmpty) return name;
     return username.isEmpty
         ? username

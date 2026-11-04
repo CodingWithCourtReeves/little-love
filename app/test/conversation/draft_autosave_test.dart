@@ -100,6 +100,22 @@ void main() {
     });
   });
 
+  test('close drops a pending save, and later saves do nothing (the room '
+      'was deleted)', () {
+    fakeAsync((async) {
+      final db = _RecordingDb();
+      final saver = DraftAutosave(db: Future.value(db), roomId: 'r1');
+      saver.schedule(() => const ComposerDraft(text: 'half'));
+      saver.close();
+      async.elapse(delay * 2);
+      saver.flush(const ComposerDraft(text: 'half a thought'));
+      saver.schedule(() => const ComposerDraft(text: 'more'));
+      async.elapse(delay * 2);
+      expect(db.writes, 0);
+      expect(db.drafts, isEmpty);
+    });
+  });
+
   test('load returns the saved draft for the room', () {
     fakeAsync((async) {
       final db = _RecordingDb();
