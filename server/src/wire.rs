@@ -422,6 +422,9 @@ pub mod error_codes {
     pub const RATE_LIMITED: &str = "RateLimited";
     /// The partner chat (the unnamed room) can't be renamed or deleted.
     pub const PARTNER_CHAT_LOCKED: &str = "PartnerChatLocked";
+    /// The couple's last room can't be deleted (an old build let the partner
+    /// chat be renamed, so some couples have only named rooms).
+    pub const LAST_ROOM: &str = "LastRoom";
     pub const INTERNAL: &str = "Internal";
     /// A room name that is empty or too long.
     pub const BAD_NAME: &str = "BadName";

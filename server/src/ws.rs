@@ -29,10 +29,10 @@ use crate::profiles::{profile_for_account, upsert_profile};
 use crate::push::{PushMessage, PushSender, SendOutcome};
 use crate::push_tokens::{delete_token, delete_token_value, tokens_for_account, upsert_token};
 use crate::rooms::{
-    account_id_by_username, create_room_with_members, delete_room, is_member, leave_room,
-    list_rooms_for_account, members_for_room, partner_account_id_for, partner_username_for,
-    rename_room, room_count_for_account, room_detail, set_partner_link, CreateRoomError, Member,
-    MonogamyError, PairError,
+    account_id_by_username, create_room_with_members, delete_room_unless_last, is_member,
+    leave_room, list_rooms_for_account, members_for_room, partner_account_id_for,
+    partner_username_for, rename_room, room_detail, set_partner_link, CreateRoomError,
+    DeleteRoomOutcome, Member, MonogamyError, PairError,
 };
 use crate::routing::Routing;
 use crate::store::{MessageRow, Store};
@@ -1647,7 +1647,7 @@ async fn handle_create_room(
     let store = match state.store.as_ref() {
         Some(s) => s,
         None => {
-            send_error(tx, "Internal", "store unavailable");
+            send_error(tx, error_codes::INTERNAL, "store unavailable");
             return;
         }
     };
@@ -1674,7 +1674,7 @@ async fn handle_create_room(
             Ok(p) => p,
             Err(e) => {
                 warn!("partner_account_id_for (create_room): {e}");
-                send_error(tx, "Internal", "");
+                send_error(tx, error_codes::INTERNAL, "");
                 return;
             }
         }
@@ -1750,7 +1750,7 @@ async fn handle_rename_room(
     let store = match state.store.as_ref() {
         Some(s) => s,
         None => {
-            send_error(tx, "Internal", "store unavailable");
+            send_error(tx, error_codes::INTERNAL, "store unavailable");
             return;
         }
     };
@@ -1786,7 +1786,7 @@ async fn handle_rename_room(
     }
     if let Err(e) = rename_room(store.pool(), room_id, name).await {
         warn!("rename_room: {e}");
-        send_error(tx, "Internal", "");
+        send_error(tx, error_codes::INTERNAL, "");
         return;
     }
     let members = members_for_room(store.pool(), room_id)
@@ -1820,12 +1820,18 @@ async fn handle_delete_room(
             return;
         }
     };
-    if !is_member(store.pool(), room_id, me.id)
-        .await
-        .unwrap_or(false)
-    {
-        send_room_error(tx, error_codes::UNKNOWN_ROOM, room_id);
-        return;
+    match is_member(store.pool(), room_id, me.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            send_room_error(tx, error_codes::UNKNOWN_ROOM, room_id);
+            return;
+        }
+        // Not UnknownRoom: the app reads that as "already deleted".
+        Err(e) => {
+            warn!(room_id = %room_id, "is_member (delete_room): {e}");
+            send_room_error(tx, error_codes::INTERNAL, room_id);
+            return;
+        }
     }
     match room_detail(store.pool(), room_id).await {
         Ok(Some(d)) if d.name.is_empty() => {
@@ -1843,27 +1849,22 @@ async fn handle_delete_room(
             return;
         }
     }
-    // Never the couple's last room either: an old build let the partner chat
-    // be renamed, so for some couples every room is named, and deleting the
-    // last would leave them with nothing to talk in.
-    match room_count_for_account(store.pool(), me.id).await {
-        Ok(n) if n <= 1 => {
-            send_room_error(tx, error_codes::PARTNER_CHAT_LOCKED, room_id);
-            return;
-        }
-        Ok(_) => {}
+    // Read before the delete: the cascade takes the member rows with it.
+    let members = match members_for_room(store.pool(), room_id).await {
+        Ok(m) => m,
         Err(e) => {
-            warn!(room_id = %room_id, "room_count_for_account (delete_room): {e}");
+            warn!(room_id = %room_id, "members_for_room (delete_room): {e}");
             send_room_error(tx, error_codes::INTERNAL, room_id);
             return;
         }
-    }
-    let members = members_for_room(store.pool(), room_id)
-        .await
-        .unwrap_or_default();
-    match delete_room(store.pool(), room_id).await {
-        Ok(true) => {}
-        Ok(false) => {
+    };
+    match delete_room_unless_last(store.pool(), room_id, me.id).await {
+        Ok(DeleteRoomOutcome::Deleted) => {}
+        Ok(DeleteRoomOutcome::LastRoom) => {
+            send_room_error(tx, error_codes::LAST_ROOM, room_id);
+            return;
+        }
+        Ok(DeleteRoomOutcome::NotFound) => {
             send_room_error(tx, error_codes::UNKNOWN_ROOM, room_id);
             return;
         }

@@ -361,20 +361,73 @@ pub struct LeaveOutcome {
     pub room_deleted: bool,
 }
 
-/// How many rooms `account_id` is a member of.
-pub async fn room_count_for_account(pool: &PgPool, account_id: i64) -> sqlx::Result<i64> {
-    let (n,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM room_members WHERE account_id = $1")
-        .bind(account_id)
-        .fetch_one(pool)
+/// What [`delete_room_unless_last`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeleteRoomOutcome {
+    Deleted,
+    /// `room_id` is the last room `account_id` is in, so it stays.
+    LastRoom,
+    /// No such room.
+    NotFound,
+}
+
+/// Delete `room_id` (see [`delete_room`]) unless it's the last room
+/// `account_id` is in. An old build let the partner chat be renamed, so some
+/// couples have only named rooms, and deleting the last would leave them with
+/// nowhere to talk. The check and the delete are one step: both members'
+/// account rows are locked in id order first, so two deletes in the same
+/// couple run one after the other and can't each see the other's room still
+/// there. Callers check membership and the partner-chat lock first.
+pub async fn delete_room_unless_last(
+    pool: &PgPool,
+    room_id: &str,
+    account_id: i64,
+) -> sqlx::Result<DeleteRoomOutcome> {
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "SELECT a.id FROM accounts a \
+         WHERE a.id = $2 \
+            OR a.id IN (SELECT account_id FROM room_members WHERE room_id = $1) \
+         ORDER BY a.id FOR UPDATE",
+    )
+    .bind(room_id)
+    .bind(account_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let (rooms,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM room_members WHERE account_id = $1")
+            .bind(account_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if rooms <= 1 {
+        let (exists,): (bool,) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM rooms WHERE id = $1)")
+            .bind(room_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        return Ok(if exists {
+            DeleteRoomOutcome::LastRoom
+        } else {
+            DeleteRoomOutcome::NotFound
+        });
+    }
+    let res = sqlx::query("DELETE FROM rooms WHERE id = $1")
+        .bind(room_id)
+        .execute(&mut *tx)
         .await?;
-    Ok(n)
+    tx.commit().await?;
+    Ok(if res.rows_affected() > 0 {
+        DeleteRoomOutcome::Deleted
+    } else {
+        DeleteRoomOutcome::NotFound
+    })
 }
 
 /// Delete `room_id` outright: the room row goes, and with it (ON DELETE
 /// CASCADE) its members, invites, attachments and messages. Messages only
 /// cascade since migration 0017; before it, deleting a room that had any
 /// messages failed on `messages_room_id_fkey`. Returns whether a room was
-/// deleted. Callers check membership and the partner-chat lock first.
+/// deleted. The delete-channel handler goes through
+/// [`delete_room_unless_last`] instead, which also keeps the last room.
 pub async fn delete_room(pool: &PgPool, room_id: &str) -> sqlx::Result<bool> {
     let res = sqlx::query("DELETE FROM rooms WHERE id = $1")
         .bind(room_id)

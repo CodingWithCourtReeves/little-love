@@ -243,10 +243,10 @@ touch.
   `store_per_recipient.rs`, `partner_helpers.rs`, `rooms_detail.rs`,
   `invite_preview_members.rs`, `attachments_store.rs`, and the
   `migration_00NN_schema.rs` files.
-- **Migration schema tests**: only 0006, 0010, 0011 and 0012 have one.
+- **Migration schema tests**: only 0006, 0010, 0011, 0012 and 0017 have one.
 - **Error codes**: `error_codes::INTERNAL` exists, but most `ws.rs`
-  handlers still send `"Internal"` as a string literal (only
-  `handle_delete_room` uses the constant).
+  handlers still send `"Internal"` as a string literal (`handle_delete_room`,
+  `handle_rename_room` and `handle_create_room` use the constant).
 - **Logging**: some `ws.rs` lines interpolate room and call ids into the
   message instead of using fields.
 - **Secrets in `Debug`**: the config structs in `config.rs` derive `Debug`.

@@ -2,8 +2,10 @@
 
 mod common;
 
+use futures::future::join_all;
 use littlelove_api::rooms::{
-    create_room_with_members, delete_room, leave_room, rename_room, room_detail,
+    create_room_with_members, delete_room, delete_room_unless_last, leave_room, rename_room,
+    room_detail, DeleteRoomOutcome,
 };
 
 /// Rows referencing `room_id` in `table`.
@@ -58,6 +60,78 @@ async fn delete_room_removes_room_with_messages_attachments_and_members() {
 async fn delete_room_on_missing_room_returns_false() {
     let _store = common::fresh_store().await;
     assert!(!delete_room(_store.pool(), "01NOPE").await.unwrap());
+}
+
+#[tokio::test]
+#[serial_test::serial]
+async fn delete_room_unless_last_refuses_the_last_room_and_misses_a_missing_one() {
+    let store = common::fresh_store().await;
+    let (court, kait) = common::seed_two_humans(&store).await;
+    let a = create_room_with_members(store.pool(), court, Some(kait), "A".into())
+        .await
+        .unwrap();
+    let b = create_room_with_members(store.pool(), court, Some(kait), "B".into())
+        .await
+        .unwrap();
+
+    let pool = store.pool();
+    assert_eq!(
+        delete_room_unless_last(pool, &a, court).await.unwrap(),
+        DeleteRoomOutcome::Deleted
+    );
+    assert_eq!(
+        delete_room_unless_last(pool, &b, kait).await.unwrap(),
+        DeleteRoomOutcome::LastRoom
+    );
+    assert!(room_detail(pool, &b).await.unwrap().is_some());
+    assert_eq!(
+        delete_room_unless_last(pool, "01NOPE", court)
+            .await
+            .unwrap(),
+        DeleteRoomOutcome::NotFound
+    );
+}
+
+/// Both partners deleting a different one of their last two rooms at once:
+/// the last-room check and the delete are one locked step, so exactly one
+/// delete wins and the couple keeps a room.
+#[tokio::test]
+#[serial_test::serial]
+async fn parallel_deletes_of_the_last_two_rooms_leave_one() {
+    let store = common::fresh_store().await;
+    let (court, kait) = common::seed_two_humans(&store).await;
+    for _ in 0..20 {
+        let a = create_room_with_members(store.pool(), court, Some(kait), "A".into())
+            .await
+            .unwrap();
+        let b = create_room_with_members(store.pool(), court, Some(kait), "B".into())
+            .await
+            .unwrap();
+        let (p1, p2) = (store.pool().clone(), store.pool().clone());
+        let (ra, rb) = (a.clone(), b.clone());
+        let results = join_all([
+            tokio::spawn(async move { delete_room_unless_last(&p1, &ra, court).await }),
+            tokio::spawn(async move { delete_room_unless_last(&p2, &rb, kait).await }),
+        ])
+        .await;
+        let outcomes: Vec<_> = results.into_iter().map(|r| r.unwrap().unwrap()).collect();
+        let deleted = outcomes
+            .iter()
+            .filter(|o| **o == DeleteRoomOutcome::Deleted)
+            .count();
+        assert_eq!(deleted, 1, "{outcomes:?}");
+        let (rooms,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM room_members WHERE account_id = $1")
+                .bind(court)
+                .fetch_one(store.pool())
+                .await
+                .unwrap();
+        assert_eq!(rooms, 1);
+        // Reset for the next round: drop the survivor directly.
+        for r in [&a, &b] {
+            delete_room(store.pool(), r).await.unwrap();
+        }
+    }
 }
 
 #[tokio::test]

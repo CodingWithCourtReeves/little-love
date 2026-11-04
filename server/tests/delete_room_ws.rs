@@ -269,7 +269,7 @@ async fn deleting_the_last_shared_room_is_refused() {
     .await;
     let f = next_frame(&mut c.court).await;
     assert_eq!(f["kind"], "Error", "{f}");
-    assert_eq!(f["code"], "PartnerChatLocked");
+    assert_eq!(f["code"], "LastRoom");
     assert_eq!(f["room_id"], c.partner_room);
     assert!(room_exists(&c.store, &c.partner_room).await);
 }
