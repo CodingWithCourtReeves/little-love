@@ -265,6 +265,15 @@ pub enum RoomServerFrame {
         reader: String,
     },
 
+    /// Sent to a subscriber on Subscribe: when the newest message they've read in
+    /// `room_id` was sent. Restores the app's local unread marker, which can be
+    /// lost on the device. Not sent if they've read nothing there. Clients older
+    /// than this frame drop it as an unknown kind.
+    ReadMarker {
+        room_id: String,
+        read_up_to: DateTime<Utc>,
+    },
+
     /// Relayed presence: `from` is composing (or stopped) in `room_id`. Not
     /// persisted — a fresh subscriber never replays it.
     Typing {
@@ -840,6 +849,21 @@ mod tests {
             }
             _ => panic!("expected RequestUpload"),
         }
+    }
+
+    #[test]
+    fn serializes_read_marker_frame() {
+        let f = RoomServerFrame::ReadMarker {
+            room_id: "01J".into(),
+            read_up_to: "2026-11-04T17:00:00.123456Z".parse().unwrap(),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        assert!(s.contains(r#""kind":"ReadMarker""#), "{s}");
+        assert!(s.contains(r#""room_id":"01J""#), "{s}");
+        assert!(
+            s.contains(r#""read_up_to":"2026-11-04T17:00:00.123456Z""#),
+            "{s}"
+        );
     }
 
     #[test]

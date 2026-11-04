@@ -192,6 +192,11 @@ sealed class RoomServerFrame {
           messageIds: (json['message_ids']! as List<dynamic>).cast<String>(),
           reader: json['reader']! as String,
         );
+      case 'ReadMarker':
+        return ReadMarkerFrame(
+          roomId: json['room_id'] as String,
+          readUpTo: DateTime.parse(json['read_up_to'] as String).toUtc(),
+        );
       case 'Typing':
         return TypingFrame(
           roomId: json['room_id']! as String,
@@ -363,6 +368,15 @@ class ReadFrame extends RoomServerFrame {
   final String roomId;
   final List<String> messageIds;
   final String reader;
+}
+
+/// Sent on Subscribe: when the newest message I've read in [roomId] was sent.
+/// Restores the local unread marker, which can be lost on the device. Mirrors
+/// `RoomServerFrame::ReadMarker` in server/src/wire.rs.
+class ReadMarkerFrame extends RoomServerFrame {
+  const ReadMarkerFrame({required this.roomId, required this.readUpTo});
+  final String roomId;
+  final DateTime readUpTo;
 }
 
 class RoomErrorFrame extends RoomServerFrame {
