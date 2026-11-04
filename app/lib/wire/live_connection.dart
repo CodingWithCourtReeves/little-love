@@ -42,6 +42,11 @@ abstract class LiveConnection {
     required DerivedIdentity identity,
   }) async {
     final channel = IOWebSocketChannel.connect(url);
+    // The package reports a failed connect twice: on the stream, handled below,
+    // and on this future, which nothing else awaits. Unhandled, each failed
+    // attempt (routine when iOS resumes the app) is an uncaught error, even
+    // though the retry loop in [liveConnectionProvider] recovers.
+    unawaited(channel.ready.catchError((Object _) {}));
     final conn = _RealLiveConnection(
       rawStream: channel.stream,
       sink: channel.sink,
