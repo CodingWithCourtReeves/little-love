@@ -166,6 +166,22 @@ Future<void> dbSettledAt(MessageDb db, String roomId, String id) async {
   throw StateError('db never reached $id');
 }
 
+/// A real db whose [highWaterMark] waits on [gate], to hold `_subscribe` on its
+/// last await before it sends.
+class _GatedHighWaterMarkDb extends SqliteMessageDb {
+  _GatedHighWaterMarkDb(super.db);
+
+  final entered = Completer<void>();
+  final gate = Completer<void>();
+
+  @override
+  Future<String?> highWaterMark(String roomId) async {
+    if (!entered.isCompleted) entered.complete();
+    await gate.future;
+    return super.highWaterMark(roomId);
+  }
+}
+
 /// Records what the router asks the channel sender to send.
 class _RecordingSender extends ChannelUpdateSender {
   _RecordingSender(super.ref);
@@ -2552,6 +2568,159 @@ void main() {
       expect(rows.single.channelUpdate?.name, 'Date ideas');
     });
   });
+
+  test(
+    'a new socket re-subscribes to rooms the old socket subscribed to',
+    () async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final first = _FakeConn();
+      final second = _FakeConn();
+      final pending = [first, second];
+      final db = await _ffiMessageDb();
+      final container = ProviderContainer(
+        overrides: [
+          liveConnectionProvider.overrideWith((_) async => pending.removeAt(0)),
+          currentIdentityProvider.overrideWith((_) async => me),
+          messageDbProvider.overrideWith((_) async => db),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(liveConnectionProvider.future);
+      final router = container.read(roomMessageRouterProvider);
+      final rooms = RoomsFrame(
+        rooms: [
+          RoomDetail(
+            roomId: 'room1',
+            name: '',
+            members: [_member('court', me), _member('kaitlyn', peer)],
+            createdAt: DateTime.utc(2026, 6, 10),
+          ),
+        ],
+      );
+
+      first.emit(rooms);
+      await pumpUntil(() => _sentOfKind(first, 'Subscribe').isNotEmpty);
+
+      container.invalidate(liveConnectionProvider);
+      await container.read(liveConnectionProvider.future);
+      // The server sends the room list again on every new connection.
+      second.emit(rooms);
+      await pumpUntil(() => _sentOfKind(second, 'Subscribe').isNotEmpty);
+
+      expect(_sentOfKind(second, 'Subscribe'), hasLength(1));
+      expect(
+        identical(container.read(roomMessageRouterProvider), router),
+        isTrue,
+        reason: 'one router follows the sockets, so there is never a gap',
+      );
+    },
+  );
+
+  test('a room list still loading when the socket changes sends nothing on the '
+      'new socket', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final first = _FakeConn();
+    final second = _FakeConn();
+    final pending = [first, second];
+    final db = await _ffiMessageDb();
+    final dbGate = Completer<void>();
+    final container = ProviderContainer(
+      overrides: [
+        liveConnectionProvider.overrideWith((_) async => pending.removeAt(0)),
+        currentIdentityProvider.overrideWith((_) async => me),
+        messageDbProvider.overrideWith((_) async {
+          await dbGate.future;
+          return db;
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(liveConnectionProvider.future);
+    container.read(roomMessageRouterProvider);
+    final rooms = RoomsFrame(
+      rooms: [
+        RoomDetail(
+          roomId: 'room1',
+          name: '',
+          members: [_member('court', me), _member('kaitlyn', peer)],
+          createdAt: DateTime.utc(2026, 6, 10),
+        ),
+      ],
+    );
+
+    // The first socket's list is mid-load on the db when the socket changes.
+    first.emit(rooms);
+    await pumpUntil(() => container.read(inboxStateProvider).rooms.isNotEmpty);
+    container.invalidate(liveConnectionProvider);
+    await container.read(liveConnectionProvider.future);
+
+    dbGate.complete();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    // That stale work must not subscribe on the new socket: a Subscribe from
+    // an old account's list would go out on the next account's connection.
+    expect(_sentOfKind(second, 'Subscribe'), isEmpty);
+
+    second.emit(rooms);
+    await pumpUntil(() => _sentOfKind(second, 'Subscribe').isNotEmpty);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(_sentOfKind(second, 'Subscribe'), hasLength(1));
+  });
+
+  test(
+    'a Subscribe already on its way when the socket changes is dropped',
+    () async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final first = _FakeConn();
+      final second = _FakeConn();
+      final pending = [first, second];
+      final raw = await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: MessageDb.schemaVersion,
+          onCreate: MessageDb.onCreate,
+          onUpgrade: MessageDb.onUpgrade,
+        ),
+      );
+      addTearDown(raw.close);
+      final db = _GatedHighWaterMarkDb(raw);
+      final container = ProviderContainer(
+        overrides: [
+          liveConnectionProvider.overrideWith((_) async => pending.removeAt(0)),
+          currentIdentityProvider.overrideWith((_) async => me),
+          messageDbProvider.overrideWith((_) async => db),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(liveConnectionProvider.future);
+      container.read(roomMessageRouterProvider);
+
+      // Past hydrate and into _subscribe, on its last await before the send.
+      first.emit(
+        RoomsFrame(
+          rooms: [
+            RoomDetail(
+              roomId: 'room1',
+              name: '',
+              members: [_member('court', me), _member('kaitlyn', peer)],
+              createdAt: DateTime.utc(2026, 6, 10),
+            ),
+          ],
+        ),
+      );
+      await db.entered.future;
+
+      container.invalidate(liveConnectionProvider);
+      await container.read(liveConnectionProvider.future);
+      db.gate.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(_sentOfKind(second, 'Subscribe'), isEmpty);
+    },
+  );
 
   group('a ReadMarker from the server', () {
     final read = DateTime.utc(2026, 11, 1, 12);

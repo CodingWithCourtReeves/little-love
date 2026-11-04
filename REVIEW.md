@@ -138,6 +138,12 @@ Both partners hold the room key, so either one can craft any encrypted body.
 - Anything delivered "live only" has a replay/backfill path for a peer that
   was offline.
 - Debounced timers re-check their preconditions when they fire.
+- Anything that must hear frames holds one subscription and moves it to each
+  new socket, as `CallController` and `RoomMessageRouter` do. A provider that
+  `ref.watch`es the connection is disposed and only rebuilt on the next frame,
+  which can be seconds away behind the Face ID prompt, and the socket's stream
+  doesn't buffer once anyone is listening. That lost the room list, which the
+  server sends once per connection, and left the home screen blank.
 - A local file that other state depends on is written to a temp file and
   renamed, never rewritten in place, and nothing saves over it before it has
   loaded. An in-place rewrite of `read_state.json` wiped every room's unread
