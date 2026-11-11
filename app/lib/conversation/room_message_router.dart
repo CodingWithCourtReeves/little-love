@@ -137,7 +137,12 @@ class RoomMessageRouter {
         // thus the couple room) is known. Covers a pre-pairing edit and every
         // reconnect; idempotent + latest-wins on the receiver. Reuses the cached
         // avatar descriptor, so no photo re-upload.
-        unawaited(_republishMyProfile());
+        unawaited(
+          _republishMyProfile().catchError(
+            (Object e, StackTrace st) =>
+                reportFault(e, st, context: 'profile_republish'),
+          ),
+        );
 
       case RoomCreatedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
@@ -321,7 +326,12 @@ class RoomMessageRouter {
     await purgeRoomLocally(ref, roomId);
     // The purge forgot the published avatar (it may have lived in this
     // room); re-assert the profile so it lands in a room that exists.
-    unawaited(_republishMyProfile());
+    unawaited(
+      _republishMyProfile().catchError(
+        (Object e, StackTrace st) =>
+            reportFault(e, st, context: 'profile_republish'),
+      ),
+    );
   }
 
   /// Wipe local rooms the server no longer lists (deleted while offline),
@@ -437,11 +447,12 @@ class RoomMessageRouter {
     if (ref.read(roomHydratedProvider(roomId))) return;
     final db = await ref.read(messageDbProvider.future);
     final cached = await db.messagesFor(roomId);
+    final deletedForMe = await db.deletedForMeIds();
     // Deleted while the history loaded: don't rebuild the purged store.
     if (_deletedRooms.contains(roomId)) return;
     final store = ref.read(messageStoreProvider(roomId).notifier);
     // Before Subscribe, so a replayed id I deleted for me can't re-enter.
-    store.seedDeletedForMe(await db.deletedForMeIds());
+    store.seedDeletedForMe(deletedForMe);
     if (cached.isNotEmpty) {
       store.setAll([
         for (final m in cached)
@@ -476,6 +487,8 @@ class RoomMessageRouter {
         reapplied = true;
       }
     }
+    // And while a hidden row was re-applied.
+    if (_deletedRooms.contains(roomId)) return;
     if (reapplied) {
       // Re-applied rows were appended; restore timeline order (stable on ties).
       final rows = [...ref.read(messageStoreProvider(roomId))];

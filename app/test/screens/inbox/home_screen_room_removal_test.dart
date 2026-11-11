@@ -286,6 +286,26 @@ void main() {
     await drainToast(tester);
   });
 
+  testWidgets('my partner deleting an open channel with a blank name (an old '
+      'build allowed one) says the chat was deleted, not "deleted "', (
+    tester,
+  ) async {
+    final (c, conn) = await connect(tester, [('dm', ''), ('chan', '  ')]);
+    c.read(requestedRoomProvider.notifier).state = 'chan';
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('chan')), findsOneWidget);
+
+    conn.emit(const RoomDeletedFrame(roomId: 'chan', deletedBy: 'kaitlyn'));
+    await pumpUntil(
+      tester,
+      () => find.text('This chat was deleted').evaluate().isNotEmpty,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ConversationPage), findsNothing);
+    await drainToast(tester);
+  });
+
   testWidgets('a channel deleted under another open chat is taken out of the '
       'back stack, with nothing shown', (tester) async {
     final (c, conn) = await connect(tester, [('dm', ''), ('chan', 'Travel')]);

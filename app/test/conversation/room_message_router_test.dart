@@ -71,6 +71,25 @@ class _GatedOutboxStore extends MemoryOutboxStore {
   }
 }
 
+/// A message DB whose first [deletedForMeIds] waits for [release]: holds a
+/// hydrate partway through, after its history has loaded.
+class _GatedMessageDb extends SqliteMessageDb {
+  _GatedMessageDb(super.db);
+  final _gate = Completer<void>();
+  bool held = false;
+
+  void release() => _gate.complete();
+
+  @override
+  Future<Set<String>> deletedForMeIds() async {
+    if (!held) {
+      held = true;
+      await _gate.future;
+    }
+    return super.deletedForMeIds();
+  }
+}
+
 /// Records calls instead of touching the native sound channel / haptics.
 class _RecordingFeedback extends MessageFeedback {
   int sentCount = 0;
@@ -89,7 +108,9 @@ class _RecordingFeedback extends MessageFeedback {
   void reactionReceived() => reactionCount++;
 }
 
-Future<MessageDb> _ffiMessageDb() async {
+Future<MessageDb> _ffiMessageDb() async => MessageDb.test(await _ffiDb());
+
+Future<Database> _ffiDb() async {
   final db = await databaseFactory.openDatabase(
     inMemoryDatabasePath,
     options: OpenDatabaseOptions(
@@ -99,7 +120,7 @@ Future<MessageDb> _ffiMessageDb() async {
     ),
   );
   addTearDown(db.close);
-  return MessageDb.test(db);
+  return db;
 }
 
 Future<ProviderContainer> _container({
@@ -1902,6 +1923,39 @@ void main() {
     expect(atSynced['room2'], (true, 1));
   });
 
+  test('a profile republish that fails after the room list lands is reported, '
+      'not left to escape', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final container = await _container(
+      conn: conn,
+      me: me,
+      overrides: [
+        accountProvider.overrideWith(
+          (_) async => throw StateError('account store unreadable'),
+        ),
+      ],
+    );
+    container.read(roomMessageRouterProvider);
+    conn.emit(
+      RoomsFrame(
+        rooms: [
+          RoomDetail(
+            roomId: 'room1',
+            name: '',
+            members: [_member('court', me), _member('kaitlyn', peer)],
+            createdAt: DateTime.utc(2026, 6, 10),
+          ),
+        ],
+      ),
+    );
+    await pumpUntil(() => _sentOfKind(conn, 'Subscribe').isNotEmpty);
+    // An escaped error fails the test from the zone; give the republish,
+    // which starts after the Subscribe, time to run.
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+  });
+
   test('the partner\'s profile sent right after the room list lands, even '
       'while room history is still loading', () async {
     final me = await deriveIdentity(seedA);
@@ -2583,11 +2637,13 @@ void main() {
       required List<(String, String)> listed,
       List<String> cachedRooms = const [],
       OutboxStore? outbox,
+      MessageDb? messageDb,
+      bool settle = true,
     }) async {
       final me = await deriveIdentity(seedA);
       final peer = await deriveIdentity(seedB);
       final conn = _FakeConn();
-      final db = await _ffiMessageDb();
+      final db = messageDb ?? await _ffiMessageDb();
       for (final room in cachedRooms) {
         await db.upsert(cached('01$room', room), roomId: room);
       }
@@ -2621,6 +2677,8 @@ void main() {
           ],
         ),
       );
+      // Unsettled: the caller holds the connect partway and waits itself.
+      if (!settle) return (container, conn, db);
       await pumpUntil(() => container.read(inboxSyncedProvider));
       // Subscribe goes out after the synced flag, followed by the profile
       // republish; wait for it so no router work outlives the test (teardown
@@ -2631,6 +2689,11 @@ void main() {
       return (container, conn, db);
     }
 
+    /// Waits for [roomId]'s purge to finish. The RoomDeletion goes out before
+    /// the wipe, and the wipe's last step resets the room's hydrated flag.
+    Future<void> purged(ProviderContainer container, String roomId) =>
+        pumpUntil(() => !container.read(roomHydratedProvider(roomId)));
+
     test(
       'RoomDeleted hides and purges the room and emits a RoomDeletion',
       () async {
@@ -2640,7 +2703,7 @@ void main() {
         );
 
         conn.emit(const RoomDeletedFrame(roomId: 'chan', deletedBy: 'kaitlyn'));
-        await pumpUntil(() => container.read(roomDeletionsProvider) != null);
+        await purged(container, 'chan');
 
         final event = container.read(roomDeletionsProvider)!;
         expect(event.roomId, 'chan');
@@ -2660,7 +2723,7 @@ void main() {
           listed: [('dm', ''), ('chan', 'Travel')],
         );
         conn.emit(const RoomDeletedFrame(roomId: 'chan', deletedBy: 'kaitlyn'));
-        await pumpUntil(() => container.read(roomDeletionsProvider) != null);
+        await purged(container, 'chan');
 
         conn.emit(
           const TypingFrame(roomId: 'chan', from: 'kaitlyn', typing: true),
@@ -2753,6 +2816,34 @@ void main() {
 
       expect(await db.messagesFor('chan'), isEmpty);
       expect(await db.roomIds(), isNot(contains('chan')));
+    });
+
+    test('a hydrate still loading when the room is deleted does not mark it '
+        'hydrated or subscribe', () async {
+      final db = _GatedMessageDb(await _ffiDb());
+      // 'chan' first: rooms hydrate in order, so its hydrate is the one held,
+      // after its history has loaded.
+      final (container, conn, _) = await connect(
+        listed: [('chan', 'Travel'), ('dm', '')],
+        messageDb: db,
+        settle: false,
+      );
+      await pumpUntil(() => db.held);
+
+      await container
+          .read(roomMessageRouterProvider)
+          .applyDeletion('chan', deletedBy: 'kaitlyn');
+      db.release();
+      await pumpUntil(() => _sentOfKind(conn, 'Subscribe').isNotEmpty);
+
+      expect(container.read(roomHydratedProvider('chan')), isFalse);
+      expect(
+        _sentOfKind(
+          conn,
+          'Subscribe',
+        ).map((m) => (m as Map<String, Object?>)['room_id']),
+        ['dm'],
+      );
     });
 
     test('applyDeletion removes a room the server already deleted, the same '

@@ -164,7 +164,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         final name = prev?.rooms
             .where((r) => r.roomId == chat.roomId)
             .firstOrNull
-            ?.name;
+            ?.name
+            .trim();
         _closeChat(
           chat,
           toast: (name == null || name.isEmpty)
@@ -419,11 +420,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void _onRoomDeleted(RoomDeletion deletion) {
     final open = _openChats.where((c) => c.roomId == deletion.roomId);
     if (open.isEmpty) return;
+    // A blank name (an old build allowed one) would read "Kaitlyn deleted ".
+    final name = deletion.roomName.trim();
     _closeChat(
       open.last,
       toast: deletion.deletedBy == _me
           ? 'Channel deleted'
-          : '${_displayNameOf(deletion.deletedBy)} deleted ${deletion.roomName}',
+          : name.isEmpty
+          ? 'This chat was deleted'
+          : '${_displayNameOf(deletion.deletedBy)} deleted $name',
       icon: deletion.deletedBy == _me ? Icons.check : Icons.delete_outline,
     );
   }
