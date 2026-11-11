@@ -220,3 +220,96 @@ async fn subscribe_backfills_read_state_past_the_watermark() {
     assert_eq!(read["reader"], "kaitlyn");
     assert_eq!(read["message_ids"][0], msg_id, "{read}");
 }
+
+/// Reconnect `username` and Subscribe with the given watermark.
+async fn resubscribe(
+    addr: std::net::SocketAddr,
+    username: &str,
+    sk: &SigningKey,
+    room_id: &str,
+    since: &str,
+) -> Ws {
+    let mut ws = handshake_as(addr, username, sk).await;
+    drain_rooms(&mut ws).await;
+    ws.send(WsMessage::Text(
+        serde_json::json!({
+            "kind": "Subscribe",
+            "room_id": room_id,
+            "since_message_id": since,
+        })
+        .to_string(),
+    ))
+    .await
+    .unwrap();
+    ws
+}
+
+#[file_serial(db)]
+#[tokio::test]
+async fn subscribe_restores_my_read_marker_past_the_watermark() {
+    // The phone keeps its unread marker locally and can lose it. The realistic
+    // reconnect has an empty message backlog (`id > since`), so the marker has
+    // to arrive on its own for the phone to stop counting read messages.
+    let store = fresh_store().await;
+    let court_sk = SigningKey::from_bytes(&[1u8; 32]);
+    let kait_sk = SigningKey::from_bytes(&[2u8; 32]);
+    insert_account(&store, "court", &court_sk.verifying_key()).await;
+    insert_account(&store, "kaitlyn", &kait_sk.verifying_key()).await;
+    let addr = spawn_server(Some(store.clone())).await;
+
+    let (mut court, mut kaitlyn, room_id) = paired_pair(&store, addr, &court_sk, &kait_sk).await;
+    let read_id = court_sends(&mut court, &mut kaitlyn, &room_id).await;
+    let unread_id = court_sends(&mut court, &mut kaitlyn, &room_id).await;
+    kaitlyn
+        .send(WsMessage::Text(
+            serde_json::json!({
+                "kind": "MarkRead",
+                "room_id": room_id,
+                "up_to_message_id": read_id,
+            })
+            .to_string(),
+        ))
+        .await
+        .unwrap();
+    let _ = next_frame(&mut court).await; // The Read relay: the mark has landed.
+    drop(kaitlyn);
+
+    let mut kaitlyn2 = resubscribe(addr, "kaitlyn", &kait_sk, &room_id, &unread_id).await;
+    let marker = next_frame(&mut kaitlyn2).await;
+    assert_eq!(marker["kind"], "ReadMarker", "{marker}");
+    assert_eq!(marker["room_id"], room_id);
+
+    // It names the newest message she read, not the newer one she hasn't.
+    let (want,): (chrono::DateTime<chrono::Utc>,) =
+        sqlx::query_as("SELECT ts FROM messages WHERE id = $1 AND body = 'ct_for_kait'")
+            .bind(&read_id)
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    let got: chrono::DateTime<chrono::Utc> =
+        marker["read_up_to"].as_str().unwrap().parse().unwrap();
+    assert_eq!(got, want);
+}
+
+#[file_serial(db)]
+#[tokio::test]
+async fn subscribe_sends_no_read_marker_when_nothing_was_read() {
+    let store = fresh_store().await;
+    let court_sk = SigningKey::from_bytes(&[1u8; 32]);
+    let kait_sk = SigningKey::from_bytes(&[2u8; 32]);
+    insert_account(&store, "court", &court_sk.verifying_key()).await;
+    insert_account(&store, "kaitlyn", &kait_sk.verifying_key()).await;
+    let addr = spawn_server(Some(store.clone())).await;
+
+    let (mut court, mut kaitlyn, room_id) = paired_pair(&store, addr, &court_sk, &kait_sk).await;
+    let id = court_sends(&mut court, &mut kaitlyn, &room_id).await;
+    drop(kaitlyn);
+
+    let mut kaitlyn2 = resubscribe(addr, "kaitlyn", &kait_sk, &room_id, &id).await;
+    let quiet = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        next_frame(&mut kaitlyn2),
+    )
+    .await;
+    assert!(quiet.is_err(), "expected no frame, got {quiet:?}");
+}

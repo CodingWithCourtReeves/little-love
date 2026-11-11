@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../conversation/message_store.dart';
+import '../diagnostics/crash_reporting.dart';
 import '../identity/providers.dart';
 import 'inbox_state.dart';
 
@@ -8,20 +11,46 @@ import 'inbox_state.dart';
 /// Hydrated from [ReadStateStore] on first build; every [markRead] writes
 /// through to disk so the marker survives app restarts.
 class ReadStateNotifier extends Notifier<Map<String, DateTime>> {
+  /// False until the saved markers are in [state]. A save before then would
+  /// replace the file with only the rooms marked so far, losing the rest.
+  bool _loaded = false;
+
+  /// A mark landed before the load finished, so the merged result needs saving.
+  bool _savePending = false;
+
+  /// Set once this notifier is replaced (sign-out), so a load finishing late
+  /// can't write the previous account's markers back after they were cleared.
+  bool _disposed = false;
+
   @override
   Map<String, DateTime> build() {
+    ref.onDispose(() => _disposed = true);
     // Hydrate asynchronously; until the file loads we treat everything as
     // unmarked (conservative: shows unread rather than hiding it).
-    _hydrate();
+    unawaited(_hydrate());
     return const {};
   }
 
   Future<void> _hydrate() async {
     final store = ref.read(readStateStoreProvider);
-    final loaded = await store.load();
-    if (loaded.isNotEmpty) {
-      state = Map.unmodifiable({...loaded, ...state});
+    var loaded = const <String, DateTime>{};
+    try {
+      loaded = await store.load();
+    } catch (e, st) {
+      // Unreadable is treated like empty, so marks still work and get saved.
+      reportFault(e, st, context: 'read_state_load');
     }
+    if (_disposed) return;
+    _loaded = true;
+    // Per-room newest wins. A mark made during the load is usually newer, but a
+    // server-supplied one ([markRead] with `at`) can be older than the file.
+    final merged = {...loaded};
+    state.forEach((room, ts) {
+      final saved = merged[room];
+      if (saved == null || ts.isAfter(saved)) merged[room] = ts;
+    });
+    if (merged.isNotEmpty) state = Map.unmodifiable(merged);
+    if (_savePending) _save();
   }
 
   void markRead(String roomId, {DateTime? at}) {
@@ -30,9 +59,26 @@ class ReadStateNotifier extends Notifier<Map<String, DateTime>> {
     if (existing != null && !ts.isAfter(existing)) return;
     final next = Map<String, DateTime>.from(state)..[roomId] = ts;
     state = Map.unmodifiable(next);
-    // Write through; fire-and-forget is fine — the in-memory state is the
-    // source of truth for this session.
-    ref.read(readStateStoreProvider).save(state);
+    if (_loaded) {
+      _save();
+    } else {
+      _savePending = true;
+    }
+  }
+
+  /// Write through; fire-and-forget is fine: the in-memory state is the source
+  /// of truth for this session, and the server restores it on the next connect
+  /// if this write is lost.
+  void _save() {
+    _savePending = false;
+    unawaited(
+      ref.read(readStateStoreProvider).save(state).catchError((
+        Object e,
+        StackTrace st,
+      ) {
+        reportFault(e, st, context: 'read_state_save');
+      }),
+    );
   }
 
   /// Drop [roomId]'s marker (a deleted channel), writing through like

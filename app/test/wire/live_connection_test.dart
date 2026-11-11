@@ -53,6 +53,35 @@ _openConn() async {
 }
 
 void main() {
+  test('a failed connect reaches the caller and nothing else', () async {
+    final identity = await deriveIdentity(
+      Uint8List.fromList(List<int>.generate(16, (i) => i + 1)),
+    );
+    final uncaught = <Object>[];
+    Object? caught;
+    final finished = Completer<void>();
+    // A real socket on a port nothing listens on: the bug is in how the socket
+    // package reports the failure, which a fake stream can't show.
+    runZonedGuarded(() async {
+      try {
+        await LiveConnection.connect(
+          url: Uri.parse('ws://127.0.0.1:1/ws'),
+          username: 'court',
+          identity: identity,
+        );
+      } catch (e) {
+        caught = e;
+      }
+      finished.complete();
+    }, (e, _) => uncaught.add(e));
+    await finished.future;
+    // Long enough for a second report of the same failure to land.
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    expect(caught, isNotNull, reason: 'the retry loop needs to see it');
+    expect(uncaught, isEmpty, reason: 'it would reach crash reporting');
+  });
+
   test('connects, handshakes, and broadcasts only room-phase frames', () async {
     final h = await _openConn();
     final firstFrame = h.conn.incoming.first;

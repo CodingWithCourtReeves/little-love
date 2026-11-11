@@ -521,6 +521,168 @@ void main() {
     );
   });
 
+  group('the search index stays consistent with unsent messages', () {
+    // The index holds only live rows. Removing a row it no longer holds damages
+    // it, and SQLite then reports "database disk image is malformed" on writes.
+    Future<(Database, MessageDb)> openRaw() async {
+      final raw = await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: MessageDb.schemaVersion,
+          onCreate: MessageDb.onCreate,
+          onUpgrade: MessageDb.onUpgrade,
+          singleInstance: false,
+        ),
+      );
+      addTearDown(raw.close);
+      return (raw, MessageDb.test(raw));
+    }
+
+    // Structure only: for an external-content table this doesn't compare the
+    // index with `messages`, so tests also check what search returns.
+    Future<void> expectIndexIntact(Database raw) => raw.execute(
+      "INSERT INTO messages_fts(messages_fts) VALUES('integrity-check')",
+    );
+
+    test('a read receipt for an unsent message leaves it intact', () async {
+      final (raw, db) = await openRaw();
+      await db.upsert(msg('01A', body: 'unsent words'), roomId: 'room1');
+      await db.upsert(msg('01B', body: 'kept words'), roomId: 'room1');
+      await db.applyDelete('01A', requestedBy: 'alice');
+
+      // Reconnects keep re-sending the read state of my own sent messages,
+      // including ones I later unsent.
+      for (var i = 0; i < 5; i++) {
+        await db.markRead(['01A', '01B']);
+      }
+
+      await expectIndexIntact(raw);
+      final hits = await db.search('words');
+      expect(hits.map((h) => h.messageId), ['01B']);
+    });
+
+    test('an unsend replayed on reconnect leaves it intact', () async {
+      final (raw, db) = await openRaw();
+      await db.upsert(msg('01A', body: 'unsent words'), roomId: 'room1');
+      // Several, since the old trigger's first redundant update could succeed
+      // and only a later one failed.
+      for (var i = 0; i < 4; i++) {
+        await db.applyDelete('01A', requestedBy: 'alice');
+      }
+
+      await expectIndexIntact(raw);
+      expect(await db.search('unsent'), isEmpty);
+    });
+
+    test('deleting an unsent message for me leaves it intact', () async {
+      final (raw, db) = await openRaw();
+      await db.upsert(msg('01A', body: 'unsent words'), roomId: 'room1');
+      await db.applyDelete('01A', requestedBy: 'alice');
+      await db.deleteForMe('01A');
+
+      await expectIndexIntact(raw);
+    });
+
+    test('live messages still index, edit and search as before', () async {
+      final (raw, db) = await openRaw();
+      await db.upsert(msg('01A', body: 'before'), roomId: 'room1');
+      await db.applyEdit('01A', requestedBy: 'alice', text: 'after');
+      await db.markRead(['01A']);
+
+      await expectIndexIntact(raw);
+      expect((await db.search('after')).map((h) => h.messageId), ['01A']);
+      expect(await db.search('before'), isEmpty);
+    });
+
+    test('upgrading from v7 fixes a store with an unsent message', () async {
+      final (raw, db) = await openRaw();
+      // A v7 store: the triggers removed a row from the index on every update.
+      await raw.execute('DROP TRIGGER messages_ad');
+      await raw.execute('DROP TRIGGER messages_au');
+      await raw.execute('''
+        CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
+          INSERT INTO messages_fts(messages_fts, rowid, body)
+            VALUES('delete', old.rowid, old.body);
+        END
+      ''');
+      await raw.execute('''
+        CREATE TRIGGER messages_au AFTER UPDATE ON messages BEGIN
+          INSERT INTO messages_fts(messages_fts, rowid, body)
+            VALUES('delete', old.rowid, old.body);
+          INSERT INTO messages_fts(rowid, body)
+            SELECT new.rowid, new.body WHERE new.deleted = 0;
+        END
+      ''');
+      await db.upsert(msg('01A', body: 'unsent words'), roomId: 'room1');
+      await db.upsert(msg('01B', body: 'kept words'), roomId: 'room1');
+      await db.saveDraft('room1', const ComposerDraft(text: 'my draft'));
+      await db.applyDelete('01A', requestedBy: 'alice');
+      await expectLater(
+        db.markRead(['01A', '01B']),
+        throwsA(anything),
+        reason: 'the bug this upgrade fixes',
+      );
+
+      await MessageDb.onUpgrade(raw, 7, MessageDb.schemaVersion);
+
+      await db.markRead(['01A', '01B']);
+      await db.deleteForMe('01A');
+      await expectIndexIntact(raw);
+      // Nothing else is touched: no wipe, no replay.
+      expect((await db.search('words')).map((h) => h.messageId), ['01B']);
+      final kept = await db.messagesFor('room1');
+      expect(kept.map((m) => m.id), ['01B']);
+      expect(kept.single.sendStatus, SendStatus.read);
+      expect((await db.draftFor('room1'))?.text, 'my draft');
+    });
+
+    test('upgrading from v7 rebuilds the index from live rows only', () async {
+      final (raw, db) = await openRaw();
+      await db.upsert(msg('01A', body: 'unsent words'), roomId: 'room1');
+      await db.upsert(msg('01B', body: 'kept words'), roomId: 'room1');
+      await db.saveDraft('room1', const ComposerDraft(text: 'my draft'));
+      await db.applyDelete('01A', requestedBy: 'alice');
+      // The old triggers could leave the index out of step without failing.
+      // Put it out of step both ways: an entry for the unsent row, none for
+      // a live one.
+      await raw.execute(
+        'INSERT INTO messages_fts(rowid, body) '
+        "SELECT rowid, 'ghost' FROM messages WHERE id = '01A'",
+      );
+      await raw.execute(
+        "INSERT INTO messages_fts(messages_fts, rowid, body) "
+        "SELECT 'delete', rowid, body FROM messages WHERE id = '01B'",
+      );
+
+      await MessageDb.onUpgrade(raw, 7, MessageDb.schemaVersion);
+
+      Future<int> indexed(String term) async => (await raw.rawQuery(
+        'SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?',
+        [term],
+      )).length;
+      expect(await indexed('ghost'), 0);
+      expect(await indexed('unsent'), 0, reason: 'unsent text stays out');
+      expect(await indexed('kept'), 1);
+      expect((await db.search('kept')).map((h) => h.messageId), ['01B']);
+      // Only the index is rebuilt.
+      expect((await db.draftFor('room1'))?.text, 'my draft');
+      expect((await db.messagesFor('room1')).map((m) => m.id), ['01B']);
+    });
+
+    test(
+      'upgrading twice is safe, as a downgrade rewinds the version',
+      () async {
+        final (raw, db) = await openRaw();
+        await MessageDb.onUpgrade(raw, 7, MessageDb.schemaVersion);
+        await MessageDb.onUpgrade(raw, 7, MessageDb.schemaVersion);
+
+        await db.upsert(msg('01A', body: 'words'), roomId: 'room1');
+        await expectIndexIntact(raw);
+        expect(await db.search('words'), hasLength(1));
+      },
+    );
+  });
+
   group('delete for me', () {
     test('deleteForMe hides any message from messagesFor, including the '
         'partner\'s', () async {

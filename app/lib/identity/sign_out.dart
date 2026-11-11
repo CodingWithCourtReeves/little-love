@@ -87,6 +87,9 @@ Future<void> signOut(WidgetRef ref) async {
   ref.invalidate(inboxStateProvider);
   ref.invalidate(inboxSyncedProvider);
   ref.invalidate(readStateProvider);
+  // clear() above closed this instance to late saves; the next account needs a
+  // new one.
+  ref.invalidate(readStateStoreProvider);
   ref.invalidate(activeRoomProvider);
   ref.invalidate(requestedRoomProvider);
   // The partner's decrypted profile + cached avatar files belong to this couple.

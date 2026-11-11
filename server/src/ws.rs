@@ -1051,6 +1051,20 @@ async fn handle_subscribe(
         Ok(_) => {}
         Err(e) => warn!("read backfill: read_sent_message_ids failed: {e}"),
     }
+
+    // The other direction: what *I* have read here, so the app can restore its
+    // unread marker if it lost it. Also not filtered by `since_message_id`, since
+    // a marker lost on the device is unrelated to which messages it holds.
+    match store.newest_read_incoming_ts(room_id, me.id).await {
+        Ok(Some(read_up_to)) => {
+            let _ = tx.send(RoomServerFrame::ReadMarker {
+                room_id: room_id.to_string(),
+                read_up_to,
+            });
+        }
+        Ok(None) => {}
+        Err(e) => warn!("read marker: newest_read_incoming_ts failed: {e}"),
+    }
 }
 
 async fn handle_mark_read(

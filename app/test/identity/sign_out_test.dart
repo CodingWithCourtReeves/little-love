@@ -175,13 +175,17 @@ void main() {
     OutboxStore outbox,
     MessageDb messageDb, {
     bool realMediaWipe = false,
+    bool rebuildReadStateStore = false,
   }) => [
     // Real file I/O never completes in the testWidgets fake-async zone.
     if (!realMediaWipe)
       attachmentCacheWipeProvider.overrideWithValue(() async {}),
     keystoreProvider.overrideWithValue(InMemoryKeystore()),
     accountLocalStoreProvider.overrideWithValue(_NoopAccountStore()),
-    readStateStoreProvider.overrideWithValue(_NoopReadStateStore()),
+    if (rebuildReadStateStore)
+      readStateStoreProvider.overrideWith((_) => _NoopReadStateStore())
+    else
+      readStateStoreProvider.overrideWithValue(_NoopReadStateStore()),
     outboxStoreProvider.overrideWith((_) async => outbox),
     messageDbProvider.overrideWith((_) async => messageDb),
   ];
@@ -222,6 +226,27 @@ void main() {
     await t.pumpAndSettle();
 
     expect(messageDb.cleared, isTrue);
+  });
+
+  testWidgets('signOut gives the next account a fresh read-state store', (
+    t,
+  ) async {
+    // [ReadStateStore.clear] closes its instance to late saves for good, so the
+    // next account on this device needs a new one or its markers never save.
+    final ref = await _mountRef(
+      t,
+      baseOverrides(
+        _GatedOutbox(Future<void>.value()),
+        _FakeMessageDb(),
+        rebuildReadStateStore: true,
+      ),
+    );
+    final before = ref.read(readStateStoreProvider);
+
+    await signOut(ref);
+    await t.pumpAndSettle();
+
+    expect(identical(ref.read(readStateStoreProvider), before), isFalse);
   });
 
   testWidgets('signOut drops staged (unsent) media from memory', (t) async {
