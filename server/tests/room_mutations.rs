@@ -134,6 +134,45 @@ async fn parallel_deletes_of_the_last_two_rooms_leave_one() {
     }
 }
 
+/// A message insert in another room holds `FOR KEY SHARE` on its sender's
+/// account row (the `from_account_id` FK check) until it commits. The delete's
+/// account lock must not wait on it: a full `FOR UPDATE` would, and with the
+/// insert also holding the room row the two deadlock.
+#[tokio::test]
+#[serial_test::serial]
+async fn delete_room_unless_last_does_not_wait_on_a_message_insert() {
+    let store = common::fresh_store().await;
+    let (court, kait) = common::seed_two_humans(&store).await;
+    let keep = create_room_with_members(store.pool(), court, Some(kait), "Keep".into())
+        .await
+        .unwrap();
+    let doomed = create_room_with_members(store.pool(), court, Some(kait), "Doomed".into())
+        .await
+        .unwrap();
+
+    let mut sending = store.pool().begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO messages (id, room_id, from_account_id, recipient_account_id, body, ts)
+         VALUES ('01MSG', $1, $2, $3, 'ciphertext', now())",
+    )
+    .bind(&keep)
+    .bind(court)
+    .bind(kait)
+    .execute(&mut *sending)
+    .await
+    .unwrap();
+
+    let outcome = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        delete_room_unless_last(store.pool(), &doomed, court),
+    )
+    .await
+    .expect("delete waited on the open message insert")
+    .unwrap();
+    assert_eq!(outcome, DeleteRoomOutcome::Deleted);
+    sending.commit().await.unwrap();
+}
+
 #[tokio::test]
 #[serial_test::serial]
 async fn create_room_with_two_humans() {

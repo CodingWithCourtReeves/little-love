@@ -377,7 +377,11 @@ pub enum DeleteRoomOutcome {
 /// nowhere to talk. The check and the delete are one step: both members'
 /// account rows are locked in id order first, so two deletes in the same
 /// couple run one after the other and can't each see the other's room still
-/// there. Callers check membership and the partner-chat lock first.
+/// there. `FOR NO KEY UPDATE`, not `FOR UPDATE`: it still serializes two
+/// deletes, but doesn't conflict with the `FOR KEY SHARE` a message or
+/// attachment insert takes on its sender's row for the foreign key, which
+/// would stall sends and can deadlock with the room delete. Callers check
+/// membership and the partner-chat lock first.
 pub async fn delete_room_unless_last(
     pool: &PgPool,
     room_id: &str,
@@ -388,7 +392,7 @@ pub async fn delete_room_unless_last(
         "SELECT a.id FROM accounts a \
          WHERE a.id = $2 \
             OR a.id IN (SELECT account_id FROM room_members WHERE room_id = $1) \
-         ORDER BY a.id FOR UPDATE",
+         ORDER BY a.id FOR NO KEY UPDATE",
     )
     .bind(room_id)
     .bind(account_id)
