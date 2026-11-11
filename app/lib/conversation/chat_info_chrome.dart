@@ -162,7 +162,9 @@ class InfoSection extends StatelessWidget {
 }
 
 /// One tappable row of an [InfoSection]: icon, label, an optional trailing
-/// [value] and a chevron, at least 48pt tall.
+/// [value] and a chevron, at least 48pt tall. A [destructive] row (Delete
+/// channel) is drawn in the warning tone with no chevron: it acts, it doesn't
+/// lead anywhere.
 class InfoRow extends StatelessWidget {
   const InfoRow({
     super.key,
@@ -170,6 +172,7 @@ class InfoRow extends StatelessWidget {
     required this.label,
     this.value,
     this.trailing,
+    this.destructive = false,
     required this.onTap,
   });
 
@@ -180,6 +183,7 @@ class InfoRow extends StatelessWidget {
   /// A widget shown before the chevron (a thumbnail), in place of nothing.
   /// Null leaves just the [value] text, if any.
   final Widget? trailing;
+  final bool destructive;
   final VoidCallback onTap;
 
   @override
@@ -193,12 +197,19 @@ class InfoRow extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: Row(
             children: [
-              Icon(icon, color: p.accentUser, size: 22),
+              Icon(
+                icon,
+                color: destructive ? p.warningTone : p.accentUser,
+                size: 22,
+              ),
               const SizedBox(width: 14),
               Expanded(
                 child: Text(
                   label,
-                  style: TextStyle(fontSize: 16, color: p.textPrimary),
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: destructive ? p.warningTone : p.textPrimary,
+                  ),
                 ),
               ),
               if (value != null) ...[
@@ -209,8 +220,10 @@ class InfoRow extends StatelessWidget {
                 ),
               ],
               if (trailing != null) ...[const SizedBox(width: 8), trailing!],
-              const SizedBox(width: 6),
-              Icon(Icons.chevron_right, color: p.separatorText, size: 20),
+              if (!destructive) ...[
+                const SizedBox(width: 6),
+                Icon(Icons.chevron_right, color: p.separatorText, size: 20),
+              ],
             ],
           ),
         ),

@@ -9,6 +9,7 @@ import '../channel/channel_picture.dart';
 import '../channel/channel_picture_provider.dart';
 import '../channel/channel_picture_sheet.dart';
 import '../channel/channel_tile.dart';
+import '../inbox/channel_deletion.dart';
 import '../inbox/room.dart';
 import '../profile/avatar.dart';
 import '../profile/profile_store.dart';
@@ -19,6 +20,7 @@ import '../wallpaper/wallpaper_screen.dart';
 import '../wallpaper/wallpaper_selection.dart';
 import '../wire/message.dart';
 import 'chat_info_chrome.dart';
+import 'delete_channel_sheet.dart';
 import 'message_store.dart';
 import 'partner_status_line.dart';
 import 'shared_media_page.dart';
@@ -42,10 +44,16 @@ class ChatInfoPage extends ConsumerWidget {
     this.onRename,
     this.onChannelPicture,
     this.onOpenAttachment,
+    this.onDeleteChannel,
   });
 
   final Room room;
   final String selfUsername;
+
+  /// Asks the server to delete this channel for both partners (the type-to-
+  /// confirm sheet calls it). Null hides the "Delete channel" row, as it is
+  /// for the partner chat, which can't be deleted.
+  final Future<DeleteChannelOutcome> Function()? onDeleteChannel;
 
   /// Renames the room; null when the room can't be renamed (e.g. the bare
   /// partner DM). When set, a "Rename chat" row appears here.
@@ -68,6 +76,7 @@ class ChatInfoPage extends ConsumerWidget {
     void Function(String newName)? onRename,
     Future<void> Function(ChannelPictureChoice choice)? onChannelPicture,
     void Function(AttachmentDescriptor descriptor)? onOpenAttachment,
+    Future<DeleteChannelOutcome> Function()? onDeleteChannel,
   }) => MaterialPageRoute<ChatInfoResult>(
     builder: (_) => ChatInfoPage(
       room: room,
@@ -75,6 +84,7 @@ class ChatInfoPage extends ConsumerWidget {
       onRename: onRename,
       onChannelPicture: onChannelPicture,
       onOpenAttachment: onOpenAttachment,
+      onDeleteChannel: onDeleteChannel,
     ),
   );
 
@@ -135,6 +145,7 @@ class ChatInfoPage extends ConsumerWidget {
           _actionRow(context, ref),
           _sharedSection(context, shared),
           _thisChatSection(context, ref),
+          if (isChannel && onDeleteChannel != null) _deleteSection(context),
           _encryptionNote(context, withWhom, isChannel),
         ],
       ),
@@ -330,6 +341,27 @@ class ChatInfoPage extends ConsumerWidget {
       room: room,
     );
     if (choice != null) await onChannelPicture?.call(choice);
+  }
+
+  /// "Delete channel" on a card of its own, apart from Rename so it's never
+  /// one slip away from it. Opens the type-to-confirm sheet.
+  Widget _deleteSection(BuildContext context) {
+    return InfoSection(
+      children: [
+        InfoRow(
+          key: const Key('chat-info-delete-channel'),
+          icon: Icons.delete_outline,
+          label: 'Delete channel',
+          destructive: true,
+          onTap: () => showDeleteChannelSheet(
+            context,
+            room: room,
+            selfUsername: selfUsername,
+            onDelete: onDeleteChannel!,
+          ),
+        ),
+      ],
+    );
   }
 
   /// "This chat" (#93): the wallpaper (global, so this opens the same picker

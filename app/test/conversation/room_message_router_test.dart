@@ -29,6 +29,7 @@ import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/read_state_provider.dart';
 import 'package:littlelove/inbox/read_state_store.dart';
 import 'package:littlelove/inbox/room.dart';
+import 'package:littlelove/inbox/room_deletion_events.dart';
 import 'package:littlelove/outbox/outbox_store.dart';
 import 'package:littlelove/profile/profile_envelope.dart';
 import 'package:littlelove/profile/profile_service.dart';
@@ -57,6 +58,41 @@ class _FakeConn implements LiveConnection {
   void emit(RoomServerFrame f) => _ctl.add(f);
 }
 
+/// An outbox whose first [remove] waits for [release]: holds a self-copy's
+/// apply partway through, after its first await.
+class _GatedOutboxStore extends MemoryOutboxStore {
+  final _gate = Completer<void>();
+  bool held = false;
+
+  void release() => _gate.complete();
+
+  @override
+  Future<bool> remove(String clientMsgId) async {
+    held = true;
+    await _gate.future;
+    return super.remove(clientMsgId);
+  }
+}
+
+/// A message DB whose first [deletedForMeIds] waits for [release]: holds a
+/// hydrate partway through, after its history has loaded.
+class _GatedMessageDb extends SqliteMessageDb {
+  _GatedMessageDb(super.db);
+  final _gate = Completer<void>();
+  bool held = false;
+
+  void release() => _gate.complete();
+
+  @override
+  Future<Set<String>> deletedForMeIds() async {
+    if (!held) {
+      held = true;
+      await _gate.future;
+    }
+    return super.deletedForMeIds();
+  }
+}
+
 /// Records calls instead of touching the native sound channel / haptics.
 class _RecordingFeedback extends MessageFeedback {
   int sentCount = 0;
@@ -75,7 +111,9 @@ class _RecordingFeedback extends MessageFeedback {
   void reactionReceived() => reactionCount++;
 }
 
-Future<MessageDb> _ffiMessageDb() async {
+Future<MessageDb> _ffiMessageDb() async => MessageDb.test(await _ffiDb());
+
+Future<Database> _ffiDb() async {
   final db = await databaseFactory.openDatabase(
     inMemoryDatabasePath,
     options: OpenDatabaseOptions(
@@ -85,7 +123,7 @@ Future<MessageDb> _ffiMessageDb() async {
     ),
   );
   addTearDown(db.close);
-  return MessageDb.test(db);
+  return db;
 }
 
 Future<ProviderContainer> _container({
@@ -1917,6 +1955,39 @@ void main() {
     expect(atSynced['room2'], (true, 1));
   });
 
+  test('a profile republish that fails after the room list lands is reported, '
+      'not left to escape', () async {
+    final me = await deriveIdentity(seedA);
+    final peer = await deriveIdentity(seedB);
+    final conn = _FakeConn();
+    final container = await _container(
+      conn: conn,
+      me: me,
+      overrides: [
+        accountProvider.overrideWith(
+          (_) async => throw StateError('account store unreadable'),
+        ),
+      ],
+    );
+    container.read(roomMessageRouterProvider);
+    conn.emit(
+      RoomsFrame(
+        rooms: [
+          RoomDetail(
+            roomId: 'room1',
+            name: '',
+            members: [_member('court', me), _member('kaitlyn', peer)],
+            createdAt: DateTime.utc(2026, 6, 10),
+          ),
+        ],
+      ),
+    );
+    await pumpUntil(() => _sentOfKind(conn, 'Subscribe').isNotEmpty);
+    // An escaped error fails the test from the zone; give the republish,
+    // which starts after the Subscribe, time to run.
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+  });
+
   test('the partner\'s profile sent right after the room list lands, even '
       'while room history is still loading', () async {
     final me = await deriveIdentity(seedA);
@@ -2579,6 +2650,292 @@ void main() {
       expect(rows.single.id, 'srv-1');
       expect(rows.single.sendStatus, SendStatus.sent);
       expect(rows.single.channelUpdate?.name, 'Date ideas');
+    });
+  });
+
+  group('channel deletion', () {
+    Msg cached(String id, String room) => Msg(
+      id: id,
+      from: 'kaitlyn',
+      to: room,
+      body: 'cached $id',
+      ts: DateTime.utc(2026, 6, 10, 12),
+    );
+
+    /// court's router with a cached message in [cachedRooms], then a Rooms
+    /// list of [listed] (`(id, name)`), waited on until the inbox reads as
+    /// synced (the sweep runs before that flag flips).
+    Future<(ProviderContainer, _FakeConn, MessageDb)> connect({
+      required List<(String, String)> listed,
+      List<String> cachedRooms = const [],
+      OutboxStore? outbox,
+      MessageDb? messageDb,
+      bool settle = true,
+    }) async {
+      final me = await deriveIdentity(seedA);
+      final peer = await deriveIdentity(seedB);
+      final conn = _FakeConn();
+      final db = messageDb ?? await _ffiMessageDb();
+      for (final room in cachedRooms) {
+        await db.upsert(cached('01$room', room), roomId: room);
+      }
+      final container = await _container(
+        conn: conn,
+        me: me,
+        messageDb: db,
+        outbox: outbox ?? MemoryOutboxStore(),
+        overrides: [
+          accountProvider.overrideWith(
+            (_) async => LocalAccount(
+              username: 'court',
+              ed25519PubBase64: base64.encode(me.ed25519PublicKey),
+              x25519PubBase64: base64.encode(me.x25519PublicKey),
+              createdAt: DateTime.utc(2026, 6, 10),
+            ),
+          ),
+        ],
+      );
+      container.read(roomMessageRouterProvider);
+      conn.emit(
+        RoomsFrame(
+          rooms: [
+            for (final (id, name) in listed)
+              RoomDetail(
+                roomId: id,
+                name: name,
+                members: [_member('court', me), _member('kaitlyn', peer)],
+                createdAt: DateTime.utc(2026, 6, 10),
+              ),
+          ],
+        ),
+      );
+      // Unsettled: the caller holds the connect partway and waits itself.
+      if (!settle) return (container, conn, db);
+      await pumpUntil(() => container.read(inboxSyncedProvider));
+      // Subscribe goes out after the synced flag, followed by the profile
+      // republish; wait for it so no router work outlives the test (teardown
+      // would dispose the container under it).
+      await pumpUntil(
+        () => _sentOfKind(conn, 'Subscribe').length == listed.length,
+      );
+      return (container, conn, db);
+    }
+
+    /// Waits for [roomId]'s purge to finish. The RoomDeletion goes out before
+    /// the wipe, and the wipe's last step resets the room's hydrated flag.
+    Future<void> purged(ProviderContainer container, String roomId) =>
+        pumpUntil(() => !container.read(roomHydratedProvider(roomId)));
+
+    test(
+      'RoomDeleted hides and purges the room and emits a RoomDeletion',
+      () async {
+        final (container, conn, db) = await connect(
+          listed: [('dm', ''), ('chan', 'Travel')],
+          cachedRooms: ['chan'],
+        );
+
+        conn.emit(const RoomDeletedFrame(roomId: 'chan', deletedBy: 'kaitlyn'));
+        await purged(container, 'chan');
+
+        final event = container.read(roomDeletionsProvider)!;
+        expect(event.roomId, 'chan');
+        expect(event.roomName, 'Travel');
+        expect(event.deletedBy, 'kaitlyn');
+        expect(container.read(inboxStateProvider).rooms.map((r) => r.roomId), [
+          'dm',
+        ]);
+        expect(await db.messagesFor('chan'), isEmpty);
+      },
+    );
+
+    test(
+      'a frame for a deleted room arriving after RoomDeleted is dropped',
+      () async {
+        final (container, conn, _) = await connect(
+          listed: [('dm', ''), ('chan', 'Travel')],
+        );
+        conn.emit(const RoomDeletedFrame(roomId: 'chan', deletedBy: 'kaitlyn'));
+        await purged(container, 'chan');
+
+        conn.emit(
+          const TypingFrame(roomId: 'chan', from: 'kaitlyn', typing: true),
+        );
+        conn.emit(const RoomRenamedFrame(roomId: 'chan', name: 'Back'));
+        // A frame for a live room proves the earlier ones were processed.
+        conn.emit(
+          const TypingFrame(roomId: 'dm', from: 'kaitlyn', typing: true),
+        );
+        await pumpUntil(() => container.read(typingProvider('dm')));
+
+        expect(container.read(typingProvider('chan')), isFalse);
+        expect(container.read(inboxStateProvider).rooms.map((r) => r.roomId), [
+          'dm',
+        ]);
+      },
+    );
+
+    test(
+      'a message still decrypting when RoomDeleted lands is not written',
+      () async {
+        final (container, conn, db) = await connect(
+          listed: [('dm', ''), ('chan', 'Travel')],
+        );
+        final me = await deriveIdentity(seedA);
+        final peer = await deriveIdentity(seedB);
+        final key = await deriveRoomKey(
+          me: peer,
+          peerX25519Pub: me.x25519PublicKey,
+          roomId: 'chan',
+        );
+        final body = await encryptOutgoing(key, 'secret');
+
+        // The message passes the frame guard, then awaits its decrypt while
+        // the delete is applied.
+        conn.emit(
+          MessageFrame(
+            id: 'm1',
+            roomId: 'chan',
+            from: 'kaitlyn',
+            ts: DateTime.utc(2026, 6, 10, 12),
+            body: body,
+            replayed: false,
+          ),
+        );
+        conn.emit(const RoomDeletedFrame(roomId: 'chan', deletedBy: 'kaitlyn'));
+        await pumpUntil(() => container.read(roomDeletionsProvider) != null);
+        // Proving absence: a bounded wait for the in-flight ingest to finish.
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+
+        expect(await db.messagesFor('chan'), isEmpty);
+        expect(container.read(messageStoreProvider('chan')), isEmpty);
+      },
+    );
+
+    test('my echo already being applied when RoomDeleted lands is not '
+        'written after the purge', () async {
+      final outbox = _GatedOutboxStore();
+      final (container, conn, db) = await connect(
+        listed: [('dm', ''), ('chan', 'Travel')],
+        outbox: outbox,
+      );
+      final me = await deriveIdentity(seedA);
+      final key = await deriveRoomKey(
+        me: me,
+        peerX25519Pub: me.x25519PublicKey,
+        roomId: 'chan',
+      );
+      final body = await encryptOutgoing(key, 'see you there');
+
+      // My self-copy gets as far as dropping its outbox row, and is held
+      // there while the delete is applied.
+      conn.emit(
+        MessageFrame(
+          id: 'srv-1',
+          roomId: 'chan',
+          from: 'court',
+          ts: DateTime.utc(2026, 6, 10, 12),
+          body: body,
+          replayed: false,
+          clientMsgId: 'cli-1',
+        ),
+      );
+      await pumpUntil(() => outbox.held);
+      conn.emit(const RoomDeletedFrame(roomId: 'chan', deletedBy: 'court'));
+      await pumpUntil(() => container.read(roomDeletionsProvider) != null);
+      outbox.release();
+      // Proving absence: a bounded wait for the held apply and the purge.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(await db.messagesFor('chan'), isEmpty);
+      expect(await db.roomIds(), isNot(contains('chan')));
+    });
+
+    test('a hydrate still loading when the room is deleted does not mark it '
+        'hydrated or subscribe', () async {
+      final db = _GatedMessageDb(await _ffiDb());
+      // 'chan' first: rooms hydrate in order, so its hydrate is the one held,
+      // after its history has loaded.
+      final (container, conn, _) = await connect(
+        listed: [('chan', 'Travel'), ('dm', '')],
+        messageDb: db,
+        settle: false,
+      );
+      await pumpUntil(() => db.held);
+
+      await container
+          .read(roomMessageRouterProvider)
+          .applyDeletion('chan', deletedBy: 'kaitlyn');
+      db.release();
+      await pumpUntil(() => _sentOfKind(conn, 'Subscribe').isNotEmpty);
+
+      expect(container.read(roomHydratedProvider('chan')), isFalse);
+      expect(
+        _sentOfKind(
+          conn,
+          'Subscribe',
+        ).map((m) => (m as Map<String, Object?>)['room_id']),
+        ['dm'],
+      );
+    });
+
+    test('applyDeletion removes a room the server already deleted, the same '
+        'way RoomDeleted does', () async {
+      final (container, _, db) = await connect(
+        listed: [('dm', ''), ('chan', 'Travel')],
+        cachedRooms: ['chan'],
+      );
+
+      await container
+          .read(roomMessageRouterProvider)
+          .applyDeletion('chan', deletedBy: 'court');
+
+      final event = container.read(roomDeletionsProvider)!;
+      expect(event.roomId, 'chan');
+      expect(event.roomName, 'Travel');
+      expect(event.deletedBy, 'court');
+      expect(container.read(inboxStateProvider).rooms.map((r) => r.roomId), [
+        'dm',
+      ]);
+      expect(await db.roomIds(), isNot(contains('chan')));
+    });
+
+    test('a Rooms list missing a locally known room purges it', () async {
+      final (_, _, db) = await connect(
+        listed: [('dm', ''), ('chan', 'Travel')],
+        cachedRooms: ['gone'],
+      );
+      expect(await db.roomIds(), isNot(contains('gone')));
+    });
+
+    test('an empty Rooms list purges nothing', () async {
+      final (_, _, db) = await connect(listed: [], cachedRooms: ['chan']);
+      expect(await db.roomIds(), contains('chan'));
+    });
+
+    test('a Rooms list whose partner chat was renamed (an old build allowed '
+        'it) still purges a missing room', () async {
+      final (_, _, db) = await connect(
+        listed: [('dm', 'Us'), ('chan', 'Travel')],
+        cachedRooms: ['gone'],
+      );
+      expect(await db.roomIds(), isNot(contains('gone')));
+    });
+
+    test('a Rooms list drops queued sends for a room it no longer lists, even '
+        'one with no cached history', () async {
+      final outbox = MemoryOutboxStore();
+      await outbox.enqueue(
+        clientMsgId: 'c-gone',
+        roomId: 'gone',
+        bodies: const {'court': 'x', 'kaitlyn': 'y'},
+      );
+      await outbox.enqueue(
+        clientMsgId: 'c-chan',
+        roomId: 'chan',
+        bodies: const {'court': 'x', 'kaitlyn': 'y'},
+      );
+      await connect(listed: [('dm', ''), ('chan', 'Travel')], outbox: outbox);
+      expect((await outbox.pending()).map((r) => r.clientMsgId), ['c-chan']);
     });
   });
 

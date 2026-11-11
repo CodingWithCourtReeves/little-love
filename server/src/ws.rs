@@ -29,9 +29,10 @@ use crate::profiles::{profile_for_account, upsert_profile};
 use crate::push::{PushMessage, PushSender, SendOutcome};
 use crate::push_tokens::{delete_token, delete_token_value, tokens_for_account, upsert_token};
 use crate::rooms::{
-    account_id_by_username, create_room_with_members, is_member, leave_room,
-    list_rooms_for_account, members_for_room, partner_account_id_for, partner_username_for,
-    rename_room, room_detail, set_partner_link, CreateRoomError, Member, MonogamyError, PairError,
+    account_id_by_username, create_room_with_members, delete_room_unless_last, is_member,
+    leave_room, list_rooms_for_account, members_for_room, partner_account_id_for,
+    partner_username_for, rename_room, room_detail, set_partner_link, CreateRoomError,
+    DeleteRoomOutcome, Member, MonogamyError, PairError,
 };
 use crate::routing::Routing;
 use crate::store::{MessageRow, Store};
@@ -192,8 +193,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         let rooms = match list_rooms_for_account(store.pool(), me.id).await {
             Ok(rows) => rows.into_iter().map(|r| r.into_wire()).collect::<Vec<_>>(),
             Err(e) => {
-                warn!("list_rooms_for_account failed: {e}");
-                Vec::new()
+                // Never send an empty list in place of a failed read: the app
+                // purges any local room missing from `Rooms` (a deleted
+                // channel), so an empty list would wipe every chat on the
+                // phone. Drop the connection instead; the app reconnects with
+                // backoff.
+                warn!(username = %me.username, "list_rooms_for_account failed: {e}");
+                state.routing.unregister(&me.username, &tx).await;
+                return;
             }
         };
         let _ = tx.send(RoomServerFrame::Rooms { rooms });
@@ -210,6 +217,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     // Call invites trigger a VoIP push to the partner; gate them like TURN so a
     // misbehaving client can't spam-ring (or drain) the partner's device.
     let mut call_rl = WindowRateLimiter::new(TURN_RL_WINDOW, TURN_RL_MAX);
+    // Deleting a room is a DB transaction plus a fan-out to both partners.
+    let mut delete_rl = WindowRateLimiter::new(DELETE_RL_WINDOW, DELETE_RL_MAX);
     // First tick after a full interval (not immediately) so we never ping a
     // client the instant it connects.
     let mut ping =
@@ -289,6 +298,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 }
                 Ok(RoomClientFrame::LeaveRoom { room_id }) => {
                     handle_leave_room(&state, &me, &room_id, &tx).await;
+                }
+                Ok(RoomClientFrame::DeleteRoom { room_id }) => {
+                    if delete_rl.allow() {
+                        handle_delete_room(&state, &me, &room_id, &tx).await;
+                    } else {
+                        warn!(username = %me.username, room_id = %room_id, "delete rate limit hit");
+                        send_room_error(&tx, error_codes::RATE_LIMITED, &room_id);
+                    }
                 }
                 Ok(RoomClientFrame::MarkRead {
                     room_id,
@@ -428,10 +445,21 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     info!(username = %me.username, "client disconnected");
 }
 
+/// An error about one named room, carrying its id so a client waiting on that
+/// request (the delete sheet) can tell it from another frame's error.
+fn send_room_error(tx: &mpsc::UnboundedSender<RoomServerFrame>, code: &str, room_id: &str) {
+    let _ = tx.send(RoomServerFrame::Error {
+        code: code.to_string(),
+        message: String::new(),
+        room_id: Some(room_id.to_string()),
+    });
+}
+
 fn send_error(tx: &mpsc::UnboundedSender<RoomServerFrame>, code: &str, message: &str) {
     let _ = tx.send(RoomServerFrame::Error {
         code: code.to_string(),
         message: message.to_string(),
+        room_id: None,
     });
 }
 
@@ -1460,6 +1488,12 @@ const PRESIGN_TTL: Duration = Duration::from_secs(600);
 /// objects. The WS read loop is sequential per connection, so this needs no
 /// locking. Generous enough that a real multi-file send (the client sends them
 /// sequentially) never trips it.
+/// Deleting a channel is rare (a person typing its name to confirm), so a
+/// handful a minute is generous; the limit only stops a client hammering the
+/// DB with deletes of made-up ids.
+const DELETE_RL_WINDOW: Duration = Duration::from_secs(60);
+const DELETE_RL_MAX: usize = 5;
+
 const UPLOAD_RL_WINDOW: Duration = Duration::from_secs(60);
 const UPLOAD_RL_MAX: usize = 60;
 
@@ -1627,13 +1661,20 @@ async fn handle_create_room(
     let store = match state.store.as_ref() {
         Some(s) => s,
         None => {
-            send_error(tx, "Internal", "store unavailable");
+            send_error(tx, error_codes::INTERNAL, "store unavailable");
             return;
         }
     };
     let name = name.unwrap_or_default();
     if name.chars().count() > MAX_ROOM_NAME_CHARS {
-        send_error(tx, "BadName", "name too long");
+        send_error(tx, error_codes::BAD_NAME, "name too long");
+        return;
+    }
+    // An unnamed room reads as the partner chat, which can't be deleted, so
+    // refuse to make another. Pairing creates the real one through the invite
+    // path, not here.
+    if name.trim().is_empty() {
+        send_error(tx, error_codes::BAD_NAME, "name required");
         return;
     }
 
@@ -1647,7 +1688,7 @@ async fn handle_create_room(
             Ok(p) => p,
             Err(e) => {
                 warn!("partner_account_id_for (create_room): {e}");
-                send_error(tx, "Internal", "");
+                send_error(tx, error_codes::INTERNAL, "");
                 return;
             }
         }
@@ -1723,7 +1764,7 @@ async fn handle_rename_room(
     let store = match state.store.as_ref() {
         Some(s) => s,
         None => {
-            send_error(tx, "Internal", "store unavailable");
+            send_error(tx, error_codes::INTERNAL, "store unavailable");
             return;
         }
     };
@@ -1735,12 +1776,31 @@ async fn handle_rename_room(
         return;
     }
     if name.chars().count() > MAX_ROOM_NAME_CHARS {
-        send_error(tx, "BadName", "name too long");
+        send_room_error(tx, error_codes::BAD_NAME, room_id);
         return;
+    }
+    // A channel renamed to nothing would read as a second partner chat; the
+    // partner chat given a name would read as a channel, and could then be
+    // deleted. The partner can craft this frame, so refuse both here.
+    if name.trim().is_empty() {
+        send_room_error(tx, error_codes::BAD_NAME, room_id);
+        return;
+    }
+    match room_detail(store.pool(), room_id).await {
+        Ok(Some(d)) if d.name.is_empty() => {
+            send_room_error(tx, error_codes::PARTNER_CHAT_LOCKED, room_id);
+            return;
+        }
+        Ok(_) => {}
+        Err(e) => {
+            warn!(room_id = %room_id, "room_detail (rename_room): {e}");
+            send_room_error(tx, error_codes::INTERNAL, room_id);
+            return;
+        }
     }
     if let Err(e) = rename_room(store.pool(), room_id, name).await {
         warn!("rename_room: {e}");
-        send_error(tx, "Internal", "");
+        send_error(tx, error_codes::INTERNAL, "");
         return;
     }
     let members = members_for_room(store.pool(), room_id)
@@ -1749,6 +1809,88 @@ async fn handle_rename_room(
     let frame = RoomServerFrame::RoomRenamed {
         room_id: room_id.to_string(),
         name: name.to_string(),
+    };
+    for m in &members {
+        state.routing.deliver(&m.username, frame.clone()).await;
+    }
+}
+
+/// Delete a channel for both partners. Only a member may, and never the
+/// partner chat (the unnamed room): a hidden button isn't enforcement, the
+/// partner can craft this frame. Every member gets `RoomDeleted` after the
+/// commit, the deleter included (it's their confirmation). No push: an
+/// offline partner learns from the next `Rooms` list. Every error carries
+/// `room_id` so the deleter's sheet can match it.
+async fn handle_delete_room(
+    state: &AppState,
+    me: &AccountRecord,
+    room_id: &str,
+    tx: &mpsc::UnboundedSender<RoomServerFrame>,
+) {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => {
+            send_room_error(tx, error_codes::INTERNAL, room_id);
+            return;
+        }
+    };
+    match is_member(store.pool(), room_id, me.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            send_room_error(tx, error_codes::UNKNOWN_ROOM, room_id);
+            return;
+        }
+        // Not UnknownRoom: the app reads that as "already deleted".
+        Err(e) => {
+            warn!(room_id = %room_id, "is_member (delete_room): {e}");
+            send_room_error(tx, error_codes::INTERNAL, room_id);
+            return;
+        }
+    }
+    match room_detail(store.pool(), room_id).await {
+        Ok(Some(d)) if d.name.is_empty() => {
+            send_room_error(tx, error_codes::PARTNER_CHAT_LOCKED, room_id);
+            return;
+        }
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            send_room_error(tx, error_codes::UNKNOWN_ROOM, room_id);
+            return;
+        }
+        Err(e) => {
+            warn!(room_id = %room_id, "room_detail (delete_room): {e}");
+            send_room_error(tx, error_codes::INTERNAL, room_id);
+            return;
+        }
+    }
+    // Read before the delete: the cascade takes the member rows with it.
+    let members = match members_for_room(store.pool(), room_id).await {
+        Ok(m) => m,
+        Err(e) => {
+            warn!(room_id = %room_id, "members_for_room (delete_room): {e}");
+            send_room_error(tx, error_codes::INTERNAL, room_id);
+            return;
+        }
+    };
+    match delete_room_unless_last(store.pool(), room_id, me.id).await {
+        Ok(DeleteRoomOutcome::Deleted) => {}
+        Ok(DeleteRoomOutcome::LastRoom) => {
+            send_room_error(tx, error_codes::LAST_ROOM, room_id);
+            return;
+        }
+        Ok(DeleteRoomOutcome::NotFound) => {
+            send_room_error(tx, error_codes::UNKNOWN_ROOM, room_id);
+            return;
+        }
+        Err(e) => {
+            warn!(room_id = %room_id, "delete_room: {e}");
+            send_room_error(tx, error_codes::INTERNAL, room_id);
+            return;
+        }
+    }
+    let frame = RoomServerFrame::RoomDeleted {
+        room_id: room_id.to_string(),
+        deleted_by: me.username.clone(),
     };
     for m in &members {
         state.routing.deliver(&m.username, frame.clone()).await;

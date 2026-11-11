@@ -74,6 +74,7 @@ mod tests {
         RoomServerFrame::Error {
             code: error_codes::UNKNOWN_ROOM.into(),
             message: "".into(),
+            room_id: None,
         }
     }
 

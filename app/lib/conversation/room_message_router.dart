@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../attachment/attachment_descriptor.dart';
 import '../attachment/attachment_download.dart';
 import '../audio/message_feedback.dart';
+import '../calling/call_controller.dart';
 import '../calling/call_log.dart';
 import '../channel/channel_picture.dart';
 import '../channel/channel_update_sender.dart';
@@ -17,6 +18,8 @@ import '../inbox/inbox_state.dart';
 import '../inbox/read_state_provider.dart';
 import '../inbox/select_room.dart';
 import '../inbox/room.dart';
+import '../inbox/room_deletion_events.dart';
+import '../inbox/room_removal.dart';
 import '../outbox/outbox_store.dart';
 import '../pairing/encryption.dart';
 import '../profile/profile_publish_cache.dart';
@@ -71,6 +74,28 @@ class RoomMessageRouter {
   /// the MarkRead watermark so the server's unread_count clears for it too.
   final Map<String, String> _droppedUpTo = {};
 
+  /// Rooms deleted this session. A frame for one that arrives after its
+  /// `RoomDeleted` (a typing ping or receipt already in flight) is dropped,
+  /// so it can't re-create the room's state.
+  final Set<String> _deletedRooms = {};
+
+  /// Content being applied right now, per room. A deletion waits for these
+  /// before purging, so a write that got past the [_deletedRooms] check
+  /// before the deletion can't land after the wipe.
+  final Map<String, Set<Future<void>>> _applying = {};
+
+  /// The room a room-scoped frame names, for the [_deletedRooms] check.
+  /// Frames that never name a deleted room (room lists, profiles, calls,
+  /// grants) map to null.
+  static String? _roomOf(RoomServerFrame f) => switch (f) {
+    RoomRenamedFrame(:final roomId) ||
+    MemberLeftFrame(:final roomId) ||
+    MessageFrame(:final roomId) ||
+    ReadFrame(:final roomId) ||
+    TypingFrame(:final roomId) => roomId,
+    _ => null,
+  };
+
   void _scheduleMarkRead(String roomId) {
     _markReadDebounce[roomId]?.cancel();
     _markReadDebounce[roomId] = Timer(const Duration(milliseconds: 400), () {
@@ -82,6 +107,8 @@ class RoomMessageRouter {
   }
 
   Future<void> _onFrame(RoomServerFrame f) async {
+    final scoped = _roomOf(f);
+    if (scoped != null && _deletedRooms.contains(scoped)) return;
     switch (f) {
       case RoomsFrame(:final rooms):
         // This router outlives sockets, so the awaits below can resume after
@@ -103,6 +130,9 @@ class RoomMessageRouter {
         // Profile, Presence) look their room up in the inbox. Publishing after
         // a db read drops them.
         ref.read(inboxStateProvider.notifier).setRooms(mapped);
+        // A channel deleted while this phone was offline is simply missing
+        // from the list: wipe what's left of it here, before hydration.
+        await _sweepDeletedRooms(mapped);
         // Load every room's local history before the inbox reads as synced,
         // so the home list's first frame already has each row's preview and
         // the channels in activity order: no "No messages yet" flash and no
@@ -128,7 +158,12 @@ class RoomMessageRouter {
         // thus the couple room) is known. Covers a pre-pairing edit and every
         // reconnect; idempotent + latest-wins on the receiver. Reuses the cached
         // avatar descriptor, so no photo re-upload.
-        unawaited(_republishMyProfile());
+        unawaited(
+          _republishMyProfile().catchError(
+            (Object e, StackTrace st) =>
+                reportFault(e, st, context: 'profile_republish'),
+          ),
+        );
 
       case RoomCreatedFrame(:final roomId, :final name, :final members):
         _upsertRoom(roomId, name, members);
@@ -151,6 +186,9 @@ class RoomMessageRouter {
       case MemberLeftFrame(:final roomId, :final username):
         ref.read(inboxStateProvider.notifier).removeMember(roomId, username);
         ref.read(roomKeyCacheProvider).invalidate(roomId);
+
+      case RoomDeletedFrame(:final roomId, :final deletedBy):
+        await applyDeletion(roomId, deletedBy: deletedBy);
 
       case MessageFrame():
         await _ingestMessage(f);
@@ -281,6 +319,92 @@ class RoomMessageRouter {
     }
   }
 
+  /// Apply the deletion of [roomId] by [deletedBy] on this phone: announce it,
+  /// take it out of the inbox, end a call in it, and wipe its data once any
+  /// write already under way for it has finished. Runs for `RoomDeleted`,
+  /// and for my own delete of a room the server says is already gone. Once
+  /// per room per session.
+  Future<void> applyDeletion(String roomId, {required String deletedBy}) async {
+    if (!_deletedRooms.add(roomId)) return;
+    var name = '';
+    for (final r in ref.read(inboxStateProvider).rooms) {
+      if (r.roomId == roomId) name = r.name;
+    }
+    // Announce before hiding: HomeScreen closes an open chat on either, and
+    // only the announcement can say who deleted it.
+    ref
+        .read(roomDeletionsProvider.notifier)
+        .emit(
+          RoomDeletion(roomId: roomId, roomName: name, deletedBy: deletedBy),
+        );
+    // Hide before ending a call: with the room gone from the inbox, the
+    // hangup's call log has no room to be queued for.
+    hideRoom(ref, roomId);
+    _endCallIn(roomId);
+    _subscribed.remove(roomId);
+    _markReadDebounce.remove(roomId)?.cancel();
+    _droppedUpTo.remove(roomId);
+    for (final work in [...?_applying.remove(roomId)]) {
+      try {
+        await work;
+      } catch (_) {
+        // Reported by the frame's own handler; here it only has to end.
+      }
+    }
+    await purgeRoomLocally(ref, roomId);
+    // The purge forgot the published avatar (it may have lived in this
+    // room); re-assert the profile so it lands in a room that exists.
+    unawaited(
+      _republishMyProfile().catchError(
+        (Object e, StackTrace st) =>
+            reportFault(e, st, context: 'profile_republish'),
+      ),
+    );
+  }
+
+  /// Wipe local rooms the server no longer lists (deleted while offline),
+  /// including queued sends for a room with no cached history (they'd fail
+  /// with `UnknownRoom` on every connect). Never on an empty list: an old
+  /// server sends one when its room query fails, and the sweep would wipe
+  /// drafts, unsent sends and Delete for Me ids that can't be rebuilt. A
+  /// current server drops the connection instead, so a non-empty list is
+  /// complete; it isn't checked for the partner chat, which an old build let
+  /// couples rename.
+  Future<void> _sweepDeletedRooms(List<Room> listed) async {
+    if (listed.isEmpty) return;
+    final known = {for (final r in listed) r.roomId};
+    try {
+      final db = await ref.read(messageDbProvider.future);
+      final outbox = await ref.read(outboxStoreProvider.future);
+      final local = {
+        ...await db.roomIds(),
+        for (final row in await outbox.pending()) row.roomId,
+      };
+      for (final id in local) {
+        if (!known.contains(id)) await purgeRoomLocally(ref, id);
+      }
+    } catch (e, st) {
+      reportFault(e, st, context: 'room_sweep');
+    }
+  }
+
+  /// End a call ringing or connected in a room that was just deleted. Only
+  /// when the call controller already exists: if nothing created it, there's
+  /// no call.
+  void _endCallIn(String roomId) {
+    if (!ref.exists(callControllerProvider)) return;
+    final calls = ref.read(callControllerProvider);
+    if (calls.roomId != roomId) return;
+    unawaited(
+      calls
+          .hangup(reason: 'room_deleted')
+          .catchError(
+            (Object e, StackTrace st) =>
+                reportFault(e, st, context: 'room_delete_call'),
+          ),
+    );
+  }
+
   /// Re-publish my own profile (display name + cached avatar) to my partner on
   /// connect. No-ops before pairing or when nothing has been set.
   Future<void> _republishMyProfile() async {
@@ -306,6 +430,10 @@ class RoomMessageRouter {
       );
     } catch (_) {
       avatar = await cache.avatar();
+      // I have a photo but neither it nor a cached copy is reachable (a
+      // channel delete forgets the cache). Publishing now would tell my
+      // partner I removed it; keep their last copy until a later connect.
+      if (avatar == null) return;
     }
     final me = await ref.read(currentIdentityProvider.future);
     await assembleAndPublishProfile(
@@ -349,12 +477,16 @@ class RoomMessageRouter {
   /// screen instantly (and offline), then mark the room hydrated. Once per
   /// room: a reconnect's RoomsFrame doesn't reload over live state.
   Future<void> _hydrate(String roomId) async {
+    if (_deletedRooms.contains(roomId)) return;
     if (ref.read(roomHydratedProvider(roomId))) return;
     final db = await ref.read(messageDbProvider.future);
     final cached = await db.messagesFor(roomId);
+    final deletedForMe = await db.deletedForMeIds();
+    // Deleted while the history loaded: don't rebuild the purged store.
+    if (_deletedRooms.contains(roomId)) return;
     final store = ref.read(messageStoreProvider(roomId).notifier);
     // Before Subscribe, so a replayed id I deleted for me can't re-enter.
-    store.seedDeletedForMe(await db.deletedForMeIds());
+    store.seedDeletedForMe(deletedForMe);
     if (cached.isNotEmpty) {
       store.setAll([
         for (final m in cached)
@@ -389,6 +521,8 @@ class RoomMessageRouter {
         reapplied = true;
       }
     }
+    // And while a hidden row was re-applied.
+    if (_deletedRooms.contains(roomId)) return;
     if (reapplied) {
       // Re-applied rows were appended; restore timeline order (stable on ties).
       final rows = [...ref.read(messageStoreProvider(roomId))];
@@ -403,6 +537,7 @@ class RoomMessageRouter {
   }
 
   Future<void> _subscribe(String roomId) async {
+    if (_deletedRooms.contains(roomId)) return;
     final socket = _conn;
     if (!_subscribed.add(roomId)) return;
     // Hydration MUST complete before the Subscribe is sent, so server replay
@@ -413,6 +548,7 @@ class RoomMessageRouter {
     // Resume from the local high-water-mark: the server replays only the delta
     // (null on first run → a full seed).
     final hwm = await db.highWaterMark(roomId);
+    if (_deletedRooms.contains(roomId)) return;
     if (!identical(socket, _conn)) return;
     socket?.send(SubscribeFrame(roomId: roomId, sinceMessageId: hwm).toJson());
   }
@@ -448,14 +584,32 @@ class RoomMessageRouter {
 
   /// Everything after decrypt+decode: route [content] into the store and the
   /// local projection. Also used by [_hydrate] to re-apply a cached row whose
-  /// kind an older build couldn't read.
+  /// kind an older build couldn't read. Tracked in [_applying] while it runs.
   Future<void> _applyContent(
     MessageFrame f,
     Room room,
     MessageContent content,
   ) async {
-    final store = ref.read(messageStoreProvider(f.roomId).notifier);
+    final work = _applyContentNow(f, room, content);
+    final inFlight = _applying.putIfAbsent(f.roomId, () => {})..add(work);
+    try {
+      await work;
+    } finally {
+      inFlight.remove(work);
+    }
+  }
+
+  Future<void> _applyContentNow(
+    MessageFrame f,
+    Room room,
+    MessageContent content,
+  ) async {
     final db = await ref.read(messageDbProvider.future);
+    // The room may have been deleted while this frame awaited its decrypt
+    // (it passed the guard in [_onFrame] first). Re-check after the last
+    // await and before touching the store, which the purge just disposed.
+    if (_deletedRooms.contains(f.roomId)) return;
+    final store = ref.read(messageStoreProvider(f.roomId).notifier);
     // A reaction isn't a timeline bubble: apply it onto its target and stop.
     // The sender's own self-copy still rides the outbox, so drop that row on
     // echo just like a normal send (otherwise the drain resends it).

@@ -38,6 +38,9 @@ class DraftAutosave {
   Timer? _timer;
   ComposerDraft Function()? _pending;
 
+  /// Set by [close]: the room is gone, so nothing more is saved for it.
+  bool _closed = false;
+
   /// What the db holds for [roomId] as far as we know (the last draft loaded or
   /// written), so an unchanged draft isn't re-written. Backgrounding alone
   /// fires inactive, hidden and paused, each of which flushes. Null = unknown.
@@ -60,6 +63,7 @@ class DraftAutosave {
   /// reflects the composer at that moment (e.g. after the saved draft was
   /// restored into it) rather than a stale snapshot.
   void schedule(ComposerDraft Function() current) {
+    if (_closed) return;
     _pending = current;
     _timer?.cancel();
     _timer = Timer(delay, () => unawaited(flush()));
@@ -84,6 +88,15 @@ class DraftAutosave {
     return _write(const ComposerDraft(text: ''));
   }
 
+  /// The room was deleted: drop a pending save, and make every later
+  /// [schedule], [flush] and [clear] a no-op, so leaving the chat afterwards
+  /// can't write a draft back after the room's data was wiped.
+  void close() {
+    _closed = true;
+    _pending = null;
+    dispose();
+  }
+
   /// Cancel a pending save without writing it. Call [flush] first to keep it.
   void dispose() {
     _timer?.cancel();
@@ -91,6 +104,7 @@ class DraftAutosave {
   }
 
   Future<void> _write(ComposerDraft draft) async {
+    if (_closed) return;
     final sig = _signature(draft);
     if (sig == _lastWritten) return;
     // Claimed before the write so a duplicate issued meanwhile is skipped;

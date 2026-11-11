@@ -13,6 +13,7 @@ import 'package:littlelove/identity/providers.dart';
 import 'package:littlelove/inbox/active_room_provider.dart';
 import 'package:littlelove/inbox/inbox_state.dart';
 import 'package:littlelove/inbox/room.dart';
+import 'package:littlelove/inbox/room_deletion_events.dart';
 import 'package:littlelove/pairing/pairing_transport.dart';
 import 'package:littlelove/screens/inbox/home_screen.dart';
 import 'package:littlelove/wire/frames.dart';
@@ -367,6 +368,91 @@ void main() {
     await tester.pumpWidget(_app(c, _acct()));
     await tester.pump();
     expect(find.byKey(const Key('unread-count')), findsNothing);
+  });
+
+  group('channel deleted while open', () {
+    Future<ProviderContainer> openTravel(WidgetTester tester) async {
+      final c = _container();
+      c.read(inboxStateProvider.notifier).setRooms([
+        _partnerRoom('room1'),
+        Room(
+          roomId: 'room2',
+          name: 'Travel',
+          members: _partnerRoom('room2').members,
+          createdAt: DateTime.utc(2026, 6, 11),
+        ),
+      ]);
+      await tester.pumpWidget(_app(c, _acct()));
+      await tester.pump();
+      await tester.tap(find.text('Travel'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ConversationPage), findsOneWidget);
+      return c;
+    }
+
+    /// Let the pops finish (so the chat is disposed inside the test) and the
+    /// toast fade in; it is then holding, still on screen. Each test pumps
+    /// past the hold at the end so no timer outlives it.
+    Future<void> settleToast(WidgetTester tester) => tester.pumpAndSettle();
+
+    testWidgets('my own delete pops to the inbox and toasts Channel deleted', (
+      tester,
+    ) async {
+      final c = await openTravel(tester);
+      c
+          .read(roomDeletionsProvider.notifier)
+          .emit(
+            const RoomDeletion(
+              roomId: 'room2',
+              roomName: 'Travel',
+              deletedBy: 'court',
+            ),
+          );
+      await settleToast(tester);
+
+      expect(find.byType(ConversationPage), findsNothing);
+      expect(find.text('Channel deleted'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('my partner\'s delete pops to the inbox and says who', (
+      tester,
+    ) async {
+      final c = await openTravel(tester);
+      c
+          .read(roomDeletionsProvider.notifier)
+          .emit(
+            const RoomDeletion(
+              roomId: 'room2',
+              roomName: 'Travel',
+              deletedBy: 'kaitlyn',
+            ),
+          );
+      await settleToast(tester);
+
+      expect(find.byType(ConversationPage), findsNothing);
+      expect(find.text('Kaitlyn deleted Travel'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('another room\'s deletion shows nothing and stays put', (
+      tester,
+    ) async {
+      final c = await openTravel(tester);
+      c
+          .read(roomDeletionsProvider.notifier)
+          .emit(
+            const RoomDeletion(
+              roomId: 'room9',
+              roomName: 'Old',
+              deletedBy: 'kaitlyn',
+            ),
+          );
+      await settleToast(tester);
+
+      expect(find.byType(ConversationPage), findsOneWidget);
+      expect(find.textContaining('deleted'), findsNothing);
+    });
   });
 
   testWidgets(

@@ -11,6 +11,7 @@ import 'package:littlelove/conversation/chat_info_page.dart';
 import 'package:littlelove/conversation/link_preview.dart';
 import 'package:littlelove/conversation/message_store.dart';
 import 'package:littlelove/conversation/shared_media_page.dart';
+import 'package:littlelove/inbox/channel_deletion.dart';
 import 'package:littlelove/inbox/room.dart';
 import 'package:littlelove/profile/avatar.dart';
 import 'package:littlelove/theme/app_palette.dart';
@@ -212,6 +213,68 @@ void main() {
     await tester.pumpWidget(_app(c)); // _app passes no onRename
     await tester.pump();
     expect(find.byKey(const Key('chat-info-rename')), findsNothing);
+  });
+
+  group('delete channel row', () {
+    Future<void> pump(
+      WidgetTester tester, {
+      required Room room,
+      Future<DeleteChannelOutcome> Function()? onDeleteChannel,
+    }) async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: c,
+          child: MaterialApp(
+            theme: buildAppTheme(AppPalette.light),
+            home: ChatInfoPage(
+              room: room,
+              selfUsername: 'court',
+              onDeleteChannel: onDeleteChannel,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('a channel shows it, and it opens the confirmation sheet', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        room: _room(),
+        onDeleteChannel: () async => DeleteChannelOutcome.deleted,
+      );
+      final row = find.byKey(const Key('chat-info-delete-channel'));
+      // Below the fold of a lazy list: scroll until it's built.
+      await tester.scrollUntilVisible(
+        row,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pump();
+      expect(find.text('Delete channel'), findsOneWidget);
+
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      expect(find.text('Delete Kaitlyn?'), findsOneWidget);
+    });
+
+    testWidgets('the partner chat never shows it', (tester) async {
+      await pump(
+        tester,
+        room: _dm(),
+        onDeleteChannel: () async => DeleteChannelOutcome.deleted,
+      );
+      expect(find.byKey(const Key('chat-info-delete-channel')), findsNothing);
+    });
+
+    testWidgets('no callback hides it', (tester) async {
+      await pump(tester, room: _room());
+      expect(find.byKey(const Key('chat-info-delete-channel')), findsNothing);
+    });
   });
 
   testWidgets('rename row shows + fires when onRename is provided (channel)', (

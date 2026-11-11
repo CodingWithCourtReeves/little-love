@@ -27,6 +27,8 @@ import '../audio/recorder_controller.dart';
 import '../audio/waveform.dart';
 import '../identity/providers.dart';
 import '../inbox/active_room_provider.dart';
+import '../inbox/channel_deletion.dart';
+import '../inbox/inbox_state.dart';
 import '../inbox/read_state_provider.dart';
 import '../inbox/room.dart';
 import '../inbox/select_room.dart';
@@ -372,6 +374,7 @@ class ConversationPage extends ConsumerStatefulWidget {
     this.onEdit,
     this.onCancelSend,
     this.onDeleteForMe,
+    this.onDeleteChannel,
     this.onTyping,
     this.onOpenAttachment,
     this.onSendVoice,
@@ -428,6 +431,10 @@ class ConversationPage extends ConsumerStatefulWidget {
   /// partner keeps theirs. Offered on either partner's messages. Null hides the
   /// Delete for Me action.
   final void Function(String targetId)? onDeleteForMe;
+
+  /// Deletes this channel for both partners, passed through to the chat-info
+  /// page's "Delete channel" row. Null hides the row (the partner chat).
+  final Future<DeleteChannelOutcome> Function()? onDeleteChannel;
 
   /// Relay my typing presence (true while composing, false when stopped). Null
   /// disables sending typing frames.
@@ -941,6 +948,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         onRename: widget.onRename,
         onChannelPicture: widget.onChannelPicture,
         onOpenAttachment: widget.onOpenAttachment,
+        onDeleteChannel: widget.onDeleteChannel,
       ),
     );
     if (!mounted) return;
@@ -1581,6 +1589,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   @override
   Widget build(BuildContext context) {
+    // The room left the inbox (its channel was deleted): stop saving its
+    // draft, so the flush on leaving can't write one back after the purge.
+    // HomeScreen closes this page; an empty list isn't a deletion.
+    ref.listen<InboxState>(inboxStateProvider, (_, next) {
+      if (next.rooms.isEmpty) return;
+      if (next.rooms.any((r) => r.roomId == widget.roomId)) return;
+      _drafts.close();
+    });
     final messages = ref.watch(messageStoreProvider(widget.roomId));
     final staged = ref.watch(stagedMediaProvider(widget.roomId));
     final me = ref.watch(accountProvider).valueOrNull?.username ?? '';
